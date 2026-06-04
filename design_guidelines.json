@@ -1,0 +1,110 @@
+{
+  "theme": "dark",
+  "archetype": "4 (Swiss & High-Contrast) - Dark Theme variant",
+  "typography": {
+    "headings": {
+      "font": "Manrope",
+      "fallback": "sans-serif",
+      "weight": "font-bold",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "font": "DM Sans",
+      "fallback": "sans-serif",
+      "weight": "font-normal",
+      "tracking": "tracking-normal"
+    }
+  },
+  "colors": {
+    "background": {
+      "base": "#0A0A0A",
+      "surface": "#18181B",
+      "surfaceGlass": "rgba(24, 24, 27, 0.75)"
+    },
+    "primary": {
+      "main": "#3B82F6",
+      "hover": "#60A5FA",
+      "active": "#2563EB"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "inverse": "#000000"
+    },
+    "status": {
+      "success": "#22C55E",
+      "warning": "#EAB308",
+      "error": "#EF4444"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.1)",
+      "focus": "rgba(59, 130, 246, 0.5)"
+    }
+  },
+  "layout": {
+    "spacing_system": "tailwind_scale",
+    "mobile_first": true,
+    "patterns": [
+      "Full-screen Mapbox GL canvas underneath all UI elements",
+      "Floating search pill at the top of the viewport (top-12 inset-x-4 absolute, z-50)",
+      "Bottom sheets for place details, routing, and map style switcher (fixed bottom-0 inset-x-0 rounded-t-3xl z-50)",
+      "Floating Action Buttons (FABs) stacked vertically on the bottom right for Location and Map Styles"
+    ]
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-blue-500 hover:bg-blue-400 text-white rounded-full px-6 py-3 font-semibold shadow-lg shadow-blue-500/25 transition-transform active:scale-95",
+      "fab": "h-14 w-14 rounded-full bg-zinc-900 border border-white/10 shadow-xl flex items-center justify-center text-white hover:bg-zinc-800 transition-colors active:scale-95",
+      "secondary": "bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl px-4 py-3 font-medium transition-colors"
+    },
+    "inputs": {
+      "search": "w-full bg-zinc-900/90 backdrop-blur-xl border border-white/10 rounded-full px-6 py-4 text-white placeholder-zinc-400 shadow-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all",
+      "standard": "w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+    },
+    "surfaces": {
+      "bottomSheet": "bg-zinc-950/80 backdrop-blur-2xl border-t border-white/10 rounded-t-3xl shadow-[0_-8px_32px_rgba(0,0,0,0.5)] p-6",
+      "card": "bg-zinc-900 border border-white/5 rounded-2xl p-4"
+    },
+    "markers": {
+      "custom": "h-8 w-8 rounded-full bg-blue-500 border-2 border-white shadow-lg flex items-center justify-center text-white"
+    }
+  },
+  "motion": {
+    "hover": "transition-all duration-200 ease-out",
+    "sheet": "transform transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
+    "click": "active:scale-95 transition-transform duration-150"
+  },
+  "accessibility": {
+    "focus": "focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none",
+    "contrast": "Text meets APCA/WCAG AA against dark backgrounds. Primary buttons use white text on blue.",
+    "testing_attributes": "Add data-testid attributes to all interactive elements (e.g., data-testid='search-input', data-testid='location-fab', data-testid='style-switcher-button', data-testid='google-signin-btn')"
+  },
+  "icons": {
+    "library": "lucide-react",
+    "usage": "Use stroke-width 2, rounded edges. Size 24px for standard UI, 20px for inline."
+  },
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1774646598677-cc38cb3cac00?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjB0b3BvZ3JhcGhpYyUyMG1hcHxlbnwwfHx8fDE3ODA1NTgzMjd8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract blue topographic map with glowing lines",
+      "category": "auth_background",
+      "instructions": "Use this as a full-cover background image on the Google Sign-in screen. Apply a black overlay (bg-black/60) to ensure the sign-in button and logo are highly visible."
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbnxlbnwwfHx8fDE3ODA1NTgzMjh8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Portrait person",
+      "category": "user_avatar",
+      "instructions": "Use this as the default user profile avatar when the user signs in."
+    }
+  ],
+  "instructions_to_main_agent": [
+    "TECH STACK NOTE: Build this as a Mobile-First App (PWA) using React.js and Tailwind CSS since the default stack is React JS.",
+    "MAPBOX IMPLEMENTATION: Use 'react-map-gl' or Mapbox GL JS directly. The map MUST be absolute, taking up 100vh and 100vw.",
+    "UI LAYERS: The UI must float over the map using absolute positioning and high z-indexes (z-50). Do not place the map inside a flex row/col that crushes it.",
+    "MAP STYLES: Implement a state to toggle between the 4 Mapbox styles: 'mapbox://styles/mapbox/streets-v12', 'mapbox://styles/mapbox/satellite-v9', 'mapbox://styles/mapbox/dark-v11', 'mapbox://styles/mapbox/outdoors-v12'.",
+    "BOTTOM SHEETS: Build bottom sheets using fixed positioning at the bottom of the screen. Use Framer Motion for slide-up animations if available, or Tailwind translate utility classes.",
+    "TESTING: Every button, input, map marker, and map style toggle MUST have a 'data-testid' attribute (e.g., 'data-testid=\"search-bar\"').",
+    "ROUTING: Build a mock routing interface if Mapbox Directions API key is missing. The UI should show origin, destination, and distance/time.",
+    "CUSTOM MARKERS: Allow users to tap on the map to add a custom marker. Show a bottom sheet to enter 'Title' and 'Notes' for the saved location."
+  ]
+}

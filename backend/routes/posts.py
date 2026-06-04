@@ -1,0 +1,607 @@
+"""Posts, feed, replies, likes, reposts."""
+from datetime import datetime, timezone
+from typing import List, Optional
+import uuid
+
+from fastapi import APIRouter, Header, HTTPException
+from pymongo.errors import DuplicateKeyError
+
+from core import db, get_current_user
+from models import (
+    LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
+    PostPatch, PublicUser,
+)
+from routes.notifications import emit_notification
+from services.link_preview import fetch_link_preview, first_url
+import re
+import asyncio
+from datetime import timedelta
+
+router = APIRouter()
+
+_HASHTAG_RE = re.compile(r"(?<![A-Za-z0-9_])#([A-Za-z0-9_]{1,50})")
+
+
+def _extract_hashtags(text: str) -> list:
+    return list({m.group(1).lower() for m in _HASHTAG_RE.finditer(text or "")})
+
+
+def _hydrate_poll(poll_doc: dict, viewer_id: Optional[str], votes: dict) -> Poll:
+    options = []
+    for opt in poll_doc.get("options", []):
+        options.append(PollOption(
+            id=opt["id"], text=opt["text"], votes=int(opt.get("votes", 0))
+        ))
+    total = sum(o.votes for o in options)
+    voted = votes.get(viewer_id) if viewer_id else None
+    ends_at = poll_doc.get("ends_at")
+    closed = bool(poll_doc.get("closed")) or (
+        ends_at and ends_at.replace(tzinfo=ends_at.tzinfo or timezone.utc)
+        <= datetime.now(timezone.utc)
+    )
+    return Poll(
+        options=options, total_votes=total, voted_option_id=voted,
+        ends_at=ends_at, closed=closed,
+    )
+
+
+# Hard cap on individual media base64 payloads to keep Mongo docs sane.
+MAX_MEDIA_PER_POST = 4
+MAX_MEDIA_BYTES_EACH = 8 * 1024 * 1024  # ~8MB encoded
+
+
+def _normalize_media(items: Optional[list]) -> list:
+    if not items:
+        return []
+    out: list = []
+    for m in items[:MAX_MEDIA_PER_POST]:
+        if isinstance(m, PostMedia):
+            d = m.model_dump()
+        else:
+            d = dict(m)
+        b = d.get("base64") or ""
+        if not b:
+            continue
+        if len(b) > MAX_MEDIA_BYTES_EACH:
+            raise HTTPException(status_code=413, detail="Media too large (8MB limit)")
+        d["type"] = d.get("type") or "image"
+        out.append(d)
+    return out
+
+
+async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
+    author_doc = await db.users.find_one({"user_id": doc["user_id"]}, {"_id": 0})
+    author = PostAuthor(
+        user_id=doc["user_id"],
+        name=author_doc.get("name", "Unknown") if author_doc else "Unknown",
+        picture=author_doc.get("picture") if author_doc else None,
+    )
+    liked = False
+    reposted = False
+    bookmarked = False
+    if viewer_id:
+        liked = bool(
+            await db.post_likes.find_one(
+                {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0}
+            )
+        )
+        reposted = bool(
+            await db.posts.find_one(
+                {"user_id": viewer_id, "repost_of": doc["id"]}, {"_id": 0, "id": 1}
+            )
+        )
+        bookmarked = bool(
+            await db.post_bookmarks.find_one(
+                {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0}
+            )
+        )
+    reposted_post: Optional[Post] = None
+    if doc.get("repost_of"):
+        orig = await db.posts.find_one({"id": doc["repost_of"]}, {"_id": 0})
+        if orig:
+            reposted_post = await _hydrate_post(orig, viewer_id)
+    quoted_post: Optional[Post] = None
+    if doc.get("quote_of"):
+        orig = await db.posts.find_one({"id": doc["quote_of"]}, {"_id": 0})
+        if orig:
+            quoted_post = await _hydrate_post(orig, viewer_id)
+    poll_obj: Optional[Poll] = None
+    if doc.get("poll"):
+        votes_doc = await db.poll_votes.find(
+            {"post_id": doc["id"]}, {"_id": 0}
+        ).to_list(None)
+        votes = {v["user_id"]: v["option_id"] for v in votes_doc}
+        poll_obj = _hydrate_poll(doc["poll"], viewer_id, votes)
+    link_prev_obj: Optional[LinkPreview] = None
+    if doc.get("link_preview"):
+        lp = doc["link_preview"]
+        link_prev_obj = LinkPreview(**{k: lp.get(k) for k in (
+            "url", "title", "description", "image", "site_name"
+        )})
+    return Post(
+        id=doc["id"], user_id=doc["user_id"], author=author, text=doc["text"],
+        parent_id=doc.get("parent_id"),
+        repost_of=doc.get("repost_of"),
+        quote_of=doc.get("quote_of"),
+        reposted_post=reposted_post,
+        quoted_post=quoted_post,
+        place_name=doc.get("place_name"),
+        place_longitude=doc.get("place_longitude"),
+        place_latitude=doc.get("place_latitude"),
+        media=doc.get("media", []) or [],
+        link_preview=link_prev_obj,
+        poll=poll_obj,
+        hashtags=doc.get("hashtags", []) or [],
+        likes_count=doc.get("likes_count", 0),
+        replies_count=doc.get("replies_count", 0),
+        reposts_count=doc.get("reposts_count", 0),
+        quotes_count=doc.get("quotes_count", 0),
+        bookmarks_count=doc.get("bookmarks_count", 0),
+        views_count=doc.get("views_count", 0),
+        liked_by_me=liked,
+        reposted_by_me=reposted,
+        bookmarked_by_me=bookmarked,
+        edited_at=doc.get("edited_at"),
+        created_at=doc["created_at"],
+    )
+
+
+@router.post("/posts", response_model=Post)
+async def create_post(body: PostCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    text = (body.text or "").strip()[:500]
+    media = _normalize_media(body.media)
+    has_quote = bool(body.quote_of)
+    has_poll = bool(body.poll and (body.poll.options or []))
+    if not text and not media and not has_quote and not has_poll:
+        raise HTTPException(status_code=400, detail="Empty post")
+    parent_id = None
+    if body.parent_id:
+        parent = await db.posts.find_one({"id": body.parent_id}, {"_id": 0})
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent post not found")
+        parent_id = body.parent_id
+    quote_of = None
+    if body.quote_of:
+        # If quoting a repost-entry, retarget to the original.
+        target = await db.posts.find_one({"id": body.quote_of}, {"_id": 0})
+        if not target:
+            raise HTTPException(status_code=404, detail="Quoted post not found")
+        if target.get("repost_of"):
+            target = await db.posts.find_one({"id": target["repost_of"]}, {"_id": 0})
+            if not target:
+                raise HTTPException(status_code=404, detail="Quoted post not found")
+        quote_of = target["id"]
+
+    hashtags = _extract_hashtags(text)
+    poll_doc = None
+    if has_poll:
+        opts = [(o or "").strip()[:60] for o in body.poll.options if (o or "").strip()]
+        # Deduplicate while preserving order
+        seen = set(); opts = [o for o in opts if not (o in seen or seen.add(o))]
+        if len(opts) < 2 or len(opts) > 4:
+            raise HTTPException(status_code=400, detail="Poll needs 2-4 options")
+        hours = max(1, min(int(body.poll.duration_hours or 24), 24 * 7))
+        poll_doc = {
+            "options": [
+                {"id": str(uuid.uuid4())[:8], "text": o, "votes": 0} for o in opts
+            ],
+            "ends_at": datetime.now(timezone.utc) + timedelta(hours=hours),
+            "closed": False,
+        }
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "text": text,
+        "parent_id": parent_id,
+        "quote_of": quote_of,
+        "place_name": body.place_name,
+        "place_longitude": body.place_longitude,
+        "place_latitude": body.place_latitude,
+        "media": media,
+        "poll": poll_doc,
+        "hashtags": hashtags,
+        "likes_count": 0,
+        "replies_count": 0,
+        "reposts_count": 0,
+        "quotes_count": 0,
+        "bookmarks_count": 0,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.posts.insert_one(doc.copy())
+    if parent_id:
+        await db.posts.update_one({"id": parent_id}, {"$inc": {"replies_count": 1}})
+        parent = await db.posts.find_one({"id": parent_id}, {"_id": 0, "user_id": 1})
+        if parent:
+            await emit_notification(
+                user_id=parent["user_id"], actor_id=user["user_id"],
+                ntype="reply", post_id=parent_id,
+                message=(text or "📎 media")[:140],
+            )
+    if quote_of:
+        await db.posts.update_one({"id": quote_of}, {"$inc": {"quotes_count": 1}})
+        q = await db.posts.find_one({"id": quote_of}, {"_id": 0, "user_id": 1})
+        if q:
+            await emit_notification(
+                user_id=q["user_id"], actor_id=user["user_id"],
+                ntype="repost", post_id=quote_of,
+                message=(text or "")[:140],
+            )
+
+    # Link preview: fetch async, persist on the post in-place.
+    url = first_url(text)
+    if url:
+        try:
+            preview = await fetch_link_preview(url)
+            if preview:
+                await db.posts.update_one(
+                    {"id": doc["id"]}, {"$set": {"link_preview": preview}}
+                )
+                doc["link_preview"] = preview
+        except Exception:
+            pass
+
+    return await _hydrate_post(doc, user["user_id"])
+
+
+@router.patch("/posts/{post_id}", response_model=Post)
+async def edit_post(
+    post_id: str, body: PostPatch, authorization: Optional[str] = Header(None)
+):
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    patch = {}
+    if body.text is not None:
+        patch["text"] = body.text.strip()[:500]
+    if body.media is not None:
+        patch["media"] = _normalize_media(body.media)
+    if not patch:
+        return await _hydrate_post(doc, user["user_id"])
+    new_text = patch.get("text", doc.get("text", ""))
+    new_media = patch.get("media", doc.get("media", []) or [])
+    if not new_text and not new_media:
+        raise HTTPException(status_code=400, detail="Post cannot be empty")
+    patch["edited_at"] = datetime.now(timezone.utc)
+    await db.posts.update_one({"id": post_id}, {"$set": patch})
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+@router.delete("/posts/{post_id}")
+async def delete_post(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    await db.posts.delete_one({"id": post_id})
+    if doc.get("parent_id"):
+        await db.posts.update_one({"id": doc["parent_id"]}, {"$inc": {"replies_count": -1}})
+    await db.post_likes.delete_many({"post_id": post_id})
+    return {"ok": True}
+
+
+@router.get("/posts/{post_id}", response_model=Post)
+async def get_post(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return await _hydrate_post(doc, user["user_id"])
+
+
+@router.get("/posts/{post_id}/replies", response_model=List[Post])
+async def list_replies(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    cursor = db.posts.find({"parent_id": post_id}, {"_id": 0}).sort("created_at", 1)
+    docs = await cursor.to_list(200)
+    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+@router.get("/feed/explore", response_model=List[Post])
+async def explore_feed(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    cursor = db.posts.find(
+        {"parent_id": None, "group_id": {"$in": [None, ""]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(100)
+    docs = await cursor.to_list(100)
+    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+@router.get("/feed/home", response_model=List[Post])
+async def home_feed(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    followees = await db.follows.find(
+        {"follower_id": user["user_id"]}, {"_id": 0, "followee_id": 1}
+    ).to_list(500)
+    ids = [f["followee_id"] for f in followees] + [user["user_id"]]
+    cursor = (
+        db.posts.find(
+            {"parent_id": None, "user_id": {"$in": ids}, "group_id": {"$in": [None, ""]}},
+            {"_id": 0},
+        ).sort("created_at", -1).limit(100)
+    )
+    docs = await cursor.to_list(100)
+    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+@router.get("/posts/user/{user_id}", response_model=List[Post])
+async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    cursor = (
+        db.posts.find({"user_id": user_id, "parent_id": None}, {"_id": 0})
+        .sort("created_at", -1).limit(100)
+    )
+    docs = await cursor.to_list(100)
+    return [await _hydrate_post(d, me["user_id"]) for d in docs]
+
+
+@router.post("/posts/{post_id}/like", response_model=Post)
+async def toggle_like(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    existing = await db.post_likes.find_one(
+        {"post_id": post_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if existing:
+        await db.post_likes.delete_one({"post_id": post_id, "user_id": user["user_id"]})
+        await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": -1}})
+    else:
+        try:
+            await db.post_likes.insert_one({
+                "post_id": post_id, "user_id": user["user_id"],
+                "created_at": datetime.now(timezone.utc),
+            })
+            await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": 1}})
+            await emit_notification(
+                user_id=doc["user_id"],
+                actor_id=user["user_id"],
+                ntype="like",
+                post_id=post_id,
+                message=(doc.get("text") or "")[:140],
+            )
+        except DuplicateKeyError:
+            pass
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+@router.post("/posts/{post_id}/repost", response_model=Post)
+async def toggle_repost(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    orig = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not orig:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if orig.get("repost_of"):
+        post_id = orig["repost_of"]
+        orig = await db.posts.find_one({"id": post_id}, {"_id": 0})
+        if not orig:
+            raise HTTPException(status_code=404, detail="Post not found")
+    existing = await db.posts.find_one(
+        {"user_id": user["user_id"], "repost_of": post_id}, {"_id": 0}
+    )
+    if existing:
+        await db.posts.delete_one({"id": existing["id"]})
+        await db.posts.update_one({"id": post_id}, {"$inc": {"reposts_count": -1}})
+    else:
+        await db.posts.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "text": "",
+            "parent_id": None,
+            "repost_of": post_id,
+            "place_name": None, "place_longitude": None, "place_latitude": None,
+            "likes_count": 0, "replies_count": 0, "reposts_count": 0,
+            "created_at": datetime.now(timezone.utc),
+        })
+        await db.posts.update_one({"id": post_id}, {"$inc": {"reposts_count": 1}})
+        await emit_notification(
+            user_id=orig["user_id"],
+            actor_id=user["user_id"],
+            ntype="repost",
+            post_id=post_id,
+            message=(orig.get("text") or "")[:140],
+        )
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+
+@router.post("/posts/{post_id}/bookmark", response_model=Post)
+async def toggle_bookmark(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    existing = await db.post_bookmarks.find_one(
+        {"post_id": post_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if existing:
+        await db.post_bookmarks.delete_one(
+            {"post_id": post_id, "user_id": user["user_id"]}
+        )
+        await db.posts.update_one(
+            {"id": post_id}, {"$inc": {"bookmarks_count": -1}}
+        )
+    else:
+        try:
+            await db.post_bookmarks.insert_one({
+                "post_id": post_id,
+                "user_id": user["user_id"],
+                "created_at": datetime.now(timezone.utc),
+            })
+            await db.posts.update_one(
+                {"id": post_id}, {"$inc": {"bookmarks_count": 1}}
+            )
+        except DuplicateKeyError:
+            pass
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+@router.get("/bookmarks", response_model=List[Post])
+async def list_bookmarks(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    bookmarks = await (
+        db.post_bookmarks.find({"user_id": user["user_id"]}, {"_id": 0})
+        .sort("created_at", -1)
+        .limit(200)
+        .to_list(200)
+    )
+    if not bookmarks:
+        return []
+    post_ids = [b["post_id"] for b in bookmarks]
+    docs = await db.posts.find({"id": {"$in": post_ids}}, {"_id": 0}).to_list(200)
+    order = {pid: i for i, pid in enumerate(post_ids)}
+    docs.sort(key=lambda d: order.get(d["id"], 0))
+    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+# ---------- Hashtags ----------
+@router.get("/hashtags/{tag}", response_model=List[Post])
+async def posts_for_hashtag(tag: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    t = (tag or "").lstrip("#").lower()
+    if not t:
+        raise HTTPException(status_code=400, detail="Empty tag")
+    cursor = (
+        db.posts.find({"hashtags": t, "parent_id": None}, {"_id": 0})
+        .sort("created_at", -1).limit(100)
+    )
+    docs = await cursor.to_list(100)
+    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+@router.get("/hashtags/{tag}/count")
+async def hashtag_count(tag: str, authorization: Optional[str] = Header(None)):
+    await get_current_user(authorization)
+    t = (tag or "").lstrip("#").lower()
+    n = await db.posts.count_documents({"hashtags": t, "parent_id": None})
+    return {"tag": t, "count": n}
+
+
+# ---------- Who liked / reposted ----------
+@router.get("/posts/{post_id}/likers", response_model=List[PublicUser])
+async def post_likers(post_id: str, authorization: Optional[str] = Header(None)):
+    from core import _public_user
+    await get_current_user(authorization)
+    likes = await (
+        db.post_likes.find({"post_id": post_id}, {"_id": 0})
+        .sort("created_at", -1).limit(200).to_list(200)
+    )
+    return [await _public_user(l["user_id"]) for l in likes]
+
+
+@router.get("/posts/{post_id}/reposters", response_model=List[PublicUser])
+async def post_reposters(post_id: str, authorization: Optional[str] = Header(None)):
+    from core import _public_user
+    await get_current_user(authorization)
+    reposts = await (
+        db.posts.find({"repost_of": post_id}, {"_id": 0})
+        .sort("created_at", -1).limit(200).to_list(200)
+    )
+    return [await _public_user(r["user_id"]) for r in reposts]
+
+
+# ---------- Polls ----------
+@router.post("/posts/{post_id}/vote", response_model=Post)
+async def vote_poll(
+    post_id: str,
+    body: dict,
+    authorization: Optional[str] = Header(None),
+):
+    user = await get_current_user(authorization)
+    option_id = (body or {}).get("option_id")
+    if not option_id:
+        raise HTTPException(status_code=400, detail="option_id required")
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc or not doc.get("poll"):
+        raise HTTPException(status_code=404, detail="Poll not found")
+    poll = doc["poll"]
+    ends_at = poll.get("ends_at")
+    if ends_at and ends_at.replace(tzinfo=ends_at.tzinfo or timezone.utc) \
+       <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Poll closed")
+    if not any(o["id"] == option_id for o in poll.get("options", [])):
+        raise HTTPException(status_code=400, detail="Invalid option")
+    # Prevent double-vote; allow changing vote
+    existing = await db.poll_votes.find_one(
+        {"post_id": post_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if existing:
+        if existing["option_id"] == option_id:
+            # Same option => no-op
+            updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+            return await _hydrate_post(updated, user["user_id"])
+        # Decrement previous, increment new
+        await db.posts.update_one(
+            {"id": post_id, "poll.options.id": existing["option_id"]},
+            {"$inc": {"poll.options.$.votes": -1}},
+        )
+        await db.poll_votes.update_one(
+            {"post_id": post_id, "user_id": user["user_id"]},
+            {"$set": {"option_id": option_id,
+                      "updated_at": datetime.now(timezone.utc)}},
+        )
+    else:
+        await db.poll_votes.insert_one({
+            "post_id": post_id, "user_id": user["user_id"],
+            "option_id": option_id,
+            "created_at": datetime.now(timezone.utc),
+        })
+    await db.posts.update_one(
+        {"id": post_id, "poll.options.id": option_id},
+        {"$inc": {"poll.options.$.votes": 1}},
+    )
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+@router.post("/posts/{post_id}/view")
+async def record_view(post_id: str, authorization: Optional[str] = Header(None)):
+    """Record a unique view (idempotent per user per post)."""
+    user = await get_current_user(authorization)
+    try:
+        await db.post_views.insert_one({
+            "post_id": post_id, "user_id": user["user_id"],
+            "created_at": datetime.now(timezone.utc),
+        })
+        await db.posts.update_one(
+            {"id": post_id}, {"$inc": {"views_count": 1}}
+        )
+        return {"viewed": True}
+    except DuplicateKeyError:
+        return {"viewed": False}
+
+
+@router.get("/feed/reels", response_model=List[Post])
+async def reels_feed(authorization: Optional[str] = Header(None)):
+    """Vertical video feed: posts that contain at least one video media item."""
+    user = await get_current_user(authorization)
+    cursor = (
+        db.posts.find(
+            {"parent_id": None, "media": {"$elemMatch": {"type": "video"}}},
+            {"_id": 0},
+        ).sort("created_at", -1).limit(50)
+    )
+    docs = await cursor.to_list(50)
+    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+@router.get("/posts/user/{user_id}/all", response_model=List[Post])
+async def user_posts_with_reposts(
+    user_id: str, authorization: Optional[str] = Header(None)
+):
+    """User's profile feed: their original posts AND their reposts/quotes."""
+    me = await get_current_user(authorization)
+    cursor = (
+        db.posts.find({"user_id": user_id, "parent_id": None}, {"_id": 0})
+        .sort("created_at", -1).limit(100)
+    )
+    docs = await cursor.to_list(100)
+    return [await _hydrate_post(d, me["user_id"]) for d in docs]

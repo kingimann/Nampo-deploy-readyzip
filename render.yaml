@@ -1,0 +1,24 @@
+# Render Blueprint — deploys the FastAPI backend automatically.
+# Render reads this file when you create a "Blueprint" from your repo.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: nampo-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Render injects $PORT automatically; the Dockerfile already honors it.
+      - key: DB_NAME
+        value: nampo
+      - key: CORS_ORIGINS
+        value: "*"
+      # Secrets — leave sync:false so Render prompts you to paste them in the
+      # dashboard instead of committing them to git.
+      - key: MONGO_URL
+        sync: false
+      - key: FSQ_API_KEY
+        sync: false

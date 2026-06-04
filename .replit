@@ -1,0 +1,23 @@
+# Replit configuration — tells Replit how to run the Nampo backend.
+run = "cd backend && pip install -r requirements.txt && uvicorn server:app --host 0.0.0.0 --port $PORT --reload"
+
+# Python module system
+modules = ["python-3.11"]
+
+# Expose the web server. Replit maps the internal port to a public https URL.
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[env]
+# Replit provides $PORT at runtime; the app binds to it.
+PORT = "8080"
+DB_NAME = "nampo"
+CORS_ORIGINS = "*"
+# Do NOT put MONGO_URL here. Add it as a Secret (lock icon) so it stays private.
+
+[nix]
+channel = "stable-23_11"
+
+[agent]
+expertMode = true

@@ -1,0 +1,26 @@
+# Core web framework
+fastapi==0.110.1
+uvicorn[standard]==0.25.0
+starlette==0.37.2
+python-multipart==0.0.30
+websockets==16.0
+
+# Data validation
+pydantic==2.13.4
+pydantic_core==2.46.4
+email-validator==2.3.0
+
+# MongoDB (async driver)
+motor==3.3.1
+pymongo==4.5.0
+dnspython==2.8.0
+
+# Auth / crypto (bcrypt password hashing + E2E key encryption service)
+bcrypt==4.1.3
+cryptography==48.0.0
+
+# HTTP client (link previews, foursquare matching)
+httpx==0.28.1
+
+# Config
+python-dotenv==1.2.2
