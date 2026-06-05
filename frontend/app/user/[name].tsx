@@ -11,6 +11,7 @@ import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
+import { withAppleFee, appleFeeNote, isApplePlatform } from "@/src/lib/pricing";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -235,7 +236,7 @@ export default function UserProfileScreen() {
                   >
                     <Ionicons name={user.is_subscribed ? "checkmark-circle" : "star"} size={15} color={user.is_subscribed ? theme.textPrimary : "#fff"} />
                     <Text style={[styles.actionBtnText, user.is_subscribed && { color: theme.textPrimary }]}>
-                      {user.is_subscribed ? "Subscribed" : `Subscribe · $${(user.sub_price ?? 0).toFixed(2)}/mo`}
+                      {user.is_subscribed ? "Subscribed" : `Subscribe · $${withAppleFee(user.sub_price ?? 0).toFixed(2)}/mo`}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -276,7 +277,7 @@ export default function UserProfileScreen() {
           <FakePaymentSheet
             visible={tipOpen}
             title={`Tip ${user.name}`}
-            subtitle="100% goes to the creator"
+            subtitle={isApplePlatform ? `Amount the creator receives — buyer pays ${appleFeeNote}` : "100% goes to the creator"}
             amount={5}
             editableAmount
             allowNote
@@ -288,8 +289,8 @@ export default function UserProfileScreen() {
           <FakePaymentSheet
             visible={subOpen}
             title={`Subscribe to ${user.name}`}
-            subtitle="Monthly subscription — funds go to the creator"
-            amount={user.sub_price ?? 4.99}
+            subtitle={isApplePlatform ? `Monthly — ${user.name} receives $${(user.sub_price ?? 4.99).toFixed(2)} (${appleFeeNote})` : "Monthly subscription — funds go to the creator"}
+            amount={withAppleFee(user.sub_price ?? 4.99)}
             cta="Subscribe"
             successText={`You're subscribed to ${user.name}!`}
             onClose={() => setSubOpen(false)}
