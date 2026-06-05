@@ -12,6 +12,7 @@ import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import AdSlot from "@/src/components/AdSlot";
+import { interleaveAds, isAd } from "@/src/lib/ads";
 import { withAppleFee } from "@/src/lib/pricing";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
@@ -156,8 +157,8 @@ export default function UserProfileScreen() {
         <View style={styles.center}><Text style={{ color: theme.textMuted }}>User not found.</Text></View>
       ) : (
         <FlatList
-          data={posts}
-          keyExtractor={(i) => i.id}
+          data={interleaveAds(posts)}
+          keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
           contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24, gap: 10 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />
@@ -289,11 +290,6 @@ export default function UserProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              {user.user_id !== me?.user_id && (
-                <View style={{ marginTop: 14 }}>
-                  <AdSlot placement="profile" host={user.user_id} />
-                </View>
-              )}
               <Text style={styles.postsLabel}>Posts</Text>
             </View>
           }
@@ -301,10 +297,11 @@ export default function UserProfileScreen() {
             <Text style={{ color: theme.textMuted, textAlign: "center", paddingVertical: 40 }}>No posts yet.</Text>
           }
           renderItem={({ item }) => (
+            isAd(item) ? <AdSlot placement="profile" host={user.user_id} /> : (
             <PostCard
               post={item} viewerId={me?.user_id}
               onLike={onLike} onRepost={onRepost} onReply={onReply} onBookmark={onBookmark}
-            />
+            />)
           )}
         />
       )}

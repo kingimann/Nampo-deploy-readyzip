@@ -9,7 +9,6 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { api, Community } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
-import AdSlot from "@/src/components/AdSlot";
 
 export default function CommunitiesScreen() {
   const router = useRouter();
@@ -74,7 +73,6 @@ export default function CommunitiesScreen() {
           keyExtractor={(i) => i.id}
           style={{ flex: 1 }}
           contentContainerStyle={{ flexGrow: 1, padding: 16, paddingBottom: insets.bottom + 90, gap: 12 }}
-          ListHeaderComponent={<View style={{ marginBottom: 12 }}><AdSlot placement="communities" /></View>}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
           ListEmptyComponent={
             <View style={styles.empty}>

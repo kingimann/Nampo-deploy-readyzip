@@ -10,6 +10,8 @@ import { api, Community, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
+import AdSlot from "@/src/components/AdSlot";
+import { interleaveAds, isAd } from "@/src/lib/ads";
 import CommentsSheet from "@/src/components/CommentsSheet";
 
 const SORTS = [
@@ -93,8 +95,8 @@ export default function CommunityScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <FlatList
-          data={posts}
-          keyExtractor={(i) => i.id}
+          data={interleaveAds(posts)}
+          keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
           style={{ flex: 1 }}
           contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + 90 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
@@ -126,6 +128,7 @@ export default function CommunityScreen() {
           }
           ListEmptyComponent={<Text style={styles.empty}>No threads yet. Start the first one with the + button.</Text>}
           renderItem={({ item }) => (
+            isAd(item) ? <AdSlot placement="community" /> : (
             <PostCard
               post={item}
               viewerId={user?.user_id}
@@ -134,7 +137,7 @@ export default function CommunityScreen() {
               onRepost={onRepost}
               onBookmark={onBookmark}
               onComments={(p) => setCommentsPost(p)}
-            />
+            />)
           )}
         />
       )}

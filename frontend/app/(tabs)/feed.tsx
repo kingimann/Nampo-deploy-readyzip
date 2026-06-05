@@ -11,6 +11,8 @@ import { api, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
+import AdSlot from "@/src/components/AdSlot";
+import { interleaveAds, isAd } from "@/src/lib/ads";
 import PostComposer from "@/src/components/PostComposer";
 import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
@@ -235,8 +237,8 @@ export default function FeedScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <FlatList
-          data={posts}
-          keyExtractor={(i) => i.id}
+          data={interleaveAds(posts)}
+          keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
           onViewableItemsChanged={onViewable}
           viewabilityConfig={{ itemVisiblePercentThreshold: 60, minimumViewTime: 600 }}
           contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 6, paddingBottom: insets.bottom + 100, gap: 12 }}
@@ -281,6 +283,7 @@ export default function FeedScreen() {
             </View>
           }
           renderItem={({ item }) => (
+            isAd(item) ? <AdSlot placement="feed" /> : (
             <PostCard
               post={item}
               viewerId={user?.user_id}
@@ -293,7 +296,7 @@ export default function FeedScreen() {
               onBookmark={onBookmark}
               onMore={onMore}
               onPollUpdated={onPollUpdated}
-            />
+            />)
           )}
         />
       )}

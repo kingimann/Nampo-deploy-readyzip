@@ -11,6 +11,7 @@ import { api, Group, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import AdSlot from "@/src/components/AdSlot";
+import { interleaveAds, isAd } from "@/src/lib/ads";
 import PostCard from "@/src/components/PostCard";
 import PostComposer from "@/src/components/PostComposer";
 
@@ -203,8 +204,8 @@ export default function GroupDetailScreen() {
       </View>
 
       <FlatList
-        data={posts}
-        keyExtractor={(i) => i.id}
+        data={interleaveAds(posts)}
+        keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
         contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
@@ -346,9 +347,6 @@ export default function GroupDetailScreen() {
               </View>
             )}
 
-            <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
-              <AdSlot placement="group" />
-            </View>
             {posts.length > 0 && (
               <View style={styles.feedHeader}>
                 <Text style={styles.feedHeaderText}>Group feed</Text>
@@ -368,6 +366,9 @@ export default function GroupDetailScreen() {
           </View>
         }
         renderItem={({ item }) => {
+          if (isAd(item)) return (
+            <View style={{ paddingHorizontal: 12, marginBottom: 10 }}><AdSlot placement="group" /></View>
+          );
           const pinnedSet = new Set(group.pinned_post_ids || []);
           if (pinnedSet.has(item.id)) return null; // de-dupe pinned posts from main feed
           return (

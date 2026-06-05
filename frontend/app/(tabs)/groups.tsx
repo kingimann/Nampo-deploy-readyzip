@@ -9,7 +9,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { api, Group } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import AdSlot from "@/src/components/AdSlot";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 
 const COLORS = ["#3B82F6", "#22C55E", "#EAB308", "#A855F7", "#EF4444", "#06B6D4"];
@@ -75,7 +74,6 @@ export default function GroupsScreen() {
           data={groups}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100, gap: 10 }}
-          ListHeaderComponent={<View style={{ marginBottom: 10 }}><AdSlot placement="groups" /></View>}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
           }

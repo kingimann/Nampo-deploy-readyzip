@@ -12,7 +12,6 @@ import * as Location from "expo-location";
 import { api, Listing } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import AdSlot from "@/src/components/AdSlot";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 
 const CATEGORIES = [
@@ -292,7 +291,6 @@ export default function MarketplaceScreen() {
           numColumns={2}
           columnWrapperStyle={{ gap: 14 }}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 96, gap: 18 }}
-          ListHeaderComponent={<View style={{ marginBottom: 4 }}><AdSlot placement="marketplace" /></View>}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
           }
