@@ -18,6 +18,7 @@ from routes import (
     messaging as messaging_routes,
     meta as meta_routes,
     notifications as notifications_routes,
+    oauth as oauth_routes,
     payments as payments_routes,
     payouts as payouts_routes,
     places as places_routes,
@@ -122,6 +123,7 @@ api_router.include_router(payments_routes.router)
 api_router.include_router(webhooks_routes.router)
 api_router.include_router(ads_routes.router)
 api_router.include_router(payouts_routes.router)
+api_router.include_router(oauth_routes.router)
 
 app.include_router(api_router)
 

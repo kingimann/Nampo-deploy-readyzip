@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
-import { api, ApiKey } from "@/src/api/client";
+import { api, ApiKey, OAuthApp } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://nampo-backend.onrender.com";
@@ -155,6 +155,11 @@ export default function DeveloperScreen() {
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
+  const [oauthApps, setOauthApps] = useState<OAuthApp[]>([]);
+  const [appName, setAppName] = useState("");
+  const [appUri, setAppUri] = useState("");
+  const [appBusy, setAppBusy] = useState(false);
+  const [freshApp, setFreshApp] = useState<{ client_id: string; client_secret: string } | null>(null);
 
   const active = !!plan?.current.active;
   const planFeatures = plan?.plans.find((p) => p.id === plan?.current.plan);
@@ -164,8 +169,28 @@ export default function DeveloperScreen() {
     try { setPlan(await api.getApiPlan()); } catch {}
     try { setWebhooks((await api.listWebhooks()).webhooks); } catch {}
     try { setUsage(await api.getApiUsage()); } catch {}
+    try { setOauthApps((await api.listOAuthApps()).apps); } catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const createOAuthApp = async () => {
+    if (!appName.trim() || !appUri.trim()) return;
+    setAppBusy(true);
+    try {
+      const res = await api.createOAuthApp(appName.trim(), [appUri.trim()]);
+      setFreshApp(res);
+      setAppName(""); setAppUri("");
+      await load();
+    } catch (e: any) {
+      Alert.alert("Couldn't create app", errText(e));
+    } finally { setAppBusy(false); }
+  };
+  const removeOAuthApp = (clientId: string) => {
+    Alert.alert("Delete OAuth app", "Sites using it will stop being able to sign users in.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteOAuthApp(clientId); await load(); } catch {} } },
+    ]);
+  };
 
   const buyPack = async (packId: string) => {
     setBuyingPack(packId);
@@ -472,6 +497,54 @@ export default function DeveloperScreen() {
             ))}
           </>
         )}
+
+        {/* Login with Nami (OAuth apps) */}
+        <Text style={styles.groupTitle}>Login with Nami</Text>
+        <Text style={styles.body}>
+          Let other sites add a "Sign in with Nami" button. Register an app to get a client ID + secret, then use the OAuth2 authorization-code flow.
+        </Text>
+        {freshApp && (
+          <View style={styles.freshCard}>
+            <Text style={styles.freshLabel}>Client ID</Text>
+            <TouchableOpacity style={styles.freshTokenRow} onPress={() => copy(freshApp.client_id, "Client ID")} activeOpacity={0.7}>
+              <Text style={styles.freshToken} selectable numberOfLines={1}>{freshApp.client_id}</Text>
+              <Ionicons name="copy" size={16} color={theme.primary} />
+            </TouchableOpacity>
+            <Text style={styles.freshLabel}>Client secret — copy it now, shown once:</Text>
+            <TouchableOpacity style={styles.freshTokenRow} onPress={() => copy(freshApp.client_secret, "Client secret")} activeOpacity={0.7}>
+              <Text style={styles.freshToken} selectable numberOfLines={1}>{freshApp.client_secret}</Text>
+              <Ionicons name="copy" size={16} color={theme.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setFreshApp(null)}><Text style={styles.dismiss}>Done</Text></TouchableOpacity>
+          </View>
+        )}
+        <TextInput
+          style={[styles.keyInput, { marginBottom: 8 }]} placeholder="App name" placeholderTextColor={theme.textMuted}
+          value={appName} onChangeText={setAppName} maxLength={80} testID="oauth-app-name"
+        />
+        <View style={styles.keyInputRow}>
+          <TextInput
+            style={styles.keyInput} placeholder="https://yoursite.com/callback" placeholderTextColor={theme.textMuted}
+            value={appUri} onChangeText={setAppUri} autoCapitalize="none" autoCorrect={false} testID="oauth-app-uri"
+          />
+          <TouchableOpacity style={[styles.genBtn, appBusy && { opacity: 0.6 }]} onPress={createOAuthApp} disabled={appBusy} testID="oauth-app-create">
+            {appBusy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.genBtnText}>Create</Text>}
+          </TouchableOpacity>
+        </View>
+        {oauthApps.length === 0 ? (
+          <Text style={styles.empty}>No OAuth apps yet.</Text>
+        ) : oauthApps.map((a) => (
+          <View key={a.client_id} style={styles.keyRow}>
+            <View style={styles.keyIcon}><Ionicons name="log-in-outline" size={15} color={theme.primary} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.keyLabel} numberOfLines={1}>{a.name}</Text>
+              <Text style={styles.keyMeta} numberOfLines={1}>{a.client_id}</Text>
+            </View>
+            <TouchableOpacity onPress={() => removeOAuthApp(a.client_id)} hitSlop={8} testID={`oauth-del-${a.client_id}`}>
+              <Ionicons name="trash-outline" size={18} color={theme.error} />
+            </TouchableOpacity>
+          </View>
+        ))}
 
         {/* Quickstart */}
         <Text style={styles.groupTitle}>Quickstart</Text>

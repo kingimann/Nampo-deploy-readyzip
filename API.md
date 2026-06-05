@@ -85,6 +85,33 @@ Register endpoints to receive events. We `POST` a JSON body
 Events: `follow`, `friend_request`, `friend_accept`, `message`, `group_message`,
 `tip`, `subscribe`, `post_like`, `post_reply`, `mention`.
 
+## Login with Nami (OAuth2)
+
+Let users sign in to your site with their Nami account (authorization-code flow).
+
+1. **Register an app** in-app (Settings → Developer API → Login with Nami) → get a
+   `client_id`, `client_secret`, and one or more redirect URIs.
+2. **Send the user** to the consent screen:
+   ```
+   https://nampo-web.onrender.com/oauth/authorize?client_id=...&redirect_uri=...&response_type=code&scope=profile%20email&state=xyz
+   ```
+   On approval we redirect to `redirect_uri?code=...&state=xyz`.
+3. **Exchange the code** (server-side):
+   ```bash
+   curl -X POST https://nampo-backend.onrender.com/api/oauth/token \
+     -H "Content-Type: application/json" \
+     -d '{"grant_type":"authorization_code","code":"...","client_id":"...","client_secret":"...","redirect_uri":"..."}'
+   # → { access_token, token_type: "Bearer", expires_in, scope }
+   ```
+4. **Get the profile**:
+   ```bash
+   curl https://nampo-backend.onrender.com/api/oauth/userinfo \
+     -H "Authorization: Bearer <access_token>"
+   # → { sub, name, preferred_username, picture, verified, email? }
+   ```
+
+Scopes: `profile` (default) and `email`. Codes are single-use and expire in 10 min.
+
 ## Conventions
 
 - **Content type:** `application/json` for request and response bodies.

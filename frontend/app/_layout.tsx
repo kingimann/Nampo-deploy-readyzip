@@ -40,6 +40,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/account",
   "/developer",
   "/admin-revenue",
+  "/oauth/",
   "/legal/",
   // Communities (list and /c/<name> detail) keep the bottom nav bar — it's a
   // top-level section opened from the sidebar, like Home/Feed/Chat.
