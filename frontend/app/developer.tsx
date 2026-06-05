@@ -153,6 +153,8 @@ export default function DeveloperScreen() {
   const [whUrl, setWhUrl] = useState("");
   const [whBusy, setWhBusy] = useState(false);
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
+  const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
+  const [buyingPack, setBuyingPack] = useState<string | null>(null);
 
   const active = !!plan?.current.active;
   const planFeatures = plan?.plans.find((p) => p.id === plan?.current.plan);
@@ -161,8 +163,24 @@ export default function DeveloperScreen() {
     try { setKeys((await api.listApiKeys()).keys); } catch {} finally { setLoading(false); }
     try { setPlan(await api.getApiPlan()); } catch {}
     try { setWebhooks((await api.listWebhooks()).webhooks); } catch {}
+    try { setUsage(await api.getApiUsage()); } catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const buyPack = async (packId: string) => {
+    setBuyingPack(packId);
+    try {
+      if (usage?.stripe_enabled) {
+        const { url } = await api.buyUsage(packId);
+        await Linking.openURL(url);
+      } else {
+        await api.activateUsage(packId);
+        await load();
+      }
+    } catch (e: any) {
+      Alert.alert("Couldn't buy pack", errText(e));
+    } finally { setBuyingPack(null); }
+  };
 
   const copy = async (text: string, what = "Copied") => {
     try { await Clipboard.setStringAsync(text); Alert.alert(what, "Copied to clipboard."); } catch {}
@@ -304,6 +322,40 @@ export default function DeveloperScreen() {
             );
           })}
         </View>
+
+        {/* Usage */}
+        {active && usage && (
+          <>
+            <Text style={styles.groupTitle}>Usage this period</Text>
+            <View style={styles.usageCard}>
+              <View style={styles.usageHead}>
+                <Text style={styles.usageNums}>{usage.used.toLocaleString()} / {usage.limit.toLocaleString()}</Text>
+                <Text style={styles.usageReset}>{usage.resets_at ? `resets ${fmtDate(usage.resets_at)}` : ""}</Text>
+              </View>
+              <View style={styles.usageTrack}>
+                <View style={[styles.usageFill, { width: `${Math.min(100, usage.limit ? (usage.used / usage.limit) * 100 : 0)}%` }, usage.used >= usage.limit && { backgroundColor: theme.error }]} />
+              </View>
+              {usage.extra_credits > 0 && <Text style={styles.usageExtra}>+{usage.extra_credits.toLocaleString()} pay-as-you-go credits included</Text>}
+              <Text style={styles.body}>
+                {usage.used >= usage.limit
+                  ? "Quota reached — buy more requests to keep going, or wait for the reset."
+                  : "Hit your quota? Buy a pay-as-you-go pack instead of waiting for the reset."}
+              </Text>
+              <View style={styles.packRow}>
+                {usage.packs.map((pk) => (
+                  <TouchableOpacity key={pk.id} style={styles.packCard} onPress={() => buyPack(pk.id)} disabled={!!buyingPack} testID={`pack-${pk.id}`}>
+                    {buyingPack === pk.id ? <ActivityIndicator color={theme.primary} size="small" /> : (
+                      <>
+                        <Text style={styles.packName}>{pk.name}</Text>
+                        <Text style={styles.packPrice}>${pk.price.toFixed(2)}</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </>
+        )}
 
         {/* API keys */}
         <Text style={styles.groupTitle}>Your API keys</Text>
@@ -513,6 +565,17 @@ const styles = StyleSheet.create({
   scopeText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
   scopeHint: { color: theme.textMuted, fontSize: 11 },
   scopeBadge: { color: theme.textMuted, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3, borderWidth: 1, borderColor: theme.border, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 },
+  usageCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14, gap: 8 },
+  usageHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  usageNums: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
+  usageReset: { color: theme.textMuted, fontSize: 12 },
+  usageTrack: { height: 8, borderRadius: 4, backgroundColor: theme.surfaceAlt, overflow: "hidden" },
+  usageFill: { height: 8, borderRadius: 4, backgroundColor: theme.primary },
+  usageExtra: { color: theme.primary, fontSize: 12, fontWeight: "600" },
+  packRow: { flexDirection: "row", gap: 8 },
+  packCard: { flex: 1, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingVertical: 10, alignItems: "center", gap: 2 },
+  packName: { color: theme.textPrimary, fontSize: 12, fontWeight: "700" },
+  packPrice: { color: theme.primary, fontSize: 14, fontWeight: "800" },
   root: { flex: 1, backgroundColor: theme.bg },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },

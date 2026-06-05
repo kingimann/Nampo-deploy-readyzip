@@ -20,7 +20,10 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from core import db, get_current_user, API_PLANS, API_PLANS_BY_ID, _active_plan
+from core import (
+    db, get_current_user, API_PLANS, API_PLANS_BY_ID, _active_plan,
+    API_OVERAGE_PACKS, API_OVERAGE_BY_ID, USAGE_PERIOD_DAYS,
+)
 
 try:  # Stripe is optional — the app runs fine without it (test payments only).
     import stripe  # type: ignore
@@ -284,6 +287,71 @@ async def api_plan_activate(body: ApiPlanBuy, authorization: Optional[str] = Hea
     return {"ok": True, "plan": plan["id"]}
 
 
+# ── Usage metering + pay-as-you-go ───────────────────────────────────────────
+class UsageBuy(BaseModel):
+    pack: str
+
+
+@router.get("/payments/api-usage")
+async def api_usage(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    plan = _active_plan(user)
+    used = int(user.get("api_usage_count", 0) or 0)
+    extra = int(user.get("api_extra_credits", 0) or 0)
+    quota = int(plan.get("monthly_quota", 0)) if plan else 0
+    start = user.get("api_usage_period_start")
+    resets_at = None
+    if start:
+        try:
+            resets_at = (start + timedelta(days=USAGE_PERIOD_DAYS)).isoformat() if hasattr(start, "isoformat") else None
+        except Exception:
+            resets_at = None
+    return {
+        "plan": (plan or {}).get("id"),
+        "used": used, "quota": quota, "extra_credits": extra,
+        "limit": quota + extra, "resets_at": resets_at,
+        "packs": API_OVERAGE_PACKS, "stripe_enabled": stripe_enabled(),
+    }
+
+
+@router.post("/payments/api-usage/buy")
+async def buy_usage(body: UsageBuy, authorization: Optional[str] = Header(None)):
+    """Pay-as-you-go: buy an overage pack via Stripe (charges the platform)."""
+    _require_stripe()
+    me = await get_current_user(authorization)
+    pack = API_OVERAGE_BY_ID.get(body.pack)
+    if not pack:
+        raise HTTPException(status_code=400, detail="Unknown pack")
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        line_items=[{
+            "price_data": {
+                "currency": "usd",
+                "product_data": {"name": f"API requests · {pack['name']}"},
+                "unit_amount": int(round(pack["price"] * 100)),
+            },
+            "quantity": 1,
+        }],
+        success_url=f"{WEB_APP_URL}/developer?usage=success",
+        cancel_url=f"{WEB_APP_URL}/developer?usage=cancel",
+        metadata={"kind": "api_usage", "pack": pack["id"], "buyer_id": me["user_id"]},
+    )
+    return {"url": session["url"], "id": session["id"]}
+
+
+@router.post("/payments/api-usage/activate")
+async def activate_usage(body: UsageBuy, authorization: Optional[str] = Header(None)):
+    """Test-mode pay-as-you-go (no Stripe). Adds request credits immediately."""
+    if stripe_enabled():
+        raise HTTPException(status_code=400, detail="Use checkout — real payments are enabled")
+    me = await get_current_user(authorization)
+    pack = API_OVERAGE_BY_ID.get(body.pack)
+    if not pack:
+        raise HTTPException(status_code=400, detail="Unknown pack")
+    await db.users.update_one({"user_id": me["user_id"]}, {"$inc": {"api_extra_credits": pack["requests"]}})
+    return {"ok": True, "added": pack["requests"]}
+
+
 @router.post("/payments/webhook")
 async def stripe_webhook(request: Request):
     """Credit the creator's in-app wallet when a Checkout payment completes."""
@@ -318,6 +386,13 @@ async def stripe_webhook(request: Request):
                 {"user_id": meta["buyer_id"]},
                 {"$set": {"api_plan": meta["plan"], "api_access_until": now + timedelta(days=30)}},
             )
+        elif kind == "api_usage" and meta.get("buyer_id") and meta.get("pack"):
+            pack = API_OVERAGE_BY_ID.get(meta["pack"])
+            if pack:
+                await db.users.update_one(
+                    {"user_id": meta["buyer_id"]},
+                    {"$inc": {"api_extra_credits": pack["requests"]}},
+                )
         elif creator_id and net > 0:
             await db.earnings.insert_one({
                 "id": str(uuid.uuid4()), "user_id": creator_id, "amount": net,

@@ -44,11 +44,17 @@ feed = r.json()
 The Developer API is a paid add-on with tiered plans — higher tier, more access.
 Manage your plan in the app: **Settings → Developer API**.
 
-| Plan | Price/mo | Keys | Access | Webhooks | Rate |
-| --- | --- | --- | --- | --- | --- |
-| Basic | $9.99 | 2 | read-only | – | 60/min |
-| Pro | $29.99 | 10 | read + write | ✓ | 600/min |
-| Business | $99.99 | 50 | read + write | ✓ | 6,000/min |
+| Plan | Price/mo | Keys | Access | Webhooks | Rate | Monthly requests |
+| --- | --- | --- | --- | --- | --- | --- |
+| Basic | $9.99 | 2 | read-only | – | 60/min | 10,000 |
+| Pro | $29.99 | 10 | read + write | ✓ | 600/min | 200,000 |
+| Business | $99.99 | 50 | read + write | ✓ | 6,000/min | 2,000,000 |
+
+**Usage-based metering.** Each plan includes a monthly request quota. When you hit
+it, requests return **429** `{"detail":{"code":"quota_exceeded","used","limit","resets_at","packs"}}`
+— either **pay as you go** (buy a request pack, applied immediately to the current
+period) or wait for the reset. Endpoints: `GET /payments/api-usage`,
+`POST /payments/api-usage/buy` (Stripe), `POST /payments/api-usage/activate` (test).
 
 Without an active plan, API-key requests fail with **402** and a structured body so
 your code can branch on it:

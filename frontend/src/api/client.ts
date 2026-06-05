@@ -87,6 +87,12 @@ export const api = {
     request<{ url: string }>("/payments/api-plan/checkout", { method: "POST", body: JSON.stringify({ plan }) }),
   apiPlanActivate: (plan: string) =>
     request<{ ok: boolean; plan: string }>("/payments/api-plan/activate", { method: "POST", body: JSON.stringify({ plan }) }),
+  // Usage metering + pay-as-you-go
+  getApiUsage: () => request<ApiUsage>("/payments/api-usage"),
+  buyUsage: (pack: string) =>
+    request<{ url: string }>("/payments/api-usage/buy", { method: "POST", body: JSON.stringify({ pack }) }),
+  activateUsage: (pack: string) =>
+    request<{ ok: boolean; added: number }>("/payments/api-usage/activate", { method: "POST", body: JSON.stringify({ pack }) }),
   // Developer webhooks
   listWebhookEvents: () => request<{ events: string[] }>("/webhooks/events"),
   listWebhooks: () => request<{ webhooks: DevWebhook[] }>("/webhooks"),
@@ -515,6 +521,8 @@ export type WalletSummary = {
 export type ApiKey = { id: string; label: string; scopes?: string[]; key_prefix: string; created_at: string; last_used_at?: string | null };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
+export type OveragePack = { id: string; name: string; requests: number; price: number };
+export type ApiUsage = { plan?: string | null; used: number; quota: number; extra_credits: number; limit: number; resets_at?: string | null; packs: OveragePack[]; stripe_enabled: boolean };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
 export type PublicUser = {
   user_id: string;

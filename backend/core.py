@@ -9,7 +9,7 @@ import re
 import uuid
 import logging
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -128,6 +128,9 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
                     "plans": [{"id": p["id"], "name": p["name"], "price": p["price"]} for p in API_PLANS],
                 },
             )
+        # Usage-based metering: count this request against the period quota,
+        # raising 429 (with pay-as-you-go options) when the limit is hit.
+        await _check_and_bump_api_usage(user, token)
         # Best-effort "last used" tracking (throttled to once an hour so it
         # doesn't write on every request). Never blocks the request.
         try:
@@ -153,13 +156,61 @@ PRIVACY_VERSION = "2026-06-05"
 # Each plan is billed per 30 days.
 API_PLANS = [
     {"id": "basic",    "name": "Basic",    "price": 9.99,  "level": 1,
-     "max_keys": 2,  "write": False, "webhooks": False, "rate_per_min": 60},
+     "max_keys": 2,  "write": False, "webhooks": False, "rate_per_min": 60,    "monthly_quota": 10_000},
     {"id": "pro",      "name": "Pro",      "price": 29.99, "level": 2,
-     "max_keys": 10, "write": True,  "webhooks": True,  "rate_per_min": 600},
+     "max_keys": 10, "write": True,  "webhooks": True,  "rate_per_min": 600,   "monthly_quota": 200_000},
     {"id": "business", "name": "Business", "price": 99.99, "level": 3,
-     "max_keys": 50, "write": True,  "webhooks": True,  "rate_per_min": 6000},
+     "max_keys": 50, "write": True,  "webhooks": True,  "rate_per_min": 6000,  "monthly_quota": 2_000_000},
 ]
 API_PLANS_BY_ID = {p["id"]: p for p in API_PLANS}
+
+# Pay-as-you-go overage packs — buy more requests for the current period when you
+# hit your plan's quota (instead of waiting for the monthly reset).
+API_OVERAGE_PACKS = [
+    {"id": "pack_50k",  "name": "50k requests",  "requests": 50_000,  "price": 5.0},
+    {"id": "pack_250k", "name": "250k requests", "requests": 250_000, "price": 20.0},
+    {"id": "pack_1m",   "name": "1M requests",   "requests": 1_000_000, "price": 60.0},
+]
+API_OVERAGE_BY_ID = {p["id"]: p for p in API_OVERAGE_PACKS}
+USAGE_PERIOD_DAYS = 30
+
+
+async def _check_and_bump_api_usage(user: dict, token: str) -> None:
+    """Per-period request metering for API keys. Raises 429 when over quota
+    (plan quota + purchased pay-as-you-go credits). Best-effort increment."""
+    plan = _active_plan(user)
+    if not plan:
+        return  # access already enforced upstream
+    now = datetime.now(timezone.utc)
+    start = user.get("api_usage_period_start")
+    try:
+        start_dt = _norm_dt(start) if start else None
+    except Exception:
+        start_dt = None
+    # New period → reset counter and consumed overage.
+    if not start_dt or (now - start_dt).days >= USAGE_PERIOD_DAYS:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"api_usage_period_start": now, "api_usage_count": 0, "api_extra_credits": 0}},
+        )
+        used, extra, start_dt = 0, 0, now
+    else:
+        used = int(user.get("api_usage_count", 0) or 0)
+        extra = int(user.get("api_extra_credits", 0) or 0)
+    limit = int(plan.get("monthly_quota", 0)) + extra
+    if used >= limit:
+        resets_at = start_dt + timedelta(days=USAGE_PERIOD_DAYS)
+        raise HTTPException(status_code=429, detail={
+            "code": "quota_exceeded",
+            "message": "Monthly request quota reached. Buy a pay-as-you-go pack or wait for the reset.",
+            "used": used, "limit": limit,
+            "resets_at": resets_at.isoformat(),
+            "packs": [{"id": p["id"], "name": p["name"], "price": p["price"]} for p in API_OVERAGE_PACKS],
+        })
+    try:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"api_usage_count": 1}})
+    except Exception:
+        pass
 
 
 def _active_plan(user: dict) -> Optional[dict]:
