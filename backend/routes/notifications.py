@@ -66,6 +66,15 @@ async def emit_notification(
     except Exception:
         # Never break the upstream action because of a notification write.
         pass
+    # Fan out to any developer webhooks the recipient has registered.
+    try:
+        from routes.webhooks import deliver_event
+        await deliver_event(user_id, ntype, {
+            "actor_id": actor_id, "post_id": post_id,
+            "conversation_id": conversation_id, "group_id": group_id, "message": message,
+        })
+    except Exception:
+        pass
 
 
 async def _hydrate(doc: dict) -> Notification:

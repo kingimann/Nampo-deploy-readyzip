@@ -20,7 +20,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from core import db, get_current_user
+from core import db, get_current_user, API_PLANS, API_PLANS_BY_ID, _active_plan
 
 try:  # Stripe is optional — the app runs fine without it (test payments only).
     import stripe  # type: ignore
@@ -220,6 +220,70 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
     return {"url": session["url"], "id": session["id"]}
 
 
+# ── Developer API plans (tiered, paid) ───────────────────────────────────────
+class ApiPlanBuy(BaseModel):
+    plan: str
+
+
+@router.get("/payments/api-plan")
+async def api_plan_status(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    active = _active_plan(user)
+    return {
+        "plans": API_PLANS,
+        "stripe_enabled": stripe_enabled(),
+        "current": {
+            "plan": (active or {}).get("id"),
+            "name": (active or {}).get("name"),
+            "active": bool(active),
+            "until": user.get("api_access_until"),
+        },
+    }
+
+
+def _grant_plan_doc(plan_id: str):
+    now = datetime.now(timezone.utc)
+    return {"$set": {"api_plan": plan_id, "api_access_until": now + timedelta(days=30)}}
+
+
+@router.post("/payments/api-plan/checkout")
+async def api_plan_checkout(body: ApiPlanBuy, authorization: Optional[str] = Header(None)):
+    """Buy/upgrade a Developer API plan via Stripe (charges the platform)."""
+    _require_stripe()
+    me = await get_current_user(authorization)
+    plan = API_PLANS_BY_ID.get(body.plan)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Unknown plan")
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        line_items=[{
+            "price_data": {
+                "currency": "usd",
+                "product_data": {"name": f"Developer API · {plan['name']} (30 days)"},
+                "unit_amount": int(round(plan["price"] * 100)),
+            },
+            "quantity": 1,
+        }],
+        success_url=f"{WEB_APP_URL}/developer?plan=success",
+        cancel_url=f"{WEB_APP_URL}/developer?plan=cancel",
+        metadata={"kind": "api_plan", "plan": plan["id"], "buyer_id": me["user_id"]},
+    )
+    return {"url": session["url"], "id": session["id"]}
+
+
+@router.post("/payments/api-plan/activate")
+async def api_plan_activate(body: ApiPlanBuy, authorization: Optional[str] = Header(None)):
+    """Test-mode activation (no Stripe configured). Mirrors the fake-payment flow."""
+    if stripe_enabled():
+        raise HTTPException(status_code=400, detail="Use checkout — real payments are enabled")
+    me = await get_current_user(authorization)
+    plan = API_PLANS_BY_ID.get(body.plan)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Unknown plan")
+    await db.users.update_one({"user_id": me["user_id"]}, _grant_plan_doc(plan["id"]))
+    return {"ok": True, "plan": plan["id"]}
+
+
 @router.post("/payments/webhook")
 async def stripe_webhook(request: Request):
     """Credit the creator's in-app wallet when a Checkout payment completes."""
@@ -248,6 +312,11 @@ async def stripe_webhook(request: Request):
             await db.posts.update_one(
                 {"id": meta["post_id"]},
                 {"$set": {"promoted_until": now + timedelta(days=days)}},
+            )
+        elif kind == "api_plan" and meta.get("buyer_id") and meta.get("plan"):
+            await db.users.update_one(
+                {"user_id": meta["buyer_id"]},
+                {"$set": {"api_plan": meta["plan"], "api_access_until": now + timedelta(days=30)}},
             )
         elif creator_id and net > 0:
             await db.earnings.insert_one({

@@ -39,6 +39,46 @@ r = requests.get(
 feed = r.json()
 ```
 
+## Plans & access (paid)
+
+The Developer API is a paid add-on with tiered plans — higher tier, more access.
+Manage your plan in the app: **Settings → Developer API**.
+
+| Plan | Price/mo | Keys | Access | Webhooks | Rate |
+| --- | --- | --- | --- | --- | --- |
+| Basic | $9.99 | 2 | read-only | – | 60/min |
+| Pro | $29.99 | 10 | read + write | ✓ | 600/min |
+| Business | $99.99 | 50 | read + write | ✓ | 6,000/min |
+
+Without an active plan, API-key requests fail with **402** and a structured body so
+your code can branch on it:
+
+```json
+{ "detail": { "code": "api_plan_required", "message": "…", "plans": [ … ] } }
+```
+
+**Scopes** — keys are `read` or `read+write`. A read-only key calling a mutating
+method (POST/PATCH/DELETE) gets **403** `{"detail":{"code":"write_not_allowed", …}}`.
+Write scope requires Pro or higher.
+
+`GET /payments/api-plan` returns the plan catalog + your current plan.
+
+## Webhooks (Pro+)
+
+Register endpoints to receive events. We `POST` a JSON body
+`{event, data, created_at}` and sign it: header `X-Nami-Signature: sha256=<hmac>`
+(HMAC-SHA256 of the raw body with your signing secret). Verify it before trusting.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/webhooks/events` | Available event types |
+| GET | `/webhooks` | Your webhooks |
+| POST | `/webhooks` | Register `{url, events?}` → returns the signing `secret` once |
+| DELETE | `/webhooks/{id}` | Remove |
+
+Events: `follow`, `friend_request`, `friend_accept`, `message`, `group_message`,
+`tip`, `subscribe`, `post_like`, `post_reply`, `mention`.
+
 ## Conventions
 
 - **Content type:** `application/json` for request and response bodies.

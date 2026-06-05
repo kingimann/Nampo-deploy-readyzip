@@ -34,9 +34,13 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   }
   const respBody = await res.text();
   if (!res.ok) {
-    // Surface FastAPI's { detail } message when present, else the raw body.
-    let msg = respBody;
-    try { msg = JSON.parse(respBody)?.detail ?? respBody; } catch {}
+    // Surface FastAPI's { detail } when present. `detail` may be a string or a
+    // structured object like { code, message } — prefer its message.
+    let msg: any = respBody;
+    try {
+      const d = JSON.parse(respBody)?.detail;
+      msg = d == null ? respBody : (typeof d === "object" ? (d.message || JSON.stringify(d)) : d);
+    } catch {}
     throw new Error(`${res.status}: ${msg}`);
   }
   if (!respBody) return undefined as T; // some endpoints reply 200 with no body
@@ -71,9 +75,25 @@ export const api = {
   setPhone: (phone: string) =>
     request<User>("/auth/me/phone", { method: "PATCH", body: JSON.stringify({ phone }) }),
   listApiKeys: () => request<{ keys: ApiKey[] }>("/auth/api-keys"),
-  createApiKey: (label: string) =>
-    request<{ id: string; label: string; token: string; created_at: string }>(
-      "/auth/api-keys", { method: "POST", body: JSON.stringify({ label }) }),
+  createApiKey: (label: string, scopes?: string[]) =>
+    request<{ id: string; label: string; scopes: string[]; token: string; created_at: string }>(
+      "/auth/api-keys", { method: "POST", body: JSON.stringify({ label, scopes }) }),
+  // Tiered API plans
+  getApiPlan: () => request<{
+    plans: ApiPlan[]; stripe_enabled: boolean;
+    current: { plan?: string | null; name?: string | null; active: boolean; until?: string | null };
+  }>("/payments/api-plan"),
+  apiPlanCheckout: (plan: string) =>
+    request<{ url: string }>("/payments/api-plan/checkout", { method: "POST", body: JSON.stringify({ plan }) }),
+  apiPlanActivate: (plan: string) =>
+    request<{ ok: boolean; plan: string }>("/payments/api-plan/activate", { method: "POST", body: JSON.stringify({ plan }) }),
+  // Developer webhooks
+  listWebhookEvents: () => request<{ events: string[] }>("/webhooks/events"),
+  listWebhooks: () => request<{ webhooks: DevWebhook[] }>("/webhooks"),
+  createWebhook: (url: string, events?: string[]) =>
+    request<DevWebhook>("/webhooks", { method: "POST", body: JSON.stringify({ url, events }) }),
+  deleteWebhook: (id: string) =>
+    request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>
     request<{ revoked: boolean }>(`/auth/api-keys/${id}`, { method: "DELETE" }),
   getPolicies: () => request<{ tos_version: string; privacy_version: string; effective_date: string }>("/policies"),
@@ -492,7 +512,9 @@ export type WalletSummary = {
   total_spent: number; tips_sent_total: number; subs_sent_total: number;
   subscriptions_count: number; sent: WalletTxn[];
 };
-export type ApiKey = { id: string; label: string; key_prefix: string; created_at: string; last_used_at?: string | null };
+export type ApiKey = { id: string; label: string; scopes?: string[]; key_prefix: string; created_at: string; last_used_at?: string | null };
+export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
+export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
 export type PublicUser = {
   user_id: string;

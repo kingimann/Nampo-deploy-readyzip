@@ -146,9 +146,21 @@ export default function DeveloperScreen() {
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>("Authentication");
   const [lang, setLang] = useState<Lang>("curl");
+  const [plan, setPlan] = useState<Awaited<ReturnType<typeof api.getApiPlan>> | null>(null);
+  const [buying, setBuying] = useState<string | null>(null);
+  const [writeScope, setWriteScope] = useState(true);
+  const [webhooks, setWebhooks] = useState<DevWebhook[]>([]);
+  const [whUrl, setWhUrl] = useState("");
+  const [whBusy, setWhBusy] = useState(false);
+  const [freshSecret, setFreshSecret] = useState<string | null>(null);
+
+  const active = !!plan?.current.active;
+  const planFeatures = plan?.plans.find((p) => p.id === plan?.current.plan);
 
   const load = useCallback(async () => {
     try { setKeys((await api.listApiKeys()).keys); } catch {} finally { setLoading(false); }
+    try { setPlan(await api.getApiPlan()); } catch {}
+    try { setWebhooks((await api.listWebhooks()).webhooks); } catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -156,16 +168,52 @@ export default function DeveloperScreen() {
     try { await Clipboard.setStringAsync(text); Alert.alert(what, "Copied to clipboard."); } catch {}
   };
 
+  const buyPlan = async (planId: string) => {
+    setBuying(planId);
+    try {
+      if (plan?.stripe_enabled) {
+        const { url } = await api.apiPlanCheckout(planId);
+        await Linking.openURL(url);
+      } else {
+        await api.apiPlanActivate(planId);   // test mode
+        await load();
+      }
+    } catch (e: any) {
+      Alert.alert("Couldn't start plan", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setBuying(null); }
+  };
+
   const generate = async () => {
     setCreating(true);
     try {
-      const res = await api.createApiKey(label.trim() || "API key");
+      const scopes = writeScope && planFeatures?.write ? ["read", "write"] : ["read"];
+      const res = await api.createApiKey(label.trim() || "API key", scopes);
       setFreshToken(res.token);
       setLabel("");
       await load();
     } catch (e: any) {
-      Alert.alert("Couldn't create key", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+      Alert.alert("Couldn't create key", errText(e));
     } finally { setCreating(false); }
+  };
+
+  const addWebhook = async () => {
+    if (!whUrl.trim()) return;
+    setWhBusy(true);
+    try {
+      const w = await api.createWebhook(whUrl.trim());
+      setFreshSecret(w.secret || null);
+      setWhUrl("");
+      await load();
+    } catch (e: any) {
+      Alert.alert("Couldn't add webhook", errText(e));
+    } finally { setWhBusy(false); }
+  };
+
+  const removeWebhook = (id: string) => {
+    Alert.alert("Delete webhook", "Stop sending events to this URL?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteWebhook(id); await load(); } catch {} } },
+    ]);
   };
 
   const revoke = (k: ApiKey) => {
@@ -217,8 +265,52 @@ export default function DeveloperScreen() {
           <Ionicons name="copy-outline" size={16} color={theme.textMuted} />
         </TouchableOpacity>
 
+        {/* Plan */}
+        <Text style={styles.groupTitle}>Your plan</Text>
+        {active ? (
+          <View style={styles.planActive}>
+            <Ionicons name="checkmark-circle" size={18} color={theme.primary} />
+            <Text style={styles.planActiveText}>
+              {plan?.current.name} active{plan?.current.until ? ` · renews ${fmtDate(plan.current.until)}` : ""}
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.body}>
+            The Developer API is a paid add-on — higher tiers unlock more keys, write access, webhooks and rate limits.
+            {plan && !plan.stripe_enabled ? " (Test mode — no real charge.)" : ""}
+          </Text>
+        )}
+        <View style={styles.planRow}>
+          {(plan?.plans || []).map((p) => {
+            const isCurrent = active && plan?.current.plan === p.id;
+            return (
+              <View key={p.id} style={[styles.planCard, isCurrent && styles.planCardOn]}>
+                <Text style={styles.planName}>{p.name}</Text>
+                <Text style={styles.planPrice}>${p.price.toFixed(2)}<Text style={styles.planPer}>/mo</Text></Text>
+                <Text style={styles.planFeat}>{p.max_keys} API keys</Text>
+                <Text style={styles.planFeat}>{p.write ? "Read + write" : "Read-only"}</Text>
+                <Text style={styles.planFeat}>{p.webhooks ? "Webhooks" : "No webhooks"}</Text>
+                <Text style={styles.planFeat}>{p.rate_per_min.toLocaleString()} req/min</Text>
+                <TouchableOpacity
+                  style={[styles.planBtn, isCurrent && { backgroundColor: theme.surfaceAlt }]}
+                  onPress={() => buyPlan(p.id)}
+                  disabled={!!buying || isCurrent}
+                  testID={`plan-${p.id}`}
+                >
+                  {buying === p.id ? <ActivityIndicator color="#fff" size="small" /> :
+                    <Text style={[styles.planBtnText, isCurrent && { color: theme.textSecondary }]}>{isCurrent ? "Current" : active ? "Switch" : "Choose"}</Text>}
+                </TouchableOpacity>
+              </View>
+            );
+          })}
+        </View>
+
         {/* API keys */}
         <Text style={styles.groupTitle}>Your API keys</Text>
+        {!active ? (
+          <Text style={styles.empty}>Subscribe to a plan above to create API keys.</Text>
+        ) : (
+        <>
         {freshToken && (
           <View style={styles.freshCard}>
             <Text style={styles.freshLabel}>New key — copy it now, it won't be shown again:</Text>
@@ -229,6 +321,26 @@ export default function DeveloperScreen() {
             <TouchableOpacity onPress={() => setFreshToken(null)}><Text style={styles.dismiss}>Done</Text></TouchableOpacity>
           </View>
         )}
+        <View style={styles.scopeRow}>
+          <TouchableOpacity
+            style={[styles.scopeChip, !writeScope && styles.scopeChipOn]}
+            onPress={() => setWriteScope(false)}
+            testID="scope-read"
+          >
+            <Ionicons name="eye-outline" size={14} color={!writeScope ? theme.primary : theme.textMuted} />
+            <Text style={[styles.scopeText, !writeScope && { color: theme.primary }]}>Read-only</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.scopeChip, writeScope && styles.scopeChipOn, !planFeatures?.write && { opacity: 0.4 }]}
+            onPress={() => planFeatures?.write && setWriteScope(true)}
+            disabled={!planFeatures?.write}
+            testID="scope-write"
+          >
+            <Ionicons name="create-outline" size={14} color={writeScope ? theme.primary : theme.textMuted} />
+            <Text style={[styles.scopeText, writeScope && { color: theme.primary }]}>Read &amp; write</Text>
+          </TouchableOpacity>
+          {!planFeatures?.write && <Text style={styles.scopeHint}>Write needs Pro+</Text>}
+        </View>
         <View style={styles.keyInputRow}>
           <TextInput
             style={styles.keyInput} placeholder="Key label (e.g. My bot)" placeholderTextColor={theme.textMuted}
@@ -247,7 +359,10 @@ export default function DeveloperScreen() {
             <View key={k.id} style={styles.keyRow}>
               <View style={styles.keyIcon}><Ionicons name="key" size={15} color={theme.primary} /></View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.keyLabel} numberOfLines={1}>{k.label}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={styles.keyLabel} numberOfLines={1}>{k.label}</Text>
+                  <Text style={styles.scopeBadge}>{(k.scopes || []).includes("write") ? "read+write" : "read"}</Text>
+                </View>
                 <Text style={styles.keyMeta}>
                   {k.key_prefix}··· · {fmtDate(k.created_at)}{k.last_used_at ? ` · used ${fmtDate(k.last_used_at)}` : " · never used"}
                 </Text>
@@ -257,6 +372,53 @@ export default function DeveloperScreen() {
               </TouchableOpacity>
             </View>
           ))
+        )}
+        </>
+        )}
+
+        {/* Webhooks */}
+        <Text style={styles.groupTitle}>Webhooks</Text>
+        {!planFeatures?.webhooks ? (
+          <Text style={styles.empty}>
+            {active ? "Webhooks require the Pro plan or higher." : "Subscribe to Pro+ to receive event webhooks."}
+          </Text>
+        ) : (
+          <>
+            <Text style={styles.body}>We POST signed events (follows, messages, tips, …) to your URL. Verify the `X-Nami-Signature` header with your signing secret.</Text>
+            {freshSecret && (
+              <View style={styles.freshCard}>
+                <Text style={styles.freshLabel}>Signing secret — copy it now, shown once:</Text>
+                <TouchableOpacity style={styles.freshTokenRow} onPress={() => copy(freshSecret, "Webhook secret")} activeOpacity={0.7}>
+                  <Text style={styles.freshToken} selectable numberOfLines={1}>{freshSecret}</Text>
+                  <Ionicons name="copy" size={16} color={theme.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setFreshSecret(null)}><Text style={styles.dismiss}>Done</Text></TouchableOpacity>
+              </View>
+            )}
+            <View style={styles.keyInputRow}>
+              <TextInput
+                style={styles.keyInput} placeholder="https://your-server.com/hook" placeholderTextColor={theme.textMuted}
+                value={whUrl} onChangeText={setWhUrl} autoCapitalize="none" autoCorrect={false} testID="webhook-url"
+              />
+              <TouchableOpacity style={[styles.genBtn, whBusy && { opacity: 0.6 }]} onPress={addWebhook} disabled={whBusy} testID="webhook-add">
+                {whBusy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.genBtnText}>Add</Text>}
+              </TouchableOpacity>
+            </View>
+            {webhooks.length === 0 ? (
+              <Text style={styles.empty}>No webhooks yet.</Text>
+            ) : webhooks.map((w) => (
+              <View key={w.id} style={styles.keyRow}>
+                <View style={styles.keyIcon}><Ionicons name="git-network-outline" size={15} color={theme.primary} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.keyLabel} numberOfLines={1}>{w.url}</Text>
+                  <Text style={styles.keyMeta}>{(w.events || []).length} events · {fmtDate(w.created_at)}</Text>
+                </View>
+                <TouchableOpacity onPress={() => removeWebhook(w.id)} hitSlop={8} testID={`webhook-del-${w.id}`}>
+                  <Ionicons name="trash-outline" size={18} color={theme.error} />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </>
         )}
 
         {/* Quickstart */}
@@ -316,6 +478,9 @@ export default function DeveloperScreen() {
   );
 }
 
+function errText(e: any): string {
+  return String(e?.message || e || "Something went wrong").replace(/^\d{3}:\s*/, "");
+}
 function fmtDate(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }); } catch { return ""; }
 }
@@ -331,6 +496,23 @@ const styles = StyleSheet.create({
   convCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14, gap: 9 },
   convItem: { color: theme.textSecondary, fontSize: 13, lineHeight: 19 },
   convKey: { color: theme.textPrimary, fontWeight: "800" },
+  planActive: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(0,168,132,0.10)", borderWidth: 1, borderColor: theme.primary, borderRadius: 12, padding: 12, marginBottom: 10 },
+  planActiveText: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
+  planRow: { flexDirection: "row", gap: 10, marginTop: 6 },
+  planCard: { flex: 1, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12, gap: 3 },
+  planCardOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  planName: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  planPrice: { color: theme.textPrimary, fontSize: 18, fontWeight: "900", marginBottom: 4 },
+  planPer: { color: theme.textMuted, fontSize: 11, fontWeight: "700" },
+  planFeat: { color: theme.textSecondary, fontSize: 11.5 },
+  planBtn: { backgroundColor: theme.primary, borderRadius: 10, paddingVertical: 9, alignItems: "center", marginTop: 8 },
+  planBtnText: { color: "#fff", fontWeight: "800", fontSize: 12.5 },
+  scopeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  scopeChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  scopeChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  scopeText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
+  scopeHint: { color: theme.textMuted, fontSize: 11 },
+  scopeBadge: { color: theme.textMuted, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3, borderWidth: 1, borderColor: theme.border, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 },
   root: { flex: 1, backgroundColor: theme.bg },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },

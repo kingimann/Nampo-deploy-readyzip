@@ -117,9 +117,19 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     user = await db.users.find_one({"user_id": session["user_id"]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    # Best-effort "last used" tracking for developer API keys (throttled to once
-    # an hour so it doesn't write on every request). Never blocks the request.
+    # Developer API keys are a paid add-on and require an active plan.
     if session.get("kind") == "api_key":
+        if not _has_api_access(user):
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "api_plan_required",
+                    "message": "This API key needs an active Developer API plan. Subscribe in Settings → Developer API.",
+                    "plans": [{"id": p["id"], "name": p["name"], "price": p["price"]} for p in API_PLANS],
+                },
+            )
+        # Best-effort "last used" tracking (throttled to once an hour so it
+        # doesn't write on every request). Never blocks the request.
         try:
             now = datetime.now(timezone.utc)
             last = session.get("last_used_at")
@@ -137,6 +147,36 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
 # an older version is re-prompted to accept before they can keep using the app.
 TOS_VERSION = "2026-06-05"
 PRIVACY_VERSION = "2026-06-05"
+
+
+# Developer API is a paid add-on with tiered plans — higher tier, more access.
+# Each plan is billed per 30 days.
+API_PLANS = [
+    {"id": "basic",    "name": "Basic",    "price": 9.99,  "level": 1,
+     "max_keys": 2,  "write": False, "webhooks": False, "rate_per_min": 60},
+    {"id": "pro",      "name": "Pro",      "price": 29.99, "level": 2,
+     "max_keys": 10, "write": True,  "webhooks": True,  "rate_per_min": 600},
+    {"id": "business", "name": "Business", "price": 99.99, "level": 3,
+     "max_keys": 50, "write": True,  "webhooks": True,  "rate_per_min": 6000},
+]
+API_PLANS_BY_ID = {p["id"]: p for p in API_PLANS}
+
+
+def _active_plan(user: dict) -> Optional[dict]:
+    """Return the user's active API plan dict, or None if expired/none."""
+    until = user.get("api_access_until")
+    if not until:
+        return None
+    try:
+        if _norm_dt(until) <= datetime.now(timezone.utc):
+            return None
+    except Exception:
+        return None
+    return API_PLANS_BY_ID.get(user.get("api_plan") or "basic")
+
+
+def _has_api_access(user: dict) -> bool:
+    return _active_plan(user) is not None
 
 
 def _needs_policy_agreement(d: dict) -> bool:

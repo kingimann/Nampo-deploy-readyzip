@@ -13,6 +13,8 @@ from db import DuplicateKeyError
 
 from core import (
     _user_doc_to_model,
+    _has_api_access,
+    _active_plan,
     db,
     get_current_user,
     TOS_VERSION,
@@ -62,6 +64,7 @@ class PhoneUpdate(BaseModel):
 
 class ApiKeyCreate(BaseModel):
     label: Optional[str] = None
+    scopes: Optional[list] = None   # subset of ["read", "write"]; defaults to both
 
 
 PHONE_RE = re.compile(r"^\+?[0-9\s\-().]{7,20}$")
@@ -360,9 +363,25 @@ async def change_phone(body: PhoneUpdate, authorization: Optional[str] = Header(
 @router.post("/auth/api-keys")
 async def create_api_key(body: ApiKeyCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    # Paywall: the Developer API is a paid add-on with tiered plans.
+    plan = _active_plan(user)
+    if not plan:
+        raise HTTPException(status_code=402, detail={
+            "code": "api_plan_required",
+            "message": "An active Developer API plan is required to create keys.",
+        })
+    max_keys = int(plan.get("max_keys", 2))
     existing = await db.user_sessions.count_documents({"user_id": user["user_id"], "kind": "api_key"})
-    if existing >= 10:
-        raise HTTPException(status_code=400, detail="API key limit reached (10). Revoke one first.")
+    if existing >= max_keys:
+        raise HTTPException(status_code=400, detail={
+            "code": "key_limit_reached",
+            "message": f"Your {plan['name']} plan allows {max_keys} keys. Revoke one or upgrade.",
+        })
+    # Scopes: read-only keys can only call GET endpoints (enforced in middleware).
+    # "write" scope requires a plan tier that allows writes.
+    scopes = [s for s in (body.scopes or ["read", "write"]) if s in ("read", "write")] or ["read"]
+    if not plan.get("write"):
+        scopes = ["read"]
     token = f"nami_sk_{secrets.token_urlsafe(32)}"
     key_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -375,10 +394,11 @@ async def create_api_key(body: ApiKeyCreate, authorization: Optional[str] = Head
         "kind": "api_key",
         "key_id": key_id,
         "label": label,
+        "scopes": scopes,
         "key_prefix": token[:16],
     })
     # The full token is returned exactly once — it can't be retrieved again.
-    return {"id": key_id, "label": label, "token": token, "created_at": now}
+    return {"id": key_id, "label": label, "scopes": scopes, "token": token, "created_at": now}
 
 
 @router.get("/auth/api-keys")
@@ -392,6 +412,7 @@ async def list_api_keys(authorization: Optional[str] = Header(None)):
             {
                 "id": r.get("key_id", ""),
                 "label": r.get("label", "API key"),
+                "scopes": r.get("scopes", ["read", "write"]),
                 "key_prefix": r.get("key_prefix", ""),
                 "created_at": r.get("created_at"),
                 "last_used_at": r.get("last_used_at"),

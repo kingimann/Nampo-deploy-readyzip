@@ -23,6 +23,7 @@ from routes import (
     reviews as reviews_routes,
     stories as stories_routes,
     users as users_routes,
+    webhooks as webhooks_routes,
 )
 
 API_VERSION = "1.0.0"
@@ -60,6 +61,35 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
+from starlette.requests import Request as _Req
+from starlette.responses import JSONResponse as _JSON
+from core import db as _db
+
+
+@app.middleware("http")
+async def enforce_api_key_scopes(request: _Req, call_next):
+    """Read-only API keys may only call safe (GET/HEAD/OPTIONS) methods.
+    Returns a structured 403 so client code can branch on the error `code`."""
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1].strip()
+            try:
+                sess = await _db.user_sessions.find_one(
+                    {"session_token": token}, {"_id": 0, "kind": 1, "scopes": 1}
+                )
+            except Exception:
+                sess = None
+            if sess and sess.get("kind") == "api_key" and "write" not in (sess.get("scopes") or []):
+                return _JSON(
+                    status_code=403,
+                    content={"detail": {
+                        "code": "write_not_allowed",
+                        "message": "This API key is read-only. Create a key with the 'write' scope (Pro plan or higher).",
+                    }},
+                )
+    return await call_next(request)
+
 
 @app.get("/")
 async def root():
@@ -87,6 +117,7 @@ api_router.include_router(communities_routes.router)
 api_router.include_router(fsq_routes.router)
 api_router.include_router(stories_routes.router)
 api_router.include_router(payments_routes.router)
+api_router.include_router(webhooks_routes.router)
 
 app.include_router(api_router)
 
