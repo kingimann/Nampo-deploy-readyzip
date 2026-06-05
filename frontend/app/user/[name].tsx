@@ -70,19 +70,22 @@ export default function UserProfileScreen() {
       // profile (is_following / friend_status / is_subscribed / stats). Search
       // results alone omit those, which is why follow/add-friend looked broken.
       const matches = await api.searchUsers(name);
-      const found = matches.find((u) => u.name === name) || matches[0];
-      if (!found) return;
+      let foundId = (matches.find((u) => u.name === name) || matches[0])?.user_id;
+      const fallback = matches.find((u) => u.name === name) || matches[0] || null;
+      // /users/search excludes the current user, so resolve self directly.
+      if (!foundId && me && (me.name === name || me.username === name)) foundId = me.user_id;
+      if (!foundId) return;
       const [full, p] = await Promise.all([
-        api.getPublicUser(found.user_id).catch(() => found),
-        api.listUserPosts(found.user_id),
+        api.getPublicUser(foundId).catch(() => fallback),
+        api.listUserPosts(foundId),
       ]);
-      setUser(full);
+      if (full) setUser(full);
       setPosts(p);
     } catch {} finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [name]);
+  }, [name, me]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
   const onRefresh = () => { setRefreshing(true); load(); };

@@ -18,10 +18,26 @@ from models import (
     Message,
     PostAuthor,
     SellerProfile,
+    TradeConfirm,
 )
 from services.encryption import encrypt_text, decrypt_text
 
 router = APIRouter()
+
+
+async def _has_verified_trade(a: str, b: str) -> bool:
+    """True if users a and b have a confirmed marketplace trade between them."""
+    doc = await db.marketplace_trades.find_one(
+        {"status": "confirmed", "party_ids": {"$all": [a, b]}}, {"_id": 0, "id": 1}
+    )
+    return bool(doc)
+
+
+def _gen_trade_code() -> str:
+    # Unambiguous 6-char code (no 0/O/1/I).
+    import secrets
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(6))
 
 
 def _haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
@@ -368,9 +384,11 @@ async def seller_profile(user_id: str, authorization: Optional[str] = Header(Non
     reviewed_by_me = bool(await db.marketplace_reviews.find_one(
         {"subject_user_id": user_id, "reviewer_id": me["user_id"]}, {"_id": 0, "id": 1}
     ))
+    can_review = me["user_id"] != user_id and await _has_verified_trade(me["user_id"], user_id)
     return SellerProfile(
         user=pu, rating=rating, review_count=count,
         listing_count=listing_count, listings=listings, reviewed_by_me=reviewed_by_me,
+        can_review=can_review,
     )
 
 
@@ -383,6 +401,60 @@ async def list_seller_reviews(user_id: str, authorization: Optional[str] = Heade
     return [await _hydrate_review(d) for d in docs]
 
 
+# ---------- Trade verification (shared code) ----------
+@router.post("/listings/{listing_id}/trade/start")
+async def start_trade(listing_id: str, authorization: Optional[str] = Header(None)):
+    """Generate a one-time code for this listing. Share it with the other party;
+    once they enter it, the trade is verified and both can review each other."""
+    me = await get_current_user(authorization)
+    listing = await db.listings.find_one({"id": listing_id}, {"_id": 0})
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    # Reuse an existing pending code this user started for this listing.
+    existing = await db.marketplace_trades.find_one(
+        {"listing_id": listing_id, "started_by": me["user_id"], "status": "pending"}, {"_id": 0}
+    )
+    if existing:
+        return {"code": existing["code"], "status": "pending"}
+    code = _gen_trade_code()
+    await db.marketplace_trades.insert_one({
+        "id": str(uuid.uuid4()),
+        "listing_id": listing_id,
+        "code": code,
+        "started_by": me["user_id"],
+        "party_ids": [me["user_id"]],  # initiator is counted; counterparty enters the code
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {"code": code, "status": "pending"}
+
+
+@router.post("/trades/confirm")
+async def confirm_trade(body: TradeConfirm, authorization: Optional[str] = Header(None)):
+    """Enter a code shared by the other party to verify the trade."""
+    me = await get_current_user(authorization)
+    code = (body.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="Enter a code")
+    trade = await db.marketplace_trades.find_one({"code": code}, {"_id": 0})
+    if not trade:
+        raise HTTPException(status_code=404, detail="Invalid code")
+    if trade.get("status") == "confirmed":
+        if me["user_id"] in trade.get("party_ids", []):
+            return {"status": "confirmed"}
+        raise HTTPException(status_code=400, detail="This code has already been used")
+    if me["user_id"] in trade.get("party_ids", []):
+        raise HTTPException(status_code=400, detail="You generated this code — share it with the other person to confirm")
+    parties = list(dict.fromkeys([*trade.get("party_ids", []), me["user_id"]]))
+    await db.marketplace_trades.update_one(
+        {"id": trade["id"]},
+        {"$set": {"party_ids": parties, "status": "confirmed", "confirmed_at": datetime.now(timezone.utc)}},
+    )
+    other = trade.get("started_by")
+    other_doc = await db.users.find_one({"user_id": other}, {"_id": 0, "name": 1}) if other else None
+    return {"status": "confirmed", "partner_name": (other_doc or {}).get("name", "the seller")}
+
+
 @router.post("/marketplace/users/{user_id}/reviews", response_model=MarketplaceReview)
 async def add_seller_review(
     user_id: str, body: MarketplaceReviewCreate, authorization: Optional[str] = Header(None)
@@ -393,6 +465,11 @@ async def add_seller_review(
     subj = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
     if not subj:
         raise HTTPException(status_code=404, detail="User not found")
+    if not await _has_verified_trade(me["user_id"], user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only review someone after a verified trade. Exchange a trade code first.",
+        )
     rating = max(1, min(5, int(body.rating or 5)))
     text = (body.text or "")[:1000]
     now = datetime.now(timezone.utc)

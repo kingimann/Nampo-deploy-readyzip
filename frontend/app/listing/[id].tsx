@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Image,
-  ActivityIndicator, Dimensions, Alert, Platform,
+  ActivityIndicator, Dimensions, Alert, Platform, Modal, TextInput,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import * as Clipboard from "expo-clipboard";
 import { api, Listing } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -57,6 +58,33 @@ export default function ListingDetailScreen() {
     const status = listing.status === "sold" ? "active" : "sold";
     setListing({ ...listing, status });
     try { await api.updateListing(listing.id, { status }); } catch { load(); }
+  };
+
+  // ── Trade verification (shared code) ──
+  const [tradeOpen, setTradeOpen] = useState(false);
+  const [genCode, setGenCode] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [tradeBusy, setTradeBusy] = useState(false);
+
+  const openTrade = async () => {
+    setCode(""); setGenCode(null); setTradeOpen(true);
+    if (mine && listing) {
+      setTradeBusy(true);
+      try { setGenCode((await api.startTrade(listing.id)).code); }
+      catch (e: any) { Alert.alert("Couldn't create code", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+      finally { setTradeBusy(false); }
+    }
+  };
+  const submitTrade = async () => {
+    if (!code.trim() || tradeBusy) return;
+    setTradeBusy(true);
+    try {
+      const r = await api.confirmTrade(code.trim());
+      setTradeOpen(false); setCode("");
+      Alert.alert("Trade verified", `You and ${r.partner_name || "the seller"} can now review each other.`);
+    } catch (e: any) {
+      Alert.alert("Couldn't verify", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setTradeBusy(false); }
   };
 
   const remove = () => {
@@ -167,17 +195,23 @@ export default function ListingDetailScreen() {
       {!!listing && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
           {mine ? (
-            <TouchableOpacity style={[styles.primaryBtn, listing.status === "sold" && styles.ghostBtn]} onPress={toggleSold} testID="listing-toggle-sold">
-              <Ionicons name={listing.status === "sold" ? "refresh" : "checkmark-done"} size={18} color={listing.status === "sold" ? theme.primary : "#fff"} />
-              <Text style={[styles.primaryText, listing.status === "sold" && { color: theme.primary }]}>
-                {listing.status === "sold" ? "Mark as available" : "Mark as sold"}
-              </Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity style={styles.ghostBtn} onPress={openTrade} testID="listing-sale-code">
+                <Ionicons name="qr-code-outline" size={18} color={theme.primary} />
+                <Text style={[styles.primaryText, { color: theme.primary }]}>Sale code</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.primaryBtn, listing.status === "sold" && styles.ghostBtn]} onPress={toggleSold} testID="listing-toggle-sold">
+                <Ionicons name={listing.status === "sold" ? "refresh" : "checkmark-done"} size={18} color={listing.status === "sold" ? theme.primary : "#fff"} />
+                <Text style={[styles.primaryText, listing.status === "sold" && { color: theme.primary }]}>
+                  {listing.status === "sold" ? "Mark as available" : "Mark as sold"}
+                </Text>
+              </TouchableOpacity>
+            </>
           ) : (
             <>
-              <TouchableOpacity style={styles.ghostBtn} onPress={toggleSave} testID="listing-save-2">
-                <Ionicons name={listing.saved_by_me ? "bookmark" : "bookmark-outline"} size={18} color={theme.primary} />
-                <Text style={[styles.primaryText, { color: theme.primary }]}>{listing.saved_by_me ? "Saved" : "Save"}</Text>
+              <TouchableOpacity style={styles.ghostBtn} onPress={openTrade} testID="listing-verify-trade">
+                <Ionicons name="shield-checkmark-outline" size={18} color={theme.primary} />
+                <Text style={[styles.primaryText, { color: theme.primary }]}>Verify</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.primaryBtn, busy && { opacity: 0.6 }]} onPress={messageSeller} disabled={busy} testID="listing-message-seller">
                 {busy ? <ActivityIndicator color="#fff" /> : (
@@ -191,11 +225,62 @@ export default function ListingDetailScreen() {
           )}
         </View>
       )}
+
+      <Modal visible={tradeOpen} transparent animationType="fade" onRequestClose={() => setTradeOpen(false)}>
+        <View style={styles.tradeBackdrop}>
+          <View style={styles.tradeCard}>
+            <View style={styles.tradeIconWrap}><Ionicons name="shield-checkmark" size={24} color={theme.primary} /></View>
+            {mine ? (
+              <>
+                <Text style={styles.tradeTitle}>Your sale code</Text>
+                <Text style={styles.tradeSub}>Share this code with your buyer. When they enter it, the trade is verified and you can both review each other.</Text>
+                {tradeBusy && !genCode ? (
+                  <ActivityIndicator color={theme.primary} style={{ marginVertical: 16 }} />
+                ) : (
+                  <TouchableOpacity style={styles.codeBox} onPress={() => genCode && Clipboard.setStringAsync(genCode)} activeOpacity={0.7}>
+                    <Text style={styles.codeText}>{genCode || "—"}</Text>
+                    <Ionicons name="copy-outline" size={18} color={theme.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.tradeTitle}>Verify this trade</Text>
+                <Text style={styles.tradeSub}>Enter the 6-character code the seller gives you. This unlocks reviews between you two.</Text>
+                <TextInput
+                  style={styles.codeInput}
+                  placeholder="ABC123"
+                  placeholderTextColor={theme.textMuted}
+                  value={code}
+                  onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+                  autoCapitalize="characters" autoCorrect={false} maxLength={6}
+                  testID="listing-trade-input"
+                />
+                <TouchableOpacity style={[styles.tradeBtn, (tradeBusy || code.length < 6) && { opacity: 0.5 }]} onPress={submitTrade} disabled={tradeBusy || code.length < 6} testID="listing-trade-submit">
+                  {tradeBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.tradeBtnText}>Verify</Text>}
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity onPress={() => setTradeOpen(false)}><Text style={styles.tradeCancel}>{mine ? "Done" : "Cancel"}</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  tradeBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", alignItems: "center", justifyContent: "center", padding: 24 },
+  tradeCard: { width: "100%", maxWidth: 360, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 22, alignItems: "center", gap: 10 },
+  tradeIconWrap: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.primary + "22", alignItems: "center", justifyContent: "center" },
+  tradeTitle: { color: theme.textPrimary, fontSize: 19, fontWeight: "800" },
+  tradeSub: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center" },
+  codeBox: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 16 },
+  codeText: { color: theme.textPrimary, fontSize: 28, fontWeight: "900", letterSpacing: 8 },
+  codeInput: { alignSelf: "stretch", backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 14, color: theme.textPrimary, fontSize: 22, fontWeight: "800", letterSpacing: 6, textAlign: "center", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  tradeBtn: { alignSelf: "stretch", backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, alignItems: "center", marginTop: 4 },
+  tradeBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  tradeCancel: { color: theme.textMuted, fontSize: 14, fontWeight: "600", marginTop: 4 },
   root: { flex: 1, backgroundColor: theme.bg },
   header: {
     flexDirection: "row", alignItems: "center",

@@ -439,6 +439,15 @@ class SellerProfile(BaseModel):
     listing_count: int = 0
     listings: List[Listing] = []
     reviewed_by_me: bool = False
+    can_review: bool = False   # viewer has a verified trade with this seller
+
+
+class TradeStart(BaseModel):
+    pass
+
+
+class TradeConfirm(BaseModel):
+    code: str
 
 
 # ---------- Posts (Newsfeed) ----------

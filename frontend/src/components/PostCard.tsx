@@ -70,9 +70,12 @@ export default function PostCard({
     router.push({ pathname: "/reels", params: { focus: display.id } });
   };
 
-  // Tapping the avatar or author name opens that user's profile.
+  // Tapping the avatar or author name opens that user's profile. Tapping your
+  // own goes to your profile tab (user search excludes self, so /user/[name]
+  // would 404 for you).
   const openAuthorProfile = (e?: any) => {
     e?.stopPropagation?.();
+    if (viewerId && display.author?.user_id === viewerId) { router.push("/(tabs)/profile"); return; }
     const name = display.author?.name;
     if (name) router.push({ pathname: "/user/[name]", params: { name } });
   };

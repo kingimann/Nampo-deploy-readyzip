@@ -312,6 +312,12 @@ export const api = {
     request<MarketplaceReview>(`/marketplace/users/${userId}/reviews`, {
       method: "POST", body: JSON.stringify({ rating, text }),
     }),
+  startTrade: (listingId: string) =>
+    request<{ code: string; status: string }>(`/listings/${listingId}/trade/start`, { method: "POST" }),
+  confirmTrade: (code: string) =>
+    request<{ status: string; partner_name?: string }>(`/trades/confirm`, {
+      method: "POST", body: JSON.stringify({ code }),
+    }),
 
   // Groups
   listGroupsAll: () => request<Group[]>("/groups"),
@@ -426,7 +432,7 @@ export type MarketplaceReview = {
 export type SellerProfile = {
   user: PublicUser;
   rating: number; review_count: number; listing_count: number;
-  listings: Listing[]; reviewed_by_me: boolean;
+  listings: Listing[]; reviewed_by_me: boolean; can_review?: boolean;
 };
 
 export async function fetchPublicEta(share_id: string): Promise<EtaShare | null> {
