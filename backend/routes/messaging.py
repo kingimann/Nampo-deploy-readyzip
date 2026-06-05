@@ -405,6 +405,31 @@ async def send_message(
             raise HTTPException(status_code=413, detail="File too large (8MB limit)")
     if body.type == "contact" and not (body.contact_user_id or body.contact_name):
         raise HTTPException(status_code=400, detail="Contact required")
+    # Tip: send money to the other participant of a DM, recorded both as a wallet
+    # earning for them and as a tip in the chat for display.
+    tip_amount: Optional[float] = None
+    if body.type == "tip":
+        if conv.get("kind") == "group":
+            raise HTTPException(status_code=400, detail="Tips can only be sent in direct messages")
+        tip_amount = round(float(body.amount or 0), 2)
+        if tip_amount <= 0:
+            raise HTTPException(status_code=400, detail="Tip amount must be greater than 0")
+        recipients = [p for p in conv["participant_ids"] if p != user["user_id"]]
+        if not recipients:
+            raise HTTPException(status_code=400, detail="No recipient")
+        to_id = recipients[0]
+        now0 = datetime.now(timezone.utc)
+        await db.tips.insert_one({
+            "id": str(uuid.uuid4()),
+            "from_user_id": user["user_id"], "from_name": user.get("name", "Someone"),
+            "to_user_id": to_id, "amount": tip_amount, "currency": "USD",
+            "message": (body.text or "")[:200], "created_at": now0,
+        })
+        await db.earnings.insert_one({
+            "id": str(uuid.uuid4()), "user_id": to_id, "amount": tip_amount, "kind": "tip",
+            "from_user_id": user["user_id"], "from_name": user.get("name", "Someone"),
+            "created_at": now0,
+        })
     # Resolve an optional reply target — only if it's a real message in this conv.
     reply_to_id: Optional[str] = None
     if body.reply_to:
@@ -445,6 +470,7 @@ async def send_message(
         "contact_user_id": body.contact_user_id if body.type == "contact" else None,
         "contact_name": (body.contact_name or "")[:120] if body.type == "contact" else None,
         "contact_picture": body.contact_picture if body.type == "contact" else None,
+        "amount": tip_amount,
         "link_preview": link_prev,
         "reactions": {},
         "reply_to_id": reply_to_id,
@@ -475,6 +501,8 @@ async def send_message(
         preview = f"📎 {(body.file_name or 'file')[:60]}"
     elif body.type == "contact":
         preview = f"👤 {(body.contact_name or 'contact')[:60]}"
+    elif body.type == "tip":
+        preview = f"💸 sent a ${tip_amount:.2f} tip"
     else:
         preview = "📎 sent media"
     for pid in conv["participant_ids"]:

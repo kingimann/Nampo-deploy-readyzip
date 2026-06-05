@@ -537,10 +537,11 @@ export type FsqProfile = {
   photo?: string | null;
   distance?: number | null;
 };
-export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact";
+export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact" | "tip";
 export type Message = {
   id: string; conversation_id: string; sender_id: string;
   type: MsgType; text?: string;
+  amount?: number | null;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
@@ -562,6 +563,7 @@ export type Message = {
 export type CustomEmoji = { id: string; shortcode: string; image_base64: string; owner_id: string; created_at: string };
 export type MessageCreate = {
   type: MsgType; text?: string;
+  amount?: number;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];

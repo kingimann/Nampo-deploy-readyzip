@@ -26,6 +26,7 @@ import LinkPreviewCard from "@/src/components/LinkPreviewCard";
 import QuoteCard from "@/src/components/QuoteCard";
 import GifPickerSheet from "@/src/components/GifPickerSheet";
 import ContactPickerSheet from "@/src/components/ContactPickerSheet";
+import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { ensureKeyPair, getPeerPublicKey, encryptForPeer, isE2E, tryDecrypt } from "@/src/utils/e2e";
@@ -75,6 +76,8 @@ export default function ChatScreen() {
   const [sharedPosts, setSharedPosts] = useState<Record<string, Post>>({});
   const [gifOpen, setGifOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
+  const [tipOpen, setTipOpen] = useState(false);
+  const [peer, setPeer] = useState<{ id: string; name: string } | null>(null);
   const recordStartRef = useRef<number>(0);
 
   // Generate / load our keypair and publish public key. Then fetch peer's key.
@@ -87,6 +90,7 @@ export default function ChatScreen() {
         const convs = await api.listConversations();
         const conv = convs.find((c) => c.id === id);
         if (conv?.kind === "dm" && conv.other_user && conv.other_user.user_id !== user?.user_id) {
+          if (!cancelled) setPeer({ id: conv.other_user.user_id, name: conv.other_user.name || name || "this user" });
           const k = await getPeerPublicKey(conv.other_user.user_id);
           if (!cancelled) setPeerKey(k);
         }
@@ -194,6 +198,7 @@ export default function ChatScreen() {
       case "place": return "📍 Location";
       case "post": return "📄 Shared post";
       case "contact": return `👤 ${m.contact_name || "Contact"}`;
+      case "tip": return `💸 $${(m.amount || 0).toFixed(2)} tip`;
       default: return "Message";
     }
   };
@@ -285,6 +290,14 @@ export default function ChatScreen() {
       const msg = await api.sendMessage(id, { type: "gif", gif_url: gifUrl });
       setMessages((m) => [...m, msg]);
     } catch {}
+  };
+
+  // Tip the other person in the DM. The backend credits their wallet and stores
+  // a tip message that renders inline in the thread.
+  const sendTip = async (amount: number, note?: string) => {
+    if (!id) return;
+    const msg = await api.sendMessage(id, { type: "tip", amount, text: note || "" });
+    setMessages((m) => [...m, msg]);
   };
 
   const pickFile = async () => {
@@ -669,6 +682,19 @@ export default function ChatScreen() {
                           <Text style={[styles.contactSub, mine && { color: "rgba(255,255,255,0.75)" }]}>Tap to view profile</Text>
                         </View>
                       </TouchableOpacity>
+                    ) : item.type === "tip" ? (
+                      <View style={styles.tipCard}>
+                        <View style={styles.tipIcon}><Ionicons name="cash" size={20} color="#fff" /></View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.tipAmount, mine && { color: "#fff" }]}>${(item.amount || 0).toFixed(2)} tip</Text>
+                          <Text style={[styles.tipSub, mine && { color: "rgba(255,255,255,0.8)" }]}>
+                            {mine ? "You sent a tip" : "Sent you a tip"}
+                          </Text>
+                          {!encrypted && !!bodyText && (
+                            <Text style={[styles.tipNote, mine && { color: "rgba(255,255,255,0.9)" }]}>“{bodyText}”</Text>
+                          )}
+                        </View>
+                      </View>
                     ) : (
                       <View>
                         <EmojiText text={bodyText} emojis={emojiMap} style={[styles.bubbleText, mine && { color: "#fff" }]} />
@@ -781,6 +807,18 @@ export default function ChatScreen() {
                   </View>
                   <Text style={styles.attachItemLabel}>Contact</Text>
                 </TouchableOpacity>
+                {!!peer && (
+                  <TouchableOpacity
+                    style={styles.attachItem}
+                    onPress={() => { setAttachOpen(false); setTipOpen(true); }}
+                    testID="attach-tip"
+                  >
+                    <View style={[styles.attachItemIcon, { backgroundColor: theme.primary }]}>
+                      <Ionicons name="cash" size={20} color="#fff" />
+                    </View>
+                    <Text style={styles.attachItemLabel}>Send tip</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </>
           )}
@@ -900,6 +938,18 @@ export default function ChatScreen() {
       />
       <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
       <ContactPickerSheet visible={contactOpen} onClose={() => setContactOpen(false)} onPick={sendContact} />
+      <FakePaymentSheet
+        visible={tipOpen}
+        title={`Tip ${peer?.name || "this user"}`}
+        subtitle="100% goes to them"
+        amount={5}
+        editableAmount
+        allowNote
+        cta="Send tip"
+        successText={`Your tip was sent to ${peer?.name || "them"}.`}
+        onClose={() => setTipOpen(false)}
+        onPaid={async (amount, note) => { await sendTip(amount, note); }}
+      />
 
       {/* Message action sheet (long-press a bubble) */}
       <Modal
@@ -1048,6 +1098,11 @@ const styles = StyleSheet.create({
   contactInit: { color: "#fff", fontSize: 17, fontWeight: "700" },
   contactName: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
   contactSub: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+  tipCard: { flexDirection: "row", alignItems: "center", gap: 10, minWidth: 170 },
+  tipIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+  tipAmount: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  tipSub: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+  tipNote: { color: theme.textSecondary, fontSize: 13, marginTop: 3, fontStyle: "italic" },
   placeHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   placeName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", flex: 1 },
   placeAddr: { color: theme.textSecondary, fontSize: 12 },

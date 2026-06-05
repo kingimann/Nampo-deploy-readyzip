@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -42,8 +42,14 @@ export default function UserProfileScreen() {
   const [user, setUser] = useState<PublicUser | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/feed");
+  };
 
   const onSubscribe = async () => {
     if (!user) return;
@@ -60,21 +66,26 @@ export default function UserProfileScreen() {
   const load = useCallback(async () => {
     if (!name) return;
     try {
-      // Resolve by name via search (first hit)
+      // Resolve name → id via search, then fetch the FULL relationship-aware
+      // profile (is_following / friend_status / is_subscribed / stats). Search
+      // results alone omit those, which is why follow/add-friend looked broken.
       const matches = await api.searchUsers(name);
       const found = matches.find((u) => u.name === name) || matches[0];
       if (!found) return;
-      const [p] = await Promise.all([
+      const [full, p] = await Promise.all([
+        api.getPublicUser(found.user_id).catch(() => found),
         api.listUserPosts(found.user_id),
       ]);
-      setUser(found);
+      setUser(full);
       setPosts(p);
     } catch {} finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [name]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  const onRefresh = () => { setRefreshing(true); load(); };
 
   const onLike = async (p: Post) => {
     setPosts((arr) => arr.map((x) => x.id !== p.id ? x : {
@@ -116,7 +127,7 @@ export default function UserProfileScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="user-profile-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={goBack} style={styles.backBtn} hitSlop={10} testID="user-back">
           <Ionicons name="chevron-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>@{name}</Text>
@@ -131,6 +142,9 @@ export default function UserProfileScreen() {
           data={posts}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24, gap: 10 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />
+          }
           ListHeaderComponent={
             <View style={styles.profileBlock}>
               <View style={styles.avatar}>
@@ -150,12 +164,8 @@ export default function UserProfileScreen() {
               {!!user.bio && <Text style={styles.bio}>{user.bio}</Text>}
               <View style={styles.statsRow}>
                 <View style={styles.statBox}>
-                  <Text style={styles.statNum}>{user.stats?.places || 0}</Text>
-                  <Text style={styles.statLabel}>Places</Text>
-                </View>
-                <View style={styles.statBox}>
-                  <Text style={styles.statNum}>{user.stats?.guides || 0}</Text>
-                  <Text style={styles.statLabel}>Guides</Text>
+                  <Text style={styles.statNum}>{posts.length}</Text>
+                  <Text style={styles.statLabel}>Posts</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Text style={styles.statNum}>{user.stats?.reviews || 0}</Text>

@@ -221,35 +221,6 @@ export default function ProfileScreen() {
             {!!user?.bio && <Text style={styles.bio}>{user.bio}</Text>}
             {!!user?.email && <Text style={styles.email} numberOfLines={1}>{user.email}</Text>}
 
-            <View style={styles.socialBar}>
-              <TouchableOpacity
-                style={styles.socialItem}
-                onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })}
-                testID="stat-followers"
-              >
-                <Text style={styles.socialNum}>{social.followers}</Text>
-                <Text style={styles.socialLabel}>Followers</Text>
-              </TouchableOpacity>
-              <View style={styles.socialDivider} />
-              <TouchableOpacity
-                style={styles.socialItem}
-                onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "following" } })}
-                testID="stat-following"
-              >
-                <Text style={styles.socialNum}>{social.following}</Text>
-                <Text style={styles.socialLabel}>Following</Text>
-              </TouchableOpacity>
-              <View style={styles.socialDivider} />
-              <TouchableOpacity
-                style={styles.socialItem}
-                onPress={() => router.push("/people")}
-                testID="stat-friends"
-              >
-                <Text style={styles.socialNum}>{social.friends}</Text>
-                <Text style={styles.socialLabel}>Friends</Text>
-              </TouchableOpacity>
-            </View>
-
             <View style={styles.heroActions}>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionPrimary]}
@@ -275,13 +246,8 @@ export default function ProfileScreen() {
 
         <View style={styles.statsCard}>
           <View style={styles.statCell}>
-            <Text style={styles.statNum}>{stats.places}</Text>
-            <Text style={styles.statLabel}>Places</Text>
-          </View>
-          <View style={styles.statCellDivider} />
-          <View style={styles.statCell}>
-            <Text style={styles.statNum}>{stats.guides}</Text>
-            <Text style={styles.statLabel}>Guides</Text>
+            <Text style={styles.statNum}>{myPosts.length}</Text>
+            <Text style={styles.statLabel}>Posts</Text>
           </View>
           <View style={styles.statCellDivider} />
           <View style={styles.statCell}>
