@@ -36,6 +36,8 @@ const HIDDEN_BAR_PREFIXES = [
   "/seller/",  // marketplace seller profile
   "/advertise",
   "/wallet",
+  "/communities",
+  "/c/",
   "/+html",
 ];
 

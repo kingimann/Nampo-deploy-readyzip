@@ -19,6 +19,7 @@ export const SIDEBAR_CATALOG: SidebarItem[] = [
   { id: "reels", label: "Reels", icon: "videocam", route: "/reels", color: "#EC4899" },
   { id: "bookmarks", label: "Bookmarks", icon: "bookmark", route: "/bookmarks", color: "#00A884" },
   { id: "groups", label: "Groups", icon: "people", route: "/(tabs)/groups", color: "#7C3AED" },
+  { id: "communities", label: "Communities", icon: "chatbubbles", route: "/communities", color: "#EF4444" },
   { id: "marketplace", label: "Marketplace", icon: "storefront", route: "/(tabs)/marketplace", color: "#F59E0B" },
   { id: "favorites", label: "Saved Places", icon: "location", route: "/(tabs)/favorites", color: "#22C55E" },
   { id: "settings", label: "Settings", icon: "settings", route: "/settings", color: "#64748B" },

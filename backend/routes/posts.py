@@ -71,6 +71,10 @@ def _normalize_media(items: Optional[list]) -> list:
 
 
 async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
+    _community_name = None
+    if doc.get("community_id"):
+        _c = await db.communities.find_one({"id": doc["community_id"]}, {"_id": 0, "name": 1})
+        _community_name = _c.get("name") if _c else None
     author_doc = await db.users.find_one({"user_id": doc["user_id"]}, {"_id": 0})
     author = PostAuthor(
         user_id=doc["user_id"],
@@ -156,6 +160,9 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         promoted_until=doc.get("promoted_until") if _is_promoted(doc) else None,
         edited_at=doc.get("edited_at"),
         pinned=bool(doc.get("pinned", False)),
+        community_id=doc.get("community_id"),
+        community_name=_community_name,
+        title=doc.get("title"),
         created_at=doc["created_at"],
     )
 
@@ -177,7 +184,18 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
     media = _normalize_media(body.media)
     has_quote = bool(body.quote_of)
     has_poll = bool(body.poll and (body.poll.options or []))
-    if not text and not media and not has_quote and not has_poll:
+    title = (body.title or "").strip()[:200] or None
+    community_id = None
+    if body.community_id:
+        comm = await db.communities.find_one({"id": body.community_id}, {"_id": 0, "id": 1})
+        if not comm:
+            raise HTTPException(status_code=404, detail="Community not found")
+        if not await db.community_members.find_one(
+            {"community_id": body.community_id, "user_id": user["user_id"]}, {"_id": 0, "id": 1}
+        ):
+            raise HTTPException(status_code=403, detail="Join the community to post here")
+        community_id = body.community_id
+    if not text and not media and not has_quote and not has_poll and not title:
         raise HTTPException(status_code=400, detail="Empty post")
     parent_id = None
     if body.parent_id:
@@ -226,6 +244,8 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         "media": media,
         "poll": poll_doc,
         "hashtags": hashtags,
+        "community_id": community_id,
+        "title": title,
         "likes_count": 0,
         "replies_count": 0,
         "reposts_count": 0,
@@ -234,6 +254,8 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         "created_at": datetime.now(timezone.utc),
     }
     await db.posts.insert_one(doc.copy())
+    if community_id and not parent_id:
+        await db.communities.update_one({"id": community_id}, {"$inc": {"post_count": 1}})
     if parent_id:
         await db.posts.update_one({"id": parent_id}, {"$inc": {"replies_count": 1}})
         parent = await db.posts.find_one({"id": parent_id}, {"_id": 0, "user_id": 1})
@@ -430,7 +452,7 @@ async def explore_feed(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     # Pull a broad recent candidate set, then rank it for this viewer.
     cursor = db.posts.find(
-        {"parent_id": None, "group_id": {"$in": [None, ""]}},
+        {"parent_id": None, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]}},
         {"_id": 0},
     ).sort("created_at", -1).limit(300)
     docs = await cursor.to_list(300)
@@ -447,7 +469,7 @@ async def home_feed(authorization: Optional[str] = Header(None)):
     ids = [f["followee_id"] for f in followees] + [user["user_id"]]
     cursor = (
         db.posts.find(
-            {"parent_id": None, "user_id": {"$in": ids}, "group_id": {"$in": [None, ""]}},
+            {"parent_id": None, "user_id": {"$in": ids}, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]}},
             {"_id": 0},
         ).sort("created_at", -1).limit(200)
     )

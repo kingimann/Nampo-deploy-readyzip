@@ -210,6 +210,14 @@ export const api = {
   getPost: (id: string) => request<Post>(`/posts/${id}`),
   listReplies: (id: string) => request<Post[]>(`/posts/${id}/replies`),
   postThread: (id: string) => request<Post[]>(`/posts/${id}/thread`),
+  // Communities (forum)
+  listCommunities: (q?: string) => request<Community[]>(`/communities${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  getCommunity: (name: string) => request<Community>(`/communities/${name}`),
+  createCommunity: (body: { name: string; title?: string; description?: string; color?: string; icon?: string }) =>
+    request<Community>("/communities", { method: "POST", body: JSON.stringify(body) }),
+  joinCommunity: (name: string) => request<{ joined: boolean }>(`/communities/${name}/join`, { method: "POST" }),
+  leaveCommunity: (name: string) => request<{ joined: boolean }>(`/communities/${name}/join`, { method: "DELETE" }),
+  communityPosts: (name: string, sort = "hot") => request<Post[]>(`/communities/${name}/posts?sort=${sort}`),
   listUserPosts: (uid: string) => request<Post[]>(`/posts/user/${uid}`),
   homeFeed: () => request<Post[]>("/feed/home"),
   exploreFeed: () => request<Post[]>("/feed/explore"),
@@ -648,6 +656,7 @@ export type Post = {
   liked_by_me: boolean; disliked_by_me?: boolean; reposted_by_me?: boolean; bookmarked_by_me?: boolean;
   promoted?: boolean; promoted_until?: string | null;
   pinned?: boolean;
+  community_id?: string | null; community_name?: string | null; title?: string | null;
   edited_at?: string | null;
   created_at: string;
 };
@@ -657,6 +666,14 @@ export type PostCreate = {
   place_name?: string; place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
   poll?: PollCreate;
+  community_id?: string; title?: string;
+};
+
+export type Community = {
+  id: string; name: string; title: string; description?: string;
+  color?: string; icon?: string; owner_id: string;
+  member_count?: number; post_count?: number;
+  is_member?: boolean; role?: string | null; created_at: string;
 };
 
 export const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;

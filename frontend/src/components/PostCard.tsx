@@ -152,6 +152,12 @@ export default function PostCard({
         )}
       </View>
 
+      {!!display.community_name && (
+        <Text style={styles.communityTag}>/{display.community_name}</Text>
+      )}
+      {!!display.title && (
+        <Text style={styles.threadTitle}>{display.title}</Text>
+      )}
       {!!display.text && (
         <RichText text={display.text} style={styles.body} />
       )}
@@ -315,6 +321,8 @@ const styles = StyleSheet.create({
   dot: { color: theme.textMuted, fontSize: 12 },
   time: { color: theme.textMuted, fontSize: 12.5 },
   body: { color: theme.textPrimary, fontSize: 16, lineHeight: 23 },
+  communityTag: { color: theme.primary, fontSize: 12, fontWeight: "800", marginBottom: 2 },
+  threadTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", lineHeight: 22, marginBottom: 4 },
   placeRow: {
     flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: theme.surfaceAlt, borderRadius: 8,

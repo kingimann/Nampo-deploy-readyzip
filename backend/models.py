@@ -474,6 +474,31 @@ class PostCreate(BaseModel):
     place_latitude: Optional[float] = None
     media: Optional[List[PostMedia]] = None
     poll: Optional[PollCreate] = None  # NEW
+    community_id: Optional[str] = None  # forum: post belongs to a community
+    title: Optional[str] = None         # forum thread title
+
+
+class CommunityCreate(BaseModel):
+    name: str                          # url slug, unique
+    title: Optional[str] = None
+    description: Optional[str] = ""
+    color: Optional[str] = "#3B82F6"
+    icon: Optional[str] = "people"
+
+
+class Community(BaseModel):
+    id: str
+    name: str
+    title: str
+    description: str = ""
+    color: str = "#3B82F6"
+    icon: str = "people"
+    owner_id: str
+    member_count: int = 0
+    post_count: int = 0
+    is_member: bool = False
+    role: Optional[str] = None         # owner | mod | member | None
+    created_at: datetime
 
 
 class PostPatch(BaseModel):
@@ -521,6 +546,9 @@ class Post(BaseModel):
     edited_at: Optional[datetime] = None
     reposted_by_me: bool = False
     pinned: bool = False
+    community_id: Optional[str] = None
+    community_name: Optional[str] = None
+    title: Optional[str] = None
     created_at: datetime
 
 

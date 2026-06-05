@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core import init_pool, logger
 from routes import (
     auth as auth_routes,
+    communities as communities_routes,
     eta as eta_routes,
     foursquare as fsq_routes,
     groups as groups_routes,
@@ -64,6 +65,7 @@ api_router.include_router(eta_routes.router)
 api_router.include_router(posts_routes.router)
 api_router.include_router(marketplace_routes.router)
 api_router.include_router(groups_routes.router)
+api_router.include_router(communities_routes.router)
 api_router.include_router(fsq_routes.router)
 api_router.include_router(stories_routes.router)
 
