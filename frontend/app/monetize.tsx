@@ -11,11 +11,12 @@ import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
 
+// The embed snippet must hit the public API host (NOT the web origin), so we
+// fall back to the deployed backend if the build-time env var is missing.
+const FALLBACK_BACKEND = "https://nampo-backend.onrender.com";
 function apiOrigin(): string {
   const env = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
-  if (env) return env.replace(/\/$/, "");
-  if (Platform.OS === "web" && typeof window !== "undefined") return window.location.origin;
-  return "";
+  return (env || FALLBACK_BACKEND).replace(/\/$/, "");
 }
 
 export default function MonetizeScreen() {
