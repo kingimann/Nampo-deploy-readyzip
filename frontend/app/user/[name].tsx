@@ -166,6 +166,30 @@ export default function UserProfileScreen() {
                 <Text style={styles.roleTag}>{user.role === "admin" ? "ADMIN" : "MODERATOR"}</Text>
               )}
               {!!user.bio && <Text style={styles.bio}>{user.bio}</Text>}
+              <View style={styles.socialRow}>
+                <TouchableOpacity
+                  style={styles.socialItem}
+                  onPress={() => router.push({ pathname: "/connections", params: { userId: user.user_id, name: user.name, tab: "followers" } })}
+                  testID="user-followers"
+                >
+                  <Text style={styles.socialNum}>{user.stats?.followers || 0}</Text>
+                  <Text style={styles.socialLabel}>Followers</Text>
+                </TouchableOpacity>
+                <View style={styles.socialDivider} />
+                <TouchableOpacity
+                  style={styles.socialItem}
+                  onPress={() => router.push({ pathname: "/connections", params: { userId: user.user_id, name: user.name, tab: "following" } })}
+                  testID="user-following"
+                >
+                  <Text style={styles.socialNum}>{user.stats?.following || 0}</Text>
+                  <Text style={styles.socialLabel}>Following</Text>
+                </TouchableOpacity>
+                <View style={styles.socialDivider} />
+                <View style={styles.socialItem}>
+                  <Text style={styles.socialNum}>{user.stats?.friends || 0}</Text>
+                  <Text style={styles.socialLabel}>Friends</Text>
+                </View>
+              </View>
               <View style={styles.statsRow}>
                 <View style={styles.statBox}>
                   <Text style={styles.statNum}>{posts.length}</Text>
@@ -344,6 +368,16 @@ const styles = StyleSheet.create({
   },
   adminBtnText: { color: theme.textPrimary, fontSize: 12, fontWeight: "700" },
   bio: { color: theme.textSecondary, fontSize: 13, textAlign: "center", marginTop: 2, paddingHorizontal: 24 },
+  socialRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    alignSelf: "stretch", marginTop: 14,
+    backgroundColor: theme.surfaceAlt, borderRadius: 14, borderWidth: 1, borderColor: theme.border,
+    paddingVertical: 12,
+  },
+  socialItem: { flex: 1, alignItems: "center", gap: 2 },
+  socialNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  socialLabel: { color: theme.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
+  socialDivider: { width: 1, height: 28, backgroundColor: theme.border },
   statsRow: { flexDirection: "row", gap: 18, marginTop: 12 },
   statBox: { alignItems: "center" },
   statNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
