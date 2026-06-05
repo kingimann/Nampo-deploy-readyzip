@@ -57,34 +57,20 @@ async def next_ad(
     # Drop ads this viewer has hidden or reported.
     hidden = {h.get("post_id") for h in await db.ad_hides.find({"viewer_id": me["user_id"]}, {"_id": 0, "post_id": 1}).to_list(500)}
     rows = [r for r in rows if r["id"] not in hidden]
+    from routes.posts import _hydrate_post
     if rows:
         post = random.choice(rows)
-        author = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "name": 1})
-        media = post.get("media") or []
-        img = next((m.get("url") or m.get("base64") for m in media if m.get("type") == "image"), None)
-        return {"house": False, "ad": {
-            "post_id": post["id"],
-            "text": (post.get("text") or "")[:200],
-            "image": img,
-            "reason": "It's a promoted post matched to this spot.",
-            "author_name": (author or {}).get("name", "Sponsored"),
-        }}
-    # ── House ad: never leave a slot empty — nudge the viewer to promote ──
+        full = await _hydrate_post(post, me["user_id"])
+        return {"house": False, "post": full.model_dump(),
+                "reason": "It's a promoted post matched to this spot."}
+    # ── House ad: never leave a slot empty — surface the viewer's own post ──
     mine = await db.posts.find(
         {"user_id": me["user_id"], "parent_id": None}, {"_id": 0}
     ).sort("created_at", -1).limit(1).to_list(1)
     if mine:
-        p = mine[0]
-        media = p.get("media") or []
-        img = next((m.get("url") or m.get("base64") for m in media if m.get("type") == "image"), None)
-        return {"house": True, "ad": {
-            "post_id": p["id"], "text": (p.get("text") or "Promote this post to reach more people.")[:160],
-            "image": img, "author_name": "Promote your post",
-        }}
-    return {"house": True, "ad": {
-        "post_id": None, "text": "Reach more people — promote your posts on Nami.",
-        "image": None, "author_name": "Advertise here",
-    }}
+        full = await _hydrate_post(mine[0], me["user_id"])
+        return {"house": True, "post": full.model_dump()}
+    return {"house": True, "post": None, "cta": "advertise"}
 
 
 async def _seen_recently(post_id: str, viewer_id: str, kind: str, hours: int) -> bool:

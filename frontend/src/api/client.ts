@@ -127,7 +127,7 @@ export const api = {
   getWallet: () => request<WalletSummary>("/wallet"),
   // Ads + creator ad revenue
   getNextAd: (placement: string, exclude?: string) =>
-    request<{ ad: Ad | null; house?: boolean }>(`/ads/next?placement=${encodeURIComponent(placement)}${exclude ? `&exclude=${exclude}` : ""}`),
+    request<{ post: Post | null; house?: boolean; reason?: string | null; cta?: string }>(`/ads/next?placement=${encodeURIComponent(placement)}${exclude ? `&exclude=${exclude}` : ""}`),
   adEvent: (postId: string, type: "impression" | "click", host_user_id?: string) =>
     request<{ ok: boolean }>(`/ads/${postId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
   hideAd: (postId: string) => request<{ hidden: boolean }>(`/ads/${postId}/hide`, { method: "POST" }),

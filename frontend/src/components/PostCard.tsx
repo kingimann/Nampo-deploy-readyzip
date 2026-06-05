@@ -33,6 +33,8 @@ type Props = {
   onBookmark: (p: Post) => void;
   onMore?: (p: Post) => void;  // owner actions (••• button + long-press)
   onPollUpdated?: (p: Post) => void;
+  /** Fired when the card is opened — used for ad-click tracking. */
+  onOpen?: (p: Post) => void;
 };
 
 export function fmtTime(iso: string) {
@@ -46,7 +48,7 @@ export function fmtTime(iso: string) {
 }
 
 export default function PostCard({
-  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated,
+  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated, onOpen,
 }: Props) {
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
@@ -62,6 +64,7 @@ export default function PostCard({
 
   const openDetail = () => {
     if (disableOpen) return;
+    onOpen?.(display);
     router.push({ pathname: "/post/[id]", params: { id: display.id } });
   };
 
