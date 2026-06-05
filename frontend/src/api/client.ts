@@ -102,6 +102,16 @@ export const api = {
     request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>
     request<{ revoked: boolean }>(`/auth/api-keys/${id}`, { method: "DELETE" }),
+  // "Login with Nami" OAuth apps
+  createOAuthApp: (name: string, redirect_uris: string[]) =>
+    request<{ client_id: string; client_secret: string; name: string; redirect_uris: string[] }>(
+      "/oauth/apps", { method: "POST", body: JSON.stringify({ name, redirect_uris }) }),
+  listOAuthApps: () => request<{ apps: OAuthApp[] }>("/oauth/apps"),
+  deleteOAuthApp: (clientId: string) =>
+    request<{ deleted: boolean }>(`/oauth/apps/${clientId}`, { method: "DELETE" }),
+  getOAuthApp: (clientId: string) => request<OAuthApp>(`/oauth/app/${clientId}`),
+  oauthAuthorize: (body: { client_id: string; redirect_uri: string; scope?: string; state?: string; approve: boolean }) =>
+    request<{ redirect_url: string }>("/oauth/authorize", { method: "POST", body: JSON.stringify(body) }),
   getPolicies: () => request<{ tos_version: string; privacy_version: string; effective_date: string }>("/policies"),
   acceptPolicies: () => request<User>("/auth/accept-policies", { method: "POST" }),
   uploadE2EKey: (public_key: string) =>
@@ -548,6 +558,7 @@ export type AdRevenue = {
   top_advertisers: { name: string; amount: number }[];
 };
 export type ApiKey = { id: string; label: string; scopes?: string[]; key_prefix: string; created_at: string; last_used_at?: string | null };
+export type OAuthApp = { client_id: string; name: string; redirect_uris: string[]; created_at?: string };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
 export type OveragePack = { id: string; name: string; requests: number; price: number };
