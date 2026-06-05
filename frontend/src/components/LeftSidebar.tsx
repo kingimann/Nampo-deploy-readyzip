@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
   drawer: {
     position: "absolute", top: 0, bottom: 0, left: 0,
-    width: 300, backgroundColor: "#0A0A0A",
+    width: 300, backgroundColor: theme.bg,
     borderRightWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14,
     ...(Platform.OS === "web" ? ({ boxShadow: "8px 0 24px rgba(0,0,0,0.5)" } as object) : {
