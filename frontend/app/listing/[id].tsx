@@ -213,20 +213,20 @@ const styles = StyleSheet.create({
   soldText: { color: "#fff", fontWeight: "900", fontSize: 12, letterSpacing: 1 },
   noPhoto: { width: "100%", backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" },
 
-  body: { padding: 18, gap: 8 },
-  price: { color: theme.textPrimary, fontSize: 28, fontWeight: "900", letterSpacing: -0.5 },
-  title: { color: theme.textPrimary, fontSize: 19, fontWeight: "700", lineHeight: 25 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 2 },
-  badge: { backgroundColor: theme.surfaceAlt, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
-  badgeText: { color: theme.textSecondary, fontSize: 12, fontWeight: "700", textTransform: "capitalize" },
+  body: { padding: 20, gap: 12 },
+  price: { color: theme.textPrimary, fontSize: 30, fontWeight: "900", letterSpacing: -0.5 },
+  title: { color: theme.textPrimary, fontSize: 20, fontWeight: "700", lineHeight: 27 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 4 },
+  badge: { backgroundColor: theme.surfaceAlt, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 6 },
+  badgeText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700", textTransform: "capitalize" },
   metaInline: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: theme.textMuted, fontSize: 12.5 },
-  stats: { color: theme.textMuted, fontSize: 12.5, marginTop: 2 },
-  sectionTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "800", marginTop: 16, marginBottom: 4 },
-  description: { color: theme.textSecondary, fontSize: 15, lineHeight: 22 },
+  metaText: { color: theme.textMuted, fontSize: 13 },
+  stats: { color: theme.textMuted, fontSize: 13, marginTop: 4 },
+  sectionTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginTop: 22, marginBottom: 8 },
+  description: { color: theme.textSecondary, fontSize: 15.5, lineHeight: 24 },
   sellerRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: theme.surface, borderRadius: 14, padding: 12,
+    backgroundColor: theme.surface, borderRadius: 16, padding: 14,
     borderWidth: 1, borderColor: theme.border,
   },
   sellerAvatar: {
@@ -238,17 +238,17 @@ const styles = StyleSheet.create({
 
   footer: {
     position: "absolute", left: 0, right: 0, bottom: 0,
-    flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12,
+    flexDirection: "row", gap: 12, paddingHorizontal: 16, paddingTop: 14,
     backgroundColor: theme.bg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border,
   },
   primaryBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 14,
+    backgroundColor: theme.primary, borderRadius: 15, paddingVertical: 15,
   },
-  primaryText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  primaryText: { color: "#fff", fontWeight: "800", fontSize: 15.5 },
   ghostBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    backgroundColor: theme.surfaceAlt, borderRadius: 14, paddingVertical: 14,
+    backgroundColor: theme.surfaceAlt, borderRadius: 15, paddingVertical: 15,
     borderWidth: 1, borderColor: theme.border,
   },
 });

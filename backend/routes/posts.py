@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from db import DuplicateKeyError
 
 from core import db, get_current_user
@@ -670,23 +670,53 @@ async def report_post(
     return {"ok": True}
 
 
+def _has_playable_video(doc: dict) -> bool:
+    """A reel must have a video whose data is actually loadable (data URI or
+    remote URL) — filters out black screens from old file:// uploads."""
+    for m in (doc.get("media") or []):
+        if m.get("type") == "video":
+            b = m.get("base64") or ""
+            if b.startswith("data:") or b.startswith("http"):
+                return True
+    return False
+
+
 @router.get("/feed/reels", response_model=List[Post])
-async def reels_feed(authorization: Optional[str] = Header(None)):
-    """Vertical video feed: posts that contain at least one video media item,
-    de-duplicated and personalized for the viewer."""
+async def reels_feed(
+    focus: Optional[str] = Query(None), authorization: Optional[str] = Header(None)
+):
+    """Vertical video feed: playable video posts the viewer hasn't watched yet,
+    de-duplicated and personalized. A `focus` post is always included (so
+    tapping a feed video opens it even if already seen)."""
     user = await get_current_user(authorization)
+    uid = user["user_id"]
+    viewed_rows = await db.post_views.find(
+        {"user_id": uid}, {"_id": 0, "post_id": 1}
+    ).to_list(3000)
+    viewed = {r["post_id"] for r in viewed_rows}
+    viewed.discard(focus or "")
     cursor = (
         db.posts.find(
             {"parent_id": None, "media": {"$elemMatch": {"type": "video"}}},
             {"_id": 0},
-        ).sort("created_at", -1).limit(150)
+        ).sort("created_at", -1).limit(250)
     )
-    docs = await cursor.to_list(150)
-    # De-dupe by id so the same video never repeats.
+    docs = await cursor.to_list(250)
     seen: set = set()
-    unique = [d for d in docs if not (d["id"] in seen or seen.add(d["id"]))]
-    ranked = await _rank_docs(unique, user["user_id"], 50)
-    return [await _hydrate_post(d, user["user_id"]) for d in ranked]
+    fresh: list = []
+    for d in docs:
+        if d["id"] in seen:
+            continue
+        seen.add(d["id"])
+        if not _has_playable_video(d):
+            continue
+        if d["id"] in viewed and d["id"] != focus:
+            continue
+        fresh.append(d)
+    ranked = await _rank_docs(fresh, uid, 50)
+    if focus:
+        ranked.sort(key=lambda d: 0 if d["id"] == focus else 1)
+    return [await _hydrate_post(d, uid) for d in ranked]
 
 
 @router.get("/posts/user/{user_id}/all", response_model=List[Post])

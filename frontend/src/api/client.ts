@@ -46,7 +46,8 @@ export const api = {
     request<{ public_key: string | null }>(`/users/${user_id}/key`),
   recordPostView: (id: string) =>
     request<{ viewed: boolean }>(`/posts/${id}/view`, { method: "POST" }),
-  reelsFeed: () => request<Post[]>("/feed/reels"),
+  reelsFeed: (focus?: string) =>
+    request<Post[]>(`/feed/reels${focus ? `?focus=${encodeURIComponent(focus)}` : ""}`),
   listUserPostsAll: (uid: string) => request<Post[]>(`/posts/user/${uid}/all`),
 
   searchUsers: (q: string) => request<PublicUser[]>(`/users/search?q=${encodeURIComponent(q)}`),

@@ -7,14 +7,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSidebar } from "@/src/context/SidebarContext";
+import { useSidebarMenu } from "@/src/context/SidebarMenuContext";
 import { useAuth } from "@/src/context/AuthContext";
 import { api } from "@/src/api/client";
 import { theme } from "@/src/theme";
-
-type Item = {
-  label: string; icon: any; route: string; testID?: string; color?: string;
-  badge?: number;
-};
 
 export function SidebarMenuButton({ light }: { light?: boolean } = {}) {
   const { setOpen } = useSidebar();
@@ -34,6 +30,7 @@ export default function LeftSidebar() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { open, setOpen } = useSidebar();
+  const { items } = useSidebarMenu();
   const { user, signOut } = useAuth();
   const translateX = useRef(new Animated.Value(-1)).current;
   const [unreadNotif, setUnreadNotif] = useState(0);
@@ -64,16 +61,6 @@ export default function LeftSidebar() {
     setOpen(false);
     setTimeout(() => router.push(route as any), 150);
   };
-
-  const items: Item[] = [
-    { label: "Notifications", icon: "notifications", route: "/notifications", color: "#EF4444", badge: unreadNotif, testID: "side-notif" },
-    { label: "Reels", icon: "videocam", route: "/reels", color: "#EC4899", testID: "side-reels" },
-    { label: "Bookmarks", icon: "bookmark", route: "/bookmarks", color: theme.primary, testID: "side-bookmarks" },
-    { label: "Groups", icon: "people", route: "/(tabs)/groups", color: "#7C3AED", testID: "side-groups" },
-    { label: "Marketplace", icon: "storefront", route: "/(tabs)/marketplace", color: "#F59E0B", testID: "side-market" },
-    { label: "Saved Places", icon: "location", route: "/(tabs)/favorites", color: "#22C55E", testID: "side-favs" },
-    { label: "Settings", icon: "settings", route: "/settings", color: "#64748B", testID: "side-settings" },
-  ];
 
   const tx = translateX.interpolate({
     inputRange: [-1, 0],
@@ -128,26 +115,34 @@ export default function LeftSidebar() {
             contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingTop: 8 }}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.sectionLabel}>Your activity</Text>
-            {items.map((it) => (
-              <TouchableOpacity
-                key={it.label}
-                style={styles.row}
-                onPress={() => go(it.route)}
-                activeOpacity={0.7}
-                testID={it.testID}
-              >
-                <View style={[styles.rowIcon, { backgroundColor: (it.color || theme.primary) + "22" }]}>
-                  <Ionicons name={it.icon} size={20} color={it.color || theme.primary} />
-                </View>
-                <Text style={styles.rowLabel}>{it.label}</Text>
-                {!!it.badge && it.badge > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{it.badge > 9 ? "9+" : String(it.badge)}</Text>
-                  </View>
-                )}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionLabel}>Your shortcuts</Text>
+              <TouchableOpacity onPress={() => go("/customize-sidebar")} testID="side-customize" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.editText}>Edit</Text>
               </TouchableOpacity>
-            ))}
+            </View>
+            {items.map((it) => {
+              const badge = it.id === "notifications" ? unreadNotif : 0;
+              return (
+                <TouchableOpacity
+                  key={it.id}
+                  style={styles.row}
+                  onPress={() => go(it.route)}
+                  activeOpacity={0.7}
+                  testID={`side-${it.id}`}
+                >
+                  <View style={[styles.rowIcon, { backgroundColor: it.color + "22" }]}>
+                    <Ionicons name={it.icon} size={20} color={it.color} />
+                  </View>
+                  <Text style={styles.rowLabel}>{it.label}</Text>
+                  {badge > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badge > 9 ? "9+" : String(badge)}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
 
             <View style={styles.divider} />
 
@@ -208,11 +203,16 @@ const styles = StyleSheet.create({
   profileName: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
   profileEmail: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
 
+  sectionHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 8,
+  },
   sectionLabel: {
     color: theme.textMuted, fontSize: 11, fontWeight: "800",
     textTransform: "uppercase", letterSpacing: 0.6,
-    paddingHorizontal: 8, paddingVertical: 8,
+    paddingVertical: 8,
   },
+  editText: { color: theme.primary, fontSize: 13, fontWeight: "700" },
   row: {
     flexDirection: "row", alignItems: "center", gap: 12,
     paddingVertical: 12, paddingHorizontal: 8,
