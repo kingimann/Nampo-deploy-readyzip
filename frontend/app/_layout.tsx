@@ -39,6 +39,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/wallet",
   "/account",
   "/developer",
+  "/connected-apps",
   "/admin-revenue",
   "/oauth/",
   "/legal/",
