@@ -135,6 +135,7 @@ export default function DirectionsScreen() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [showSteps, setShowSteps] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [navMode, setNavMode] = useState(false);
@@ -845,10 +846,20 @@ export default function DirectionsScreen() {
         <View
           style={[
             styles.bottomCard,
-            { paddingBottom: insets.bottom + (navMode ? 16 : 90) },
+            { paddingBottom: insets.bottom + (navMode ? 26 : 90) },
           ]}
         >
-          {!navMode && (
+          <TouchableOpacity
+            style={styles.grabberWrap}
+            onPress={() => setPanelOpen((o) => !o)}
+            activeOpacity={0.7}
+            testID="panel-toggle"
+            hitSlop={10}
+          >
+            <View style={styles.grabber} />
+          </TouchableOpacity>
+
+          {!navMode && panelOpen && (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -874,7 +885,7 @@ export default function DirectionsScreen() {
           )}
 
           {/* Alternate-route picker (only when Mapbox returned more than one). */}
-          {!navMode && routes.length > 1 && (
+          {!navMode && panelOpen && routes.length > 1 && (
             <View style={styles.routeOptions}>
               {routes.map((r, i) => {
                 const a = i === selectedRouteIdx;
@@ -903,22 +914,28 @@ export default function DirectionsScreen() {
           ) : routeInfo ? (
             navMode ? (
               <View style={styles.navFooter}>
-                <View style={styles.navStats}>
-                  <View style={styles.navStat}>
-                    <Text style={styles.navStatHero}>{arrivalTime(remainingDur ?? routeInfo.duration)}</Text>
-                    <Text style={styles.navStatLabel}>arrival</Text>
+                {panelOpen ? (
+                  <View style={styles.navStats}>
+                    <View style={styles.navStat}>
+                      <Text style={styles.navStatHero}>{arrivalTime(remainingDur ?? routeInfo.duration)}</Text>
+                      <Text style={styles.navStatLabel}>arrival</Text>
+                    </View>
+                    <View style={styles.navStatDivider} />
+                    <View style={styles.navStat}>
+                      <Text style={styles.navStatValue}>{formatDuration(remainingDur ?? routeInfo.duration)}</Text>
+                      <Text style={styles.navStatLabel}>time left</Text>
+                    </View>
+                    <View style={styles.navStatDivider} />
+                    <View style={styles.navStat}>
+                      <Text style={styles.navStatValue}>{formatDistance(remainingDist ?? routeInfo.distance)}</Text>
+                      <Text style={styles.navStatLabel}>distance</Text>
+                    </View>
                   </View>
-                  <View style={styles.navStatDivider} />
-                  <View style={styles.navStat}>
-                    <Text style={styles.navStatValue}>{formatDuration(remainingDur ?? routeInfo.duration)}</Text>
-                    <Text style={styles.navStatLabel}>time left</Text>
-                  </View>
-                  <View style={styles.navStatDivider} />
-                  <View style={styles.navStat}>
-                    <Text style={styles.navStatValue}>{formatDistance(remainingDist ?? routeInfo.distance)}</Text>
-                    <Text style={styles.navStatLabel}>distance</Text>
-                  </View>
-                </View>
+                ) : (
+                  <Text style={styles.navCollapsedLine}>
+                    {formatDuration(remainingDur ?? routeInfo.duration)} · {formatDistance(remainingDist ?? routeInfo.distance)} · arrive {arrivalTime(remainingDur ?? routeInfo.duration)}
+                  </Text>
+                )}
                 <View style={styles.navBtnRow}>
                   <TouchableOpacity
                     onPress={() => {
@@ -930,7 +947,7 @@ export default function DirectionsScreen() {
                     testID="voice-toggle"
                     activeOpacity={0.85}
                   >
-                    <Ionicons name={voiceOn ? "volume-high" : "volume-mute"} size={19} color={voiceOn ? theme.primary : theme.textMuted} />
+                    <Ionicons name={voiceOn ? "volume-high" : "volume-mute"} size={22} color={voiceOn ? theme.primary : theme.textMuted} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setShowSteps((s) => !s)}
@@ -938,7 +955,7 @@ export default function DirectionsScreen() {
                     testID="toggle-steps"
                     activeOpacity={0.85}
                   >
-                    <Ionicons name="list" size={19} color={showSteps ? theme.primary : theme.textSecondary} />
+                    <Ionicons name="list" size={22} color={showSteps ? theme.primary : theme.textSecondary} />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={exitNav} style={styles.endBtn} testID="end-route-btn" activeOpacity={0.85}>
                     <Ionicons name="close" size={18} color="#fff" />
@@ -973,21 +990,23 @@ export default function DirectionsScreen() {
                     <Text style={styles.goText}>GO</Text>
                   </TouchableOpacity>
                 </View>
-                <View style={styles.goLinks}>
-                  <TouchableOpacity onPress={() => setShowSteps((s) => !s)} testID="toggle-steps-link" hitSlop={8}>
-                    <Text style={styles.linkText}>{showSteps ? "Hide steps" : `${steps.length} steps`}</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.linkDot}>·</Text>
-                  {!etaShare ? (
-                    <TouchableOpacity onPress={shareEta} disabled={sharingEta} testID="share-eta-btn" hitSlop={8}>
-                      <Text style={styles.linkText}>{sharingEta ? "Sharing…" : "Share live ETA"}</Text>
+                {panelOpen && (
+                  <View style={styles.goLinks}>
+                    <TouchableOpacity onPress={() => setShowSteps((s) => !s)} testID="toggle-steps-link" hitSlop={8}>
+                      <Text style={styles.linkText}>{showSteps ? "Hide steps" : `${steps.length} steps`}</Text>
                     </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity onPress={stopEtaShare} testID="stop-eta-btn" hitSlop={8}>
-                      <Text style={[styles.linkText, { color: theme.error }]}>Stop sharing ETA</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                    <Text style={styles.linkDot}>·</Text>
+                    {!etaShare ? (
+                      <TouchableOpacity onPress={shareEta} disabled={sharingEta} testID="share-eta-btn" hitSlop={8}>
+                        <Text style={styles.linkText}>{sharingEta ? "Sharing…" : "Share live ETA"}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity onPress={stopEtaShare} testID="stop-eta-btn" hitSlop={8}>
+                        <Text style={[styles.linkText, { color: theme.error }]}>Stop sharing ETA</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
               </>
             )
           ) : (
@@ -1000,7 +1019,7 @@ export default function DirectionsScreen() {
             )
           )}
 
-          {showSteps && steps.length > 0 && (
+          {panelOpen && showSteps && steps.length > 0 && (
             <View style={styles.stepsList} testID="steps-list">
               <ScrollView style={{ maxHeight: 220 }}>
                 {steps.map((s, i) => (
@@ -1147,11 +1166,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   navBanner: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    paddingHorizontal: 16, paddingVertical: 16,
+    flexDirection: "row", alignItems: "center", gap: 16,
+    paddingHorizontal: 18, paddingVertical: 20,
   },
   navIconBox: {
-    width: 60, height: 60, borderRadius: 18,
+    width: 66, height: 66, borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center", justifyContent: "center",
   },
@@ -1159,7 +1178,7 @@ const styles = StyleSheet.create({
   navInstr: { color: "rgba(255,255,255,0.96)", fontSize: 16, fontWeight: "600", marginTop: 1 },
   thenRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 16, paddingVertical: 10,
+    paddingHorizontal: 18, paddingVertical: 13,
     backgroundColor: "rgba(0,0,0,0.25)",
   },
   thenText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "600", flex: 1 },
@@ -1178,8 +1197,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(10,10,12,0.97)",
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     borderTopWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 20, paddingTop: 20, gap: 16,
+    paddingHorizontal: 20, paddingTop: 10, gap: 16,
   },
+  grabberWrap: { alignItems: "center", paddingVertical: 6 },
+  grabber: { width: 42, height: 5, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.55 },
+  navCollapsedLine: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", textAlign: "center", paddingVertical: 2 },
   profileRow: { gap: 10, paddingRight: 16 },
   profileChip: {
     height: 42, flexShrink: 0,
@@ -1241,31 +1263,31 @@ const styles = StyleSheet.create({
   linkDot: { color: theme.textMuted, fontSize: 14 },
 
   // Navigation footer
-  navFooter: { gap: 12, paddingTop: 2 },
+  navFooter: { gap: 18, paddingTop: 8 },
   navStats: {
     flexDirection: "row", alignItems: "center",
-    backgroundColor: theme.surface, borderRadius: 18,
+    backgroundColor: theme.surface, borderRadius: 20,
     borderWidth: 1, borderColor: theme.border,
-    paddingVertical: 13,
+    paddingVertical: 22,
   },
-  navStat: { flex: 1, alignItems: "center" },
-  navStatDivider: { width: 1, height: 30, backgroundColor: theme.border },
-  navStatHero: { color: theme.primary, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
-  navStatValue: { color: theme.textPrimary, fontSize: 21, fontWeight: "800", letterSpacing: -0.4 },
-  navStatLabel: { color: theme.textMuted, fontSize: 11, marginTop: 3, textTransform: "uppercase", letterSpacing: 0.4 },
-  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  navStat: { flex: 1, alignItems: "center", gap: 6 },
+  navStatDivider: { width: 1, height: 38, backgroundColor: theme.border },
+  navStatHero: { color: theme.primary, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
+  navStatValue: { color: theme.textPrimary, fontSize: 25, fontWeight: "800", letterSpacing: -0.5 },
+  navStatLabel: { color: theme.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
+  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   iconCircle: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 54, height: 54, borderRadius: 27,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   endBtn: {
-    flex: 1, flexDirection: "row", gap: 7,
-    height: 46, borderRadius: 23,
+    flex: 1, flexDirection: "row", gap: 8,
+    height: 54, borderRadius: 27,
     backgroundColor: theme.error,
     alignItems: "center", justifyContent: "center",
   },
-  endBtnText: { color: "#fff", fontSize: 14.5, fontWeight: "800" },
+  endBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
   stepsList: {
     backgroundColor: theme.surface,
