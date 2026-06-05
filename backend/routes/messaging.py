@@ -30,10 +30,12 @@ from models import (
     GroupConversationPatch,
     Message,
     MessageCreate,
+    MessageEdit,
     PublicUser,
 )
 from routes.notifications import emit_notification
 from services.encryption import encrypt_text, decrypt_text
+from services.link_preview import fetch_link_preview, first_url
 
 
 def _decrypt_msg(doc: dict) -> dict:
@@ -50,7 +52,7 @@ router = APIRouter()
 async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
     """Hydrate a conversation into a ConversationView from `viewer_id`'s perspective."""
     kind = conv.get("kind", "dm")
-    last_q = {"conversation_id": conv["id"]}
+    last_q = {"conversation_id": conv["id"], "deleted": {"$ne": True}}
     cleared_at = (conv.get("cleared_at") or {}).get(viewer_id)
     if cleared_at:
         last_q["created_at"] = {"$gt": cleared_at}
@@ -377,6 +379,23 @@ async def send_message(
             media.append(d)
         if not media:
             raise HTTPException(status_code=400, detail="Media required")
+    post_id: Optional[str] = None
+    if body.type == "post":
+        post_id = body.post_id
+        if not post_id:
+            raise HTTPException(status_code=400, detail="post_id required")
+        exists = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})
+        if not exists:
+            raise HTTPException(status_code=404, detail="Post not found")
+    # Link preview for text messages (best-effort, mirrors post creation).
+    link_prev: Optional[dict] = None
+    if body.type == "text":
+        url = first_url((body.text or ""))
+        if url:
+            try:
+                link_prev = await fetch_link_preview(url)
+            except Exception:
+                link_prev = None
     now = datetime.now(timezone.utc)
     msg = {
         "id": str(uuid.uuid4()),
@@ -391,6 +410,9 @@ async def send_message(
         "media": media,
         "audio_base64": audio_b64,
         "audio_duration_ms": body.audio_duration_ms if body.type == "voice" else None,
+        "post_id": post_id,
+        "link_preview": link_prev,
+        "deleted": False,
         "created_at": now,
     }
     await db.messages.insert_one(msg.copy())
@@ -409,6 +431,8 @@ async def send_message(
         preview = "📍 sent a place"
     elif body.type == "voice":
         preview = "🎤 sent a voice message"
+    elif body.type == "post":
+        preview = "📄 shared a post"
     else:
         preview = "📎 sent media"
     for pid in conv["participant_ids"]:
@@ -436,6 +460,40 @@ async def mark_read(conv_id: str, authorization: Optional[str] = Header(None)):
     return {"ok": True}
 
 
+@router.patch("/conversations/{conv_id}/messages/{msg_id}", response_model=Message)
+async def edit_message(
+    conv_id: str, msg_id: str, body: MessageEdit, authorization: Optional[str] = Header(None)
+):
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    m = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    if not m or m.get("sender_id") != user["user_id"]:
+        raise HTTPException(status_code=404, detail="Message not found or not yours")
+    if m.get("deleted"):
+        raise HTTPException(status_code=400, detail="Message was deleted")
+    if (m.get("type") or "text") != "text":
+        raise HTTPException(status_code=400, detail="Only text messages can be edited")
+    new_text = (body.text or "").strip()
+    if not new_text:
+        raise HTTPException(status_code=400, detail="Empty message")
+    now = datetime.now(timezone.utc)
+    link_prev: Optional[dict] = None
+    url = first_url(new_text)
+    if url:
+        try:
+            link_prev = await fetch_link_preview(url)
+        except Exception:
+            link_prev = None
+    await db.messages.update_one(
+        {"id": msg_id, "conversation_id": conv_id, "sender_id": user["user_id"]},
+        {"$set": {"text": encrypt_text(new_text[:2000]), "edited_at": now, "link_preview": link_prev}},
+    )
+    m2 = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    return Message(**_decrypt_msg(m2))
+
+
 @router.delete("/conversations/{conv_id}/messages/{msg_id}")
 async def delete_message(
     conv_id: str, msg_id: str, authorization: Optional[str] = Header(None)
@@ -444,11 +502,22 @@ async def delete_message(
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or user["user_id"] not in conv["participant_ids"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    res = await db.messages.delete_one(
-        {"id": msg_id, "conversation_id": conv_id, "sender_id": user["user_id"]}
+    m = await db.messages.find_one(
+        {"id": msg_id, "conversation_id": conv_id, "sender_id": user["user_id"]}, {"_id": 0}
     )
-    if res.deleted_count == 0:
+    if not m:
         raise HTTPException(status_code=404, detail="Message not found or not yours")
+    # Soft delete: keep a tombstone so the other side sees "message deleted"
+    # (Facebook/Messenger-style) instead of the bubble silently vanishing.
+    await db.messages.update_one(
+        {"id": msg_id, "conversation_id": conv_id, "sender_id": user["user_id"]},
+        {"$set": {
+            "deleted": True, "text": "", "media": [], "audio_base64": None,
+            "audio_duration_ms": None, "place_name": None, "place_address": None,
+            "place_longitude": None, "place_latitude": None, "post_id": None,
+            "link_preview": None,
+        }},
+    )
     return {"ok": True}
 
 

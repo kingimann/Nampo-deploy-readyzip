@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Image,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
+import * as Clipboard from "expo-clipboard";
 import {
   useAudioRecorder,
   AudioModule,
@@ -14,9 +15,12 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, Message } from "@/src/api/client";
+import { api, Message, Post } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
 import VoiceMessage from "@/src/components/VoiceMessage";
+import RichText from "@/src/components/RichText";
+import LinkPreviewCard from "@/src/components/LinkPreviewCard";
+import QuoteCard from "@/src/components/QuoteCard";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { ensureKeyPair, getPeerPublicKey, encryptForPeer, isE2E, tryDecrypt } from "@/src/utils/e2e";
@@ -37,6 +41,9 @@ export default function ChatScreen() {
   const [recording, setRecording] = useState(false);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [editingMsg, setEditingMsg] = useState<Message | null>(null);
+  const [actionMsg, setActionMsg] = useState<Message | null>(null);
+  const [sharedPosts, setSharedPosts] = useState<Record<string, Post>>({});
   const recordStartRef = useRef<number>(0);
 
   // Generate / load our keypair and publish public key. Then fetch peer's key.
@@ -91,17 +98,22 @@ export default function ChatScreen() {
     api.markConversationRead(id).catch(() => {});
   }, [id]);
 
-  // poll for new messages every 3s
+  // poll for new messages every 3s — detect new/edited/deleted/read changes,
+  // not just count changes, so the peer's edits and deletions show up.
+  const msgSigRef = useRef("");
+  const msgSig = (arr: Message[]) =>
+    arr.map((x) => `${x.id}:${x.edited_at || ""}:${x.deleted ? 1 : 0}:${x.read_at || ""}`).join("|");
   useEffect(() => {
     if (!id) return;
     const t = setInterval(async () => {
       try {
         const m = await api.listMessages(id);
-        if (m.length !== messages.length) setMessages(m);
+        const s = msgSig(m);
+        if (s !== msgSigRef.current) { msgSigRef.current = s; setMessages(m); }
       } catch {}
     }, 3000);
     return () => clearInterval(t);
-  }, [id, messages.length]);
+  }, [id]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -109,7 +121,71 @@ export default function ChatScreen() {
     }
   }, [messages.length]);
 
+  // Lazily hydrate any shared-post messages so they render as a preview card.
+  useEffect(() => {
+    const ids = Array.from(new Set(
+      messages.filter((m) => m.type === "post" && m.post_id && !sharedPosts[m.post_id!]).map((m) => m.post_id!),
+    ));
+    if (!ids.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const pid of ids) {
+        try {
+          const p = await api.getPost(pid);
+          if (!cancelled) setSharedPosts((c) => ({ ...c, [pid]: p }));
+        } catch {}
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [messages, sharedPosts]);
+
+  // Plaintext for a message (handles E2E decryption cache).
+  const plainOf = (m: Message): string =>
+    isE2E(m.text || "") ? (decrypted[m.id] ?? "") : (m.text || "");
+
+  const beginEdit = (m: Message) => {
+    setActionMsg(null);
+    setEditingMsg(m);
+    setText(plainOf(m));
+  };
+  const cancelEdit = () => { setEditingMsg(null); setText(""); };
+
+  const copyMessage = async (m: Message) => {
+    setActionMsg(null);
+    try { await Clipboard.setStringAsync(plainOf(m)); } catch {}
+  };
+
+  const deleteMessage = async (m: Message) => {
+    setActionMsg(null);
+    if (!id) return;
+    // Optimistically show the tombstone; server soft-deletes.
+    setMessages((arr) => arr.map((x) => x.id === m.id ? { ...x, deleted: true } : x));
+    try { await api.deleteMessage(id, m.id); } catch { load(); }
+  };
+
+  const saveEdit = async () => {
+    if (!editingMsg || !id) return;
+    const draft = text.trim();
+    if (!draft) return;
+    setSending(true);
+    const target = editingMsg;
+    setEditingMsg(null);
+    setText("");
+    try {
+      const payload = peerKey ? await encryptForPeer(draft, peerKey) : draft;
+      const updated = await api.editMessage(id, target.id, payload);
+      if (peerKey) setDecrypted((d) => ({ ...d, [updated.id]: draft }));
+      setMessages((m) => m.map((x) => x.id === updated.id ? updated : x));
+    } catch {
+      setEditingMsg(target);
+      setText(draft);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const send = async () => {
+    if (editingMsg) { await saveEdit(); return; }
     if (!text.trim() || !id) return;
     setSending(true);
     const draft = text.trim();
@@ -291,25 +367,30 @@ export default function ChatScreen() {
             contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, gap: 6 }}
             renderItem={({ item }) => {
               const mine = item.sender_id === user?.user_id;
-              const onLongPress = () => {
-                if (!mine || !id) return;
-                api.deleteMessage(id, item.id).then(() => {
-                  setMessages((m) => m.filter((x) => x.id !== item.id));
-                }).catch(() => {});
-              };
+              const encrypted = isE2E(item.text || "");
+              const bodyText = encrypted ? (decrypted[item.id] ?? "🔒 Encrypted") : (item.text || "");
               return (
                 <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowOther]}>
                   <TouchableOpacity
-                    onLongPress={onLongPress}
+                    onLongPress={() => { if (!item.deleted) setActionMsg(item); }}
+                    delayLongPress={300}
                     activeOpacity={0.9}
                     style={[
                       styles.bubble,
                       mine ? styles.bubbleMine : styles.bubbleOther,
-                      item.type === "place" && styles.bubblePlace,
+                      item.type === "place" && !item.deleted && styles.bubblePlace,
+                      item.deleted && styles.bubbleDeleted,
                     ]}
                     testID={`msg-${item.id}`}
                   >
-                    {item.type === "place" ? (
+                    {item.deleted ? (
+                      <View style={styles.deletedRow}>
+                        <Ionicons name="ban-outline" size={14} color={mine ? "rgba(255,255,255,0.75)" : theme.textMuted} />
+                        <Text style={[styles.deletedText, mine && { color: "rgba(255,255,255,0.8)" }]}>
+                          {mine ? "You deleted this message" : "This message was deleted"}
+                        </Text>
+                      </View>
+                    ) : item.type === "place" ? (
                       <TouchableOpacity onPress={() => openPlace(item)} testID={`place-msg-${item.id}`}>
                         <View style={styles.placeHeader}>
                           <Ionicons name="location" size={16} color={mine ? "#fff" : theme.primary} />
@@ -334,16 +415,24 @@ export default function ChatScreen() {
                         testID={`voice-msg-${item.id}`}
                       />
                     ) : item.type === "media" && (item.media || []).length > 0 ? (
-                      <View style={{ width: 240 }}>
+                      <View style={styles.mediaWrap}>
                         <MediaGrid media={item.media || []} testID={`msg-${item.id}`} />
                       </View>
+                    ) : item.type === "post" && item.post_id ? (
+                      sharedPosts[item.post_id] ? (
+                        <View style={styles.sharedWrap}>
+                          <QuoteCard post={sharedPosts[item.post_id]} />
+                        </View>
+                      ) : (
+                        <View style={styles.sharedLoading}>
+                          <ActivityIndicator color={mine ? "#fff" : theme.primary} size="small" />
+                        </View>
+                      )
                     ) : (
-                      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 6, flexWrap: "wrap" }}>
-                        <Text style={[styles.bubbleText, mine && { color: "#fff" }]}>
-                          {isE2E(item.text || "") ? (decrypted[item.id] ?? "🔒 Encrypted") : item.text}
-                        </Text>
-                        {isE2E(item.text || "") && (
-                          <Ionicons name="lock-closed" size={10} color={mine ? "rgba(255,255,255,0.6)" : theme.textMuted} />
+                      <View>
+                        <RichText text={bodyText} style={[styles.bubbleText, mine && { color: "#fff" }]} />
+                        {!encrypted && !!item.link_preview && (
+                          <LinkPreviewCard preview={item.link_preview as any} />
                         )}
                       </View>
                     )}
@@ -352,7 +441,11 @@ export default function ChatScreen() {
                     <Text style={styles.metaTime}>
                       {new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </Text>
-                    {mine && (
+                    {!!item.edited_at && !item.deleted && <Text style={styles.metaTime}>· edited</Text>}
+                    {encrypted && !item.deleted && (
+                      <Ionicons name="lock-closed" size={10} color={theme.textMuted} />
+                    )}
+                    {mine && !item.deleted && (
                       <Ionicons
                         name={item.read_at ? "checkmark-done" : "checkmark"}
                         size={14}
@@ -412,6 +505,16 @@ export default function ChatScreen() {
             </>
           )}
 
+          {editingMsg && !recording && (
+            <View style={styles.editBanner}>
+              <Ionicons name="create-outline" size={16} color={theme.primary} />
+              <Text style={styles.editBannerText} numberOfLines={1}>Editing message</Text>
+              <TouchableOpacity onPress={cancelEdit} testID="cancel-edit" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
             {recording ? (
               <>
@@ -458,14 +561,14 @@ export default function ChatScreen() {
                   multiline
                   testID="msg-input"
                 />
-                {text.trim() ? (
+                {text.trim() || editingMsg ? (
                   <TouchableOpacity
                     style={[styles.sendBtn, sending && { opacity: 0.5 }]}
                     onPress={send}
                     disabled={sending}
                     testID="send-btn"
                   >
-                    <Ionicons name="send" size={18} color="#fff" />
+                    <Ionicons name={editingMsg ? "checkmark" : "send"} size={18} color="#fff" />
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
@@ -482,6 +585,40 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Message action sheet (long-press a bubble) */}
+      <Modal
+        visible={!!actionMsg}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionMsg(null)}
+      >
+        <TouchableOpacity style={styles.actionBackdrop} activeOpacity={1} onPress={() => setActionMsg(null)}>
+          <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 16 }]}>
+            {actionMsg && (actionMsg.type === "text" || actionMsg.type === "post") && plainOf(actionMsg).length > 0 && (
+              <TouchableOpacity style={styles.actionRow} onPress={() => copyMessage(actionMsg)} testID="msg-action-copy">
+                <Ionicons name="copy-outline" size={18} color={theme.textPrimary} />
+                <Text style={styles.actionRowText}>Copy</Text>
+              </TouchableOpacity>
+            )}
+            {actionMsg && actionMsg.sender_id === user?.user_id && actionMsg.type === "text" && (
+              <TouchableOpacity style={styles.actionRow} onPress={() => beginEdit(actionMsg)} testID="msg-action-edit">
+                <Ionicons name="create-outline" size={18} color={theme.textPrimary} />
+                <Text style={styles.actionRowText}>Edit</Text>
+              </TouchableOpacity>
+            )}
+            {actionMsg && actionMsg.sender_id === user?.user_id && (
+              <TouchableOpacity style={styles.actionRow} onPress={() => deleteMessage(actionMsg)} testID="msg-action-delete">
+                <Ionicons name="trash-outline" size={18} color={theme.error} />
+                <Text style={[styles.actionRowText, { color: theme.error }]}>Delete</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.actionRow, { justifyContent: "center" }]} onPress={() => setActionMsg(null)}>
+              <Text style={[styles.actionRowText, { color: theme.textMuted }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -517,10 +654,38 @@ const styles = StyleSheet.create({
   },
   bubblePlace: { paddingVertical: 12 },
   bubbleText: { color: theme.textPrimary, fontSize: 15, lineHeight: 20 },
+  bubbleDeleted: { backgroundColor: "transparent", borderWidth: 1, borderColor: theme.border, borderStyle: "dashed" },
+  deletedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  deletedText: { color: theme.textMuted, fontSize: 13, fontStyle: "italic" },
+  mediaWrap: { width: 250 },
+  sharedWrap: { width: 250 },
+  sharedLoading: { width: 200, height: 80, alignItems: "center", justifyContent: "center" },
   placeHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   placeName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", flex: 1 },
   placeAddr: { color: theme.textSecondary, fontSize: 12 },
   placeTap: { marginTop: 6, color: theme.primary, fontSize: 12, fontWeight: "600" },
+
+  editBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 12, marginBottom: 6, paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: theme.surface, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  editBannerText: { flex: 1, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
+
+  actionBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  actionSheet: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingTop: 12, paddingHorizontal: 16, gap: 6,
+    borderTopWidth: 1, borderColor: theme.border,
+  },
+  actionRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: theme.surfaceAlt, borderRadius: 12,
+    paddingVertical: 14, paddingHorizontal: 16,
+  },
+  actionRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
 
   composer: {
     flexDirection: "row", gap: 8, alignItems: "flex-end",

@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image, Share, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import * as Clipboard from "expo-clipboard";
 import { Post } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import MediaGrid from "./MediaGrid";
@@ -13,6 +12,7 @@ import LinkPreviewCard from "./LinkPreviewCard";
 import PollCard from "./PollCard";
 import QuoteCard from "./QuoteCard";
 import LikersModal from "./LikersModal";
+import ShareToChatSheet from "./ShareToChatSheet";
 
 type Props = {
   post: Post;
@@ -45,6 +45,7 @@ export default function PostCard({
 }: Props) {
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
+  const [shareOpen, setShareOpen] = useState(false);
   // If this entry is a pure repost (no text, has repost_of), render the original
   // with a "X reposted" banner.
   const isRepost = !!post.repost_of && post.reposted_post;
@@ -65,18 +66,6 @@ export default function PostCard({
   const onCommentPress = () => {
     if (onComments) onComments(display);
     else onReply(display);
-  };
-
-  const onShare = async () => {
-    const url = `atlas://post/${display.id}`;  // deep link
-    const msg = display.text ? `${display.text}\n\n${url}` : url;
-    try {
-      if (Platform.OS === "web") {
-        await Clipboard.setStringAsync(url);
-        return;
-      }
-      await Share.share({ message: msg, url });
-    } catch {}
   };
 
   return (
@@ -218,10 +207,10 @@ export default function PostCard({
 
         <TouchableOpacity
           style={styles.actionBtn}
-          onPress={(e) => { e.stopPropagation?.(); onShare(); }}
+          onPress={(e) => { e.stopPropagation?.(); setShareOpen(true); }}
           testID={`share-${post.id}`}
         >
-          <Ionicons name="share-outline" size={17} color={theme.textSecondary} />
+          <Ionicons name="paper-plane-outline" size={17} color={theme.textSecondary} />
         </TouchableOpacity>
         {!!display.views_count && display.views_count > 0 && (
           <View style={styles.actionBtn}>
@@ -237,6 +226,8 @@ export default function PostCard({
         kind={likers.kind}
         onClose={() => setLikers((s) => ({ ...s, open: false }))}
       />
+
+      <ShareToChatSheet visible={shareOpen} post={display} onClose={() => setShareOpen(false)} />
     </TouchableOpacity>
   );
 }

@@ -29,6 +29,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
 
   const load = useCallback(async () => {
@@ -41,7 +42,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
   }, [post]);
 
   useEffect(() => {
-    if (visible && post) { setText(""); load(); }
+    if (visible && post) { setText(""); setEditingId(null); load(); }
   }, [visible, post, load]);
 
   const send = async () => {
@@ -49,11 +50,24 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
     if (!body || !post || sending) return;
     setSending(true);
     try {
-      const reply = await api.createPost({ text: body, parent_id: post.id });
-      setReplies((arr) => [...arr, reply]);
+      if (editingId) {
+        const updated = await api.editPost(editingId, { text: body });
+        setReplies((arr) => arr.map((r) => (r.id === editingId ? updated : r)));
+        setEditingId(null);
+      } else {
+        const reply = await api.createPost({ text: body, parent_id: post.id });
+        setReplies((arr) => [...arr, reply]);
+        onCommented?.(post.id, reply);
+      }
       setText("");
-      onCommented?.(post.id, reply);
     } catch {} finally { setSending(false); }
+  };
+
+  const beginEdit = (c: Post) => { setEditingId(c.id); setText(c.text || ""); inputRef.current?.focus(); };
+  const cancelEdit = () => { setEditingId(null); setText(""); };
+  const removeComment = async (c: Post) => {
+    setReplies((arr) => arr.filter((r) => r.id !== c.id));
+    try { await api.deletePost(c.id); } catch {}
   };
 
   const openProfile = (name?: string) => {
@@ -104,14 +118,34 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                       <View style={styles.rowHead}>
                         <Text style={styles.rowName} numberOfLines={1}>{item.author.name}</Text>
                         <Text style={styles.rowTime}>{fmtTime(item.created_at)}</Text>
+                        {!!item.edited_at && <Text style={styles.rowTime}>· edited</Text>}
                       </View>
                       {!!item.text && <RichText text={item.text} style={styles.rowText} />}
+                      {item.user_id === user?.user_id && (
+                        <View style={styles.rowActions}>
+                          <TouchableOpacity onPress={() => beginEdit(item)} testID={`comment-edit-${item.id}`}>
+                            <Text style={styles.rowAction}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => removeComment(item)} testID={`comment-delete-${item.id}`}>
+                            <Text style={[styles.rowAction, { color: theme.error }]}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
                   </View>
                 )}
               />
             )}
 
+            {editingId && (
+              <View style={styles.editHint}>
+                <Ionicons name="create-outline" size={14} color={theme.primary} />
+                <Text style={[styles.editHintText, { flex: 1 }]}>Editing comment</Text>
+                <TouchableOpacity onPress={cancelEdit} testID="comment-cancel-edit">
+                  <Text style={[styles.editHintText, { color: theme.textMuted }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.inputRow}>
               <View style={styles.inputAvatar}>
                 {user?.picture ? (
@@ -123,7 +157,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
               <TextInput
                 ref={inputRef}
                 style={styles.input}
-                placeholder="Add a comment…"
+                placeholder={editingId ? "Edit your comment…" : "Add a comment…"}
                 placeholderTextColor={theme.textMuted}
                 value={text}
                 onChangeText={setText}
@@ -136,7 +170,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                 style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.4 }]}
                 testID="comment-send"
               >
-                {sending ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="arrow-up" size={18} color="#fff" />}
+                {sending ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name={editingId ? "checkmark" : "arrow-up"} size={18} color="#fff" />}
               </TouchableOpacity>
             </View>
           </View>
@@ -172,6 +206,15 @@ const styles = StyleSheet.create({
   rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "800", flexShrink: 1 },
   rowTime: { color: theme.textMuted, fontSize: 11 },
   rowText: { color: theme.textPrimary, fontSize: 14, lineHeight: 19 },
+  rowActions: { flexDirection: "row", gap: 16, marginTop: 5 },
+  rowAction: { color: theme.textMuted, fontSize: 12, fontWeight: "700" },
+
+  editHint: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginBottom: 6, paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: theme.surface, borderRadius: 10, borderWidth: 1, borderColor: theme.border,
+  },
+  editHintText: { color: theme.textSecondary, fontSize: 12, fontWeight: "600" },
 
   inputRow: {
     flexDirection: "row", alignItems: "flex-end", gap: 10,

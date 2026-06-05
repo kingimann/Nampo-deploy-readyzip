@@ -107,6 +107,10 @@ export const api = {
     }),
   markConversationRead: (conv_id: string) =>
     request<{ ok: boolean }>(`/conversations/${conv_id}/read`, { method: "POST" }),
+  editMessage: (conv_id: string, msg_id: string, text: string) =>
+    request<Message>(`/conversations/${conv_id}/messages/${msg_id}`, {
+      method: "PATCH", body: JSON.stringify({ text }),
+    }),
   deleteMessage: (conv_id: string, msg_id: string) =>
     request<{ ok: boolean }>(`/conversations/${conv_id}/messages/${msg_id}`, {
       method: "DELETE",
@@ -392,22 +396,27 @@ export type FsqProfile = {
 };
 export type Message = {
   id: string; conversation_id: string; sender_id: string;
-  type: "text" | "place" | "media" | "voice"; text?: string;
+  type: "text" | "place" | "media" | "voice" | "post"; text?: string;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
   audio_base64?: string | null;
   audio_duration_ms?: number | null;
+  post_id?: string | null;
+  link_preview?: LinkPreview | null;
+  deleted?: boolean;
+  edited_at?: string | null;
   read_at?: string | null;
   created_at: string;
 };
 export type MessageCreate = {
-  type: "text" | "place" | "media" | "voice"; text?: string;
+  type: "text" | "place" | "media" | "voice" | "post"; text?: string;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
   audio_base64?: string;
   audio_duration_ms?: number;
+  post_id?: string;
 };
 export type ConversationView = {
   id: string;

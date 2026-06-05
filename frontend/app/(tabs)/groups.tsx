@@ -125,7 +125,7 @@ export default function GroupsScreen() {
       )}
 
       <TouchableOpacity
-        style={[styles.fab, { bottom: insets.bottom + 80 }]}
+        style={[styles.fab, { bottom: insets.bottom + 70 }]}
         onPress={() => setComposeOpen(true)}
         testID="new-group-fab"
       >
