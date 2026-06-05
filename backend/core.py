@@ -48,12 +48,29 @@ async def init_pool() -> None:
     _real_db = await init_db(dsn)
     # Self-provision the ephemeral OAuth CSRF-state table (jsonb-doc pattern,
     # like the other collections) so Google sign-in works in dev and prod.
+    # Provision the collections that depend on a UNIQUE index for correctness
+    # (the route code relies on DuplicateKeyError for idempotency/uniqueness).
+    # Every other collection self-provisions on first write (see db.py). On a
+    # fresh database none of these exist yet, which is why a brand-new deploy
+    # would otherwise 500 on register/login.
+    _UNIQUE_INDEXES = [
+        ("oauth_states", "idx_oauth_states_state", "((doc ->> 'state'))"),
+        ("users", "uniq_users_email", "((doc ->> 'email'))"),
+        ("users", "uniq_users_username", "((doc ->> 'username'))"),
+        ("user_sessions", "uniq_user_sessions_token", "((doc ->> 'session_token'))"),
+        ("post_likes", "uniq_post_likes", "((doc ->> 'post_id'), (doc ->> 'user_id'))"),
+        ("post_dislikes", "uniq_post_dislikes", "((doc ->> 'post_id'), (doc ->> 'user_id'))"),
+        ("post_bookmarks", "uniq_post_bookmarks", "((doc ->> 'post_id'), (doc ->> 'user_id'))"),
+        ("post_views", "uniq_post_views", "((doc ->> 'post_id'), (doc ->> 'user_id'))"),
+        ("follows", "uniq_follows", "((doc ->> 'follower_id'), (doc ->> 'followee_id'))"),
+        ("group_members", "uniq_group_members", "((doc ->> 'group_id'), (doc ->> 'user_id'))"),
+    ]
     async with _real_db._pool.acquire() as conn:
-        await conn.execute("CREATE TABLE IF NOT EXISTS oauth_states (doc jsonb NOT NULL)")
-        await conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_states_state "
-            "ON oauth_states ((doc ->> 'state'))"
-        )
+        for table, idx, cols in _UNIQUE_INDEXES:
+            await conn.execute(f"CREATE TABLE IF NOT EXISTS {table} (doc jsonb NOT NULL)")
+            await conn.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} ON {table} {cols}"
+            )
     logger.info("PostgreSQL pool ready")
 
 

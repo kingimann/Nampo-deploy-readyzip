@@ -413,7 +413,10 @@ class Collection:
         order = self._sort_sql(sort_specs)
         sql = f"SELECT doc FROM {self.name} WHERE {where} {order} LIMIT 1"
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(sql, *params)
+            try:
+                row = await conn.fetchrow(sql, *params)
+            except asyncpg.UndefinedTableError:
+                return None  # collection has no rows yet (table not created)
         if row is None:
             return None
         return _load_doc(row["doc"])
@@ -438,19 +441,36 @@ class Collection:
             f"WHERE {where} {order} {limit_clause} {skip_clause}"
         )
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(sql, *params)
+            try:
+                rows = await conn.fetch(sql, *params)
+            except asyncpg.UndefinedTableError:
+                return []  # collection has no rows yet (table not created)
         return [_load_doc(r["doc"]) for r in rows]
+
+    async def _ensure_table(self) -> None:
+        """Create this collection's backing table on demand (Mongo-style:
+        collections spring into existence on first write)."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                f"CREATE TABLE IF NOT EXISTS {self.name} (doc jsonb NOT NULL)"
+            )
 
     async def insert_one(self, doc: dict) -> None:
         doc_json = _to_json(doc)
-        try:
-            async with self.pool.acquire() as conn:
-                await conn.execute(
-                    f"INSERT INTO {self.name}(doc) VALUES($1::jsonb)",
-                    doc_json,
-                )
-        except asyncpg.UniqueViolationError as exc:
-            raise DuplicateKeyError(str(exc)) from exc
+        for attempt in (1, 2):
+            try:
+                async with self.pool.acquire() as conn:
+                    await conn.execute(
+                        f"INSERT INTO {self.name}(doc) VALUES($1::jsonb)",
+                        doc_json,
+                    )
+                return
+            except asyncpg.UndefinedTableError:
+                if attempt == 2:
+                    raise
+                await self._ensure_table()  # first write to a new collection
+            except asyncpg.UniqueViolationError as exc:
+                raise DuplicateKeyError(str(exc)) from exc
 
     async def update_one(
         self,
@@ -539,7 +559,10 @@ class Collection:
             f"WHERE ctid = (SELECT ctid FROM {self.name} WHERE {where} LIMIT 1)"
         )
         async with self.pool.acquire() as conn:
-            result = await conn.execute(sql, *params)
+            try:
+                result = await conn.execute(sql, *params)
+            except asyncpg.UndefinedTableError:
+                return DeleteResult(0)
         deleted = int(result.split()[-1])
         return DeleteResult(deleted)
 
@@ -547,9 +570,12 @@ class Collection:
         params: List[Any] = []
         where = self._build_filter_sql(filter_dict or {}, params)
         async with self.pool.acquire() as conn:
-            result = await conn.execute(
-                f"DELETE FROM {self.name} WHERE {where}", *params
-            )
+            try:
+                result = await conn.execute(
+                    f"DELETE FROM {self.name} WHERE {where}", *params
+                )
+            except asyncpg.UndefinedTableError:
+                return DeleteResult(0)
         deleted = int(result.split()[-1])
         return DeleteResult(deleted)
 
@@ -557,9 +583,12 @@ class Collection:
         params: List[Any] = []
         where = self._build_filter_sql(filter_dict or {}, params)
         async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"SELECT COUNT(*) AS n FROM {self.name} WHERE {where}", *params
-            )
+            try:
+                row = await conn.fetchrow(
+                    f"SELECT COUNT(*) AS n FROM {self.name} WHERE {where}", *params
+                )
+            except asyncpg.UndefinedTableError:
+                return 0
         return row["n"]
 
     # No-op stubs so any leftover create_index calls don't crash
