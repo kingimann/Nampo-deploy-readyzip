@@ -1,2 +1,3 @@
 - [DB table provisioning](db-table-provisioning.md) — jsonb-doc tables, no migrations; new collections must self-provision in core.init_pool or they break prod.
 - [Expo stale bundle](expo-stale-bundle.md) — console ReferenceError/"Invalid hook call" with clean tsc/grep usually = stale Metro web bundle; restart frontend, check log timestamps.
+- [Frontend dep install location](frontend-dep-install-location.md) — Expo app is standalone in ./frontend; install with `cd frontend && npx expo install`, never the root package tool.
