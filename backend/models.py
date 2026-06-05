@@ -455,6 +455,7 @@ class Post(BaseModel):
     promoted_until: Optional[datetime] = None
     edited_at: Optional[datetime] = None
     reposted_by_me: bool = False
+    pinned: bool = False
     created_at: datetime
 
 

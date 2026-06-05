@@ -58,19 +58,36 @@ export default function FeedScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // Apply an authoritative engagement snapshot from the server to a post (and
+  // to it wherever it appears as a reposted_post) — keeps counts exact.
+  const applyEngagement = (updated: Post) => {
+    const e = {
+      liked_by_me: updated.liked_by_me, likes_count: updated.likes_count,
+      disliked_by_me: updated.disliked_by_me, dislikes_count: updated.dislikes_count,
+    };
+    setPosts((arr) => arr.map((p) => {
+      if (p.id === updated.id) return { ...p, ...e };
+      if (p.reposted_post && p.reposted_post.id === updated.id)
+        return { ...p, reposted_post: { ...p.reposted_post, ...e } };
+      return p;
+    }));
+  };
+
   const onLike = async (post: Post) => {
     setPosts((arr) => arr.map((p) => {
       const upd = (q: Post): Post => ({
         ...q,
         liked_by_me: !q.liked_by_me,
         likes_count: q.likes_count + (q.liked_by_me ? -1 : 1),
+        disliked_by_me: q.liked_by_me ? q.disliked_by_me : false,
+        dislikes_count: (q.dislikes_count || 0) - (!q.liked_by_me && q.disliked_by_me ? 1 : 0),
       });
       if (p.id === post.id) return upd(p);
       if (p.reposted_post && p.reposted_post.id === post.id)
         return { ...p, reposted_post: upd(p.reposted_post) };
       return p;
     }));
-    try { await api.toggleLike(post.id); } catch { load(); }
+    try { applyEngagement(await api.toggleLike(post.id)); } catch { load(); }
   };
 
   const onDislike = async (post: Post) => {
@@ -91,7 +108,7 @@ export default function FeedScreen() {
         return { ...p, reposted_post: upd(p.reposted_post) };
       return p;
     }));
-    try { await api.toggleDislike(post.id); } catch { load(); }
+    try { applyEngagement(await api.toggleDislike(post.id)); } catch { load(); }
   };
 
   const onRepost = async (post: Post) => {
@@ -330,6 +347,20 @@ export default function FeedScreen() {
             >
               <Ionicons name="create-outline" size={18} color={theme.primary} />
               <Text style={styles.actionBtnText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { marginTop: 6 }]}
+              onPress={async () => {
+                const p = actionPost!; setActionPost(null);
+                try {
+                  const u = await api.pinPost(p.id);
+                  setPosts((arr) => arr.map((x) => (x.id === u.id ? { ...x, pinned: u.pinned } : x)));
+                } catch {}
+              }}
+              testID="post-action-pin"
+            >
+              <Ionicons name={actionPost?.pinned ? "pin" : "pin-outline"} size={18} color={theme.primary} />
+              <Text style={styles.actionBtnText}>{actionPost?.pinned ? "Unpin from profile" : "Pin to profile"}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtn, { marginTop: 6 }]}

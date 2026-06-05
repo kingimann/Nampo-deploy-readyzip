@@ -153,6 +153,7 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         promoted=_is_promoted(doc),
         promoted_until=doc.get("promoted_until") if _is_promoted(doc) else None,
         edited_at=doc.get("edited_at"),
+        pinned=bool(doc.get("pinned", False)),
         created_at=doc["created_at"],
     )
 
@@ -318,6 +319,7 @@ async def list_replies(post_id: str, authorization: Optional[str] = Header(None)
     user = await get_current_user(authorization)
     cursor = db.posts.find({"parent_id": post_id}, {"_id": 0}).sort("created_at", 1)
     docs = await cursor.to_list(200)
+    docs.sort(key=lambda d: not d.get("pinned", False))  # pinned comments first
     return [await _hydrate_post(d, user["user_id"]) for d in docs]
 
 
@@ -431,6 +433,7 @@ async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
         .sort("created_at", -1).limit(100)
     )
     docs = await cursor.to_list(100)
+    docs.sort(key=lambda d: not d.get("pinned", False))  # pinned posts first
     return [await _hydrate_post(d, me["user_id"]) for d in docs]
 
 
@@ -747,6 +750,29 @@ async def report_post(
     return {"ok": True}
 
 
+@router.post("/posts/{post_id}/pin", response_model=Post)
+async def toggle_pin(post_id: str, authorization: Optional[str] = Header(None)):
+    """Pin/unpin a post. A top-level post is pinned by its author (to the top of
+    their profile); a reply/comment is pinned by the parent post's author (to the
+    top of the thread)."""
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    parent_id = doc.get("parent_id")
+    if parent_id:
+        parent = await db.posts.find_one({"id": parent_id}, {"_id": 0, "user_id": 1})
+        owner = parent.get("user_id") if parent else None
+    else:
+        owner = doc.get("user_id")
+    if owner != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the owner can pin this")
+    new_pinned = not bool(doc.get("pinned", False))
+    await db.posts.update_one({"id": post_id}, {"$set": {"pinned": new_pinned}})
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
 def _has_playable_video(doc: dict) -> bool:
     """A reel must have a video whose data is actually loadable (data URI or
     remote URL) — filters out black screens from old file:// uploads."""
@@ -798,4 +824,5 @@ async def user_posts_with_reposts(
         .sort("created_at", -1).limit(100)
     )
     docs = await cursor.to_list(100)
+    docs.sort(key=lambda d: not d.get("pinned", False))  # pinned posts first
     return [await _hydrate_post(d, me["user_id"]) for d in docs]

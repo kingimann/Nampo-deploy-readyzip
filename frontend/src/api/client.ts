@@ -203,6 +203,8 @@ export const api = {
     request<Post>(`/posts/${id}/dislike`, { method: "POST" }),
   promotePost: (id: string, days = 7) =>
     request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days }) }),
+  pinPost: (id: string) =>
+    request<Post>(`/posts/${id}/pin`, { method: "POST" }),
   toggleRepost: (id: string) =>
     request<Post>(`/posts/${id}/repost`, { method: "POST" }),
   toggleBookmark: (id: string) =>
@@ -614,6 +616,7 @@ export type Post = {
   views_count?: number;
   liked_by_me: boolean; disliked_by_me?: boolean; reposted_by_me?: boolean; bookmarked_by_me?: boolean;
   promoted?: boolean; promoted_until?: string | null;
+  pinned?: boolean;
   edited_at?: string | null;
   created_at: string;
 };

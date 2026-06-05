@@ -70,6 +70,11 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
     try { await api.deletePost(c.id); } catch {}
   };
 
+  const applyEngagement = (u: Post) => setReplies((arr) => arr.map((r) =>
+    r.id === u.id
+      ? { ...r, liked_by_me: u.liked_by_me, likes_count: u.likes_count, disliked_by_me: u.disliked_by_me, dislikes_count: u.dislikes_count }
+      : r,
+  ));
   const reactLike = (c: Post) => {
     setReplies((arr) => arr.map((r) => {
       if (r.id !== c.id) return r;
@@ -82,7 +87,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         dislikes_count: (r.dislikes_count || 0) - (nowLiked && r.disliked_by_me ? 1 : 0),
       };
     }));
-    api.toggleLike(c.id).catch(() => {});
+    api.toggleLike(c.id).then(applyEngagement).catch(() => {});
   };
   const reactDislike = (c: Post) => {
     setReplies((arr) => arr.map((r) => {
@@ -96,7 +101,17 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         likes_count: r.likes_count - (nowDis && r.liked_by_me ? 1 : 0),
       };
     }));
-    api.toggleDislike(c.id).catch(() => {});
+    api.toggleDislike(c.id).then(applyEngagement).catch(() => {});
+  };
+  // The owner of the post can pin a comment to the top of the thread.
+  const pinComment = (c: Post) => {
+    setReplies((arr) => arr.map((r) => (r.id === c.id ? { ...r, pinned: !r.pinned } : r)));
+    api.pinPost(c.id)
+      .then((u) => setReplies((arr) => {
+        const next = arr.map((r) => (r.id === u.id ? { ...r, pinned: u.pinned } : r));
+        return [...next].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+      }))
+      .catch(() => {});
   };
 
   const openProfile = (name?: string) => {
@@ -146,6 +161,12 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                     <View style={{ flex: 1 }}>
                       <View style={styles.rowHead}>
                         <Text style={styles.rowName} numberOfLines={1}>{item.author.name}</Text>
+                        {item.pinned && (
+                          <View style={styles.pinnedBadge}>
+                            <Ionicons name="pin" size={10} color={theme.primary} />
+                            <Text style={styles.pinnedBadgeText}>Pinned</Text>
+                          </View>
+                        )}
                         <Text style={styles.rowTime}>{fmtTime(item.created_at)}</Text>
                         {!!item.edited_at && <Text style={styles.rowTime}>· edited</Text>}
                       </View>
@@ -158,6 +179,11 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                         <TouchableOpacity onPress={() => reactDislike(item)} style={styles.reactBtn} testID={`comment-dislike-${item.id}`}>
                           <Ionicons name={item.disliked_by_me ? "thumbs-down" : "thumbs-down-outline"} size={13} color={item.disliked_by_me ? "#8696A0" : theme.textMuted} />
                         </TouchableOpacity>
+                        {post?.user_id === user?.user_id && (
+                          <TouchableOpacity onPress={() => pinComment(item)} style={styles.reactBtn} testID={`comment-pin-${item.id}`}>
+                            <Ionicons name={item.pinned ? "pin" : "pin-outline"} size={13} color={item.pinned ? theme.primary : theme.textMuted} />
+                          </TouchableOpacity>
+                        )}
                       </View>
                       {item.user_id === user?.user_id && (
                         <View style={styles.rowActions}>
@@ -242,6 +268,8 @@ const styles = StyleSheet.create({
   avatarInit: { color: "#fff", fontSize: 13, fontWeight: "700" },
   rowHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
   rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "800", flexShrink: 1 },
+  pinnedBadge: { flexDirection: "row", alignItems: "center", gap: 2 },
+  pinnedBadgeText: { color: theme.primary, fontSize: 10, fontWeight: "800" },
   rowTime: { color: theme.textMuted, fontSize: 11 },
   rowText: { color: theme.textPrimary, fontSize: 14, lineHeight: 19 },
   reactRow: { flexDirection: "row", gap: 16, marginTop: 6 },

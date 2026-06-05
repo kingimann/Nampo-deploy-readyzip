@@ -108,6 +108,12 @@ export default function PostCard({
           <Text style={styles.sponsoredText}>Sponsored</Text>
         </View>
       )}
+      {display.pinned && !isRepost && (
+        <View style={styles.repostBanner}>
+          <Ionicons name="pin" size={13} color={theme.textMuted} />
+          <Text style={styles.repostBannerText} numberOfLines={1}>Pinned</Text>
+        </View>
+      )}
       <View style={styles.cardTop}>
         <View style={styles.avatar}>
           {display.author.picture ? (

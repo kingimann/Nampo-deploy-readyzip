@@ -43,18 +43,35 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const [reposted, setReposted] = useState(!!post.reposted_by_me);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
 
+  // Re-sync from props when the FlatList recycles this row for a new reel,
+  // so likes/dislikes never show another post's state.
+  React.useEffect(() => {
+    setLiked(post.liked_by_me);
+    setLikeCount(post.likes_count);
+    setDisliked(!!post.disliked_by_me);
+    setReposted(!!post.reposted_by_me);
+    setRepostCount(post.reposts_count || 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post.id]);
+
   const onLike = async () => {
     const nowLiked = !liked;
     setLiked(nowLiked);
     setLikeCount((n) => n + (nowLiked ? 1 : -1));
     if (nowLiked && disliked) setDisliked(false);
-    try { await api.toggleLike(post.id); } catch {}
+    try {
+      const u = await api.toggleLike(post.id);
+      setLiked(!!u.liked_by_me); setLikeCount(u.likes_count); setDisliked(!!u.disliked_by_me);
+    } catch {}
   };
   const onDislike = async () => {
     const nowDis = !disliked;
     setDisliked(nowDis);
     if (nowDis && liked) { setLiked(false); setLikeCount((n) => n - 1); }
-    try { await api.toggleDislike(post.id); } catch {}
+    try {
+      const u = await api.toggleDislike(post.id);
+      setDisliked(!!u.disliked_by_me); setLiked(!!u.liked_by_me); setLikeCount(u.likes_count);
+    } catch {}
   };
   const onRepost = async () => {
     setReposted((v) => !v);
