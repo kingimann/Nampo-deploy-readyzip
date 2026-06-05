@@ -54,17 +54,36 @@ async def next_ad(
     rows = await db.posts.find(q, {"_id": 0}).sort("promoted_until", -1).limit(40).to_list(40)
     # Budget campaigns stop serving once the budget is spent.
     rows = [r for r in rows if not (r.get("ad_budget") and float(r.get("ad_spent", 0) or 0) >= float(r["ad_budget"]))]
-    if not rows:
-        return {"ad": None}
-    post = random.choice(rows)
-    author = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "name": 1})
-    media = post.get("media") or []
-    img = next((m.get("url") or m.get("base64") for m in media if m.get("type") == "image"), None)
-    return {"ad": {
-        "post_id": post["id"],
-        "text": (post.get("text") or "")[:200],
-        "image": img,
-        "author_name": (author or {}).get("name", "Sponsored"),
+    # Drop ads this viewer has hidden or reported.
+    hidden = {h.get("post_id") for h in await db.ad_hides.find({"viewer_id": me["user_id"]}, {"_id": 0, "post_id": 1}).to_list(500)}
+    rows = [r for r in rows if r["id"] not in hidden]
+    if rows:
+        post = random.choice(rows)
+        author = await db.users.find_one({"user_id": post["user_id"]}, {"_id": 0, "name": 1})
+        media = post.get("media") or []
+        img = next((m.get("url") or m.get("base64") for m in media if m.get("type") == "image"), None)
+        return {"house": False, "ad": {
+            "post_id": post["id"],
+            "text": (post.get("text") or "")[:200],
+            "image": img,
+            "reason": "It's a promoted post matched to this spot.",
+            "author_name": (author or {}).get("name", "Sponsored"),
+        }}
+    # ── House ad: never leave a slot empty — nudge the viewer to promote ──
+    mine = await db.posts.find(
+        {"user_id": me["user_id"], "parent_id": None}, {"_id": 0}
+    ).sort("created_at", -1).limit(1).to_list(1)
+    if mine:
+        p = mine[0]
+        media = p.get("media") or []
+        img = next((m.get("url") or m.get("base64") for m in media if m.get("type") == "image"), None)
+        return {"house": True, "ad": {
+            "post_id": p["id"], "text": (p.get("text") or "Promote this post to reach more people.")[:160],
+            "image": img, "author_name": "Promote your post",
+        }}
+    return {"house": True, "ad": {
+        "post_id": None, "text": "Reach more people — promote your posts on Nami.",
+        "image": None, "author_name": "Advertise here",
     }}
 
 
@@ -123,6 +142,34 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
             return {"ok": True, "duplicate": True}
         await db.posts.update_one({"id": post_id}, {"$inc": {"ad_impressions": 1}})
     return {"ok": True}
+
+
+@router.post("/ads/{post_id}/hide")
+async def hide_ad(post_id: str, authorization: Optional[str] = Header(None)):
+    """Stop showing this ad to the current viewer."""
+    me = await get_current_user(authorization)
+    exists = await db.ad_hides.find_one({"viewer_id": me["user_id"], "post_id": post_id}, {"_id": 0, "id": 1})
+    if not exists:
+        await db.ad_hides.insert_one({
+            "id": str(uuid.uuid4()), "viewer_id": me["user_id"], "post_id": post_id,
+            "created_at": datetime.now(timezone.utc),
+        })
+    return {"hidden": True}
+
+
+@router.post("/ads/{post_id}/report")
+async def report_ad(post_id: str, authorization: Optional[str] = Header(None)):
+    """Report an ad (and hide it from this viewer)."""
+    me = await get_current_user(authorization)
+    await db.ad_reports.insert_one({
+        "id": str(uuid.uuid4()), "reporter_id": me["user_id"], "post_id": post_id,
+        "created_at": datetime.now(timezone.utc),
+    })
+    await db.ad_hides.insert_one({
+        "id": str(uuid.uuid4()), "viewer_id": me["user_id"], "post_id": post_id,
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {"reported": True}
 
 
 @router.get("/admin/ad-revenue")
