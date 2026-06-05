@@ -75,6 +75,7 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
     author = PostAuthor(
         user_id=doc["user_id"],
         name=author_doc.get("name", "Unknown") if author_doc else "Unknown",
+        username=author_doc.get("username") if author_doc else None,
         picture=author_doc.get("picture") if author_doc else None,
         verified=bool(author_doc.get("verified", False)) if author_doc else False,
     )
@@ -326,6 +327,31 @@ async def list_replies(post_id: str, authorization: Optional[str] = Header(None)
     docs = await cursor.to_list(200)
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned comments first
     return [await _hydrate_post(d, user["user_id"]) for d in docs]
+
+
+@router.get("/posts/{post_id}/thread", response_model=List[Post])
+async def post_thread(post_id: str, authorization: Optional[str] = Header(None)):
+    """The full comment tree under a post (all descendants, flat). The client
+    nests them by parent_id and shows 'replying to @user'."""
+    user = await get_current_user(authorization)
+    out_docs: list = []
+    seen: set = set()
+    frontier = [post_id]
+    for _ in range(8):  # cap thread depth
+        if not frontier:
+            break
+        children = await db.posts.find(
+            {"parent_id": {"$in": frontier}}, {"_id": 0}
+        ).to_list(1000)
+        frontier = []
+        for c in children:
+            if c["id"] in seen:
+                continue
+            seen.add(c["id"])
+            out_docs.append(c)
+            frontier.append(c["id"])
+    out_docs.sort(key=lambda d: d.get("created_at"))
+    return [await _hydrate_post(d, user["user_id"]) for d in out_docs]
 
 
 async def _viewer_affinity(viewer_id: str):

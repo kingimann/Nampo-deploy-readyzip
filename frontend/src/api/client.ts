@@ -196,6 +196,7 @@ export const api = {
     request<{ ok: boolean }>(`/posts/${id}`, { method: "DELETE" }),
   getPost: (id: string) => request<Post>(`/posts/${id}`),
   listReplies: (id: string) => request<Post[]>(`/posts/${id}/replies`),
+  postThread: (id: string) => request<Post[]>(`/posts/${id}/thread`),
   listUserPosts: (uid: string) => request<Post[]>(`/posts/user/${uid}`),
   homeFeed: () => request<Post[]>("/feed/home"),
   exploreFeed: () => request<Post[]>("/feed/explore"),
@@ -596,7 +597,7 @@ export type Poll = {
   closed: boolean;
 };
 export type PollCreate = { options: string[]; duration_hours: number };
-export type PostAuthor = { user_id: string; name: string; picture?: string | null; verified?: boolean };
+export type PostAuthor = { user_id: string; name: string; username?: string | null; picture?: string | null; verified?: boolean };
 export type PostMedia = {
   type: "image" | "video";
   base64: string;
