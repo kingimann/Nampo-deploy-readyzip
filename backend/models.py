@@ -167,10 +167,15 @@ class MessageCreate(BaseModel):
     contact_user_id: Optional[str] = None    # type == "contact" (an app user)
     contact_name: Optional[str] = None
     contact_picture: Optional[str] = None
+    reply_to: Optional[str] = None           # id of the message being replied to
 
 
 class MessageEdit(BaseModel):
     text: str
+
+
+class MessageReact(BaseModel):
+    emoji: Optional[str] = "❤️"              # empty/None clears the reaction
 
 
 class ReportCreate(BaseModel):
@@ -202,6 +207,7 @@ class Message(BaseModel):
     link_preview: Optional[dict] = None      # OpenGraph preview for links in text
     deleted: bool = False                    # soft-deleted tombstone
     reactions: dict = {}              # {user_id: emoji}
+    reply_to_id: Optional[str] = None        # id of the message this replies to
     edited_at: Optional[datetime] = None
     read_at: Optional[datetime] = None  # last_read[peer] >= created_at
     created_at: datetime

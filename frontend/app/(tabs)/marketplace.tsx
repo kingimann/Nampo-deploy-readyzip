@@ -175,7 +175,7 @@ export default function MarketplaceScreen() {
           keyExtractor={(i) => i.id}
           numColumns={2}
           columnWrapperStyle={{ gap: 14 }}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 110, gap: 18 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 96, gap: 18 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
           }
@@ -226,7 +226,7 @@ export default function MarketplaceScreen() {
       )}
 
       <TouchableOpacity
-        style={[styles.fab, { bottom: insets.bottom + 58 }]}
+        style={[styles.fab, { bottom: 16 }]}
         onPress={() => setComposeOpen(true)}
         testID="new-listing-fab"
       >

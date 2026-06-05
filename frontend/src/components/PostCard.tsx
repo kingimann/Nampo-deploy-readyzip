@@ -225,10 +225,10 @@ export default function PostCard({
             <Ionicons
               name={display.disliked_by_me ? "thumbs-down" : "thumbs-down-outline"}
               size={17}
-              color={display.disliked_by_me ? "#8696A0" : theme.textSecondary}
+              color={display.disliked_by_me ? "#3B82F6" : theme.textSecondary}
             />
             {!!display.dislikes_count && display.dislikes_count > 0 && (
-              <Text style={[styles.actionText, display.disliked_by_me && { color: "#8696A0" }]}>
+              <Text style={[styles.actionText, display.disliked_by_me && { color: "#3B82F6" }]}>
                 {display.dislikes_count}
               </Text>
             )}

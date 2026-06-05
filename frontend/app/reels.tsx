@@ -134,7 +134,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           <Text style={styles.metric}>{likeCount}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconBtn} onPress={onDislike} testID={`reel-dislike-${post.id}`}>
-          <Ionicons name={disliked ? "thumbs-down" : "thumbs-down-outline"} size={26} color={disliked ? "#8696A0" : "#fff"} />
+          <Ionicons name={disliked ? "thumbs-down" : "thumbs-down-outline"} size={26} color={disliked ? "#3B82F6" : "#fff"} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconBtn} onPress={onComment}>
           <Ionicons name="chatbubble-outline" size={28} color="#fff" />
@@ -188,14 +188,11 @@ export default function ReelsScreen() {
         seen.add(p.id);
         return true;
       });
+      // Show whatever's playable. When there's nothing, fall through to the
+      // in-screen empty state below — never yank the user off to another tab.
       setItems(valid);
-      // No fresh reels to watch → send the user to the news feed instead of
-      // showing an empty/black screen.
-      if (valid.length === 0) {
-        router.replace("/(tabs)/feed");
-      }
     } catch {} finally { setLoading(false); setRefreshing(false); }
-  }, [focus, router]);
+  }, [focus]);
   // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
   useFocusEffect(useCallback(() => {
     setFocused(true);

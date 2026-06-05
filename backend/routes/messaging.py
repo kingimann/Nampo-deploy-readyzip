@@ -31,6 +31,7 @@ from models import (
     Message,
     MessageCreate,
     MessageEdit,
+    MessageReact,
     PublicUser,
 )
 from routes.notifications import emit_notification
@@ -396,6 +397,14 @@ async def send_message(
             raise HTTPException(status_code=413, detail="File too large (8MB limit)")
     if body.type == "contact" and not (body.contact_user_id or body.contact_name):
         raise HTTPException(status_code=400, detail="Contact required")
+    # Resolve an optional reply target — only if it's a real message in this conv.
+    reply_to_id: Optional[str] = None
+    if body.reply_to:
+        ref = await db.messages.find_one(
+            {"id": body.reply_to, "conversation_id": conv_id}, {"_id": 0, "id": 1}
+        )
+        if ref:
+            reply_to_id = body.reply_to
     # Link preview for text messages (best-effort, mirrors post creation).
     link_prev: Optional[dict] = None
     if body.type == "text":
@@ -429,6 +438,8 @@ async def send_message(
         "contact_name": (body.contact_name or "")[:120] if body.type == "contact" else None,
         "contact_picture": body.contact_picture if body.type == "contact" else None,
         "link_preview": link_prev,
+        "reactions": {},
+        "reply_to_id": reply_to_id,
         "deleted": False,
         "created_at": now,
     }
@@ -517,6 +528,43 @@ async def edit_message(
     return Message(**_decrypt_msg(m2))
 
 
+@router.post("/conversations/{conv_id}/messages/{msg_id}/react", response_model=Message)
+async def react_to_message(
+    conv_id: str, msg_id: str, body: MessageReact, authorization: Optional[str] = Header(None)
+):
+    """Toggle the current user's reaction on a message. Sending the same emoji
+    again (or an empty emoji) clears it. One reaction per user."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or uid not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    m = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    if not m or m.get("deleted"):
+        raise HTTPException(status_code=404, detail="Message not found")
+    reactions = dict(m.get("reactions") or {})
+    emoji = (body.emoji or "").strip()
+    if not emoji or reactions.get(uid) == emoji:
+        reactions.pop(uid, None)          # toggle off
+    else:
+        reactions[uid] = emoji[:8]        # set / replace
+    await db.messages.update_one(
+        {"id": msg_id, "conversation_id": conv_id}, {"$set": {"reactions": reactions}}
+    )
+    # Notify the author when someone else reacts (not on un-react / self-react).
+    if reactions.get(uid) and m.get("sender_id") != uid:
+        try:
+            await emit_notification(
+                user_id=m["sender_id"], actor_id=uid,
+                ntype="group_message" if conv.get("kind") == "group" else "message",
+                conversation_id=conv_id, message=f"{reactions[uid]} reacted to your message",
+            )
+        except Exception:
+            pass
+    m2 = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    return Message(**_decrypt_msg(m2))
+
+
 @router.delete("/conversations/{conv_id}/messages/{msg_id}")
 async def delete_message(
     conv_id: str, msg_id: str, authorization: Optional[str] = Header(None)
@@ -538,7 +586,7 @@ async def delete_message(
             "deleted": True, "text": "", "media": [], "audio_base64": None,
             "audio_duration_ms": None, "place_name": None, "place_address": None,
             "place_longitude": None, "place_latitude": None, "post_id": None,
-            "link_preview": None,
+            "link_preview": None, "reactions": {}, "reply_to_id": None,
         }},
     )
     return {"ok": True}

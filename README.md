@@ -12,11 +12,13 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 
 ### Social / Feed
 - News feed with text, photos, and videos (home/following feed and an explore feed)
-- Likes, replies/threads, bookmarks, reposts, and quote-reposts
+- Likes **and dislikes** (mutually exclusive), replies/threads, bookmarks, reposts, and quote-reposts
 - Polls (timed, single-choice) attached to posts
 - Hashtags (browse posts by tag, with counts) and rich link previews
 - X-style impression / view-count tracking on posts
 - Likers and reposters lists per post
+- **Content reporting** (flag a post/reel for moderation, one report per user)
+- **Promote / advertise** a post: boosts ranking and adds a "Sponsored" badge, with a prototype checkout (durations + a test-mode card form; real payments to be added later)
 
 ### Reels & Stories
 - Reels: a vertical, full-screen video feed (`/feed/reels`)
@@ -24,10 +26,11 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 
 ### Messaging
 - One-to-one (DM) and group conversations
-- Message types: text, shared **place/location**, media (images/video), and **voice notes**
-- Reactions, edits, read receipts, unread counts, and message deletion
+- Message types: text, shared **place/location**, media (images/video), **voice notes** (with a live recording timer), **GIFs**, **shared posts**, **contacts**, and **file/document attachments** (native via the document picker, plus the web file input)
+- **❤️ reactions** (double-tap a bubble or use the long-press menu) and **replies** (quoted preview in the composer and on the sent bubble)
+- Edits, read receipts, unread counts, and message deletion (with a tombstone)
 - Group conversation management (rename, avatar, add/remove members, leave)
-- Optional at-rest message encryption (Fernet) when a key is configured
+- Optional client-side **E2E encryption** (tweetnacl) plus optional at-rest encryption (Fernet) when a key is configured
 - "Contact seller" flow that spins up a DM from a marketplace listing
 
 ### Maps & Navigation
@@ -50,7 +53,7 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - Saved **places** and **recents**
 - **Guides**: curated, optionally public/cloneable collections of places (with shareable slugs)
 - **Reviews** for places (1–5 stars + text)
-- **Marketplace** listings (price, category, photo, location, sold status)
+- **Marketplace** listings (price, category, photo, location, sold status), with **search + category filters**, a **saved/bookmarked** view, **seller profiles** (avatar, aggregate rating, listing grid), and **buyer/seller reviews** (1–5★, one per reviewer)
 - **Groups**: public/private communities with posts, pinned posts, join requests, and member roles (owner/admin/member)
 - Notifications feed (with unread counts and mark-as-read)
 
@@ -75,7 +78,7 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - `httpx` for outbound calls (Foursquare matching, link-preview scraping)
 - WebSockets for live ETA sharing
 
-> **Database note:** the running backend uses **PostgreSQL** (`DATABASE_URL`, `asyncpg`). The wrapper in `backend/db.py` deliberately mimics a Mongo API, which is why some deployment docs (`DEPLOY.md`, `REPLIT.md`, `render.yaml`, `.replit`) and the older test suite still refer to `MONGO_URL` / `DB_NAME`. For the current code, the database connection is configured with **`DATABASE_URL`**.
+> **Database note:** the running backend uses **PostgreSQL** (`DATABASE_URL`, `asyncpg`). The wrapper in `backend/db.py` deliberately mimics a Mongo API, which is why the older `backend/tests/` suite still imports `pymongo` and reads `MONGO_URL` / `DB_NAME`. The current code and deploy config (`render.yaml`, `DEPLOY.md`) use **`DATABASE_URL`**.
 
 ---
 
@@ -110,10 +113,8 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 ```
 Nampo-deploy-readyzip/
 ├── README.md                  # this file
-├── DEPLOY.md                  # deploy to Render + a managed database
-├── REPLIT.md                  # run the backend on Replit
-├── render.yaml                # Render Blueprint (deploys backend/Dockerfile)
-├── .replit / replit.nix       # Replit run + Nix config
+├── DEPLOY.md                  # deploy to Render (Postgres + the API)
+├── render.yaml                # Render Blueprint (provisions Postgres + deploys backend/Dockerfile)
 ├── design_guidelines.json     # design system (colors, typography, components)
 ├── test_result.md             # agent testing log / protocol
 ├── memory/                    # PRD and scratch notes
@@ -196,9 +197,9 @@ Nampo-deploy-readyzip/
 | `FSQ_API_KEY`     | No       | **Yes**| `""`           | Foursquare Places API key for `/api/foursquare/match`. Without it, place matching returns nothing. |
 | `GOOGLE_OAUTH_CLIENT_ID` | No | **Yes** | `""`        | Enables Google sign-in (`/api/auth/google/*`). Optional — email/password is the primary path. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | No | **Yes** | `""`    | Paired with the client ID for Google OAuth. |
-| `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render/Replit inject this). |
+| `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render injects this). |
 
-> **Legacy / deploy-doc note:** `render.yaml`, `.replit`, `DEPLOY.md`, and `REPLIT.md` mention `MONGO_URL` and `DB_NAME` from the project's earlier MongoDB iteration. The current code reads **`DATABASE_URL`** instead and does not use `DB_NAME`. If you follow those docs, substitute your PostgreSQL `DATABASE_URL` accordingly.
+> **Note:** the database connection is configured **only** through `DATABASE_URL`; `DB_NAME` is unused. The Render Blueprint (`render.yaml`) provisions a Postgres instance and wires `DATABASE_URL` into the service automatically.
 
 ### Frontend
 
@@ -275,24 +276,12 @@ A successful response returns a `session_token` and your user object.
 
 ---
 
-## Running on Replit
-
-The Replit setup runs the **backend** (the API). See **`REPLIT.md`** for the full walkthrough. In short:
-
-1. Import the repo into Replit (or upload the project so `.replit`, `replit.nix`, and `backend/` are at the top level).
-2. Add your database connection string as a **Secret** (lock icon). `.replit` presets `CORS_ORIGINS` and a `PORT`. (`FSQ_API_KEY` is optional.)
-3. Press **Run** — Replit installs deps and starts Uvicorn with `--reload`. Watch the logs for the pool-ready and `Uvicorn running` messages, then hit `/health` on the webview URL.
-4. The frontend is a separate Expo app: point its `EXPO_PUBLIC_BACKEND_URL` at the Repl's public URL.
-
-> The `.replit` secret guidance is written for the older Mongo build (`MONGO_URL`). For the current code, supply your PostgreSQL **`DATABASE_URL`** as the secret instead.
-
----
-
 ## Deployment
 
-- **Render (recommended):** `render.yaml` is a Render **Blueprint** that builds `backend/Dockerfile` and deploys the FastAPI service with a `/health` health check and `autoDeploy`. Secrets are marked `sync: false` so Render prompts you to paste them in the dashboard. Full step-by-step in **`DEPLOY.md`** (database + Render in ~15 minutes).
-- **Docker:** `backend/Dockerfile` produces a self-contained image that runs `uvicorn server:app` on `$PORT` (default `8080`). Build/run it anywhere that supports containers.
+- **Render (recommended):** `render.yaml` is a Render **Blueprint** that **provisions a managed Postgres database** (`nampo-db`) and deploys the FastAPI service from `backend/Dockerfile` with a `/health` health check and `autoDeploy`. The database's connection string is injected into the API as `DATABASE_URL` automatically (`fromDatabase`), so there's no manual DB setup — only the optional `FSQ_API_KEY` is prompted (`sync: false`). Full step-by-step in **`DEPLOY.md`** (~15 minutes).
+- **Docker:** `backend/Dockerfile` produces a self-contained image that runs `uvicorn server:app` on `$PORT` (default `8080`). Build/run it anywhere that supports containers and can reach a Postgres database via `DATABASE_URL`.
 - **AWS App Runner:** `backend/apprunner.yaml` is provided for source-based App Runner deploys.
+- **Other Postgres providers:** to bring your own database (Neon, Supabase, local), drop the `databases:` block from `render.yaml` and set `DATABASE_URL` yourself.
 
 After the backend is live, set the frontend's `EXPO_PUBLIC_BACKEND_URL` to the deployed URL (no trailing slash, no `/api`) and rebuild/restart Expo.
 
@@ -306,9 +295,9 @@ All routes are mounted under the **`/api`** prefix and (except auth/registration
 | ------------------ | --------------------- | ------------ |
 | **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/keys`, `/auth/google/*` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username availability/claim, E2E public keys, optional Google OAuth. |
 | **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*` | User search, public profiles, follow/unfollow, followers/following, and the full friend-request lifecycle. |
-| **Posts / Feed**   | `/posts`, `/feed/home`, `/feed/explore`, `/feed/reels`, `/posts/{id}/like\|repost\|bookmark\|vote\|view`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, home/explore/reels feeds, replies/threads, likes, reposts & quotes, bookmarks, polls, view tracking, hashtags, likers/reposters. |
+| **Posts / Feed**   | `/posts`, `/feed/home`, `/feed/explore`, `/feed/reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, home/explore/reels feeds, replies/threads, likes & dislikes, reposts & quotes, bookmarks, polls, view tracking, post promotion, reporting, hashtags, likers/reposters. |
 | **Stories**        | `/stories`, `/stories/tray`, `/stories/user/{id}`, `/stories/{id}/view\|viewers\|reply` | Create 24h ephemeral stories, story tray, view counts, viewer lists, and replies. |
-| **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/read` | DMs and group chats; send text/place/media/voice messages; reactions, edits, read receipts, deletion; group management. |
+| **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/messages/{mid}/react`, `/conversations/{id}/read` | DMs and group chats; send text/place/media/voice/gif/file/contact/post messages; replies, ❤️ reactions, edits, read receipts, deletion; group management. |
 | **Groups**         | `/groups`, `/groups/{id}/join\|leave\|posts\|pins\|requests\|members/*` | Public/private communities: membership & join requests, posts, pinned posts, member roles (promote/demote/remove). |
 | **Marketplace**    | `/listings`, `/listings/{id}`, `/listings/{id}/contact` | Create/update/delete listings, browse by user, and start a DM with a seller. |
 | **Places**         | `/places`, `/recents` | Saved map places and recent searches (create/list/delete). |

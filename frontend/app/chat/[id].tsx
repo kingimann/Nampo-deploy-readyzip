@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import * as Location from "expo-location";
 import * as Clipboard from "expo-clipboard";
 import {
@@ -44,7 +45,10 @@ export default function ChatScreen() {
   const [sharingLocation, setSharingLocation] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
+  const [recMs, setRecMs] = useState(0);
+  const lastTapRef = useRef<Record<string, number>>({});
   const [sharedPosts, setSharedPosts] = useState<Record<string, Post>>({});
   const [gifOpen, setGifOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
@@ -143,9 +147,73 @@ export default function ChatScreen() {
     return () => { cancelled = true; };
   }, [messages, sharedPosts]);
 
+  // Live timer while recording a voice note.
+  useEffect(() => {
+    if (!recording) { setRecMs(0); return; }
+    const start = recordStartRef.current || Date.now();
+    const t = setInterval(() => setRecMs(Date.now() - start), 200);
+    return () => clearInterval(t);
+  }, [recording]);
+
   // Plaintext for a message (handles E2E decryption cache).
   const plainOf = (m: Message): string =>
     isE2E(m.text || "") ? (decrypted[m.id] ?? "") : (m.text || "");
+
+  // Short one-line description of a message (for reply previews & banners).
+  const previewOf = (m: Message): string => {
+    if (m.deleted) return "Deleted message";
+    switch (m.type) {
+      case "text": return plainOf(m) || "Message";
+      case "media": return "📷 Photo";
+      case "voice": return "🎤 Voice message";
+      case "gif": return "🎞️ GIF";
+      case "file": return `📎 ${m.file_name || "File"}`;
+      case "place": return "📍 Location";
+      case "post": return "📄 Shared post";
+      case "contact": return `👤 ${m.contact_name || "Contact"}`;
+      default: return "Message";
+    }
+  };
+
+  // Compact summary of a message's reactions, e.g. "❤️ 2".
+  const reactionSummary = (m: Message): string => {
+    const vals = Object.values(m.reactions || {});
+    if (!vals.length) return "";
+    const counts: Record<string, number> = {};
+    for (const e of vals) counts[e] = (counts[e] || 0) + 1;
+    return Object.entries(counts).map(([e, c]) => (c > 1 ? `${e} ${c}` : e)).join(" ");
+  };
+  const myReaction = (m: Message): string => (m.reactions || {})[user?.user_id || ""] || "";
+
+  const fmtDur = (ms: number): string => {
+    const total = Math.max(0, Math.round(ms / 1000));
+    return `${Math.floor(total / 60)}:${(total % 60).toString().padStart(2, "0")}`;
+  };
+
+  // Toggle a reaction (defaults to ❤️) on a message — optimistic, then synced.
+  const toggleReaction = async (m: Message, emoji = "❤️") => {
+    if (!id || m.deleted) return;
+    const uid = user?.user_id || "";
+    setMessages((arr) => arr.map((x) => {
+      if (x.id !== m.id) return x;
+      const r = { ...(x.reactions || {}) };
+      if (r[uid] === emoji) delete r[uid]; else r[uid] = emoji;
+      return { ...x, reactions: r };
+    }));
+    try {
+      const updated = await api.reactToMessage(id, m.id, emoji);
+      setMessages((arr) => arr.map((x) => (x.id === updated.id ? updated : x)));
+    } catch { load(); }
+  };
+
+  // Double-tap a bubble to like it (Instagram/Messenger style).
+  const onBubbleTap = (m: Message) => {
+    if (m.deleted) return;
+    const now = Date.now();
+    const last = lastTapRef.current[m.id] || 0;
+    lastTapRef.current[m.id] = now;
+    if (now - last < 300) { toggleReaction(m); lastTapRef.current[m.id] = 0; }
+  };
 
   const beginEdit = (m: Message) => {
     setActionMsg(null);
@@ -198,43 +266,73 @@ export default function ChatScreen() {
 
   const pickFile = async () => {
     if (!id) return;
-    // Web uses a native file input (no extra dependency). On native devices a
-    // document picker module would be required, so we degrade gracefully.
-    if (Platform.OS !== "web") {
-      Alert.alert("File attachments", "Sending files is available on the web app.");
+    if (Platform.OS === "web") {
+      // Web: a plain <input type=file> needs no extra module.
+      try {
+        const doc: any = (globalThis as any).document;
+        if (!doc) return;
+        const input = doc.createElement("input");
+        input.type = "file";
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          if (!file) return;
+          const dataUri: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          if (dataUri.length > 8 * 1024 * 1024) {
+            Alert.alert("File too large", "Please pick a file under ~6 MB.");
+            return;
+          }
+          try {
+            const msg = await api.sendMessage(id, {
+              type: "file",
+              file_base64: dataUri,
+              file_name: file.name,
+              file_size: file.size,
+              file_mime: file.type,
+            });
+            setMessages((m) => [...m, msg]);
+          } catch {}
+        };
+        input.click();
+      } catch {}
       return;
     }
+    // Native: pick a document, then read its bytes into a data URI (the same
+    // fetch + FileReader path used for voice notes and videos).
     try {
-      const doc: any = (globalThis as any).document;
-      if (!doc) return;
-      const input = doc.createElement("input");
-      input.type = "file";
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-        const dataUri: string = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        if (dataUri.length > 8 * 1024 * 1024) {
-          Alert.alert("File too large", "Please pick a file under ~6 MB.");
-          return;
-        }
-        try {
-          const msg = await api.sendMessage(id, {
-            type: "file",
-            file_base64: dataUri,
-            file_name: file.name,
-            file_size: file.size,
-            file_mime: file.type,
-          });
-          setMessages((m) => [...m, msg]);
-        } catch {}
-      };
-      input.click();
-    } catch {}
+      const res = await DocumentPicker.getDocumentAsync({
+        type: "*/*", copyToCacheDirectory: true, multiple: false,
+      });
+      if (res.canceled) return;
+      const file = res.assets?.[0];
+      if (!file) return;
+      const r = await fetch(file.uri);
+      const blob = await r.blob();
+      const dataUri: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      if (dataUri.length > 8 * 1024 * 1024) {
+        Alert.alert("File too large", "Please pick a file under ~6 MB.");
+        return;
+      }
+      const msg = await api.sendMessage(id, {
+        type: "file",
+        file_base64: dataUri,
+        file_name: file.name,
+        file_size: file.size ?? undefined,
+        file_mime: file.mimeType ?? undefined,
+      });
+      setMessages((m) => [...m, msg]);
+    } catch {
+      Alert.alert("Couldn't attach file", "Please try again.");
+    }
   };
 
   const sendContact = async (u: PublicUser) => {
@@ -255,11 +353,13 @@ export default function ChatScreen() {
     if (!text.trim() || !id) return;
     setSending(true);
     const draft = text.trim();
+    const replyId = replyTo?.id;
     setText("");
+    setReplyTo(null);
     try {
       // If we know the peer's E2E public key, encrypt the body before sending.
       const payload = peerKey ? await encryptForPeer(draft, peerKey) : draft;
-      const msg = await api.sendMessage(id, { type: "text", text: payload });
+      const msg = await api.sendMessage(id, { type: "text", text: payload, reply_to: replyId });
       // Pre-populate decrypted cache so the bubble shows plaintext immediately.
       if (peerKey) setDecrypted((d) => ({ ...d, [msg.id]: draft }));
       setMessages((m) => [...m, msg]);
@@ -438,6 +538,7 @@ export default function ChatScreen() {
               return (
                 <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowOther]}>
                   <TouchableOpacity
+                    onPress={() => onBubbleTap(item)}
                     onLongPress={() => { if (!item.deleted) setActionMsg(item); }}
                     delayLongPress={300}
                     activeOpacity={0.9}
@@ -449,6 +550,19 @@ export default function ChatScreen() {
                     ]}
                     testID={`msg-${item.id}`}
                   >
+                    {!!item.reply_to_id && !item.deleted && (() => {
+                      const ref = messages.find((x) => x.id === item.reply_to_id);
+                      return (
+                        <View style={[styles.quoted, mine ? styles.quotedMine : styles.quotedOther]}>
+                          <Text style={[styles.quotedName, mine && { color: "rgba(255,255,255,0.95)" }]} numberOfLines={1}>
+                            {ref ? (ref.sender_id === user?.user_id ? "You" : (name || "Them")) : "Message"}
+                          </Text>
+                          <Text style={[styles.quotedText, mine && { color: "rgba(255,255,255,0.85)" }]} numberOfLines={1}>
+                            {ref ? previewOf(ref) : "Original message"}
+                          </Text>
+                        </View>
+                      );
+                    })()}
                     {item.deleted ? (
                       <View style={styles.deletedRow}>
                         <Ionicons name="ban-outline" size={14} color={mine ? "rgba(255,255,255,0.75)" : theme.textMuted} />
@@ -542,6 +656,11 @@ export default function ChatScreen() {
                     )}
                   </TouchableOpacity>
                   <View style={[styles.metaRow, mine ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
+                    {!!reactionSummary(item) && !item.deleted && (
+                      <TouchableOpacity onPress={() => toggleReaction(item)} testID={`react-chip-${item.id}`}>
+                        <Text style={styles.reactionChip}>{reactionSummary(item)}</Text>
+                      </TouchableOpacity>
+                    )}
                     <Text style={styles.metaTime}>
                       {new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </Text>
@@ -649,6 +768,21 @@ export default function ChatScreen() {
             </View>
           )}
 
+          {replyTo && !editingMsg && !recording && (
+            <View style={styles.replyBanner}>
+              <View style={styles.replyBar} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.replyName} numberOfLines={1}>
+                  Replying to {replyTo.sender_id === user?.user_id ? "yourself" : (name || "them")}
+                </Text>
+                <Text style={styles.replySnippet} numberOfLines={1}>{previewOf(replyTo)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setReplyTo(null)} testID="cancel-reply" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
             {recording ? (
               <>
@@ -661,7 +795,8 @@ export default function ChatScreen() {
                 </TouchableOpacity>
                 <View style={styles.recordingPill}>
                   <View style={styles.recDot} />
-                  <Text style={styles.recText}>Recording… release to send</Text>
+                  <Text style={styles.recTime}>{fmtDur(recMs)}</Text>
+                  <Text style={styles.recText} numberOfLines={1}>Tap ✓ to send · trash to cancel</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.sendBtn}
@@ -732,6 +867,26 @@ export default function ChatScreen() {
       >
         <TouchableOpacity style={styles.actionBackdrop} activeOpacity={1} onPress={() => setActionMsg(null)}>
           <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 16 }]}>
+            {actionMsg && !actionMsg.deleted && (
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={() => { const m = actionMsg; setActionMsg(null); toggleReaction(m); }}
+                testID="msg-action-react"
+              >
+                <Ionicons name={myReaction(actionMsg) ? "heart" : "heart-outline"} size={18} color="#EF4444" />
+                <Text style={styles.actionRowText}>{myReaction(actionMsg) ? "Remove like" : "Like"}</Text>
+              </TouchableOpacity>
+            )}
+            {actionMsg && !actionMsg.deleted && (
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={() => { const m = actionMsg; setActionMsg(null); setReplyTo(m); }}
+                testID="msg-action-reply"
+              >
+                <Ionicons name="arrow-undo-outline" size={18} color={theme.textPrimary} />
+                <Text style={styles.actionRowText}>Reply</Text>
+              </TouchableOpacity>
+            )}
             {actionMsg && (actionMsg.type === "text" || actionMsg.type === "post") && plainOf(actionMsg).length > 0 && (
               <TouchableOpacity style={styles.actionRow} onPress={() => copyMessage(actionMsg)} testID="msg-action-copy">
                 <Ionicons name="copy-outline" size={18} color={theme.textPrimary} />
@@ -792,6 +947,19 @@ const styles = StyleSheet.create({
   bubblePlace: { paddingVertical: 12 },
   bubbleText: { color: theme.textPrimary, fontSize: 15, lineHeight: 20 },
   bubbleDeleted: { backgroundColor: "transparent", borderWidth: 1, borderColor: theme.border, borderStyle: "dashed" },
+  quoted: {
+    borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 3, marginBottom: 6,
+    borderRadius: 4,
+  },
+  quotedMine: { borderLeftColor: "rgba(255,255,255,0.9)", backgroundColor: "rgba(255,255,255,0.12)" },
+  quotedOther: { borderLeftColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  quotedName: { color: theme.primary, fontSize: 12, fontWeight: "800" },
+  quotedText: { color: theme.textSecondary, fontSize: 12.5, marginTop: 1 },
+  reactionChip: {
+    color: theme.textPrimary, fontSize: 12, fontWeight: "600",
+    backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 10, overflow: "hidden", paddingHorizontal: 6, paddingVertical: 1,
+  },
   deletedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   deletedText: { color: theme.textMuted, fontSize: 13, fontStyle: "italic" },
   mediaWrap: { width: 250 },
@@ -819,6 +987,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.border,
   },
   editBannerText: { flex: 1, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
+  replyBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    marginHorizontal: 12, marginBottom: 6, paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: theme.surface, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  replyBar: { width: 3, alignSelf: "stretch", borderRadius: 2, backgroundColor: theme.primary },
+  replyName: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
+  replySnippet: { color: theme.textSecondary, fontSize: 13, marginTop: 1 },
 
   actionBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   actionSheet: {
@@ -885,5 +1062,6 @@ const styles = StyleSheet.create({
     borderRadius: 22, paddingHorizontal: 16, minHeight: 44,
   },
   recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.error },
-  recText: { color: theme.textSecondary, fontSize: 14, fontWeight: "500" },
+  recTime: { color: theme.textPrimary, fontSize: 14, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  recText: { flex: 1, color: theme.textMuted, fontSize: 12.5, fontWeight: "500" },
 });

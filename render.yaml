@@ -1,6 +1,16 @@
-# Render Blueprint — deploys the FastAPI backend automatically.
-# Render reads this file when you create a "Blueprint" from your repo.
-# Docs: https://render.com/docs/blueprint-spec
+# Render Blueprint — provisions a Postgres database and deploys the FastAPI
+# backend automatically. Render reads this file when you create a "Blueprint"
+# from your repo.  Docs: https://render.com/docs/blueprint-spec
+#
+# The backend stores everything in Postgres (see backend/db.py — a Mongo-style
+# wrapper over a JSONB table per collection). It connects using DATABASE_URL.
+
+databases:
+  - name: nampo-db
+    plan: free            # free Postgres (expires after 30 days — upgrade to keep)
+    databaseName: nampo
+    user: nampo
+
 services:
   - type: web
     name: nampo-backend
@@ -11,14 +21,14 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      # Render injects $PORT automatically; the Dockerfile already honors it.
-      - key: DB_NAME
-        value: nampo
+      # Wire the managed Postgres connection string straight into the app.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nampo-db
+          property: connectionString
       - key: CORS_ORIGINS
         value: "*"
-      # Secrets — leave sync:false so Render prompts you to paste them in the
-      # dashboard instead of committing them to git.
-      - key: MONGO_URL
-        sync: false
+      # Optional — only needed for Foursquare place matching. Render will prompt
+      # you to paste it (sync:false keeps it out of git); leave blank to skip.
       - key: FSQ_API_KEY
         sync: false

@@ -29,7 +29,7 @@ export default function StoryTray() {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) { Alert.alert("Photos access needed"); return; }
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ["images", "videos"] as any,
         allowsEditing: false,
         quality: 0.7,
         base64: true,

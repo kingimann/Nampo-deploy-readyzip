@@ -116,6 +116,10 @@ export const api = {
     request<{ ok: boolean }>(`/conversations/${conv_id}/messages/${msg_id}`, {
       method: "DELETE",
     }),
+  reactToMessage: (conv_id: string, msg_id: string, emoji: string) =>
+    request<Message>(`/conversations/${conv_id}/messages/${msg_id}/react`, {
+      method: "POST", body: JSON.stringify({ emoji }),
+    }),
   deleteConversation: (conv_id: string) =>
     request<{ ok: boolean }>(`/conversations/${conv_id}`, { method: "DELETE" }),
 
@@ -455,6 +459,8 @@ export type Message = {
   contact_user_id?: string | null; contact_name?: string | null; contact_picture?: string | null;
   link_preview?: LinkPreview | null;
   deleted?: boolean;
+  reactions?: Record<string, string> | null;  // { user_id: emoji }
+  reply_to_id?: string | null;
   edited_at?: string | null;
   read_at?: string | null;
   created_at: string;
@@ -470,6 +476,7 @@ export type MessageCreate = {
   gif_url?: string;
   file_base64?: string; file_name?: string; file_size?: number; file_mime?: string;
   contact_user_id?: string; contact_name?: string; contact_picture?: string;
+  reply_to?: string;
 };
 export type ConversationView = {
   id: string;
