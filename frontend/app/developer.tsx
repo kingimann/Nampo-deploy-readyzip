@@ -42,6 +42,7 @@ const GROUPS: Group[] = [
       { method: "POST", path: "/posts/{id}/view", desc: "Record a unique view.", auth: true },
       { method: "GET", path: "/posts/{id}/viewers", desc: "Who viewed the post (author only).", auth: true },
       { method: "PATCH", path: "/posts/{id}/privacy", desc: "Per-post likes_disabled + comment_policy.", auth: true, body: `{"likes_disabled":false,"comment_policy":"everyone"}` },
+      { method: "GET", path: "/hashtags/trending", desc: "Most-used hashtags in the last 30 days.", auth: true },
     ],
   },
   {
@@ -98,7 +99,9 @@ const GROUPS: Group[] = [
     endpoints: [
       { method: "GET", path: "/money/security", desc: "Whether your transfer security question is set.", auth: true },
       { method: "POST", path: "/money/security", desc: "Set the sender's security question + answer.", auth: true, body: `{"question","answer"}` },
-      { method: "POST", path: "/money/send", desc: "Send money (requires your security answer).", auth: true, body: `{"to_user_id","amount","answer"}` },
+      { method: "POST", path: "/money/send", desc: "Send money → pending transfer the recipient accepts.", auth: true, body: `{"to_user_id","amount","answer"}` },
+      { method: "GET", path: "/money/transfers", desc: "Incoming (to accept) + outgoing transfers.", auth: true },
+      { method: "POST", path: "/money/transfers/{id}/accept", desc: "Accept money sent to you (decline also available).", auth: true },
       { method: "POST", path: "/money/request", desc: "Request money from someone.", auth: true, body: `{"to_user_id","amount","note"}` },
       { method: "GET", path: "/money/requests", desc: "Incoming + outgoing money requests.", auth: true },
       { method: "POST", path: "/money/requests/{id}/pay", desc: "Pay a request (needs your security answer).", auth: true, body: `{"answer"}` },

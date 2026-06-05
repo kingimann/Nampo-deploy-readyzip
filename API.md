@@ -83,7 +83,9 @@ Register endpoints to receive events. We `POST` a JSON body
 | DELETE | `/webhooks/{id}` | Remove |
 
 Events: `follow`, `friend_request`, `friend_accept`, `message`, `group_message`,
-`tip`, `subscribe`, `post_like`, `post_reply`, `mention`.
+`tip`, `subscribe`, `post_like`, `post_reply`, `mention`, `poke`, `money_request`,
+`money_received`, `money_request_paid`. (Webhook deliveries mirror in-app
+notifications, so new notification types are delivered automatically.)
 
 ## Login with Nami (OAuth2)
 
@@ -115,23 +117,57 @@ Scopes: `profile` (default) and `email`. Codes are single-use and expire in 10 m
 ## Conventions
 
 - **Content type:** `application/json` for request and response bodies.
-- **Errors:** non-2xx responses return `{"detail": "message"}`.
+- **Errors:** non-2xx responses return `{"detail": "message"}`. Some return a
+  structured `{"detail": {"code", "message", …}}` so clients can branch on `code`.
   | Code | Meaning |
   | --- | --- |
   | 400 | Bad request / validation error |
   | 401 | Missing or invalid token |
+  | 402 | Payment required (API key needs an active plan) |
   | 403 | Authenticated but not allowed |
   | 404 | Not found |
   | 409 | Conflict (e.g. email already in use) |
   | 413 | Payload too large (media limits) |
-  | 429 | Rate-limited |
+  | 429 | Rate-limited / quota exceeded |
+- **Structured `detail.code` values:** `account_too_new` (marketplace/monetization
+  age gate), `banned`, `suspended`, `api_plan_required` (402), `write_not_allowed`
+  (read-only API key on a mutating call), `security_not_set` / `wrong_answer` (money).
 - **Pagination:** list endpoints accept `?limit=` and `?offset=` where supported.
-- **Rate limits:** fair-use; heavy automated traffic may be throttled (429).
+- **Rate limits & quota:** fair-use; API-key requests are metered against your plan's
+  monthly quota (429 when exceeded — buy an overage pack or wait for the reset).
+- **API-key scopes:** keys can be read-only; mutating methods then return
+  `403 write_not_allowed`.
 - **Versioning:** `GET /version` and `GET /v1/info` describe the current API.
+
+## Quick examples
+
+```bash
+# Auth
+curl -X POST $API/auth/login -H 'Content-Type: application/json' \
+  -d '{"identifier":"you@example.com","password":"…"}'
+# → { session_token, user }
+
+# Authenticated read
+curl $API/posts/feed -H "Authorization: Bearer $TOKEN"
+
+# Create a post (text + audience)
+curl -X POST $API/posts -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"hello world #intro","comment_policy":"followers","likes_disabled":false}'
+
+# Send money (requires your security answer)
+curl -X POST $API/money/send -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"to_user_id":"u_123","amount":10,"note":"lunch","answer":"fluffy"}'
+```
+
+`$API` = `https://nampo-backend.onrender.com/api`. Get `$TOKEN` from login, or use a
+Developer API key (Settings → Developer API).
 
 ## Endpoint groups
 
-> The interactive `/docs` page is the always-current source of truth. Highlights:
+> The interactive `/docs` page (Swagger UI) is the always-current source of truth and
+> lists **every** route with request/response schemas. Highlights below:
 
 ### Meta (public)
 | Method | Path | Description |
@@ -175,7 +211,11 @@ Scopes: `profile` (default) and `email`. Codes are single-use and expire in 10 m
 | POST | `/posts/{id}/view` · GET `/posts/{id}/viewers` | Record a view · who viewed (author only) |
 | PATCH | `/posts/{id}/privacy` | Per-post `likes_disabled` + `comment_policy` (everyone\|followers\|friends\|nobody) |
 | GET | `/posts/{id}/thread` | Threaded replies |
+| GET | `/posts/{id}/replies` | Direct replies |
 | GET | `/hashtags/{tag}` | Posts by tag |
+| GET | `/hashtags/trending` | Most-used hashtags (last 30 days) → `{hashtags:[{tag,count}]}` |
+| GET | `/feed/home` · `/feed/explore` | Following feed · discovery feed |
+| GET | `/posts/user/{id}` | A user's posts |
 
 Posts carry `likes_disabled`, `comment_policy` and a per-viewer `can_comment`.
 New posts default to the author's `default_comment_policy` / `default_likes_disabled`.
@@ -213,7 +253,14 @@ Messages also support server-side encryption at rest regardless.
 (+ WebSocket `wss://…/ws/eta/{share_id}`)
 
 ### Notifications
-`GET /notifications` · `GET /notifications/unread` · `POST /notifications/read-all`
+`GET /notifications` · `GET /notifications/unread` (count) ·
+`POST /notifications/{id}/read` · `POST /notifications/read-all` · `DELETE /notifications/{id}`.
+
+**Types:** `like`, `repost`, `reply`, `message`, `group_invite`, `group_message`,
+`follow`, `poke`, `money_request`, `money_received`, `money_request_paid`,
+`money_request_declined`, `money_accepted`, `money_declined`. Each carries
+`actor_id/name/picture`, an optional `post_id`/`conversation_id`, a `message`
+preview, and `read`. (Developer webhooks receive the same events — see Webhooks.)
 
 ### Payments (when Stripe is configured)
 `GET /payments/config` · `POST /payments/payouts/setup` · `GET /payments/payouts/status`
@@ -221,13 +268,21 @@ Messages also support server-side encryption at rest regardless.
 · `GET/POST /payments/api-plan*` · `GET/POST /payments/api-usage*` (plans + pay-as-you-go)
 
 ### Money (peer-to-peer)
+Sending requires the **sender's transfer security question** (bcrypt-hashed answer).
+Sent money is a **pending transfer the recipient accepts** before it's credited.
+
 | Method | Path | Description |
 | --- | --- | --- |
-| GET/POST | `/money/security` | Get / set the sender's transfer security question (answer is hashed) |
-| POST | `/money/send` | Send money — body `{to_user_id, amount, note, answer}` (security answer required) |
-| POST | `/money/request` | Request money from someone |
+| GET/POST | `/money/security` | Get / set the transfer security question |
+| POST | `/money/send` | Send money — `{to_user_id, amount, note, answer}` → pending transfer |
+| GET | `/money/transfers` | Incoming (to accept) + outgoing transfers |
+| POST | `/money/transfers/{id}/accept\|decline` | Recipient accepts (credited) / declines |
+| POST | `/money/request` | Request money — `{to_user_id, amount, note}` |
 | GET | `/money/requests` | Incoming + outgoing requests |
 | POST | `/money/requests/{id}/pay\|decline\|cancel` | Pay (needs `answer`) / decline / cancel |
+
+> **Pay by QR:** the in-app pay code encodes `…/pay/{user_id}?amount=&note=`; scanning it
+> opens the send-money flow pre-filled. (The pay screen is client-side; it calls `/money/send`.)
 
 ### Ads & advertising
 | Method | Path | Description |
@@ -249,8 +304,22 @@ Messages also support server-side encryption at rest regardless.
 `GET /pub/click?site=&ad=` (tracked redirect) · `GET /pub/unit?site=` (iframe ad unit) ·
 `GET /pub/embed.js?site=` (drop-in `<script>`). Earnings require **valid traffic**:
 established accounts on both sides, no self/related clicks, and a daily earning cap.
-| GET | `/admin/ad-revenue` | Platform ad dashboard (admin) |
-| GET/POST | `/admin/bot/posts` · `/admin/bot/run` | Test bot for wallet/analytics (admin) |
+
+### Admin & moderation (admin/mod only)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/admin/users?q=&limit=&offset=` | List / search every user |
+| PATCH | `/admin/users/{id}` | Set `verified` and/or `role` (user\|mod\|admin) |
+| POST | `/admin/users/{id}/ban` · `/unban` | Ban (`{reason}`) / lift |
+| POST | `/admin/users/{id}/suspend` | Suspend `{days, reason}` |
+| DELETE | `/admin/users/{id}` | Remove (delete) an account |
+| GET | `/admin/audit` | Audit log of admin actions |
+| GET | `/admin/ad-revenue` | Platform ad dashboard |
+| GET/POST | `/admin/bot/posts` · `/admin/bot/run` | Test bot (wallet/analytics) |
+
+Banned/currently-suspended users are blocked at login and on every request
+(`403 banned` / `403 suspended`, with the moderator's reason). Admins are exempt;
+you can't moderate yourself or another admin.
 
 ### Payouts
 `GET /payouts` (balance, schedule, history) · `POST /payouts/run` (admin or `X-Cron-Key`).
