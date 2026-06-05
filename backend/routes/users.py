@@ -111,6 +111,41 @@ async def toggle_follow(user_id: str, authorization: Optional[str] = Header(None
     return {"following": True}
 
 
+@router.post("/users/{user_id}/poke")
+async def poke_user(user_id: str, authorization: Optional[str] = Header(None)):
+    """Facebook-style poke. One active outgoing poke per person until they
+    respond; poking someone who poked you counts as poking back."""
+    me = await get_current_user(authorization)
+    if user_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="You can't poke yourself")
+    other = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1})
+    if not other:
+        raise HTTPException(status_code=404, detail="User not found")
+    now = datetime.now(timezone.utc)
+    # Responding to their poke clears it.
+    await db.pokes.update_many(
+        {"from_user_id": user_id, "to_user_id": me["user_id"], "active": True},
+        {"$set": {"active": False}},
+    )
+    # Don't let the same poke pile up.
+    existing = await db.pokes.find_one(
+        {"from_user_id": me["user_id"], "to_user_id": user_id, "active": True}, {"_id": 0, "id": 1}
+    )
+    if existing:
+        return {"ok": True, "already": True}
+    await db.pokes.insert_one({
+        "id": str(uuid.uuid4()), "from_user_id": me["user_id"], "to_user_id": user_id,
+        "active": True, "created_at": now,
+    })
+    try:
+        from routes.notifications import emit_notification
+        await emit_notification(user_id=user_id, actor_id=me["user_id"], ntype="poke",
+                                message="👉 poked you")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
 # ───────── Followers / Following lists ─────────
 
 @router.get("/users/{user_id}/followers", response_model=List[PublicUser])

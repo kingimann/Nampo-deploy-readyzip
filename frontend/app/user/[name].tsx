@@ -52,6 +52,7 @@ export default function UserProfileScreen() {
   const [tiers, setTiers] = useState<SubTier[]>([]);
   const [tierOpen, setTierOpen] = useState(false);
   const [chosenTier, setChosenTier] = useState<SubTier | null>(null);
+  const [pokeMsg, setPokeMsg] = useState(false);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -268,6 +269,23 @@ export default function UserProfileScreen() {
               )}
               {user.user_id !== me?.user_id && (
                 <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.actionBtnGhost]}
+                    onPress={async () => {
+                      try {
+                        await api.pokeUser(user.user_id);
+                        setUser((p) => (p ? { ...p, poked_me: false } : p));
+                        setPokeMsg(true);
+                        setTimeout(() => setPokeMsg(false), 1600);
+                      } catch {}
+                    }}
+                    testID="profile-poke"
+                  >
+                    <Ionicons name="hand-left" size={15} color={theme.textPrimary} />
+                    <Text style={[styles.actionBtnText, { color: theme.textPrimary }]} numberOfLines={1}>
+                      {pokeMsg ? "Poked!" : user.poked_me ? "Poke back" : "Poke"}
+                    </Text>
+                  </TouchableOpacity>
                   <TouchableOpacity style={[styles.actionBtn, styles.actionBtnGhost]} onPress={() => setTipOpen(true)} testID="profile-tip">
                     <Ionicons name="cash-outline" size={15} color={theme.textPrimary} />
                     <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>Tip</Text>

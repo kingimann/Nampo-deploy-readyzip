@@ -50,6 +50,7 @@ class PublicUser(BaseModel):
     is_following: bool = False
     is_followed_by: bool = False
     friend_status: str = "none"  # none | request_sent | request_received | friends
+    poked_me: bool = False        # this user has an active poke waiting for the viewer
 
 
 class AdminUserPatch(BaseModel):
