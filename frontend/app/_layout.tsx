@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider, useAuth } from "@/src/context/AuthContext";
 import { SidebarProvider } from "@/src/context/SidebarContext";
+import { SidebarMenuProvider } from "@/src/context/SidebarMenuContext";
 import { NavBarProvider } from "@/src/context/NavBarContext";
 import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
@@ -25,7 +26,7 @@ function AuthedSidebar() {
 // Hide the bar on these immersive / modal-feel screens.
 const HIDDEN_BAR_PREFIXES = [
   "/login", "/auth",
-  "/customize-nav",
+  "/customize-nav", "/customize-sidebar",
   "/chat/", // 1-1 / group chat thread is immersive
   "/post/", // post detail
   "/reels", // full-screen video
@@ -73,13 +74,15 @@ export default function RootLayout() {
         <AuthProvider>
           <SidebarProvider>
             <NavBarProvider>
-              <StatusBar style="light" />
-              <View style={{ flex: 1 }}>
-                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0A0A" } }} />
-              </View>
-              <GlobalTabBar />
-              <AuthedSidebar />
-              <UsernameGate />
+              <SidebarMenuProvider>
+                <StatusBar style="light" />
+                <View style={{ flex: 1 }}>
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0A0A" } }} />
+                </View>
+                <GlobalTabBar />
+                <AuthedSidebar />
+                <UsernameGate />
+              </SidebarMenuProvider>
             </NavBarProvider>
           </SidebarProvider>
         </AuthProvider>
