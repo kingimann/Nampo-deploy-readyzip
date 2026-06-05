@@ -110,6 +110,9 @@ export const api = {
   deleteOAuthApp: (clientId: string) =>
     request<{ deleted: boolean }>(`/oauth/apps/${clientId}`, { method: "DELETE" }),
   getOAuthApp: (clientId: string) => request<OAuthApp>(`/oauth/app/${clientId}`),
+  getConnections: () => request<{ connections: OAuthConnection[] }>("/oauth/connections"),
+  revokeConnection: (clientId: string) =>
+    request<{ revoked: boolean }>(`/oauth/connections/${clientId}`, { method: "DELETE" }),
   oauthAuthorize: (body: { client_id: string; redirect_uri: string; scope?: string; state?: string; approve: boolean }) =>
     request<{ redirect_url: string }>("/oauth/authorize", { method: "POST", body: JSON.stringify(body) }),
   getPolicies: () => request<{ tos_version: string; privacy_version: string; effective_date: string }>("/policies"),
@@ -559,6 +562,7 @@ export type AdRevenue = {
 };
 export type ApiKey = { id: string; label: string; scopes?: string[]; key_prefix: string; created_at: string; last_used_at?: string | null };
 export type OAuthApp = { client_id: string; name: string; redirect_uris: string[]; created_at?: string };
+export type OAuthConnection = { client_id: string; name: string; scope: string; granted_at?: string | null; tokens: number };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
 export type OveragePack = { id: string; name: string; requests: number; price: number };

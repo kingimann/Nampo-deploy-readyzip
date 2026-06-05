@@ -153,6 +153,47 @@ async def token(body: TokenBody):
     }
 
 
+class RevokeBody(BaseModel):
+    token: str
+
+
+@router.get("/oauth/connections")
+async def my_connections(authorization: Optional[str] = Header(None)):
+    """Third-party apps the current user has signed into (for a Connected Apps UI)."""
+    user = await get_current_user(authorization)
+    toks = await db.oauth_tokens.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    by_client: dict = {}
+    for t in toks:
+        cid = t.get("client_id")
+        if cid not in by_client:
+            by_client[cid] = {"client_id": cid, "scope": t.get("scope", "profile"),
+                              "granted_at": t.get("created_at"), "tokens": 0}
+        by_client[cid]["tokens"] += 1
+    if by_client:
+        apps = await db.oauth_apps.find({"client_id": {"$in": list(by_client)}}, {"_id": 0, "client_id": 1, "name": 1}).to_list(200)
+        names = {a["client_id"]: a.get("name", "App") for a in apps}
+        for cid, c in by_client.items():
+            c["name"] = names.get(cid, "App")
+    return {"connections": list(by_client.values())}
+
+
+@router.delete("/oauth/connections/{client_id}")
+async def revoke_connection(client_id: str, authorization: Optional[str] = Header(None)):
+    """Revoke a third-party app's access for the current user (all its tokens)."""
+    user = await get_current_user(authorization)
+    await db.oauth_tokens.delete_many({"user_id": user["user_id"], "client_id": client_id})
+    await db.oauth_codes.delete_many({"user_id": user["user_id"], "client_id": client_id})
+    return {"revoked": True}
+
+
+@router.post("/oauth/revoke")
+async def revoke_token(body: RevokeBody):
+    """RFC 7009-style token revocation — always returns ok."""
+    if body.token:
+        await db.oauth_tokens.delete_one({"access_token": body.token})
+    return {"ok": True}
+
+
 @router.get("/oauth/userinfo")
 async def userinfo(authorization: Optional[str] = Header(None)):
     """Third-party reads the signed-in user's profile with the access token."""

@@ -85,6 +85,7 @@ export default function SettingsScreen() {
         <Text style={styles.groupTitle}>Account</Text>
         <View style={styles.group}>
           <Row icon="shield-checkmark-outline" label="Account & security" color="#22C55E" onPress={() => router.push("/account")} />
+          <Row icon="link-outline" label="Connected apps" color="#A855F7" onPress={() => router.push("/connected-apps")} />
           <Row icon="code-slash-outline" label="Developer API" color="#0EA5E9" onPress={() => router.push("/developer")} last={user?.role !== "admin"} />
           {user?.role === "admin" && (
             <Row icon="bar-chart-outline" label="Ad revenue (admin)" color="#EAB308" onPress={() => router.push("/admin-revenue")} last />
