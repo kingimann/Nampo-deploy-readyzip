@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Modal, FlatList, TextInput, TouchableOpacity,
   ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable,
@@ -31,20 +31,46 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<Post | null>(null);
   const inputRef = useRef<TextInput>(null);
 
   const load = useCallback(async () => {
     if (!post) return;
     setLoading(true);
     try {
-      const r = await api.listReplies(post.id);
+      // Whole thread (replies + replies-to-replies); we nest it client-side.
+      const r = await api.postThread(post.id);
       setReplies(r);
     } catch {} finally { setLoading(false); }
   }, [post]);
 
   useEffect(() => {
-    if (visible && post) { setText(""); setEditingId(null); load(); }
+    if (visible && post) { setText(""); setEditingId(null); setReplyTo(null); load(); }
   }, [visible, post, load]);
+
+  // Flatten the thread into render rows: each top-level comment (depth 0)
+  // followed by its descendants (depth 1), each tagged with who it replies to.
+  const rows = useMemo(() => {
+    if (!post) return [] as { c: Post; depth: number; replyToName?: string }[];
+    const byId = new Map(replies.map((r) => [r.id, r]));
+    const kids = new Map<string, Post[]>();
+    for (const r of replies) {
+      const pid = r.parent_id || "";
+      (kids.get(pid) || kids.set(pid, []).get(pid)!).push(r);
+    }
+    const sortKids = (list: Post[]) =>
+      [...list].sort((a, b) => (Number(!!b.pinned) - Number(!!a.pinned)) || (a.created_at < b.created_at ? -1 : 1));
+    const out: { c: Post; depth: number; replyToName?: string }[] = [];
+    const visit = (node: Post) => {
+      out.push({ c: node, depth: 1, replyToName: byId.get(node.parent_id || "")?.author?.name });
+      for (const ch of sortKids(kids.get(node.id) || [])) visit(ch);
+    };
+    for (const t of sortKids(kids.get(post.id) || [])) {
+      out.push({ c: t, depth: 0 });
+      for (const ch of sortKids(kids.get(t.id) || [])) visit(ch);
+    }
+    return out;
+  }, [replies, post]);
 
   const send = async () => {
     const body = text.trim();
@@ -56,16 +82,23 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         setReplies((arr) => arr.map((r) => (r.id === editingId ? updated : r)));
         setEditingId(null);
       } else {
-        const reply = await api.createPost({ text: body, parent_id: post.id });
+        const parentId = replyTo ? replyTo.id : post.id;
+        const reply = await api.createPost({ text: body, parent_id: parentId });
         setReplies((arr) => [...arr, reply]);
-        onCommented?.(post.id, reply);
+        if (!replyTo) onCommented?.(post.id, reply);  // only top-level bumps the post's count
+        setReplyTo(null);
       }
       setText("");
     } catch {} finally { setSending(false); }
   };
 
-  const beginEdit = (c: Post) => { setEditingId(c.id); setText(c.text || ""); inputRef.current?.focus(); };
+  const beginEdit = (c: Post) => { setEditingId(c.id); setReplyTo(null); setText(c.text || ""); inputRef.current?.focus(); };
   const cancelEdit = () => { setEditingId(null); setText(""); };
+  const beginReply = (c: Post) => {
+    setReplyTo(c); setEditingId(null);
+    setText(c.author.username ? `@${c.author.username} ` : "");
+    inputRef.current?.focus();
+  };
   const removeComment = async (c: Post) => {
     setReplies((arr) => arr.filter((r) => r.id !== c.id));
     try { await api.deletePost(c.id); } catch {}
@@ -137,8 +170,8 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
               <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
             ) : (
               <FlatList
-                data={replies}
-                keyExtractor={(i) => i.id}
+                data={rows}
+                keyExtractor={(i) => i.c.id}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 16 }}
                 keyboardShouldPersistTaps="handled"
                 style={{ flexGrow: 0, maxHeight: 380 }}
@@ -148,8 +181,10 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                     <Text style={styles.emptyText}>No comments yet. Start the conversation.</Text>
                   </View>
                 }
-                renderItem={({ item }) => (
-                  <View style={styles.row}>
+                renderItem={({ item: row }) => {
+                  const item = row.c;
+                  return (
+                  <View style={[styles.row, row.depth > 0 && styles.rowNested]}>
                     <TouchableOpacity onPress={() => openProfile(item.author.name)}>
                       <View style={styles.avatar}>
                         {item.author.picture ? (
@@ -172,6 +207,9 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                         <Text style={styles.rowTime}>{fmtTime(item.created_at)}</Text>
                         {!!item.edited_at && <Text style={styles.rowTime}>· edited</Text>}
                       </View>
+                      {!!row.replyToName && (
+                        <Text style={styles.replyingTo}>Replying to <Text style={{ color: theme.primary }}>@{row.replyToName}</Text></Text>
+                      )}
                       {!!item.text && <RichText text={item.text} style={styles.rowText} />}
                       <View style={styles.reactRow}>
                         <TouchableOpacity onPress={() => reactLike(item)} style={styles.reactBtn} testID={`comment-like-${item.id}`}>
@@ -186,6 +224,10 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                             <Ionicons name={item.pinned ? "pin" : "pin-outline"} size={13} color={item.pinned ? theme.primary : theme.textMuted} />
                           </TouchableOpacity>
                         )}
+                        <TouchableOpacity onPress={() => beginReply(item)} style={styles.reactBtn} testID={`comment-reply-${item.id}`}>
+                          <Ionicons name="arrow-undo-outline" size={13} color={theme.textMuted} />
+                          <Text style={styles.reactText}>Reply</Text>
+                        </TouchableOpacity>
                       </View>
                       {item.user_id === user?.user_id && (
                         <View style={styles.rowActions}>
@@ -199,10 +241,20 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                       )}
                     </View>
                   </View>
-                )}
+                  );
+                }}
               />
             )}
 
+            {replyTo && !editingId && (
+              <View style={styles.editHint}>
+                <Ionicons name="arrow-undo-outline" size={14} color={theme.primary} />
+                <Text style={[styles.editHintText, { flex: 1 }]} numberOfLines={1}>Replying to {replyTo.author.name}</Text>
+                <TouchableOpacity onPress={() => { setReplyTo(null); setText(""); }} testID="comment-cancel-reply">
+                  <Text style={[styles.editHintText, { color: theme.textMuted }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {editingId && (
               <View style={styles.editHint}>
                 <Ionicons name="create-outline" size={14} color={theme.primary} />
@@ -262,6 +314,8 @@ const styles = StyleSheet.create({
   emptyText: { color: theme.textMuted, fontSize: 13, textAlign: "center", paddingHorizontal: 40 },
 
   row: { flexDirection: "row", gap: 10 },
+  rowNested: { marginLeft: 30, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: theme.border },
+  replyingTo: { color: theme.textMuted, fontSize: 11.5, marginBottom: 2 },
   avatar: {
     width: 34, height: 34, borderRadius: 17, overflow: "hidden",
     backgroundColor: theme.primary, alignItems: "center", justifyContent: "center",

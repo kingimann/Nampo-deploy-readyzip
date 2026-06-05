@@ -430,6 +430,7 @@ class PostPatch(BaseModel):
 class PostAuthor(BaseModel):
     user_id: str
     name: str
+    username: Optional[str] = None
     picture: Optional[str] = None
     verified: bool = False
 
