@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator,
-  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert,
+  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
@@ -19,7 +20,8 @@ const DEFAULT_AVATAR =
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, signOut, refresh } = useAuth();
+  const { user, refresh } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({ places: 0, guides: 0, reviews: 0 });
   const [social, setSocial] = useState({ followers: 0, following: 0, friends: 0 });
   const [editOpen, setEditOpen] = useState(false);
@@ -154,106 +156,133 @@ export default function ProfileScreen() {
     } finally { setSaving(false); }
   };
 
-  const onSignOut = async () => {
-    await signOut();
-    router.replace("/login");
-  };
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.all([loadPosts(), loadStats()]); }
+    finally { setRefreshing(false); }
+  }, [loadPosts, loadStats]);
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="profile-screen">
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />
+        }
+      >
         <View style={styles.header}>
           <SidebarMenuButton />
           <Text style={styles.title}>Profile</Text>
-          <TouchableOpacity onPress={openEdit} style={styles.editBtn} testID="edit-profile-btn">
-            <Ionicons name="create-outline" size={18} color={theme.primary} />
-            <Text style={styles.editText}>Edit</Text>
+          <TouchableOpacity onPress={() => router.push("/settings")} style={styles.headerIconBtn} testID="open-settings-btn">
+            <Ionicons name="settings-outline" size={22} color={theme.textPrimary} />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.card}>
-          <TouchableOpacity onPress={changeAvatar} activeOpacity={0.85} testID="change-avatar-btn">
-            <Image
-              source={{ uri: user?.picture || DEFAULT_AVATAR }}
-              style={styles.avatar}
-            />
-            <View style={styles.avatarBadge}>
-              {uploadingAvatar
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Ionicons name="camera" size={14} color="#fff" />}
-            </View>
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
+        <View style={styles.hero}>
+          <LinearGradient
+            colors={[theme.primaryHover, theme.primary, theme.primaryActive]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.cover}
+          />
+          <View style={styles.heroBody}>
+            <TouchableOpacity onPress={changeAvatar} activeOpacity={0.85} style={styles.avatarWrap} testID="change-avatar-btn">
+              <Image
+                source={{ uri: user?.picture || DEFAULT_AVATAR }}
+                style={styles.avatar}
+              />
+              <View style={styles.avatarBadge}>
+                {uploadingAvatar
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Ionicons name="camera" size={14} color="#fff" />}
+              </View>
+            </TouchableOpacity>
+
             <Text style={styles.name} numberOfLines={1}>{user?.name || "Explorer"}</Text>
             {!!user?.username && (
               <Text style={styles.handle} numberOfLines={1}>@{user.username}</Text>
             )}
-            <Text style={styles.email} numberOfLines={1}>{user?.email}</Text>
             {!!user?.bio && <Text style={styles.bio}>{user.bio}</Text>}
+            {!!user?.email && <Text style={styles.email} numberOfLines={1}>{user.email}</Text>}
+
+            <View style={styles.socialBar}>
+              <TouchableOpacity
+                style={styles.socialItem}
+                onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })}
+                testID="stat-followers"
+              >
+                <Text style={styles.socialNum}>{social.followers}</Text>
+                <Text style={styles.socialLabel}>Followers</Text>
+              </TouchableOpacity>
+              <View style={styles.socialDivider} />
+              <TouchableOpacity
+                style={styles.socialItem}
+                onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "following" } })}
+                testID="stat-following"
+              >
+                <Text style={styles.socialNum}>{social.following}</Text>
+                <Text style={styles.socialLabel}>Following</Text>
+              </TouchableOpacity>
+              <View style={styles.socialDivider} />
+              <TouchableOpacity
+                style={styles.socialItem}
+                onPress={() => router.push("/people")}
+                testID="stat-friends"
+              >
+                <Text style={styles.socialNum}>{social.friends}</Text>
+                <Text style={styles.socialLabel}>Friends</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.heroActions}>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionPrimary]}
+                onPress={openEdit}
+                activeOpacity={0.85}
+                testID="edit-profile-btn"
+              >
+                <Ionicons name="create-outline" size={16} color="#fff" />
+                <Text style={styles.actionPrimaryText}>Edit profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionGhost]}
+                onPress={() => router.push("/people")}
+                activeOpacity={0.85}
+                testID="find-friends-btn"
+              >
+                <Ionicons name="person-add-outline" size={16} color={theme.primary} />
+                <Text style={styles.actionGhostText}>Find friends</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}>
+        <View style={styles.statsCard}>
+          <View style={styles.statCell}>
             <Text style={styles.statNum}>{stats.places}</Text>
             <Text style={styles.statLabel}>Places</Text>
           </View>
-          <View style={styles.statBox}>
+          <View style={styles.statCellDivider} />
+          <View style={styles.statCell}>
             <Text style={styles.statNum}>{stats.guides}</Text>
             <Text style={styles.statLabel}>Guides</Text>
           </View>
-          <View style={styles.statBox}>
+          <View style={styles.statCellDivider} />
+          <View style={styles.statCell}>
             <Text style={styles.statNum}>{stats.reviews}</Text>
             <Text style={styles.statLabel}>Reviews</Text>
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <TouchableOpacity
-            style={styles.statBox}
-            onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })}
-            testID="stat-followers"
-          >
-            <Text style={styles.statNum}>{social.followers}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.statBox}
-            onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "following" } })}
-            testID="stat-following"
-          >
-            <Text style={styles.statNum}>{social.following}</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.statBox}
-            onPress={() => router.push("/people")}
-            testID="stat-friends"
-          >
-            <Text style={styles.statNum}>{social.friends}</Text>
-            <Text style={styles.statLabel}>Friends</Text>
-          </TouchableOpacity>
+        <View style={styles.postsHeaderRow}>
+          <Text style={styles.postsHeader}>Your posts</Text>
+          {!loadingPosts && myPosts.length > 0 && (
+            <View style={styles.postsCount}>
+              <Text style={styles.postsCountText}>{myPosts.length}</Text>
+            </View>
+          )}
         </View>
-
-        <TouchableOpacity
-          style={styles.findFriendsBtn}
-          onPress={() => router.push("/people")}
-          activeOpacity={0.85}
-          testID="find-friends-btn"
-        >
-          <Ionicons name="person-add" size={18} color="#fff" />
-          <Text style={styles.findFriendsText}>Find friends</Text>
-        </TouchableOpacity>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About Atlas</Text>
-          <View style={styles.aboutRow}><Ionicons name="map" size={18} color={theme.primary} /><Text style={styles.aboutText}>Powered by Mapbox</Text></View>
-          <View style={styles.aboutRow}><Ionicons name="navigate" size={18} color={theme.primary} /><Text style={styles.aboutText}>Turn-by-turn navigation</Text></View>
-          <View style={styles.aboutRow}><Ionicons name="bookmarks" size={18} color={theme.primary} /><Text style={styles.aboutText}>Shareable public guides</Text></View>
-          <View style={styles.aboutRow}><Ionicons name="chatbubbles" size={18} color={theme.primary} /><Text style={styles.aboutText}>Chat with friends & share places</Text></View>
-        </View>
-
-        <Text style={styles.postsHeader}>Your posts</Text>
         {loadingPosts ? (
           <ActivityIndicator color={theme.primary} style={{ marginTop: 12 }} />
         ) : myPosts.length === 0 ? (
@@ -276,16 +305,6 @@ export default function ProfileScreen() {
             ))}
           </View>
         )}
-
-        <TouchableOpacity
-          style={styles.signoutBtn}
-          onPress={onSignOut}
-          testID="signout-btn"
-          activeOpacity={0.85}
-        >
-          <Ionicons name="log-out-outline" size={20} color={theme.error} />
-          <Text style={styles.signoutText}>Sign out</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       <Modal visible={editOpen} transparent animationType="slide" onRequestClose={() => setEditOpen(false)}>
@@ -353,75 +372,78 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
   header: { paddingTop: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
-  editBtn: {
-    flexDirection: "row", gap: 6, alignItems: "center",
-    paddingHorizontal: 14, paddingVertical: 8,
-    backgroundColor: theme.surface, borderRadius: 12,
-    borderWidth: 1, borderColor: theme.border,
-  },
-  editText: { color: theme.primary, fontWeight: "700", fontSize: 13 },
+  title: { flex: 1, color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5, textAlign: "center" },
+  headerIconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
 
-  card: {
-    marginTop: 16,
-    backgroundColor: theme.surface, borderRadius: 20,
+  // ── Hero card (gradient cover + centered identity) ──────────────────────
+  hero: {
+    marginTop: 12,
+    backgroundColor: theme.surface, borderRadius: 24,
     borderWidth: 1, borderColor: theme.border,
-    padding: 16, flexDirection: "row", gap: 16,
+    overflow: "hidden",
   },
-  avatar: { width: 72, height: 72, borderRadius: 36, backgroundColor: theme.surfaceAlt },
+  cover: { height: 92, width: "100%" },
+  heroBody: { alignItems: "center", paddingHorizontal: 16, paddingBottom: 18, marginTop: -44 },
+  avatarWrap: {
+    borderRadius: 52, borderWidth: 4, borderColor: theme.surface,
+    backgroundColor: theme.surface,
+  },
+  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: theme.surfaceAlt },
   avatarBadge: {
-    position: "absolute", bottom: 0, right: 0,
-    width: 24, height: 24, borderRadius: 12,
+    position: "absolute", bottom: 2, right: 2,
+    width: 28, height: 28, borderRadius: 14,
     backgroundColor: theme.primary, borderWidth: 2, borderColor: theme.surface,
     alignItems: "center", justifyContent: "center",
   },
-  handle: { color: theme.primary, fontSize: 13, fontWeight: "700", marginTop: 2 },
-  name: { color: theme.textPrimary, fontSize: 20, fontWeight: "800" },
-  email: { color: theme.textSecondary, fontSize: 13, marginTop: 4 },
-  bio: { color: theme.textPrimary, fontSize: 13, marginTop: 8, lineHeight: 18 },
+  name: { color: theme.textPrimary, fontSize: 22, fontWeight: "800", marginTop: 10, letterSpacing: -0.3 },
+  handle: { color: theme.primary, fontSize: 14, fontWeight: "700", marginTop: 3 },
+  bio: { color: theme.textPrimary, fontSize: 14, marginTop: 10, lineHeight: 19, textAlign: "center" },
+  email: { color: theme.textMuted, fontSize: 12.5, marginTop: 8 },
 
-  statsRow: {
-    marginTop: 12, flexDirection: "row", gap: 10,
+  socialBar: {
+    flexDirection: "row", alignItems: "center", alignSelf: "stretch",
+    marginTop: 16, paddingVertical: 12,
+    backgroundColor: theme.surfaceAlt, borderRadius: 16,
   },
-  statBox: {
-    flex: 1, backgroundColor: theme.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: theme.border,
-    paddingVertical: 10, alignItems: "center",
+  socialItem: { flex: 1, alignItems: "center", gap: 2 },
+  socialDivider: { width: StyleSheet.hairlineWidth, height: 28, backgroundColor: theme.borderStrong },
+  socialNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  socialLabel: { color: theme.textSecondary, fontSize: 11.5, fontWeight: "500" },
+
+  heroActions: { flexDirection: "row", gap: 10, alignSelf: "stretch", marginTop: 14 },
+  actionBtn: {
+    flex: 1, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center",
+    paddingVertical: 11, borderRadius: 14,
   },
+  actionPrimary: { backgroundColor: theme.primary },
+  actionPrimaryText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  actionGhost: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border },
+  actionGhostText: { color: theme.primary, fontWeight: "800", fontSize: 14 },
+
+  // ── Content stats strip ─────────────────────────────────────────────────
+  statsCard: {
+    marginTop: 12, flexDirection: "row", alignItems: "center",
+    backgroundColor: theme.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: theme.border, paddingVertical: 14,
+  },
+  statCell: { flex: 1, alignItems: "center" },
+  statCellDivider: { width: StyleSheet.hairlineWidth, height: 30, backgroundColor: theme.border },
   statNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
   statLabel: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
 
-  findFriendsBtn: {
-    marginTop: 12,
-    flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 14,
-    backgroundColor: theme.primary,
+  postsHeaderRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 20, marginBottom: 10,
   },
-  findFriendsText: { color: "#fff", fontWeight: "800", fontSize: 14 },
-
-  section: {
-    marginTop: 16,
-    backgroundColor: theme.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: theme.border,
-    padding: 14, gap: 10,
-  },
-  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", marginBottom: 4 },
-  aboutRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  aboutText: { color: theme.textSecondary, fontSize: 14 },
-
-  signoutBtn: {
-    marginTop: 16,
-    flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 14,
-    backgroundColor: "rgba(239,68,68,0.1)",
-    borderWidth: 1, borderColor: "rgba(239,68,68,0.3)",
-  },
-  signoutText: { color: theme.error, fontWeight: "700", fontSize: 15 },
-
   postsHeader: {
     color: theme.textPrimary, fontSize: 16, fontWeight: "800",
-    marginTop: 18, marginBottom: 8, letterSpacing: -0.3,
+    letterSpacing: -0.3,
   },
+  postsCount: {
+    minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 7,
+    backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center",
+  },
+  postsCountText: { color: theme.textSecondary, fontSize: 12, fontWeight: "700" },
   postsEmpty: {
     alignItems: "center", paddingVertical: 32, gap: 10,
     backgroundColor: theme.surface, borderRadius: 16,

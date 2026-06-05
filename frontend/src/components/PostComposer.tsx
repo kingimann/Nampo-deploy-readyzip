@@ -24,6 +24,7 @@ type Props = {
 };
 
 const MAX_MEDIA = 4;
+const MAX_MEDIA_BYTES = 8 * 1024 * 1024; // mirrors the backend per-item limit
 const TEXT_MAX = 500;
 const POLL_DURATIONS: { label: string; hours: number }[] = [
   { label: "1 hour", hours: 1 },
@@ -89,9 +90,37 @@ export default function PostComposer({
       for (const a of result.assets || []) {
         const isVideo = a.type === "video";
         let uri = a.uri;
-        // Convert to data-URI base64 so it embeds in JSON cleanly
-        if (a.base64 && !isVideo) {
+        if (isVideo) {
+          // Read the picked video into a base64 data URI so the actual bytes
+          // are uploaded. A raw file:// path is local to this device and can't
+          // be loaded by anyone else viewing the feed/reels. fetch + FileReader
+          // works on web and native alike.
+          try {
+            const res = await fetch(a.uri);
+            const blob = await res.blob();
+            uri = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          } catch {
+            Alert.alert("Couldn't attach video", "This video could not be read. Try a shorter clip.");
+            continue;
+          }
+        } else if (a.base64) {
+          // Convert images to a data-URI so they embed in JSON cleanly.
           uri = `data:image/jpeg;base64,${a.base64}`;
+        }
+        // Enforce the backend's ~8MB-per-item limit before sending.
+        if (uri.length > MAX_MEDIA_BYTES) {
+          Alert.alert(
+            isVideo ? "Video too large" : "Image too large",
+            isVideo
+              ? "Please pick a shorter clip (under ~10 seconds)."
+              : "Please pick a smaller image.",
+          );
+          continue;
         }
         toAdd.push({
           type: isVideo ? "video" : "image",
@@ -100,7 +129,7 @@ export default function PostComposer({
           height: a.height || null,
         });
       }
-      setMedia((arr) => [...arr, ...toAdd].slice(0, MAX_MEDIA));
+      if (toAdd.length) setMedia((arr) => [...arr, ...toAdd].slice(0, MAX_MEDIA));
     } catch (e) {
       Alert.alert("Couldn't attach media", String(e));
     }
@@ -230,14 +259,20 @@ export default function PostComposer({
               <View style={styles.mediaRow}>
                 {media.map((m, idx) => (
                   <View key={idx} style={styles.mediaChip}>
-                    <Image
-                      source={{ uri: m.base64 }}
-                      style={StyleSheet.absoluteFill}
-                      resizeMode="cover"
-                    />
+                    {m.type === "video" ? (
+                      <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" }]}>
+                        <Ionicons name="videocam" size={22} color={theme.textSecondary} />
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: m.base64 }}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode="cover"
+                      />
+                    )}
                     {m.type === "video" && (
                       <View style={styles.videoBadge}>
-                        <Ionicons name="videocam" size={14} color="#fff" />
+                        <Ionicons name="play" size={12} color="#fff" />
                       </View>
                     )}
                     <TouchableOpacity

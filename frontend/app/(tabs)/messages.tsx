@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator,
-  TextInput, Image, Modal, KeyboardAvoidingView, Platform, Alert,
+  TextInput, Image, Modal, KeyboardAvoidingView, Platform, Alert, RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +19,7 @@ export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
   const [convs, setConvs] = useState<ConversationView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [mode, setMode] = useState<Mode>(null);
   const [actionConv, setActionConv] = useState<ConversationView | null>(null);
 
@@ -41,6 +42,7 @@ export default function MessagesScreen() {
       setConvs(c);
     } catch {} finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -195,6 +197,14 @@ export default function MessagesScreen() {
           data={convs}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80, gap: 8 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); load(); }}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>

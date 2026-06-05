@@ -12,7 +12,7 @@ import {
   MapboxWebView, MapboxWebViewHandle, MapboxEvent,
 } from "@/src/components/MapboxWebView";
 import {
-  forwardGeocode, fetchRoute, categorySearch, GeocodeFeature, Profile, Step,
+  forwardGeocode, fetchRoutes, categorySearch, GeocodeFeature, Profile, Step, RouteResult,
 } from "@/src/api/mapbox";
 import { api, EtaShare } from "@/src/api/client";
 import { MAP_STYLES, theme } from "@/src/theme";
@@ -128,6 +128,8 @@ export default function DirectionsScreen() {
   const [searching, setSearching] = useState(false);
   const [profile, setProfile] = useState<Profile>("driving-traffic");
   const [routeInfo, setRouteInfo] = useState<{ distance: number; duration: number } | null>(null);
+  const [routes, setRoutes] = useState<RouteResult[]>([]);
+  const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
   const [steps, setSteps] = useState<Step[]>([]);
   const [showSteps, setShowSteps] = useState(false);
@@ -220,6 +222,26 @@ export default function DirectionsScreen() {
     }
   }, [params.destLng, params.destLat, params.destName]);
 
+  // Load one route (the primary, or a chosen alternate) into state + the map.
+  // Alternates are drawn faint behind the active route.
+  const applyRoute = useCallback((rs: RouteResult[], idx: number) => {
+    const r = rs[idx];
+    if (!r) return;
+    setRouteInfo({ distance: r.distance, duration: r.duration });
+    setRouteCoords(r.geometry.coordinates);
+    setRouteLegs(r.legs);
+    setSteps(r.legs.flatMap((l) => l.steps));
+    setStepIdx(0);
+    mapRef.current?.setRoute(r.geometry);
+    mapRef.current?.setAltRoutes(rs.filter((_, i) => i !== idx).map((x) => x.geometry));
+  }, []);
+
+  // Tapping an alternate-route card just re-selects it (no refetch).
+  const selectRoute = useCallback((idx: number) => {
+    setSelectedRouteIdx(idx);
+    applyRoute(routes, idx);
+  }, [routes, applyRoute]);
+
   const recomputeRoute = useCallback(async (originOverride?: [number, number]) => {
     const coords: [number, number][] = waypoints
       .map((w, i) => {
@@ -229,24 +251,22 @@ export default function DirectionsScreen() {
       })
       .filter(Boolean) as [number, number][];
     if (coords.length < 2 || coords.length !== waypoints.length) {
-      setRouteInfo(null); setSteps([]); setRouteCoords([]);
+      setRouteInfo(null); setSteps([]); setRouteCoords([]); setRoutes([]);
       mapRef.current?.setRoute(null);
+      mapRef.current?.setAltRoutes([]);
       return;
     }
     setLoadingRoute(true);
     try {
-      const r = await fetchRoute(coords, profile, {
+      const rs = await fetchRoutes(coords, profile, {
         exclude: Array.from(excludes),
         annotations: profile.startsWith("driving"),
+        alternatives: !navMode, // alternates only matter while planning
       });
-      if (r) {
-        setRouteInfo({ distance: r.distance, duration: r.duration });
-        setRouteCoords(r.geometry.coordinates);
-        setRouteLegs(r.legs);
-        const flatSteps = r.legs.flatMap((l) => l.steps);
-        setSteps(flatSteps);
-        setStepIdx(0);
-        mapRef.current?.setRoute(r.geometry);
+      setRoutes(rs);
+      setSelectedRouteIdx(0);
+      if (rs.length) {
+        applyRoute(rs, 0);
         mapRef.current?.setMarkers(
           coords.map((c, i) => ({
             id: `wp_${i}`,
@@ -257,11 +277,15 @@ export default function DirectionsScreen() {
           })),
         );
         if (!navMode) mapRef.current?.fitBounds(coords, 100);
+      } else {
+        setRouteInfo(null); setSteps([]); setRouteCoords([]);
+        mapRef.current?.setRoute(null);
+        mapRef.current?.setAltRoutes([]);
       }
     } finally {
       setLoadingRoute(false);
     }
-  }, [waypoints, userLocation, profile, navMode, excludes]);
+  }, [waypoints, userLocation, profile, navMode, excludes, applyRoute]);
 
   // Auto-compute route when waypoints / profile / excludes change (NOT every GPS tick).
   useEffect(() => { recomputeRoute(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [waypoints, profile, excludes]);
@@ -324,6 +348,8 @@ export default function DirectionsScreen() {
     setShowSteps(false);
     setStepIdx(0);
     lastSpokenKey.current = "";
+    // Drop the alternates — we commit to the selected route while navigating.
+    mapRef.current?.setAltRoutes([]);
     // Camera: zoom in + tilt + bearing to next maneuver
     mapRef.current?.flyTo(userLocation[0], userLocation[1], 17);
     mapRef.current?.setPitch(60);
@@ -334,6 +360,13 @@ export default function DirectionsScreen() {
     mapRef.current?.flyTo(userLocation[0], userLocation[1], navMode ? 17 : 15);
     if (navMode) mapRef.current?.setPitch(60);
   };
+
+  // Zoom out to frame the whole trip.
+  const overviewRoute = () => {
+    if (routeCoords.length > 1) mapRef.current?.fitBounds(routeCoords, 80);
+  };
+  // Reset the map to north-up (and flatten any tilt).
+  const northUp = () => { mapRef.current?.resetNorth(); };
 
   const toggleExclude = (k: "toll" | "motorway" | "ferry") => {
     setExcludes((prev) => {
@@ -512,6 +545,10 @@ export default function DirectionsScreen() {
 
   const currentStep = steps[stepIdx];
   const nextStep = steps[stepIdx + 1];
+  // How far through the current step we are (0..1), for the nav progress bar.
+  const stepProgress = currentStep && currentStep.distance > 0 && distToManeuver != null
+    ? Math.max(0, Math.min(1, 1 - distToManeuver / currentStep.distance))
+    : 0;
 
   return (
     <View style={styles.root} testID="directions-screen">
@@ -670,6 +707,9 @@ export default function DirectionsScreen() {
                 </Text>
               </View>
             </View>
+            <View style={styles.navProgressTrack}>
+              <View style={[styles.navProgressFill, { width: `${Math.round(stepProgress * 100)}%` }]} />
+            </View>
             {nextStep && (
               <View style={styles.thenRow}>
                 <Ionicons
@@ -704,15 +744,33 @@ export default function DirectionsScreen() {
               </View>
             )}
 
-            {/* Recenter pill (right side, above bottom card) */}
-            <TouchableOpacity
-              style={styles.recenterBtn}
-              onPress={recenterMap}
-              testID="recenter-btn"
-              activeOpacity={0.85}
-            >
-              <Ionicons name="locate" size={20} color={theme.primary} />
-            </TouchableOpacity>
+            {/* Map controls (right side, above bottom card): north-up, overview, recenter */}
+            <View style={styles.navControls} pointerEvents="box-none">
+              <TouchableOpacity
+                style={styles.mapCtrlBtn}
+                onPress={northUp}
+                testID="northup-btn"
+                activeOpacity={0.85}
+              >
+                <Ionicons name="compass-outline" size={20} color={theme.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.mapCtrlBtn}
+                onPress={overviewRoute}
+                testID="overview-btn"
+                activeOpacity={0.85}
+              >
+                <Ionicons name="expand-outline" size={20} color={theme.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.mapCtrlBtn}
+                onPress={recenterMap}
+                testID="recenter-btn"
+                activeOpacity={0.85}
+              >
+                <Ionicons name="locate" size={20} color={theme.primary} />
+              </TouchableOpacity>
+            </View>
 
             {/* Search-along-route quick chips */}
             <View style={styles.sarChips} pointerEvents="box-none">
@@ -774,6 +832,31 @@ export default function DirectionsScreen() {
                 );
               })}
             </ScrollView>
+          )}
+
+          {/* Alternate-route picker (only when Mapbox returned more than one). */}
+          {!navMode && routes.length > 1 && (
+            <View style={styles.routeOptions}>
+              {routes.map((r, i) => {
+                const a = i === selectedRouteIdx;
+                const fastest = i === routes.reduce((m, x, j, arr) => (x.duration < arr[m].duration ? j : m), 0);
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    style={[styles.routeOption, a && styles.routeOptionActive]}
+                    onPress={() => selectRoute(i)}
+                    activeOpacity={0.85}
+                    testID={`route-option-${i}`}
+                  >
+                    <Text style={[styles.routeOptDur, a && { color: theme.primary }]}>{formatDuration(r.duration)}</Text>
+                    <Text style={styles.routeOptDist}>{formatDistance(r.distance)}</Text>
+                    <Text style={[styles.routeOptTag, fastest ? { color: theme.primary } : null]}>
+                      {fastest ? "Fastest" : i === 0 ? "Recommended" : "Alternative"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           )}
 
           {loadingRoute && !routeInfo ? (
@@ -1033,6 +1116,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.25)",
   },
   thenText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "600", flex: 1 },
+  navProgressTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.22)" },
+  navProgressFill: { height: 3, backgroundColor: "#fff" },
   rerouteRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     paddingHorizontal: 16, paddingVertical: 8,
@@ -1057,6 +1142,17 @@ const styles = StyleSheet.create({
   },
   profileChipActive: { borderColor: theme.primary },
   profileLabel: { fontSize: 13, fontWeight: "600" },
+
+  routeOptions: { flexDirection: "row", gap: 8 },
+  routeOption: {
+    flex: 1, backgroundColor: theme.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: theme.border,
+    paddingVertical: 10, paddingHorizontal: 10, alignItems: "center",
+  },
+  routeOptionActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  routeOptDur: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
+  routeOptDist: { color: theme.textSecondary, fontSize: 12, marginTop: 1 },
+  routeOptTag: { color: theme.textMuted, fontSize: 10.5, fontWeight: "700", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.3 },
 
   routeBox: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
@@ -1145,8 +1241,10 @@ const styles = StyleSheet.create({
   speedUnit: { color: "#475569", fontSize: 8, fontWeight: "800", letterSpacing: 0.4, marginTop: 1 },
 
   // Recenter (locate) pill
-  recenterBtn: {
-    position: "absolute", right: 14, bottom: 220,
+  navControls: {
+    position: "absolute", right: 14, bottom: 220, gap: 10,
+  },
+  mapCtrlBtn: {
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: theme.surface,
     borderWidth: 1, borderColor: theme.border,

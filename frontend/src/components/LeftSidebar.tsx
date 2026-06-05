@@ -72,7 +72,7 @@ export default function LeftSidebar() {
     { label: "Groups", icon: "people", route: "/(tabs)/groups", color: "#7C3AED", testID: "side-groups" },
     { label: "Marketplace", icon: "storefront", route: "/(tabs)/marketplace", color: "#F59E0B", testID: "side-market" },
     { label: "Saved Places", icon: "location", route: "/(tabs)/favorites", color: "#22C55E", testID: "side-favs" },
-    { label: "Settings", icon: "settings", route: "/(tabs)/profile", color: "#64748B", testID: "side-settings" },
+    { label: "Settings", icon: "settings", route: "/settings", color: "#64748B", testID: "side-settings" },
   ];
 
   const tx = translateX.interpolate({

@@ -20,6 +20,7 @@ export type RouteGeometry = {
 export type MapboxEvent =
   | { type: "ready" }
   | { type: "click"; lng: number; lat: number }
+  | { type: "longpress"; lng: number; lat: number }
   | { type: "markerClick"; id: string }
   | { type: "userPan" }
   | { type: "moveEnd"; center: [number, number]; zoom: number; bearing: number; pitch: number };
@@ -28,6 +29,7 @@ export type MapboxWebViewHandle = {
   setStyle: (styleUrl: string) => void;
   setMarkers: (markers: MarkerInput[]) => void;
   setRoute: (geometry: RouteGeometry | null) => void;
+  setAltRoutes: (geometries: RouteGeometry[]) => void;
   flyTo: (lng: number, lat: number, zoom?: number) => void;
   panTo: (lng: number, lat: number) => void;
   setUserLocation: (lng: number, lat: number, accuracy?: number, heading?: number) => void;
@@ -115,6 +117,10 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   map.on('click', function (e) {
     post({ type: 'click', lng: e.lngLat.lng, lat: e.lngLat.lat });
   });
+  // Long-press (touch) / right-click (web) → emit a longpress event.
+  map.on('contextmenu', function (e) {
+    post({ type: 'longpress', lng: e.lngLat.lng, lat: e.lngLat.lat });
+  });
   // User-initiated camera interactions → tell RN to exit follow mode.
   function emitUserPan(e) {
     if (!e || !e.originalEvent) return; // ignore programmatic moves
@@ -135,18 +141,33 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     });
   });
 
+  function emptyFC() { return { type:'FeatureCollection', features: [] }; }
+
   function ensureRouteLayer() {
     if (map.getSource('route')) return;
+    // Alternate routes sit BENEATH the active route (added first).
+    map.addSource('alt-routes', { type:'geojson', data: emptyFC() });
+    map.addLayer({
+      id:'alt-routes-casing', type:'line', source:'alt-routes',
+      layout:{ 'line-join':'round', 'line-cap':'round' },
+      paint:{ 'line-color':'#0B141A', 'line-width':8, 'line-opacity':0.6 }
+    });
+    map.addLayer({
+      id:'alt-routes-line', type:'line', source:'alt-routes',
+      layout:{ 'line-join':'round', 'line-cap':'round' },
+      paint:{ 'line-color':'#8696A0', 'line-width':5, 'line-opacity':0.9 }
+    });
+    // Active route, drawn on top.
     map.addSource('route', { type:'geojson', data:{ type:'Feature', geometry:{ type:'LineString', coordinates:[] }, properties:{} } });
     map.addLayer({
       id:'route-casing', type:'line', source:'route',
       layout:{ 'line-join':'round', 'line-cap':'round' },
-      paint:{ 'line-color':'#1E3A8A', 'line-width':9, 'line-opacity':0.6 }
+      paint:{ 'line-color':'#0A2540', 'line-width':['interpolate',['linear'],['zoom'],10,7,16,13], 'line-opacity':0.85 }
     });
     map.addLayer({
       id:'route-line', type:'line', source:'route',
       layout:{ 'line-join':'round', 'line-cap':'round' },
-      paint:{ 'line-color':'#3B82F6', 'line-width':5, 'line-opacity':1 }
+      paint:{ 'line-color':'#1A73E8', 'line-width':['interpolate',['linear'],['zoom'],10,4,16,9], 'line-opacity':1 }
     });
   }
 
@@ -193,6 +214,15 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
       : { type:'Feature', geometry:{ type:'LineString', coordinates:[] }, properties:{} };
     var src = map.getSource('route');
     if (src) src.setData(data);
+  }
+
+  function setAltRoutes(geometries) {
+    ensureRouteLayer();
+    var feats = (geometries || []).map(function (g, i) {
+      return { type:'Feature', geometry: g, properties:{ index: i } };
+    });
+    var src = map.getSource('alt-routes');
+    if (src) src.setData({ type:'FeatureCollection', features: feats });
   }
 
   function flyTo(lng, lat, zoom) {
@@ -357,6 +387,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
         case 'setStyle': setStyle(msg.url); break;
         case 'setMarkers': setMarkers(msg.markers); break;
         case 'setRoute': setRoute(msg.geometry); break;
+        case 'setAltRoutes': setAltRoutes(msg.geometries); break;
         case 'flyTo': flyTo(msg.lng, msg.lat, msg.zoom); break;
         case 'panTo': panTo(msg.lng, msg.lat); break;
         case 'setUserLocation': setUserLocation(msg.lng, msg.lat, msg.accuracy, msg.heading); break;
@@ -401,6 +432,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewHandle, Props>(
       setStyle: (url) => send({ cmd: "setStyle", url }),
       setMarkers: (markers) => send({ cmd: "setMarkers", markers }),
       setRoute: (geometry) => send({ cmd: "setRoute", geometry }),
+      setAltRoutes: (geometries) => send({ cmd: "setAltRoutes", geometries }),
       flyTo: (lng, lat, zoom) => send({ cmd: "flyTo", lng, lat, zoom }),
       panTo: (lng, lat) => send({ cmd: "panTo", lng, lat }),
       setUserLocation: (lng, lat, accuracy, heading) => send({ cmd: "setUserLocation", lng, lat, accuracy, heading }),

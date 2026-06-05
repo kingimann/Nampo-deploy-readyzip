@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { Post } from "@/src/api/client";
 import { theme } from "@/src/theme";
@@ -33,12 +34,18 @@ export default function QuoteCard({ post }: { post: Post }) {
           numberOfLines={6}
         />
       )}
-      {post.media && post.media.length > 0 && post.media[0].type === "image" && (
-        <Image
-          source={{ uri: post.media[0].base64 }}
-          style={styles.preview}
-          resizeMode="cover"
-        />
+      {post.media && post.media.length > 0 && (
+        post.media[0].type === "video" ? (
+          <View style={[styles.preview, styles.videoPreview]}>
+            <Ionicons name="play" size={26} color="#fff" />
+          </View>
+        ) : (
+          <Image
+            source={{ uri: post.media[0].base64 }}
+            style={styles.preview}
+            resizeMode="cover"
+          />
+        )
       )}
     </TouchableOpacity>
   );
@@ -59,4 +66,5 @@ const styles = StyleSheet.create({
   name: { color: theme.textPrimary, fontSize: 13, fontWeight: "800", flex: 1 },
   body: { fontSize: 14, color: theme.textPrimary },
   preview: { width: "100%", height: 140, borderRadius: 10, marginTop: 6 },
+  videoPreview: { backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },
 });

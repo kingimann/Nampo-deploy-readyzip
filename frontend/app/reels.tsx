@@ -1,7 +1,7 @@
 import React, { useCallback, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  Image, useWindowDimensions, Platform,
+  Image, useWindowDimensions, Platform, RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -102,11 +102,12 @@ export default function ReelsScreen() {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [items, setItems] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
 
   const load = useCallback(async () => {
     try { setItems(await api.reelsFeed()); }
-    catch {} finally { setLoading(false); }
+    catch {} finally { setLoading(false); setRefreshing(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -148,6 +149,14 @@ export default function ReelsScreen() {
           decelerationRate="fast"
           onViewableItemsChanged={onViewable}
           viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); load(); }}
+              tintColor="#fff"
+              colors={[theme.primary]}
+            />
+          }
           getItemLayout={(_, index) => ({ length: screenH, offset: screenH * index, index })}
           renderItem={({ item, index }) => (
             <Reel
