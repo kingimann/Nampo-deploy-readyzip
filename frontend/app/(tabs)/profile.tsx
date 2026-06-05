@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator,
-  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert,
+  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,7 +20,8 @@ const DEFAULT_AVATAR =
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, signOut, refresh } = useAuth();
+  const { user, refresh } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({ places: 0, guides: 0, reviews: 0 });
   const [social, setSocial] = useState({ followers: 0, following: 0, friends: 0 });
   const [editOpen, setEditOpen] = useState(false);
@@ -155,18 +156,27 @@ export default function ProfileScreen() {
     } finally { setSaving(false); }
   };
 
-  const onSignOut = async () => {
-    await signOut();
-    router.replace("/login");
-  };
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.all([loadPosts(), loadStats()]); }
+    finally { setRefreshing(false); }
+  }, [loadPosts, loadStats]);
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="profile-screen">
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />
+        }
+      >
         <View style={styles.header}>
           <SidebarMenuButton />
           <Text style={styles.title}>Profile</Text>
-          <View style={{ width: 40 }} />
+          <TouchableOpacity onPress={() => router.push("/settings")} style={styles.headerIconBtn} testID="open-settings-btn">
+            <Ionicons name="settings-outline" size={22} color={theme.textPrimary} />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.hero}>
@@ -265,14 +275,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About Atlas</Text>
-          <View style={styles.aboutRow}><Ionicons name="map" size={18} color={theme.primary} /><Text style={styles.aboutText}>Powered by Mapbox</Text></View>
-          <View style={styles.aboutRow}><Ionicons name="navigate" size={18} color={theme.primary} /><Text style={styles.aboutText}>Turn-by-turn navigation</Text></View>
-          <View style={styles.aboutRow}><Ionicons name="bookmarks" size={18} color={theme.primary} /><Text style={styles.aboutText}>Shareable public guides</Text></View>
-          <View style={styles.aboutRow}><Ionicons name="chatbubbles" size={18} color={theme.primary} /><Text style={styles.aboutText}>Chat with friends & share places</Text></View>
-        </View>
-
         <View style={styles.postsHeaderRow}>
           <Text style={styles.postsHeader}>Your posts</Text>
           {!loadingPosts && myPosts.length > 0 && (
@@ -303,16 +305,6 @@ export default function ProfileScreen() {
             ))}
           </View>
         )}
-
-        <TouchableOpacity
-          style={styles.signoutBtn}
-          onPress={onSignOut}
-          testID="signout-btn"
-          activeOpacity={0.85}
-        >
-          <Ionicons name="log-out-outline" size={20} color={theme.error} />
-          <Text style={styles.signoutText}>Sign out</Text>
-        </TouchableOpacity>
       </ScrollView>
 
       <Modal visible={editOpen} transparent animationType="slide" onRequestClose={() => setEditOpen(false)}>
@@ -381,6 +373,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
   header: { paddingTop: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 },
   title: { flex: 1, color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5, textAlign: "center" },
+  headerIconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
 
   // ── Hero card (gradient cover + centered identity) ──────────────────────
   hero: {
@@ -437,25 +430,6 @@ const styles = StyleSheet.create({
   statCellDivider: { width: StyleSheet.hairlineWidth, height: 30, backgroundColor: theme.border },
   statNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
   statLabel: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
-
-  section: {
-    marginTop: 16,
-    backgroundColor: theme.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: theme.border,
-    padding: 14, gap: 10,
-  },
-  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", marginBottom: 4 },
-  aboutRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  aboutText: { color: theme.textSecondary, fontSize: 14 },
-
-  signoutBtn: {
-    marginTop: 16,
-    flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center",
-    paddingVertical: 12, borderRadius: 14,
-    backgroundColor: "rgba(239,68,68,0.1)",
-    borderWidth: 1, borderColor: "rgba(239,68,68,0.3)",
-  },
-  signoutText: { color: theme.error, fontWeight: "700", fontSize: 15 },
 
   postsHeaderRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
