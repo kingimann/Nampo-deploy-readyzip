@@ -9,7 +9,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "ios:build": "eas build --platform ios --profile production",
+    "ios:build:preview": "eas build --platform ios --profile preview",
+    "ios:submit": "eas submit --platform ios --profile production"
   },
   "dependencies": {
     "@expo/metro-runtime": "6.1.2",

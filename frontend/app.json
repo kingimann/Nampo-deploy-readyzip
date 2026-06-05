@@ -9,15 +9,18 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "bundleIdentifier": "com.namiapp.mobile",
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Show your location on the map and nearby places.",
         "NSPhotoLibraryUsageDescription": "Attach photos and videos to your posts.",
         "NSCameraUsageDescription": "Take photos and videos for your posts.",
-        "NSMicrophoneUsageDescription": "Record voice messages to send in chats."
+        "NSMicrophoneUsageDescription": "Record voice messages to send in chats.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "package": "com.namiapp.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000"
