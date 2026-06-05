@@ -42,6 +42,13 @@ _google_cfg_cache: dict = {"data": None, "exp": 0.0}
 
 def _public_base_url() -> str:
     """The externally reachable https origin for this deployment (dev or prod)."""
+    # Explicit override first, then Render's auto-provided URL, then Replit (legacy).
+    explicit = (os.environ.get("PUBLIC_BASE_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    render_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip()
+    if render_url:
+        return render_url.rstrip("/")
     domains = os.environ.get("REPLIT_DOMAINS") or os.environ.get("REPLIT_DEV_DOMAIN") or ""
     host = domains.split(",")[0].strip()
     return f"https://{host}" if host else ""
@@ -69,10 +76,26 @@ async def _google_config() -> dict:
 _ALLOWED_NATIVE_SCHEMES = {"atlas", "exp", "exps"}
 
 
+def _allowed_redirect_hosts() -> set:
+    """Hosts we will redirect back to after OAuth: our own origin plus any
+    configured frontend origins. In a split deploy the web app is served from a
+    different host than the API (e.g. nampo-web vs nampo-backend), so the web
+    origin must be whitelisted via OAUTH_REDIRECT_ORIGINS."""
+    hosts = set()
+    our = urlparse(_public_base_url()).netloc
+    if our:
+        hosts.add(our)
+    for o in (os.environ.get("OAUTH_REDIRECT_ORIGINS") or "").split(","):
+        o = o.strip()
+        if o:
+            hosts.add(urlparse(o).netloc or o)
+    return hosts
+
+
 def _validate_redirect(target: str) -> str:
     """Return a safe post-auth redirect target. Prevents open-redirect/token
-    exfiltration by allowing only our own https origin or known native schemes;
-    anything else falls back to our default origin."""
+    exfiltration by allowing only whitelisted https origins or known native
+    schemes; anything else falls back to our default origin."""
     default = _public_base_url() + "/"
     if not target:
         return default
@@ -82,8 +105,7 @@ def _validate_redirect(target: str) -> str:
         return default
     scheme = (parsed.scheme or "").lower()
     if scheme == "https":
-        our_host = urlparse(_public_base_url()).netloc
-        if parsed.netloc and our_host and parsed.netloc == our_host:
+        if parsed.netloc and parsed.netloc in _allowed_redirect_hosts():
             return target
         return default
     if scheme in _ALLOWED_NATIVE_SCHEMES or scheme.startswith("exp+"):

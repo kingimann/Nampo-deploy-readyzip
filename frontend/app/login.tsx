@@ -41,10 +41,11 @@ export default function LoginScreen() {
     setBusy(true);
     setError(null);
     try {
+      // Hit the API (not the static web origin). Falls back to same-origin only
+      // for local web dev where the Metro proxy serves /api.
+      const backendUrl = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
       const apiBase =
-        Platform.OS === "web"
-          ? window.location.origin
-          : (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
+        backendUrl || (Platform.OS === "web" ? window.location.origin : "");
       const redirectUrl =
         Platform.OS === "web" ? window.location.origin + "/" : Linking.createURL("/");
       const authUrl =

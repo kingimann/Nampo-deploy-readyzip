@@ -32,6 +32,16 @@ services:
       # you to paste it (sync:false keeps it out of git); leave blank to skip.
       - key: FSQ_API_KEY
         sync: false
+      # Where OAuth may redirect back to after Google sign-in (the web app lives
+      # on a different host than the API). Comma-separate if you add more.
+      - key: OAUTH_REDIRECT_ORIGINS
+        value: https://nampo-web.onrender.com
+      # Google sign-in — optional. Paste from your Google Cloud OAuth client.
+      # Leave blank to keep Google disabled (email/password still works).
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
 
   # Web frontend — the Expo app exported to a static site. Optional: mobile is
   # built separately with EAS. The web client calls the API cross-origin using
