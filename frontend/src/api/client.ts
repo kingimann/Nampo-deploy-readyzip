@@ -125,6 +125,13 @@ export const api = {
   unsubscribeUser: (userId: string) =>
     request<{ subscribed: boolean }>(`/users/${userId}/subscribe`, { method: "DELETE" }),
   getWallet: () => request<WalletSummary>("/wallet"),
+  // Ads + creator ad revenue
+  getNextAd: (placement: string, exclude?: string) =>
+    request<{ ad: Ad | null }>(`/ads/next?placement=${encodeURIComponent(placement)}${exclude ? `&exclude=${exclude}` : ""}`),
+  adEvent: (postId: string, type: "impression" | "click", host_user_id?: string) =>
+    request<{ ok: boolean }>(`/ads/${postId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
+  recordProfileView: (userId: string) =>
+    request<{ ok: boolean; views?: number }>(`/users/${userId}/view`, { method: "POST" }),
   // Payments (Stripe Connect) — inert until the server has STRIPE_SECRET_KEY set.
   getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number }>("/payments/config"),
   setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
@@ -503,6 +510,7 @@ export type User = {
   verified?: boolean;
   role?: string; // user | mod | admin
   sub_price?: number;
+  payout_frequency?: string; // biweekly | monthly
   needs_policy_agreement?: boolean;
 };
 export type ProfilePatch = {
@@ -510,6 +518,7 @@ export type ProfilePatch = {
   home_name?: string | null; home_longitude?: number | null; home_latitude?: number | null;
   work_name?: string | null; work_longitude?: number | null; work_latitude?: number | null;
   sub_price?: number;
+  payout_frequency?: string;
 };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; created_at: string };
 export type WalletSummary = {
@@ -517,7 +526,9 @@ export type WalletSummary = {
   tips_count: number; active_subscribers: number; sub_price: number; recent: WalletTxn[];
   total_spent: number; tips_sent_total: number; subs_sent_total: number;
   subscriptions_count: number; sent: WalletTxn[];
+  ads_total?: number;
 };
+export type Ad = { post_id: string; text: string; image?: string | null; author_name: string; author_picture?: string | null };
 export type ApiKey = { id: string; label: string; scopes?: string[]; key_prefix: string; created_at: string; last_used_at?: string | null };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };

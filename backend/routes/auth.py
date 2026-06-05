@@ -158,6 +158,8 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
             patch[k] = v
     if body.sub_price is not None:
         patch["sub_price"] = max(0.0, round(float(body.sub_price), 2))
+    if body.payout_frequency in ("biweekly", "monthly"):
+        patch["payout_frequency"] = body.payout_frequency
     if patch:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": patch})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})

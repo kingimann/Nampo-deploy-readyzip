@@ -257,6 +257,7 @@ def _user_doc_to_model(d: dict) -> dict:
         "verified": bool(d.get("verified", False)),
         "role": _effective_role(d),
         "sub_price": float(d.get("sub_price", 4.99) or 0),
+        "payout_frequency": d.get("payout_frequency") or "monthly",
         "created_at": d["created_at"],
     }
 
