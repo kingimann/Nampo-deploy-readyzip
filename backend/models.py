@@ -543,6 +543,11 @@ class PostPatch(BaseModel):
     media: Optional[List[PostMedia]] = None
 
 
+class PostPrivacyPatch(BaseModel):
+    likes_disabled: Optional[bool] = None
+    comment_policy: Optional[str] = None   # everyone | followers | friends | nobody
+
+
 class PostAuthor(BaseModel):
     user_id: str
     name: str

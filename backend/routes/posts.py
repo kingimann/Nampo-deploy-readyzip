@@ -9,7 +9,7 @@ from db import DuplicateKeyError
 from core import db, get_current_user, is_mod, is_admin
 from models import (
     LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
-    PostPatch, PublicUser, ReportCreate, PromoteCreate,
+    PostPatch, PostPrivacyPatch, PublicUser, ReportCreate, PromoteCreate,
 )
 from routes.notifications import emit_notification
 from services.link_preview import fetch_link_preview, first_url
@@ -361,6 +361,29 @@ async def edit_post(
         raise HTTPException(status_code=400, detail="Post cannot be empty")
     patch["edited_at"] = datetime.now(timezone.utc)
     await db.posts.update_one({"id": post_id}, {"$set": patch})
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+@router.patch("/posts/{post_id}/privacy", response_model=Post)
+async def edit_post_privacy(
+    post_id: str, body: PostPrivacyPatch, authorization: Optional[str] = Header(None)
+):
+    """Change a single post's privacy individually: turn likes on/off and set
+    who can comment. Author only."""
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    patch = {}
+    if body.likes_disabled is not None:
+        patch["likes_disabled"] = bool(body.likes_disabled)
+    if body.comment_policy is not None:
+        if body.comment_policy not in COMMENT_POLICIES:
+            raise HTTPException(status_code=400, detail="Invalid comment policy")
+        patch["comment_policy"] = body.comment_policy
+    if patch:
+        await db.posts.update_one({"id": post_id}, {"$set": patch})
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, user["user_id"])
 

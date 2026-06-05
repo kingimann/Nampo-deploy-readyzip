@@ -16,6 +16,7 @@ import { interleaveAds, isAd } from "@/src/lib/ads";
 import PostComposer from "@/src/components/PostComposer";
 import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
+import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 
 type Tab = "home" | "explore";
 
@@ -34,6 +35,7 @@ export default function FeedScreen() {
   const [editing, setEditing] = useState<Post | null>(null);
   const [quoting, setQuoting] = useState<Post | null>(null);
   const [actionPost, setActionPost] = useState<Post | null>(null);
+  const [privacyPost, setPrivacyPost] = useState<Post | null>(null);
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const viewedRef = useRef<Set<string>>(new Set());
 
@@ -367,6 +369,14 @@ export default function FeedScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtn, { marginTop: 6 }]}
+              onPress={() => { const p = actionPost!; setActionPost(null); setPrivacyPost(p); }}
+              testID="post-action-privacy"
+            >
+              <Ionicons name="lock-closed-outline" size={18} color={theme.primary} />
+              <Text style={styles.actionBtnText}>Post privacy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { marginTop: 6 }]}
               onPress={() => { setActionPost(null); router.push("/advertise"); }}
               testID="post-action-promote"
             >
@@ -402,6 +412,13 @@ export default function FeedScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <PostPrivacySheet
+        post={privacyPost}
+        visible={!!privacyPost}
+        onClose={() => setPrivacyPost(null)}
+        onUpdated={(u) => setPosts((arr) => arr.map((x) => (x.id === u.id ? { ...x, ...u } : x)))}
+      />
     </SafeAreaView>
   );
 }

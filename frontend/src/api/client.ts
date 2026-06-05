@@ -278,6 +278,8 @@ export const api = {
     request<Post>("/posts", { method: "POST", body: JSON.stringify(body) }),
   editPost: (id: string, body: { text?: string; media?: PostMedia[] }) =>
     request<Post>(`/posts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  editPostPrivacy: (id: string, body: { likes_disabled?: boolean; comment_policy?: string }) =>
+    request<Post>(`/posts/${id}/privacy`, { method: "PATCH", body: JSON.stringify(body) }),
   reportPost: (id: string, reason?: string) =>
     request<{ ok: boolean }>(`/posts/${id}/report`, {
       method: "POST", body: JSON.stringify({ reason: reason || "other" }),
