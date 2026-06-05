@@ -11,6 +11,7 @@ import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
+import AdSlot from "@/src/components/AdSlot";
 import { withAppleFee } from "@/src/lib/pricing";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
@@ -92,6 +93,7 @@ export default function UserProfileScreen() {
       ]);
       if (full) setUser(full);
       setPosts(p);
+      if (foundId && foundId !== me?.user_id) api.recordProfileView(foundId).catch(() => {});
     } catch {} finally {
       setLoading(false);
       setRefreshing(false);
@@ -290,6 +292,11 @@ export default function UserProfileScreen() {
                     <Ionicons name="shield-checkmark-outline" size={14} color={theme.primary} />
                     <Text style={styles.adminBtnText}>{user.role === "admin" ? "Remove admin" : "Make admin"}</Text>
                   </TouchableOpacity>
+                </View>
+              )}
+              {user.user_id !== me?.user_id && (
+                <View style={{ marginTop: 14 }}>
+                  <AdSlot placement="profile" host={user.user_id} />
                 </View>
               )}
               <Text style={styles.postsLabel}>Posts</Text>

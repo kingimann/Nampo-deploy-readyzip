@@ -94,10 +94,33 @@ export default function WalletScreen() {
               <Text style={styles.statLabel}>subscriptions</Text>
             </View>
             <View style={styles.statCard}>
+              <Ionicons name="megaphone" size={18} color={theme.primary} />
+              <Text style={styles.statNum}>${(w?.ads_total ?? 0).toFixed(2)}</Text>
+              <Text style={styles.statLabel}>ads & views</Text>
+            </View>
+            <View style={styles.statCard}>
               <Ionicons name="people" size={18} color={theme.primary} />
               <Text style={styles.statNum}>{w?.active_subscribers ?? 0}</Text>
               <Text style={styles.statLabel}>subscribers</Text>
             </View>
+          </View>
+
+          <Text style={styles.section}>Payout frequency</Text>
+          <View style={styles.freqRow}>
+            {(["biweekly", "monthly"] as const).map((f) => {
+              const on = (user?.payout_frequency || "monthly") === f;
+              return (
+                <TouchableOpacity
+                  key={f}
+                  style={[styles.freqChip, on && styles.freqChipOn]}
+                  onPress={async () => { try { await api.updateMe({ payout_frequency: f }); if (typeof refresh === "function") await refresh(); } catch {} }}
+                  testID={`freq-${f}`}
+                >
+                  <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={16} color={on ? theme.primary : theme.textMuted} />
+                  <Text style={[styles.freqText, on && { color: theme.primary }]}>{f === "biweekly" ? "Bi-weekly" : "Monthly"}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <Text style={styles.section}>Getting paid</Text>
@@ -221,6 +244,10 @@ const styles = StyleSheet.create({
   payoutSub: { color: theme.textSecondary, fontSize: 13, lineHeight: 19 },
   payoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12, marginTop: 2 },
   payoutBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  freqRow: { flexDirection: "row", gap: 10 },
+  freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
+  freqChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  freqText: { color: theme.textSecondary, fontSize: 14, fontWeight: "700" },
   priceRow: { flexDirection: "row", gap: 10 },
   priceInput: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, height: 48 },
   dollar: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },

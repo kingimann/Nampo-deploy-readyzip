@@ -356,6 +356,7 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
     rows = await db.earnings.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(500)
     tips_total = sum(r["amount"] for r in rows if r.get("kind") == "tip")
     subs_total = sum(r["amount"] for r in rows if r.get("kind") == "subscription")
+    ads_total = sum(r["amount"] for r in rows if r.get("kind") in ("ad_revenue", "views"))
     tips_count = sum(1 for r in rows if r.get("kind") == "tip")
     active_subscribers = await db.subscriptions.count_documents({"creator_id": uid, "status": "active"})
     recent = [
@@ -399,9 +400,10 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
     ]
 
     return WalletSummary(
-        total_earned=round(tips_total + subs_total, 2),
+        total_earned=round(sum(r.get("amount", 0) for r in rows), 2),
         tips_total=round(tips_total, 2),
         subs_total=round(subs_total, 2),
+        ads_total=round(ads_total, 2),
         tips_count=tips_count,
         active_subscribers=active_subscribers,
         sub_price=round(float(me.get("sub_price", 4.99) or 0), 2),

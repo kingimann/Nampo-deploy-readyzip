@@ -25,6 +25,7 @@ class User(BaseModel):
     verified: bool = False
     role: str = "user"            # user | mod | admin
     sub_price: float = 4.99       # monthly subscription price others pay this user
+    payout_frequency: str = "monthly"  # biweekly | monthly
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
     created_at: datetime
 
@@ -67,6 +68,7 @@ class ProfilePatch(BaseModel):
     work_longitude: Optional[float] = None
     work_latitude: Optional[float] = None
     sub_price: Optional[float] = None
+    payout_frequency: Optional[str] = None   # biweekly | monthly
 
 
 class TipCreate(BaseModel):
@@ -99,6 +101,7 @@ class WalletSummary(BaseModel):
     total_earned: float = 0
     tips_total: float = 0
     subs_total: float = 0
+    ads_total: float = 0
     tips_count: int = 0
     active_subscribers: int = 0
     sub_price: float = 4.99
