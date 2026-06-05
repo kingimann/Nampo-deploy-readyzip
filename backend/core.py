@@ -131,8 +131,34 @@ def _user_doc_to_model(d: dict) -> dict:
         "work_name": d.get("work_name"),
         "work_longitude": d.get("work_longitude"),
         "work_latitude": d.get("work_latitude"),
+        "verified": bool(d.get("verified", False)),
+        "role": _effective_role(d),
         "created_at": d["created_at"],
     }
+
+
+# Site-wide moderation roles. The repo owner bootstraps themselves as admin by
+# listing their email in ADMIN_EMAILS; everything else is granted in-app.
+ADMIN_EMAILS = {
+    e.strip().lower()
+    for e in (os.environ.get("ADMIN_EMAILS", "") or "").split(",")
+    if e.strip()
+}
+
+
+def _effective_role(d: dict) -> str:
+    if (d.get("email") or "").strip().lower() in ADMIN_EMAILS:
+        return "admin"
+    role = d.get("role") or "user"
+    return role if role in ("user", "mod", "admin") else "user"
+
+
+def is_admin(user: dict) -> bool:
+    return _effective_role(user) == "admin"
+
+
+def is_mod(user: dict) -> bool:
+    return _effective_role(user) in ("mod", "admin")
 
 
 async def _public_user(user_id: str, viewer_id: Optional[str] = None):
@@ -180,6 +206,8 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         username=u.get("username"),
         picture=u.get("picture"),
         bio=u.get("bio", ""),
+        verified=bool(u.get("verified", False)),
+        role=_effective_role(u),
         stats=stats,
         is_following=is_following,
         is_followed_by=is_followed_by,
