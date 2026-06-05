@@ -92,7 +92,9 @@ export default function AdminUsersScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Admin · Users</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={() => router.push("/admin-audit")} style={styles.iconBtn} testID="admin-audit-link">
+          <Ionicons name="receipt-outline" size={20} color={theme.textPrimary} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.searchWrap}>

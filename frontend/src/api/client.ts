@@ -145,6 +145,7 @@ export const api = {
     request<{ ok: boolean; until: string }>(`/admin/users/${userId}/suspend`, { method: "POST", body: JSON.stringify({ days, reason }) }),
   adminRemoveUser: (userId: string) =>
     request<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
+  adminAuditLog: () => request<{ entries: AdminAuditEntry[] }>("/admin/audit"),
   tipUser: (userId: string, amount: number, message?: string) =>
     request<{ id: string }>(`/users/${userId}/tip`, { method: "POST", body: JSON.stringify({ amount, message: message || "" }) }),
   getSubscriptionTiers: () => request<{ tiers: SubTier[] }>("/subscription-tiers"),
@@ -651,6 +652,10 @@ export type AdminUser = {
   user_id: string; name: string; username?: string | null; email?: string | null;
   picture?: string | null; role: string; verified: boolean; banned: boolean;
   suspended: boolean; suspended_until?: string | null; created_at?: string;
+};
+export type AdminAuditEntry = {
+  id: string; admin_id: string; admin_name: string; action: string;
+  target_id?: string | null; target_name?: string | null; detail?: string; created_at: string;
 };
 export type MoneyRequest = {
   id: string; from_user_id: string; to_user_id: string; amount: number; note: string;

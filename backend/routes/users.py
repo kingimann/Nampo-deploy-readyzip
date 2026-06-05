@@ -23,6 +23,21 @@ except Exception:  # pragma: no cover
 router = APIRouter()
 
 
+async def _audit(admin: dict, action: str, target: dict, detail: str = ""):
+    """Record an admin action to the audit log (best-effort)."""
+    try:
+        await db.admin_audit.insert_one({
+            "id": str(uuid.uuid4()),
+            "admin_id": admin["user_id"], "admin_name": admin.get("name", "Admin"),
+            "action": action,
+            "target_id": target.get("user_id"), "target_name": target.get("name", "User"),
+            "detail": (detail or "")[:300],
+            "created_at": datetime.now(timezone.utc),
+        })
+    except Exception:
+        pass
+
+
 @router.patch("/admin/users/{user_id}", response_model=PublicUser)
 async def admin_patch_user(
     user_id: str, body: AdminUserPatch, authorization: Optional[str] = Header(None)
@@ -31,7 +46,7 @@ async def admin_patch_user(
     me = await get_current_user(authorization)
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
-    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     patch: dict = {}
@@ -43,7 +58,22 @@ async def admin_patch_user(
         patch["role"] = body.role
     if patch:
         await db.users.update_one({"user_id": user_id}, {"$set": patch})
+        if "verified" in patch:
+            await _audit(me, "verified" if patch["verified"] else "unverified", target)
+        if "role" in patch:
+            await _audit(me, f"set role · {patch['role']}", target)
     return await _public_user(user_id, viewer_id=me["user_id"])
+
+
+@router.get("/admin/audit")
+async def admin_audit_log(limit: int = Query(80), authorization: Optional[str] = Header(None)):
+    """Admin-only: recent moderation/admin actions."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    lim = max(1, min(int(limit or 80), 200))
+    rows = await db.admin_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(lim).to_list(lim)
+    return {"entries": rows}
 
 
 def _admin_user_view(u: dict) -> dict:
@@ -109,11 +139,12 @@ async def _require_admin_target(user_id: str, me: dict):
 @router.post("/admin/users/{user_id}/ban")
 async def admin_ban_user(user_id: str, body: ModerationBody, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
-    await _require_admin_target(user_id, me)
+    target = await _require_admin_target(user_id, me)
     await db.users.update_one({"user_id": user_id}, {"$set": {
         "banned": True, "ban_reason": (body.reason or "")[:300], "suspended_until": None,
     }})
     await db.user_sessions.delete_many({"user_id": user_id})  # force log-out
+    await _audit(me, "banned", target, body.reason or "")
     return {"ok": True}
 
 
@@ -122,20 +153,24 @@ async def admin_unban_user(user_id: str, authorization: Optional[str] = Header(N
     me = await get_current_user(authorization)
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1}) or {"user_id": user_id}
     await db.users.update_one({"user_id": user_id}, {"$set": {"banned": False, "suspended_until": None}})
+    await _audit(me, "lifted ban/suspension", target)
     return {"ok": True}
 
 
 @router.post("/admin/users/{user_id}/suspend")
 async def admin_suspend_user(user_id: str, body: ModerationBody, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
-    await _require_admin_target(user_id, me)
+    target = await _require_admin_target(user_id, me)
     days = max(0.04, min(float(body.days or 7), 3650))
     until = datetime.now(timezone.utc) + timedelta(days=days)
     await db.users.update_one({"user_id": user_id}, {"$set": {
         "suspended_until": until, "suspend_reason": (body.reason or "")[:300],
     }})
     await db.user_sessions.delete_many({"user_id": user_id})
+    nice = f"{int(days)}d" if float(days).is_integer() else f"{days}d"
+    await _audit(me, f"suspended · {nice}", target, body.reason or "")
     return {"ok": True, "until": until}
 
 
@@ -143,9 +178,10 @@ async def admin_suspend_user(user_id: str, body: ModerationBody, authorization: 
 async def admin_remove_user(user_id: str, authorization: Optional[str] = Header(None)):
     """Remove (delete) a user account and their sessions."""
     me = await get_current_user(authorization)
-    await _require_admin_target(user_id, me)
+    target = await _require_admin_target(user_id, me)
     await db.users.delete_one({"user_id": user_id})
     await db.user_sessions.delete_many({"user_id": user_id})
+    await _audit(me, "removed account", target)
     return {"ok": True}
 
 

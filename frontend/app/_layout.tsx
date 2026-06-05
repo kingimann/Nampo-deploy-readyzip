@@ -45,6 +45,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/admin-revenue",
   "/admin-bot",
   "/admin-users",
+  "/admin-audit",
   "/privacy",
   "/encryption-key",
   "/oauth/",
