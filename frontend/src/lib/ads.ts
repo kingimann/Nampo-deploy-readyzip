@@ -3,18 +3,25 @@
 
 export type AdMarker = { __ad: number };
 
-// How many posts between sponsored slots. Lower = more ads.
+// First ad after this many posts, then one every `AD_EVERY` after. Keeping the
+// first slot low means short lists (e.g. a profile with 2-3 posts) still show an ad.
+export const AD_FIRST = 2;
 export const AD_EVERY = 5;
 
-/** Insert an ad marker after every `every` posts. `__ad` is the slot ordinal
- *  (0,1,2…) so each slot can request distinct inventory and rotate. */
-export function interleaveAds<T extends { id: string }>(items: T[], every = AD_EVERY): (T | AdMarker)[] {
+/** Weave ad markers into a post list. `__ad` is the slot ordinal (0,1,2…) so each
+ *  slot can request distinct inventory and rotate. Guarantees at least one ad on
+ *  any non-empty list so short feeds (profiles) still show sponsored content. */
+export function interleaveAds<T extends { id: string }>(items: T[], every = AD_EVERY, first = AD_FIRST): (T | AdMarker)[] {
   const out: (T | AdMarker)[] = [];
   let ad = 0;
   items.forEach((it, i) => {
     out.push(it);
-    if ((i + 1) % every === 0) { out.push({ __ad: ad }); ad++; }
+    const pos = i + 1;
+    if (pos === first || (pos > first && (pos - first) % every === 0)) {
+      out.push({ __ad: ad }); ad++;
+    }
   });
+  if (items.length > 0 && ad === 0) out.push({ __ad: 0 }); // short list → still one ad
   return out;
 }
 
