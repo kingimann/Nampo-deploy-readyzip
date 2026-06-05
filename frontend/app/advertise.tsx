@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, Post, AdCampaign, mediaUri } from "@/src/api/client";
+import { api, Post, AdCampaign, AdAccount, mediaUri } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -43,6 +43,12 @@ export default function AdvertiseScreen() {
   useEffect(() => { api.getPaymentsConfig().then((c) => setPayEnabled(c.enabled)).catch(() => {}); }, []);
   const [result, setResult] = useState<Post | null>(null);
   const [campaigns, setCampaigns] = useState<Record<string, AdCampaign>>({});
+  // Prepaid ad account.
+  const [account, setAccount] = useState<AdAccount | null>(null);
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [topupAmount, setTopupAmount] = useState("25");
+  const [topupBusy, setTopupBusy] = useState(false);
+  const [topupMsg, setTopupMsg] = useState<string | null>(null);
   // Pay-per-click campaign config (optional).
   const [ppc, setPpc] = useState(false);
   const [budget, setBudget] = useState("20");
@@ -64,6 +70,7 @@ export default function AdvertiseScreen() {
       const { campaigns } = await api.getCampaigns();
       setCampaigns(Object.fromEntries(campaigns.map((c) => [c.post_id, c])));
     } catch {}
+    try { setAccount(await api.getAdAccount()); } catch {}
   }, [user]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -118,6 +125,27 @@ export default function AdvertiseScreen() {
     }
   };
 
+  const doTopup = async () => {
+    const amt = Math.max(1, Number(topupAmount) || 0);
+    setTopupBusy(true);
+    setTopupMsg(null);
+    try {
+      const res = await api.topupAdAccount(amt);
+      if (res.stripe && res.url) {
+        await Linking.openURL(res.url);
+        setTopupBusy(false);
+        return;
+      }
+      setTopupMsg(`Added $${amt.toFixed(2)} to your ad account.`);
+      await load();
+      setTimeout(() => { setTopupOpen(false); setTopupMsg(null); }, 1100);
+    } catch (e: any) {
+      setTopupMsg(String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Top-up failed.");
+    } finally {
+      setTopupBusy(false);
+    }
+  };
+
   const endsLabel = (iso?: string | null) => {
     if (!iso) return "";
     try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); }
@@ -143,9 +171,38 @@ export default function AdvertiseScreen() {
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30, gap: 12 }}
           ListHeaderComponent={
-            <View style={styles.intro}>
-              <Ionicons name="megaphone" size={20} color={theme.primary} />
-              <Text style={styles.introText}>Promote a post to boost its reach. Promoted posts surface higher and show a "Sponsored" badge.</Text>
+            <View style={{ gap: 12, marginBottom: 6 }}>
+              {/* Prepaid ad account: keep campaigns running by loading a balance. */}
+              <View style={styles.balanceCard}>
+                <View style={styles.balanceTop}>
+                  <View>
+                    <Text style={styles.balanceLabel}>Ad account balance</Text>
+                    <Text style={styles.balanceValue}>${(account?.balance ?? 0).toFixed(2)}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.addFundsBtn} onPress={() => { setTopupMsg(null); setTopupOpen(true); }} testID="add-funds">
+                    <Ionicons name="add" size={16} color="#fff" />
+                    <Text style={styles.addFundsText}>Add funds</Text>
+                  </TouchableOpacity>
+                </View>
+                {account?.paused ? (
+                  <View style={styles.pausedBanner}>
+                    <Ionicons name="pause-circle" size={14} color={theme.error} />
+                    <Text style={styles.pausedText}>Your ads are paused — add funds to start showing them again.</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.balanceSub}>
+                    Charged as your ads are seen: ${(account?.rates?.view ?? 0.01).toFixed(2)}/view · ${(account?.rates?.click ?? 0.10).toFixed(2)}/click · ${(account?.rates?.comment ?? 0.05).toFixed(2)}/comment.
+                  </Text>
+                )}
+                <Text style={styles.balanceMeta}>
+                  {account?.active_campaigns ?? 0} active · ${(account?.lifetime_spend ?? 0).toFixed(2)} spent so far
+                </Text>
+              </View>
+
+              <View style={styles.intro}>
+                <Ionicons name="megaphone" size={20} color={theme.primary} />
+                <Text style={styles.introText}>Promote a post to boost its reach. Funds are drawn from your ad account as people view, click and comment on your ads.</Text>
+              </View>
             </View>
           }
           ListEmptyComponent={
@@ -374,6 +431,54 @@ export default function AdvertiseScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ── Add funds to the ad account ─────────────────────────────── */}
+      <Modal visible={topupOpen} transparent animationType="slide" onRequestClose={() => !topupBusy && setTopupOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.backdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !topupBusy && setTopupOpen(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Add funds</Text>
+            <Text style={styles.sheetSub}>Load your ad account so your campaigns keep running.</Text>
+
+            <View style={styles.presetRow}>
+              {[10, 25, 50, 100].map((p) => {
+                const on = Number(topupAmount) === p;
+                return (
+                  <TouchableOpacity key={p} style={[styles.preset, on && styles.presetOn]} onPress={() => setTopupAmount(String(p))} testID={`topup-${p}`}>
+                    <Text style={[styles.presetText, on && { color: theme.primary }]}>${p}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.fieldLabel}>Amount ($)</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="wallet-outline" size={18} color={theme.textMuted} />
+              <TextInput
+                style={styles.input}
+                value={topupAmount}
+                onChangeText={(t) => setTopupAmount(t.replace(/[^0-9.]/g, ""))}
+                keyboardType="decimal-pad"
+                editable={!topupBusy}
+                testID="topup-amount"
+              />
+            </View>
+
+            {!account?.stripe_enabled && (
+              <View style={styles.testBanner}>
+                <Ionicons name="lock-closed" size={13} color={theme.primary} />
+                <Text style={styles.testBannerText}>Test mode · funds added instantly, no real charge</Text>
+              </View>
+            )}
+            {topupMsg && <Text style={styles.topupMsg}>{topupMsg}</Text>}
+
+            <TouchableOpacity style={[styles.payBtn, topupBusy && { opacity: 0.7 }]} onPress={doTopup} disabled={topupBusy} testID="topup-submit">
+              {topupBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>Add ${Math.max(1, Number(topupAmount) || 0).toFixed(2)}</Text>}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -395,6 +500,33 @@ const styles = StyleSheet.create({
     padding: 14, marginBottom: 6,
   },
   introText: { flex: 1, color: theme.textSecondary, fontSize: 13, lineHeight: 18 },
+
+  balanceCard: {
+    backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border,
+    padding: 16, gap: 8,
+  },
+  balanceTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  balanceLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
+  balanceValue: { color: theme.textPrimary, fontSize: 30, fontWeight: "900", marginTop: 2 },
+  addFundsBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: theme.primary, borderRadius: 999, paddingHorizontal: 14, height: 38,
+  },
+  addFundsText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  balanceSub: { color: theme.textSecondary, fontSize: 12.5, lineHeight: 18 },
+  balanceMeta: { color: theme.textMuted, fontSize: 12 },
+  pausedBanner: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: theme.surfaceAlt, borderRadius: 10, borderWidth: 1, borderColor: theme.error,
+    paddingHorizontal: 10, paddingVertical: 8,
+  },
+  pausedText: { flex: 1, color: theme.error, fontSize: 12.5, fontWeight: "600" },
+
+  presetRow: { flexDirection: "row", gap: 8, marginVertical: 10 },
+  preset: { flex: 1, alignItems: "center", paddingVertical: 11, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  presetOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  presetText: { color: theme.textSecondary, fontSize: 15, fontWeight: "800" },
+  topupMsg: { color: theme.primary, fontSize: 13, fontWeight: "600", marginTop: 10, textAlign: "center" },
   empty: { alignItems: "center", paddingTop: 50, gap: 10 },
   emptyText: { color: theme.textMuted, fontSize: 13, textAlign: "center", paddingHorizontal: 40 },
 

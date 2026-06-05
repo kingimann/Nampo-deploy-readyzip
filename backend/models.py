@@ -27,6 +27,7 @@ class User(BaseModel):
     sub_price: float = 4.99       # monthly subscription price others pay this user
     payout_frequency: str = "monthly"  # biweekly | monthly
     payout_threshold: float = 0   # hold earnings until balance reaches this
+    ad_balance: float = 0         # prepaid ad-account balance (funds campaigns)
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
     created_at: datetime
 

@@ -261,13 +261,21 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         await db.communities.update_one({"id": community_id}, {"$inc": {"post_count": 1}})
     if parent_id:
         await db.posts.update_one({"id": parent_id}, {"$inc": {"replies_count": 1}})
-        parent = await db.posts.find_one({"id": parent_id}, {"_id": 0, "user_id": 1})
+        parent = await db.posts.find_one({"id": parent_id}, {"_id": 0})
         if parent:
             await emit_notification(
                 user_id=parent["user_id"], actor_id=user["user_id"],
                 ntype="reply", post_id=parent_id,
                 message=(text or "📎 media")[:140],
             )
+            # Billable engagement: a comment on a funded promoted post debits
+            # the advertiser's prepaid ad balance.
+            if parent.get("promoted_until"):
+                try:
+                    from routes.ads import bill_ad_interaction
+                    await bill_ad_interaction(parent, user["user_id"], "comment")
+                except Exception:
+                    pass
     if quote_of:
         await db.posts.update_one({"id": quote_of}, {"$inc": {"quotes_count": 1}})
         q = await db.posts.find_one({"id": quote_of}, {"_id": 0, "user_id": 1})

@@ -305,6 +305,10 @@ export const api = {
   promotePost: (id: string, days = 7, opts?: { budget?: number; cpc?: number }) =>
     request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days, ...(opts || {}) }) }),
   getCampaigns: () => request<{ campaigns: AdCampaign[] }>("/ads/campaigns"),
+  getAdAccount: () => request<AdAccount>("/ads/account"),
+  topupAdAccount: (amount: number) =>
+    request<{ ok?: boolean; credited?: number; balance?: number; stripe: boolean; url?: string; id?: string }>(
+      "/ads/account/topup", { method: "POST", body: JSON.stringify({ amount }) }),
   getAdRevenue: () => request<AdRevenue>("/admin/ad-revenue"),
   exportWallet: () => request<{ filename: string; csv: string }>("/wallet/export"),
   getPayouts: () => request<PayoutInfo>("/payouts"),
@@ -556,6 +560,12 @@ export type Payout = { id: string; amount: number; status: string; created_at: s
 export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };
 export type Ad = { post_id: string | null; text: string; image?: string | null; author_name: string; reason?: string | null; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
+export type AdAccount = {
+  balance: number; funded: boolean; paused: boolean;
+  active_campaigns: number; lifetime_spend: number; stripe_enabled: boolean;
+  rates: { view: number; click: number; comment: number };
+  recent_topups: { amount: number; source: string; created_at?: string }[];
+};
 export type AdRevenue = {
   total_ad_spend: number; paid_to_hosts: number; platform_cut: number;
   total_impressions: number; total_clicks: number; ctr: number; active_campaigns: number;

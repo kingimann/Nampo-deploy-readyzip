@@ -25,12 +25,64 @@ HOST_REVENUE_SHARE = 0.5         # host's cut of a budget campaign's CPC (rest =
 PROFILE_VIEWS_PER_PAYOUT = 100   # every N profile views …
 PROFILE_VIEW_PAYOUT = 0.10       # … the owner earns this
 
+# Account-funded billing: advertisers load a prepaid ad balance; each
+# interaction debits it. Loading funds keeps campaigns running; at $0 they
+# pause (instead of a per-post budget expiring).
+AD_RATE_VIEW = 0.01      # per counted impression/view
+AD_RATE_COMMENT = 0.05   # per comment on a promoted post
+AD_DEFAULT_CPC = 0.10    # per click when the campaign sets no CPC
+
 
 async def _credit(to_user_id: str, amount: float, kind: str, from_name: str):
     await db.earnings.insert_one({
         "id": str(uuid.uuid4()), "user_id": to_user_id, "amount": round(amount, 2),
         "kind": kind, "from_user_id": "", "from_name": from_name,
         "created_at": datetime.now(timezone.utc),
+    })
+
+
+async def _ad_balance(user_id: str):
+    """Advertiser's prepaid ad balance, or None if they've never funded an ad
+    account (legacy/unmetered campaigns keep their old behaviour)."""
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "ad_balance": 1})
+    if not u or u.get("ad_balance") is None:
+        return None
+    return float(u.get("ad_balance") or 0)
+
+
+async def bill_ad_interaction(post: dict, viewer_id: str, kind: str, host_user_id: Optional[str] = None) -> float:
+    """Debit the advertiser's prepaid ad balance for a billable interaction
+    (view | click | comment) and credit the host where it happened. No-op for
+    self-interactions or campaigns with no funded balance. Returns the charge."""
+    advertiser = post.get("user_id")
+    if not advertiser or advertiser == viewer_id:
+        return 0.0
+    bal = await _ad_balance(advertiser)
+    if bal is None or bal <= 0:
+        return 0.0
+    if kind == "click":
+        rate, field = (float(post.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC), "ad_clicks"
+    elif kind == "comment":
+        rate, field = AD_RATE_COMMENT, "ad_comments"
+    else:
+        rate, field = AD_RATE_VIEW, "ad_impressions"
+    charge = round(min(rate, bal), 2)
+    if charge <= 0:
+        return 0.0
+    await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+    await db.posts.update_one({"id": post["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
+    if host_user_id and host_user_id != viewer_id and host_user_id != advertiser:
+        await _credit(host_user_id, round(charge * HOST_REVENUE_SHARE, 2), "ad_revenue", "Ad revenue")
+    return charge
+
+
+async def _apply_ad_topup(user_id: str, amount: float, source: str):
+    """Credit an advertiser's prepaid ad balance and log the top-up."""
+    amount = round(float(amount or 0), 2)
+    await db.users.update_one({"user_id": user_id}, {"$inc": {"ad_balance": amount}})
+    await db.ad_topups.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user_id, "amount": amount,
+        "source": source, "created_at": datetime.now(timezone.utc),
     })
 
 
@@ -52,6 +104,15 @@ async def next_ad(
     rows = await db.posts.find(q, {"_id": 0}).sort("promoted_until", -1).limit(40).to_list(40)
     # Budget campaigns stop serving once the budget is spent.
     rows = [r for r in rows if not (r.get("ad_budget") and float(r.get("ad_spent", 0) or 0) >= float(r["ad_budget"]))]
+    # Pause advertisers whose prepaid ad balance is depleted (funded accounts only).
+    adv_ids = {r.get("user_id") for r in rows if r.get("user_id")}
+    if adv_ids:
+        advs = await db.users.find(
+            {"user_id": {"$in": list(adv_ids)}}, {"_id": 0, "user_id": 1, "ad_balance": 1}
+        ).to_list(len(adv_ids))
+        paused = {a["user_id"] for a in advs if a.get("ad_balance") is not None and float(a.get("ad_balance") or 0) <= 0}
+        if paused:
+            rows = [r for r in rows if r.get("user_id") not in paused]
     # Drop ads this viewer has hidden or reported.
     hidden = {h.get("post_id") for h in await db.ad_hides.find({"viewer_id": me["user_id"]}, {"_id": 0, "post_id": 1}).to_list(500)}
     rows = [r for r in rows if r["id"] not in hidden]
@@ -100,16 +161,22 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
     # Never count the advertiser interacting with their own ad.
     if viewer == post.get("user_id"):
         return {"ok": True, "self": True}
-    if body.type == "click":
-        # Dedupe billable clicks per viewer per ad (24h).
-        if await _seen_recently(post_id, viewer, "click", 24):
-            return {"ok": True, "duplicate": True}
-        host = body.host_user_id
-        is_real = host and host != viewer and host != post.get("user_id")
+    kind = "click" if body.type == "click" else "impression"
+    # Dedupe billable interactions per viewer per ad (24h).
+    if await _seen_recently(post_id, viewer, kind, 24):
+        return {"ok": True, "duplicate": True}
+    host = body.host_user_id
+    is_real = host and host != viewer and host != post.get("user_id")
+
+    # Funded accounts: debit the prepaid ad balance per view/click.
+    if (await _ad_balance(post.get("user_id"))) is not None:
+        charge = await bill_ad_interaction(post, viewer, "click" if kind == "click" else "view", host_user_id=host)
+        return {"ok": True, "charged": charge}
+
+    # ── Legacy per-post budget / flat payout path ──
+    if kind == "click":
         budget = float(post.get("ad_budget", 0) or 0)
         if budget > 0:
-            # Pay-per-click campaign: charge the advertiser's budget at CPC,
-            # split between the host (where it was clicked) and the platform.
             spent = float(post.get("ad_spent", 0) or 0)
             if spent >= budget:
                 return {"ok": True, "served": False}
@@ -123,9 +190,6 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
             if is_real:
                 await _credit(host, AD_CLICK_PAYOUT, "ad_revenue", "Ad revenue")
     else:
-        # Dedupe impressions per viewer per ad per day (analytics hygiene).
-        if await _seen_recently(post_id, viewer, "impression", 24):
-            return {"ok": True, "duplicate": True}
         await db.posts.update_one({"id": post_id}, {"$inc": {"ad_impressions": 1}})
     return {"ok": True}
 
@@ -239,6 +303,94 @@ async def my_campaigns(authorization: Optional[str] = Header(None)):
             "promoted_until": until, "active": active,
         })
     return {"campaigns": out}
+
+
+class AdTopup(BaseModel):
+    amount: float
+
+
+@router.get("/ads/account")
+async def ad_account(authorization: Optional[str] = Header(None)):
+    """Advertiser's prepaid ad-account: current balance, spend and rates."""
+    me = await get_current_user(authorization)
+    u = await db.users.find_one({"user_id": me["user_id"]}, {"_id": 0, "ad_balance": 1})
+    bal = (u or {}).get("ad_balance")
+    funded = bal is not None
+    bal_f = round(float(bal or 0), 2)
+    now = datetime.now(timezone.utc)
+    rows = await db.posts.find(
+        {"user_id": me["user_id"], "promoted_until": {"$exists": True}},
+        {"_id": 0, "ad_spent": 1, "promoted_until": 1},
+    ).to_list(500)
+    from core import _norm_dt
+    active = 0
+    for r in rows:
+        until = r.get("promoted_until")
+        try:
+            if until and _norm_dt(until) > now:
+                active += 1
+        except Exception:
+            pass
+    spent = round(sum(float(r.get("ad_spent", 0) or 0) for r in rows), 2)
+    topups = await db.ad_topups.find(
+        {"user_id": me["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    try:
+        from routes.payments import stripe_enabled
+        pay_on = stripe_enabled()
+    except Exception:
+        pay_on = False
+    return {
+        "balance": bal_f,
+        "funded": funded,
+        "paused": funded and bal_f <= 0,
+        "active_campaigns": active,
+        "lifetime_spend": spent,
+        "stripe_enabled": pay_on,
+        "rates": {"view": AD_RATE_VIEW, "click": AD_DEFAULT_CPC, "comment": AD_RATE_COMMENT},
+        "recent_topups": [
+            {"amount": round(float(t.get("amount", 0) or 0), 2),
+             "source": t.get("source", "test"), "created_at": t.get("created_at")}
+            for t in topups
+        ],
+    }
+
+
+@router.post("/ads/account/topup")
+async def ad_topup(body: AdTopup, authorization: Optional[str] = Header(None)):
+    """Load funds into the prepaid ad account. Routes through Stripe Checkout
+    when real payments are on; otherwise credits immediately (test mode)."""
+    me = await get_current_user(authorization)
+    amount = round(float(body.amount or 0), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    if amount > 10000:
+        raise HTTPException(status_code=400, detail="Maximum top-up is $10,000")
+    try:
+        from routes.payments import stripe_enabled, WEB_APP_URL
+        pay_on = stripe_enabled()
+    except Exception:
+        pay_on, WEB_APP_URL = False, ""
+    if pay_on:
+        import stripe  # type: ignore
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": "Ad account top-up"},
+                    "unit_amount": int(round(amount * 100)),
+                },
+                "quantity": 1,
+            }],
+            success_url=f"{WEB_APP_URL}/advertise?topup=success",
+            cancel_url=f"{WEB_APP_URL}/advertise?topup=cancel",
+            metadata={"kind": "ad_topup", "buyer_id": me["user_id"], "amount": str(amount)},
+        )
+        return {"url": session["url"], "id": session["id"], "stripe": True}
+    await _apply_ad_topup(me["user_id"], amount, "test")
+    bal = await _ad_balance(me["user_id"])
+    return {"ok": True, "credited": amount, "balance": round(float(bal or 0), 2), "stripe": False}
 
 
 @router.post("/users/{user_id}/view")

@@ -390,6 +390,11 @@ async def stripe_webhook(request: Request):
                 {"user_id": meta["buyer_id"]},
                 {"$set": {"api_plan": meta["plan"], "api_access_until": now + timedelta(days=30)}},
             )
+        elif kind == "ad_topup" and meta.get("buyer_id"):
+            amt = round(float(meta.get("amount") or 0), 2)
+            if amt > 0:
+                from routes.ads import _apply_ad_topup
+                await _apply_ad_topup(meta["buyer_id"], amt, "stripe")
         elif kind == "api_usage" and meta.get("buyer_id") and meta.get("pack"):
             pack = API_OVERAGE_BY_ID.get(meta["pack"])
             if pack:
