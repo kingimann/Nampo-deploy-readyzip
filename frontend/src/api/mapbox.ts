@@ -107,34 +107,12 @@ export type FetchRouteOptions = {
   exclude?: ("toll" | "motorway" | "ferry")[];
   /** Request maxspeed annotations (driving profiles only). */
   annotations?: boolean;
+  /** Ask Mapbox for up to 2 alternate routes in addition to the primary. */
+  alternatives?: boolean;
 };
 
-export async function fetchRoute(
-  coordinates: [number, number][],
-  profile: Profile = "driving",
-  options: FetchRouteOptions = {},
-): Promise<RouteResult | null> {
-  if (coordinates.length < 2) return null;
-  const coordStr = coordinates.map((c) => `${c[0]},${c[1]}`).join(";");
-  const params = new URLSearchParams({
-    access_token: MAPBOX_TOKEN,
-    geometries: "geojson",
-    overview: "full",
-    steps: "true",
-  });
-  if (options.exclude && options.exclude.length) {
-    params.set("exclude", options.exclude.join(","));
-  }
-  // Annotations only on driving profiles
-  if (options.annotations && profile.startsWith("driving")) {
-    params.set("annotations", "maxspeed,distance");
-  }
-  const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coordStr}?${params.toString()}`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const json = await res.json();
-  if (!json.routes?.length) return null;
-  const r = json.routes[0];
+/** Convert one Mapbox route object into our RouteResult shape. */
+function parseRoute(r: any): RouteResult {
   const legs: Leg[] = (r.legs || []).map((l: any) => {
     const ann = l.annotation || {};
     const ms: any[] = Array.isArray(ann.maxspeed) ? ann.maxspeed : [];
@@ -155,10 +133,48 @@ export async function fetchRoute(
       })),
     };
   });
-  return {
-    geometry: r.geometry,
-    distance: r.distance,
-    duration: r.duration,
-    legs,
-  };
+  return { geometry: r.geometry, distance: r.distance, duration: r.duration, legs };
+}
+
+/**
+ * Fetch one or more routes. Returns every route Mapbox provides (the primary
+ * first, then alternates when `options.alternatives` is set), ordered as
+ * returned by the API. Empty array on failure.
+ */
+export async function fetchRoutes(
+  coordinates: [number, number][],
+  profile: Profile = "driving",
+  options: FetchRouteOptions = {},
+): Promise<RouteResult[]> {
+  if (coordinates.length < 2) return [];
+  const coordStr = coordinates.map((c) => `${c[0]},${c[1]}`).join(";");
+  const params = new URLSearchParams({
+    access_token: MAPBOX_TOKEN,
+    geometries: "geojson",
+    overview: "full",
+    steps: "true",
+  });
+  if (options.alternatives) params.set("alternatives", "true");
+  if (options.exclude && options.exclude.length) {
+    params.set("exclude", options.exclude.join(","));
+  }
+  // Annotations only on driving profiles
+  if (options.annotations && profile.startsWith("driving")) {
+    params.set("annotations", "maxspeed,distance");
+  }
+  const url = `https://api.mapbox.com/directions/v5/mapbox/${profile}/${coordStr}?${params.toString()}`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const json = await res.json();
+  if (!json.routes?.length) return [];
+  return (json.routes as any[]).map(parseRoute);
+}
+
+export async function fetchRoute(
+  coordinates: [number, number][],
+  profile: Profile = "driving",
+  options: FetchRouteOptions = {},
+): Promise<RouteResult | null> {
+  const routes = await fetchRoutes(coordinates, profile, options);
+  return routes[0] || null;
 }

@@ -269,6 +269,18 @@ export default function MapScreen() {
           longitude: e.lng,
           latitude: e.lat,
         });
+      } else if (e.type === "longpress") {
+        // Long-press anywhere → jump straight into directions to that point.
+        setShowResults(false);
+        setSelected(null);
+        router.push({
+          pathname: "/(tabs)/directions",
+          params: {
+            destLng: String(e.lng),
+            destLat: String(e.lat),
+            destName: "Dropped pin",
+          },
+        });
       } else if (e.type === "markerClick") {
         if (e.id.startsWith("place_")) {
           const pid = e.id.slice("place_".length);
@@ -287,7 +299,7 @@ export default function MapScreen() {
         }
       }
     },
-    [places, requestLocation, styleKey],
+    [places, requestLocation, styleKey, router],
   );
 
   const onPickStyle = (key: MapStyleKey) => {
@@ -381,6 +393,16 @@ export default function MapScreen() {
       },
     });
     setSelected(null);
+  };
+
+  // Jump straight to directions for a search result / recent (skips the card).
+  const directionsToFeature = (lng: number, lat: number, name: string) => {
+    setShowResults(false);
+    Keyboard.dismiss();
+    router.push({
+      pathname: "/(tabs)/directions",
+      params: { destLng: String(lng), destLat: String(lat), destName: name },
+    });
   };
 
   const sharePlace = async () => {
@@ -509,23 +531,32 @@ export default function MapScreen() {
               keyExtractor={(i) => i.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }: any) => (
-                <TouchableOpacity
-                  style={styles.resultRow}
-                  onPress={() => (item.__recent ? onPickRecent(item) : onPickResult(item))}
-                  testID={`result-${item.id}`}
-                >
-                  <Ionicons
-                    name={item.__recent ? "time" : "location"}
-                    size={16}
-                    color={item.__recent ? theme.textMuted : theme.primary}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.resultTitle} numberOfLines={1}>{item.name}</Text>
-                    {!!item.full_address && (
-                      <Text style={styles.resultSub} numberOfLines={1}>{item.full_address}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
+                <View style={styles.resultRow}>
+                  <TouchableOpacity
+                    style={styles.resultMain}
+                    onPress={() => (item.__recent ? onPickRecent(item) : onPickResult(item))}
+                    testID={`result-${item.id}`}
+                  >
+                    <Ionicons
+                      name={item.__recent ? "time" : "location"}
+                      size={16}
+                      color={item.__recent ? theme.textMuted : theme.primary}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.resultTitle} numberOfLines={1}>{item.name}</Text>
+                      {!!item.full_address && (
+                        <Text style={styles.resultSub} numberOfLines={1}>{item.full_address}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.resultDirBtn}
+                    onPress={() => directionsToFeature(item.longitude, item.latitude, item.name)}
+                    testID={`result-dir-${item.id}`}
+                  >
+                    <Ionicons name="navigate" size={16} color={theme.primary} />
+                  </TouchableOpacity>
+                </View>
               )}
             />
           </View>
@@ -971,11 +1002,17 @@ const styles = StyleSheet.create({
   resultRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: theme.border,
+  },
+  resultMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  resultDirBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: theme.surfaceAlt,
+    alignItems: "center", justifyContent: "center",
   },
   resultTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
   resultSub: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
