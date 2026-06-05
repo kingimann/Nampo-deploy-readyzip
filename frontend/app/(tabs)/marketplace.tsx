@@ -183,15 +183,10 @@ export default function MarketplaceScreen() {
           data={listings}
           keyExtractor={(i) => i.id}
           numColumns={2}
-          columnWrapperStyle={{ gap: 12 }}
-          contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 110, gap: 14 }}
+          columnWrapperStyle={{ gap: 14 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 110, gap: 18 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
-          }
-          ListHeaderComponent={
-            listings.length > 0
-              ? <Text style={styles.sectionLabel}>Today's picks</Text>
-              : null
           }
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -416,21 +411,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4, paddingVertical: 8,
   },
   tile: {
-    flex: 1, borderRadius: 14, overflow: "hidden",
+    flex: 1, borderRadius: 18, overflow: "hidden",
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
   },
   tileImg: { width: "100%", aspectRatio: 1, backgroundColor: theme.surfaceAlt },
   tileImgPlaceholder: { alignItems: "center", justifyContent: "center" },
-  tileBody: { paddingHorizontal: 12, paddingVertical: 11, gap: 3 },
-  tilePrice: { color: theme.textPrimary, fontSize: 17, fontWeight: "900", letterSpacing: -0.3 },
-  tileTitle: { color: theme.textPrimary, fontSize: 14, lineHeight: 18 },
+  tileBody: { paddingHorizontal: 13, paddingVertical: 13, gap: 4 },
+  tilePrice: { color: theme.textPrimary, fontSize: 18, fontWeight: "900", letterSpacing: -0.3 },
+  tileTitle: { color: theme.textPrimary, fontSize: 14.5, lineHeight: 19 },
   tileLocRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 1 },
   tileLoc: { color: theme.textMuted, fontSize: 11.5, flex: 1 },
   soldTag: { position: "absolute", top: 8, left: 8, backgroundColor: theme.error, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   soldTagText: { color: "#fff", fontSize: 10, fontWeight: "900", letterSpacing: 0.5 },
   savedTag: { position: "absolute", top: 8, right: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
 
-  searchRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 4 },
+  searchRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6 },
   filterBtn: {
     width: 44, height: 44, borderRadius: 14,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
@@ -439,8 +434,8 @@ const styles = StyleSheet.create({
   filterBtnActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
   tabs: {
     flexDirection: "row", gap: 8,
-    marginHorizontal: 16, marginTop: 6, marginBottom: 2,
-    backgroundColor: theme.surface, borderRadius: 14, padding: 4,
+    marginHorizontal: 16, marginTop: 10, marginBottom: 6,
+    backgroundColor: theme.surface, borderRadius: 14, padding: 5,
     borderWidth: 1, borderColor: theme.border,
   },
   tab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10 },
@@ -484,7 +479,7 @@ const styles = StyleSheet.create({
     flex: 1, color: theme.textPrimary, fontSize: 15,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
   },
-  chipRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 4 },
+  chipRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
   chip: {
     flexShrink: 0, height: 36, paddingHorizontal: 14,
     borderRadius: 18, backgroundColor: theme.surface,
