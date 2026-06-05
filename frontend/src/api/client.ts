@@ -709,6 +709,8 @@ export type Message = {
   edited_at?: string | null;
   read_at?: string | null;
   delivered_at?: string | null;
+  read_by?: string[];
+  delivered_by?: string[];
   created_at: string;
 };
 export type CustomEmoji = { id: string; shortcode: string; image_base64: string; owner_id: string; created_at: string };

@@ -297,8 +297,10 @@ class Message(BaseModel):
     reply_to_id: Optional[str] = None        # id of the message this replies to
     edit_history: list = []                  # [{text, edited_at}] prior versions
     edited_at: Optional[datetime] = None
-    read_at: Optional[datetime] = None  # last_read[peer] >= created_at
-    delivered_at: Optional[datetime] = None  # last_delivered[peer] >= created_at
+    read_at: Optional[datetime] = None  # all recipients read it (last_read >= created_at)
+    delivered_at: Optional[datetime] = None  # all recipients fetched it
+    read_by: List[str] = []        # which recipients have read it (group receipts)
+    delivered_by: List[str] = []   # which recipients have received it
     created_at: datetime
 
 

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking, Alert, ScrollView,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking, Alert, ScrollView, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,6 +46,7 @@ export default function ChatScreen() {
   // Group E2E: public key per member id, and whether every other member has one.
   const [keyByUser, setKeyByUser] = useState<Record<string, Uint8Array>>({});
   const [groupRecipients, setGroupRecipients] = useState<Uint8Array[]>([]);
+  const [groupOtherCount, setGroupOtherCount] = useState(0);
   const groupE2E = isGroup && groupRecipients.length > 0;
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
   // Decrypted media/voice/file payloads (data URIs), keyed e.g. v:<id>, f:<id>, m:<id>:<idx>.
@@ -102,7 +103,7 @@ export default function ChatScreen() {
           const k = await getPeerPublicKey(conv.other_user.user_id);
           if (!cancelled) setPeerKey(k);
         } else if (conv?.kind === "group") {
-          if (!cancelled) setIsGroup(true);
+          if (!cancelled) { setIsGroup(true); setGroupOtherCount(((conv.members || []).filter((m) => m.user_id !== user?.user_id)).length); }
           const others = (conv.members || []).filter((m) => m.user_id !== user?.user_id);
           const map: Record<string, Uint8Array> = {};
           const recips: Uint8Array[] = [];
@@ -252,6 +253,23 @@ export default function ChatScreen() {
 
   // The most recent message I sent (Snapchat shows status only under it).
   const lastMineId = [...messages].reverse().find((m) => m.sender_id === user?.user_id && !m.deleted)?.id;
+
+  // Sent → Delivered → Read, per-member in groups (e.g. "Read by 3").
+  const statusFor = (m: Message): { text: string; read: boolean } => {
+    if (isGroup) {
+      const total = groupOtherCount || 1;
+      const r = m.read_by?.length || 0;
+      const d = m.delivered_by?.length || 0;
+      if (r >= total && total > 0) return { text: "Read", read: true };
+      if (r > 0) return { text: `Read by ${r}`, read: true };
+      if (d >= total && total > 0) return { text: "Delivered", read: false };
+      if (d > 0) return { text: `Delivered to ${d}`, read: false };
+      return { text: "Sent", read: false };
+    }
+    if (m.read_at) return { text: "Read", read: true };
+    if (m.delivered_at) return { text: "Delivered", read: false };
+    return { text: "Sent", read: false };
+  };
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -877,15 +895,14 @@ export default function ChatScreen() {
                       <Ionicons name="lock-closed" size={10} color={theme.textMuted} />
                     )}
                     {mine && !item.deleted && (
-                      item.id === lastMineId ? (
-                        <Text style={[styles.statusLabel, item.read_at && { color: "#53BDEB" }]}>
-                          {item.read_at ? "Read" : item.delivered_at ? "Delivered" : "Sent"}
-                        </Text>
-                      ) : (
+                      item.id === lastMineId ? (() => {
+                        const s = statusFor(item);
+                        return <Text style={[styles.statusLabel, s.read && { color: "#53BDEB" }]}>{s.text}</Text>;
+                      })() : (
                         <Ionicons
-                          name={(item.read_at || item.delivered_at) ? "checkmark-done" : "checkmark"}
+                          name={((item.read_by?.length || item.read_at) || (item.delivered_by?.length || item.delivered_at)) ? "checkmark-done" : "checkmark"}
                           size={14}
-                          color={item.read_at ? "#53BDEB" : theme.textMuted}
+                          color={(item.read_by?.length || item.read_at) ? "#53BDEB" : theme.textMuted}
                         />
                       )
                     )}
@@ -898,6 +915,7 @@ export default function ChatScreen() {
                 <Text style={styles.emptyText}>Say hi to start the conversation 👋</Text>
               </View>
             }
+            ListFooterComponent={presence.typing ? <TypingBubble /> : null}
           />
         )}
 
@@ -1198,6 +1216,38 @@ export default function ChatScreen() {
   );
 }
 
+// Animated "…" typing bubble shown at the bottom of the thread (Snapchat-style).
+function TypingBubble() {
+  const dots = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+  useEffect(() => {
+    const loops = dots.map((d, i) =>
+      Animated.loop(Animated.sequence([
+        Animated.delay(i * 160),
+        Animated.timing(d, { toValue: 1, duration: 320, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(d, { toValue: 0, duration: 320, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.delay((dots.length - i) * 160),
+      ])),
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, []);
+  return (
+    <View style={[styles.bubbleRow, styles.bubbleRowOther]} testID="typing-bubble">
+      <View style={[styles.bubble, styles.bubbleOther, styles.typingBubble]}>
+        {dots.map((d, i) => (
+          <Animated.View
+            key={i}
+            style={[styles.typingDot, {
+              opacity: d.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
+              transform: [{ translateY: d.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }],
+            }]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   header: {
@@ -1218,6 +1268,8 @@ const styles = StyleSheet.create({
   metaTime: { color: theme.textMuted, fontSize: 11, fontWeight: "500" },
   statusLabel: { color: theme.textMuted, fontSize: 10.5, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.3 },
   activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#22C55E" },
+  typingBubble: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 14 },
+  typingDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: theme.textMuted },
   editedLink: { textDecorationLine: "underline" },
   historyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 10, paddingHorizontal: 4 },
   historyRow: { backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 8 },

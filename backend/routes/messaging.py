@@ -349,12 +349,15 @@ async def list_messages(
         sender_id = plain.get("sender_id")
         others = [p for p in conv["participant_ids"] if p != sender_id]
         if others:
-            reads = [last_read.get(p) for p in others]
-            if all(t is not None and t >= plain["created_at"] for t in reads):
-                plain["read_at"] = max(reads)  # type: ignore[arg-type]
-            delivers = [last_delivered.get(p) for p in others]
-            if all(t is not None and t >= plain["created_at"] for t in delivers):
-                plain["delivered_at"] = max(delivers)  # type: ignore[arg-type]
+            created = plain["created_at"]
+            read_by = [p for p in others if (last_read.get(p) is not None and last_read[p] >= created)]
+            delivered_by = [p for p in others if (last_delivered.get(p) is not None and last_delivered[p] >= created)]
+            plain["read_by"] = read_by
+            plain["delivered_by"] = delivered_by
+            if read_by and len(read_by) == len(others):
+                plain["read_at"] = max(last_read[p] for p in read_by)
+            if delivered_by and len(delivered_by) == len(others):
+                plain["delivered_at"] = max(last_delivered[p] for p in delivered_by)
         out.append(Message(**plain))
     return out
 
