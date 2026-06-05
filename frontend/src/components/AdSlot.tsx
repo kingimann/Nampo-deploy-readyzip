@@ -12,7 +12,7 @@ import PostCard from "@/src/components/PostCard";
  * a "Sponsored" label + why/hide/report controls. Falls back to a house ad
  * (the viewer's own post, or an "Advertise here" CTA) so it's never empty.
  */
-export default function AdSlot({ placement, host, exclude }: { placement: string; host?: string; exclude?: string }) {
+export default function AdSlot({ placement, host, index }: { placement: string; host?: string; index?: number }) {
   const router = useRouter();
   const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
@@ -27,7 +27,7 @@ export default function AdSlot({ placement, host, exclude }: { placement: string
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.getNextAd(placement, exclude);
+        const res = await api.getNextAd(placement, index);
         if (cancelled) return;
         setHouse(!!res.house); setReason(res.reason || null); setCta(!!res.cta);
         setPost(res.post || null);
@@ -35,7 +35,7 @@ export default function AdSlot({ placement, host, exclude }: { placement: string
       } catch {}
     })();
     return () => { cancelled = true; };
-  }, [placement, host, exclude]);
+  }, [placement, host, index]);
 
   if (gone) return null;
 

@@ -297,7 +297,7 @@ export default function UserProfileScreen() {
             <Text style={{ color: theme.textMuted, textAlign: "center", paddingVertical: 40 }}>No posts yet.</Text>
           }
           renderItem={({ item }) => (
-            isAd(item) ? <AdSlot placement="profile" host={user.user_id} /> : (
+            isAd(item) ? <AdSlot placement="profile" host={user.user_id} index={item.__ad} /> : (
             <PostCard
               post={item} viewerId={me?.user_id}
               onLike={onLike} onRepost={onRepost} onReply={onReply} onBookmark={onBookmark}
