@@ -145,9 +145,15 @@ export const api = {
   getWallet: () => request<WalletSummary>("/wallet"),
   // Ads + creator ad revenue
   getNextAd: (placement: string, slot?: number) =>
-    request<{ post: Post | null; house?: boolean; reason?: string | null; cta?: string }>(`/ads/next?placement=${encodeURIComponent(placement)}${slot != null ? `&slot=${slot}` : ""}`),
+    request<{ post: Post | null; house?: boolean; reason?: string | null; cta?: string; type?: "post" | "link"; link?: LinkAdServe }>(`/ads/next?placement=${encodeURIComponent(placement)}${slot != null ? `&slot=${slot}` : ""}`),
   adEvent: (postId: string, type: "impression" | "click", host_user_id?: string) =>
     request<{ ok: boolean }>(`/ads/${postId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
+  linkAdEvent: (adId: string, type: "impression" | "click", host_user_id?: string) =>
+    request<{ ok: boolean }>(`/ads/links/${adId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
+  createLinkAd: (body: { url: string; headline: string; description?: string; image?: string; days?: number; cpc?: number }) =>
+    request<{ id: string }>("/ads/links", { method: "POST", body: JSON.stringify(body) }),
+  getLinkAds: () => request<{ ads: LinkAd[] }>("/ads/links"),
+  deleteLinkAd: (id: string) => request<{ ok: boolean }>(`/ads/links/${id}`, { method: "DELETE" }),
   hideAd: (postId: string) => request<{ hidden: boolean }>(`/ads/${postId}/hide`, { method: "POST" }),
   reportAd: (postId: string) => request<{ reported: boolean }>(`/ads/${postId}/report`, { method: "POST" }),
   recordProfileView: (userId: string) =>
@@ -595,6 +601,8 @@ export type Payout = { id: string; amount: number; status: string; created_at: s
 export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };
 export type Ad = { post_id: string | null; text: string; image?: string | null; author_name: string; reason?: string | null; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
+export type LinkAdServe = { id: string; url: string; headline: string; description?: string | null; image?: string | null; owner_id?: string };
+export type LinkAd = { id: string; url: string; headline: string; description?: string | null; image?: string | null; cpc: number; impressions: number; clicks: number; ctr: number; spent: number; promoted_until?: string | null; active: boolean };
 export type BotPost = { post_id: string; text: string; owner_name: string; views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number };
 export type BotResult = { ok: boolean; earned: number; earner_id: string; spend: number; debited_from_advertiser: number; totals: { views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number } };
 export type AdAccount = {

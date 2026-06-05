@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, Post, AdCampaign, AdAccount, mediaUri } from "@/src/api/client";
+import { api, Post, AdCampaign, AdAccount, LinkAd, mediaUri } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -49,6 +49,15 @@ export default function AdvertiseScreen() {
   const [topupAmount, setTopupAmount] = useState("25");
   const [topupBusy, setTopupBusy] = useState(false);
   const [topupMsg, setTopupMsg] = useState<string | null>(null);
+  // Link ads (advertise your website).
+  const [linkAds, setLinkAds] = useState<LinkAd[]>([]);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [lUrl, setLUrl] = useState("");
+  const [lHeadline, setLHeadline] = useState("");
+  const [lDesc, setLDesc] = useState("");
+  const [lDays, setLDays] = useState(7);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkMsg, setLinkMsg] = useState<string | null>(null);
   // Pay-per-click campaign config (optional).
   const [ppc, setPpc] = useState(false);
   const [budget, setBudget] = useState("20");
@@ -71,7 +80,27 @@ export default function AdvertiseScreen() {
       setCampaigns(Object.fromEntries(campaigns.map((c) => [c.post_id, c])));
     } catch {}
     try { setAccount(await api.getAdAccount()); } catch {}
+    try { setLinkAds((await api.getLinkAds()).ads); } catch {}
   }, [user]);
+
+  const submitLinkAd = async () => {
+    const url = lUrl.trim();
+    if (!/^https?:\/\//i.test(url)) { setLinkMsg("Enter a valid http(s) link."); return; }
+    if (!lHeadline.trim()) { setLinkMsg("Add a headline."); return; }
+    setLinkBusy(true); setLinkMsg(null);
+    try {
+      await api.createLinkAd({ url, headline: lHeadline.trim(), description: lDesc.trim() || undefined, days: lDays });
+      setLUrl(""); setLHeadline(""); setLDesc("");
+      await load();
+      setLinkOpen(false);
+    } catch (e: any) {
+      setLinkMsg(String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Couldn't create the link ad.");
+    } finally { setLinkBusy(false); }
+  };
+  const removeLinkAd = async (id: string) => {
+    setLinkAds((arr) => arr.filter((a) => a.id !== id));
+    try { await api.deleteLinkAd(id); } catch { load(); }
+  };
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const openCheckout = (post: Post) => {
@@ -191,6 +220,32 @@ export default function AdvertiseScreen() {
                 <Text style={styles.balanceMeta}>
                   {account?.active_campaigns ?? 0} active · ${(account?.lifetime_spend ?? 0).toFixed(2)} spent so far
                 </Text>
+              </View>
+
+              {/* Link ads: advertise your website. */}
+              <View style={styles.linkSection}>
+                <View style={styles.linkHead}>
+                  <Text style={styles.linkSectionTitle}>Advertise a link</Text>
+                  <TouchableOpacity style={styles.linkNewBtn} onPress={() => { setLinkMsg(null); setLinkOpen(true); }} testID="new-link-ad">
+                    <Ionicons name="add" size={15} color="#fff" />
+                    <Text style={styles.linkNewText}>New</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.linkSectionSub}>Promote your website across Nami and partner sites. Charged per view/click from your ad balance.</Text>
+                {linkAds.map((a) => (
+                  <View key={a.id} style={styles.linkRow}>
+                    <Ionicons name="link" size={16} color={theme.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.linkRowTitle} numberOfLines={1}>{a.headline}</Text>
+                      <Text style={styles.linkRowMeta} numberOfLines={1}>
+                        {a.active ? "● Active" : "Ended"} · {a.impressions} views · {a.clicks} clicks · ${a.spent.toFixed(2)}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => removeLinkAd(a.id)} testID={`del-link-${a.id}`}>
+                      <Ionicons name="trash-outline" size={16} color={theme.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
 
               <View style={styles.intro}>
@@ -473,6 +528,46 @@ export default function AdvertiseScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ── Create a link ad ─────────────────────────────────────────── */}
+      <Modal visible={linkOpen} transparent animationType="slide" onRequestClose={() => !linkBusy && setLinkOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.backdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !linkBusy && setLinkOpen(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Advertise a link</Text>
+            <Text style={styles.sheetSub}>Your website shows as a sponsored card across Nami and partner sites.</Text>
+
+            <Text style={styles.fieldLabel}>Website URL</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="link" size={16} color={theme.textMuted} />
+              <TextInput style={styles.input} value={lUrl} onChangeText={setLUrl} placeholder="https://example.com" placeholderTextColor={theme.textMuted} autoCapitalize="none" keyboardType="url" testID="link-url" />
+            </View>
+            <Text style={styles.fieldLabel}>Headline</Text>
+            <View style={styles.inputWrap}>
+              <TextInput style={styles.input} value={lHeadline} onChangeText={setLHeadline} placeholder="Visit my shop" placeholderTextColor={theme.textMuted} maxLength={120} testID="link-headline" />
+            </View>
+            <Text style={styles.fieldLabel}>Description (optional)</Text>
+            <View style={styles.inputWrap}>
+              <TextInput style={styles.input} value={lDesc} onChangeText={setLDesc} placeholder="A short line about it" placeholderTextColor={theme.textMuted} maxLength={300} testID="link-desc" />
+            </View>
+
+            <Text style={styles.fieldLabel}>Run for</Text>
+            <View style={styles.ppcRow}>
+              {[7, 14, 30].map((d) => (
+                <TouchableOpacity key={d} style={[styles.ppcTab, lDays === d && styles.ppcTabOn]} onPress={() => setLDays(d)} testID={`link-days-${d}`}>
+                  <Text style={[styles.ppcText, lDays === d && { color: theme.primary }]}>{d} days</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {linkMsg && <Text style={styles.topupMsg}>{linkMsg}</Text>}
+            <TouchableOpacity style={[styles.payBtn, linkBusy && { opacity: 0.7 }]} onPress={submitLinkAd} disabled={linkBusy} testID="link-submit">
+              {linkBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>Launch link ad</Text>}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -494,6 +589,15 @@ const styles = StyleSheet.create({
     padding: 14, marginBottom: 6,
   },
   introText: { flex: 1, color: theme.textSecondary, fontSize: 13, lineHeight: 18 },
+  linkSection: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 4 },
+  linkHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  linkSectionTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  linkSectionSub: { color: theme.textMuted, fontSize: 12, lineHeight: 17, marginBottom: 4 },
+  linkNewBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: theme.primary, borderRadius: 999, paddingHorizontal: 12, height: 32 },
+  linkNewText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  linkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+  linkRowTitle: { color: theme.textPrimary, fontSize: 13.5, fontWeight: "700" },
+  linkRowMeta: { color: theme.textMuted, fontSize: 11.5, marginTop: 2 },
 
   balanceCard: {
     backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border,

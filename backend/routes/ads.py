@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from datetime import timedelta
 
-from core import db, get_current_user, is_admin
+from core import db, get_current_user, is_admin, _norm_dt
 
 router = APIRouter()
 
@@ -108,14 +108,23 @@ async def next_ad(
     # Drop ads this viewer has hidden or reported.
     hidden = {h.get("post_id") for h in await db.ad_hides.find({"viewer_id": me["user_id"]}, {"_id": 0, "post_id": 1}).to_list(500)}
     rows = [r for r in rows if r["id"] not in hidden]
+    # Link ads (advertise-your-website) share the same slots as promoted posts.
+    link_rows = await db.link_ads.find(
+        {"promoted_until": {"$gt": now}, "owner_id": {"$ne": me["user_id"]}}, {"_id": 0}
+    ).sort("promoted_until", -1).limit(20).to_list(20)
+    link_rows = [l for l in link_rows if l["id"] not in hidden]
     from routes.posts import _hydrate_post
-    if rows:
-        # Rotate by slot so consecutive ad slots show different inventory;
-        # random when no slot is given.
-        post = rows[slot % len(rows)] if slot is not None else random.choice(rows)
-        full = await _hydrate_post(post, me["user_id"])
-        return {"house": False, "post": full.model_dump(),
-                "reason": "It's a promoted post matched to this spot."}
+    inventory = [("post", r) for r in rows] + [("link", l) for l in link_rows]
+    if inventory:
+        # Rotate by slot so consecutive ad slots show different inventory.
+        kind, item = inventory[slot % len(inventory)] if slot is not None else random.choice(inventory)
+        if kind == "post":
+            full = await _hydrate_post(item, me["user_id"])
+            return {"house": False, "type": "post", "post": full.model_dump(),
+                    "reason": "It's a promoted post matched to this spot."}
+        return {"house": False, "type": "link", "post": None,
+                "link": {k: item.get(k) for k in ("id", "url", "headline", "description", "image", "owner_id")},
+                "reason": "It's a sponsored link."}
     # ── House ad: never leave a slot empty — surface the viewer's own post ──
     mine = await db.posts.find(
         {"user_id": me["user_id"], "parent_id": None}, {"_id": 0}
@@ -304,6 +313,114 @@ async def bot_posts(authorization: Optional[str] = Header(None)):
         "spent": round(float(r.get("ad_spent", 0) or 0), 2),
     } for r in rows]
     return {"posts": posts}
+
+
+# ── Link ads: advertise your own website (served in-app and to publishers) ───
+class LinkAdCreate(BaseModel):
+    url: str
+    headline: str
+    description: Optional[str] = ""
+    image: Optional[str] = None
+    days: int = 7
+    cpc: Optional[float] = None
+
+
+def _valid_url(u: str) -> bool:
+    return isinstance(u, str) and u.strip().lower().startswith(("http://", "https://")) and len(u.strip()) <= 2000
+
+
+async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_id: Optional[str] = None) -> float:
+    """Debit the link-ad advertiser and credit the host/publisher (click | view)."""
+    advertiser = ad.get("owner_id")
+    if not advertiser or advertiser == actor_id:
+        return 0.0
+    rate = (float(ad.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC) if kind == "click" else AD_RATE_VIEW
+    field = "ad_clicks" if kind == "click" else "ad_impressions"
+    bal = await _ad_balance(advertiser)
+    charge = 0.0
+    if bal is not None and bal > 0:
+        charge = round(min(rate, bal), 2)
+        if charge > 0:
+            await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+    await db.link_ads.update_one({"id": ad["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
+    if host_user_id and host_user_id not in (actor_id, advertiser) and charge > 0:
+        await _credit(host_user_id, round(charge * HOST_REVENUE_SHARE, 2), "ad_revenue", "Ad revenue")
+    return charge
+
+
+@router.post("/ads/links")
+async def create_link_ad(body: LinkAdCreate, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    url = (body.url or "").strip()
+    if not _valid_url(url):
+        raise HTTPException(status_code=400, detail="Enter a valid http(s) link")
+    headline = (body.headline or "").strip()[:120]
+    if not headline:
+        raise HTTPException(status_code=400, detail="Headline is required")
+    days = max(1, min(60, int(body.days or 7)))
+    cpc = round(float(body.cpc or 0) or AD_DEFAULT_CPC, 2)
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()), "owner_id": me["user_id"], "owner_name": me.get("name", "Advertiser"),
+        "url": url, "headline": headline, "description": (body.description or "")[:300],
+        "image": body.image, "ad_cpc": cpc,
+        "promoted_until": now + timedelta(days=days),
+        "ad_impressions": 0, "ad_clicks": 0, "ad_spent": 0.0, "created_at": now,
+    }
+    await db.link_ads.insert_one(doc.copy())
+    return {k: doc[k] for k in ("id", "url", "headline", "description", "image", "ad_cpc", "promoted_until")}
+
+
+@router.get("/ads/links")
+async def my_link_ads(authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    now = datetime.now(timezone.utc)
+    rows = await db.link_ads.find({"owner_id": me["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+    out = []
+    for r in rows:
+        until = r.get("promoted_until")
+        active = False
+        try:
+            active = bool(until and _norm_dt(until) > now)
+        except Exception:
+            pass
+        imp = int(r.get("ad_impressions", 0) or 0)
+        clk = int(r.get("ad_clicks", 0) or 0)
+        out.append({
+            "id": r["id"], "url": r.get("url"), "headline": r.get("headline"),
+            "description": r.get("description"), "image": r.get("image"),
+            "cpc": round(float(r.get("ad_cpc", 0) or 0), 2),
+            "impressions": imp, "clicks": clk, "ctr": round((clk / imp * 100), 1) if imp else 0.0,
+            "spent": round(float(r.get("ad_spent", 0) or 0), 2),
+            "promoted_until": until, "active": active,
+        })
+    return {"ads": out}
+
+
+@router.delete("/ads/links/{ad_id}")
+async def delete_link_ad(ad_id: str, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    res = await db.link_ads.delete_one({"id": ad_id, "owner_id": me["user_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Link ad not found")
+    return {"ok": True}
+
+
+@router.post("/ads/links/{ad_id}/event")
+async def link_ad_event(ad_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
+    """In-app impression/click on a link ad (host = whose surface it showed on)."""
+    me = await get_current_user(authorization)
+    ad = await db.link_ads.find_one({"id": ad_id}, {"_id": 0})
+    if not ad:
+        return {"ok": True}
+    viewer = me["user_id"]
+    if viewer == ad.get("owner_id"):
+        return {"ok": True, "self": True}
+    kind = "click" if body.type == "click" else "impression"
+    if await _seen_recently(ad_id, viewer, kind, 24):
+        return {"ok": True, "duplicate": True}
+    charge = await bill_link_ad(ad, viewer, kind, host_user_id=body.host_user_id)
+    return {"ok": True, "charged": charge}
 
 
 @router.post("/admin/bot/run")
