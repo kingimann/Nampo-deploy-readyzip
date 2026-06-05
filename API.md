@@ -237,7 +237,14 @@ Messages also support server-side encryption at rest regardless.
 | POST | `/ads/{id}/hide\|report` | Hide / report an ad |
 | GET | `/ads/campaigns` | Your promoted-post analytics |
 | GET/POST | `/ads/account` · `/ads/account/topup` | Prepaid ad balance + top-up |
+| POST/GET/DELETE | `/ads/links` · `POST /ads/links/{id}/event` | Link ads — advertise your website |
 | POST | `/users/{id}/view` | Profile-view revenue tracking |
+
+**Publisher network** (display Nami ads on your own site & earn): `POST/GET/DELETE
+/pub/sites` (manage sites, get a `site_key`) · public `GET /pub/ad?site=` (JSON ad) ·
+`GET /pub/click?site=&ad=` (tracked redirect) · `GET /pub/unit?site=` (iframe ad unit) ·
+`GET /pub/embed.js?site=` (drop-in `<script>`). Earnings require **valid traffic**:
+established accounts on both sides, no self/related clicks, and a daily earning cap.
 | GET | `/admin/ad-revenue` | Platform ad dashboard (admin) |
 | GET/POST | `/admin/bot/posts` · `/admin/bot/run` | Test bot for wallet/analytics (admin) |
 

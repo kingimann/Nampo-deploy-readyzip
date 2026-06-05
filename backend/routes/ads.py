@@ -41,6 +41,79 @@ async def _credit(to_user_id: str, amount: float, kind: str, from_name: str):
     })
 
 
+# ── Earnings integrity (X / Google-style invalid-traffic protection) ─────────
+# Ad earnings are easy to fake (spin up an alt, click your own ad). To make
+# earning genuinely hard we require established accounts on BOTH sides, block
+# collusion (friends), and cap daily ad income.
+EARN_MIN_AGE_DAYS = 14        # account must be this old to earn from ads
+EARN_MIN_FOLLOWERS = 25       # …or be verified
+EARN_DAILY_CAP = 2.00         # max ad $ a single account can earn per day
+
+
+async def _established(user_id: str) -> bool:
+    """An account that's allowed to participate in the ad economy (earn or
+    generate billable clicks): verified, or aged + with a real audience."""
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "created_at": 1, "verified": 1})
+    if not u:
+        return False
+    if u.get("verified"):
+        return True
+    try:
+        age_days = (datetime.now(timezone.utc) - _norm_dt(u["created_at"])).days
+    except Exception:
+        age_days = 0
+    if age_days < EARN_MIN_AGE_DAYS:
+        return False
+    followers = await db.follows.count_documents({"followee_id": user_id})
+    return followers >= EARN_MIN_FOLLOWERS
+
+
+async def _valid_traffic(host_id: Optional[str], payer_id: Optional[str]) -> bool:
+    """Whether an interaction should pay the host. Requires both sides to be
+    established and unrelated; anonymous (publisher) traffic only needs an
+    established host."""
+    if not host_id:
+        return False
+    if not await _established(host_id):
+        return False
+    if payer_id is None:
+        return True
+    if host_id == payer_id:
+        return False
+    if not await _established(payer_id):
+        return False
+    a, b = sorted([host_id, payer_id])
+    if await db.friendships.find_one({"a": a, "b": b}, {"_id": 0, "a": 1}):
+        return False  # no earning from your own friends (collusion guard)
+    if await db.follows.find_one({"follower_id": payer_id, "followee_id": host_id}, {"_id": 0, "follower_id": 1}):
+        return False  # …or from people who follow you
+    return True
+
+
+async def _daily_ad_earned(host_id: str) -> float:
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = await db.earnings.find(
+        {"user_id": host_id, "kind": {"$in": ["ad_revenue", "views"]}, "created_at": {"$gte": start}},
+        {"_id": 0, "amount": 1},
+    ).to_list(5000)
+    return round(sum(float(r.get("amount", 0) or 0) for r in rows), 2)
+
+
+async def _maybe_credit_host(host_id: Optional[str], payer_id: Optional[str], amount: float,
+                             kind: str = "ad_revenue", label: str = "Ad revenue") -> float:
+    """Credit the host only for valid traffic and within the daily cap."""
+    if not host_id or amount <= 0:
+        return 0.0
+    if not await _valid_traffic(host_id, payer_id):
+        return 0.0
+    cap_left = EARN_DAILY_CAP - await _daily_ad_earned(host_id)
+    credit = round(min(amount, cap_left), 2)
+    if credit <= 0:
+        return 0.0
+    await _credit(host_id, credit, kind, label)
+    return credit
+
+
 async def _ad_balance(user_id: str):
     """Advertiser's prepaid ad balance, or None if they've never funded an ad
     account (legacy/unmetered campaigns keep their old behaviour)."""
@@ -72,7 +145,7 @@ async def bill_ad_interaction(post: dict, viewer_id: str, kind: str, host_user_i
     await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
     await db.posts.update_one({"id": post["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
     if host_user_id and host_user_id != viewer_id and host_user_id != advertiser:
-        await _credit(host_user_id, round(charge * HOST_REVENUE_SHARE, 2), "ad_revenue", "Ad revenue")
+        await _maybe_credit_host(host_user_id, viewer_id, round(charge * HOST_REVENUE_SHARE, 2))
     return charge
 
 
@@ -185,11 +258,11 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
             charge = min(cpc, budget - spent)
             await db.posts.update_one({"id": post_id}, {"$inc": {"ad_clicks": 1, "ad_spent": charge}})
             if is_real and charge > 0:
-                await _credit(host, round(charge * HOST_REVENUE_SHARE, 2), "ad_revenue", "Ad revenue")
+                await _maybe_credit_host(host, viewer, round(charge * HOST_REVENUE_SHARE, 2))
         else:
             await db.posts.update_one({"id": post_id}, {"$inc": {"ad_clicks": 1}})
             if is_real:
-                await _credit(host, AD_CLICK_PAYOUT, "ad_revenue", "Ad revenue")
+                await _maybe_credit_host(host, viewer, AD_CLICK_PAYOUT)
     else:
         await db.posts.update_one({"id": post_id}, {"$inc": {"ad_impressions": 1}})
     return {"ok": True}
@@ -330,7 +403,8 @@ def _valid_url(u: str) -> bool:
 
 
 async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_id: Optional[str] = None) -> float:
-    """Debit the link-ad advertiser and credit the host/publisher (click | view)."""
+    """Debit the link-ad advertiser and credit the host/publisher (click | view).
+    Returns the amount actually credited to the host (0 for invalid traffic)."""
     advertiser = ad.get("owner_id")
     if not advertiser or advertiser == actor_id:
         return 0.0
@@ -343,9 +417,10 @@ async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_i
         if charge > 0:
             await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
     await db.link_ads.update_one({"id": ad["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
+    credited = 0.0
     if host_user_id and host_user_id not in (actor_id, advertiser) and charge > 0:
-        await _credit(host_user_id, round(charge * HOST_REVENUE_SHARE, 2), "ad_revenue", "Ad revenue")
-    return charge
+        credited = await _maybe_credit_host(host_user_id, actor_id, round(charge * HOST_REVENUE_SHARE, 2))
+    return credited
 
 
 @router.post("/ads/links")
@@ -628,5 +703,5 @@ async def record_profile_view(user_id: str, authorization: Optional[str] = Heade
     new_count = int(target.get("profile_views", 0) or 0) + 1
     await db.users.update_one({"user_id": user_id}, {"$inc": {"profile_views": 1}})
     if new_count % PROFILE_VIEWS_PER_PAYOUT == 0:
-        await _credit(user_id, PROFILE_VIEW_PAYOUT, "views", "Profile views")
+        await _maybe_credit_host(user_id, me["user_id"], PROFILE_VIEW_PAYOUT, kind="views", label="Profile views")
     return {"ok": True, "views": new_count}

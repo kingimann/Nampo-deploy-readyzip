@@ -23,7 +23,7 @@ except Exception:
 
 router = APIRouter()
 
-MIN_PAYOUT = float(os.environ.get("MIN_PAYOUT", "1") or 1)   # don't pay out dust
+MIN_PAYOUT = float(os.environ.get("MIN_PAYOUT", "25") or 25)   # Google-style floor — no dust payouts
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 

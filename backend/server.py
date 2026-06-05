@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core import init_pool, logger
 from routes import (
+    adnetwork as adnetwork_routes,
     ads as ads_routes,
     auth as auth_routes,
     communities as communities_routes,
@@ -123,6 +124,7 @@ api_router.include_router(stories_routes.router)
 api_router.include_router(payments_routes.router)
 api_router.include_router(webhooks_routes.router)
 api_router.include_router(ads_routes.router)
+api_router.include_router(adnetwork_routes.router)
 api_router.include_router(payouts_routes.router)
 api_router.include_router(oauth_routes.router)
 api_router.include_router(money_routes.router)

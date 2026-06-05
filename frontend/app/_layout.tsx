@@ -40,6 +40,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/money",
   "/account",
   "/developer",
+  "/monetize",
   "/connected-apps",
   "/admin-revenue",
   "/admin-bot",

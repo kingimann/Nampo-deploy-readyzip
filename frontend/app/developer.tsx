@@ -112,6 +112,17 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/ads/campaigns", desc: "Analytics for your promoted posts.", auth: true },
       { method: "GET", path: "/ads/account", desc: "Prepaid ad-account balance + rates.", auth: true },
       { method: "POST", path: "/ads/account/topup", desc: "Add funds to your ad account.", auth: true, body: `{"amount":25}` },
+      { method: "POST", path: "/ads/links", desc: "Advertise a link to your website.", auth: true, body: `{"url","headline","days":7}` },
+      { method: "GET", path: "/ads/links", desc: "Your link ads + analytics.", auth: true },
+    ],
+  },
+  {
+    title: "Publisher Network", icon: "globe",
+    endpoints: [
+      { method: "POST", path: "/pub/sites", desc: "Register a site to show Nami ads & earn. Returns a site_key.", auth: true, body: `{"name","domain"}` },
+      { method: "GET", path: "/pub/sites", desc: "Your publisher sites + earnings.", auth: true },
+      { method: "GET", path: "/pub/embed.js?site=KEY", desc: "Drop-in <script> embed (no auth).", auth: false },
+      { method: "GET", path: "/pub/ad?site=KEY", desc: "Public JSON ad for custom integrations.", auth: false },
     ],
   },
   {

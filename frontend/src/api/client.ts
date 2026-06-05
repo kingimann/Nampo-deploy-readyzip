@@ -154,6 +154,11 @@ export const api = {
     request<{ id: string }>("/ads/links", { method: "POST", body: JSON.stringify(body) }),
   getLinkAds: () => request<{ ads: LinkAd[] }>("/ads/links"),
   deleteLinkAd: (id: string) => request<{ ok: boolean }>(`/ads/links/${id}`, { method: "DELETE" }),
+  // Publisher network — embed Nami ads on your own site and earn.
+  createPubSite: (body: { name: string; domain?: string }) =>
+    request<PublisherSite>("/pub/sites", { method: "POST", body: JSON.stringify(body) }),
+  getPubSites: () => request<{ sites: PublisherSite[] }>("/pub/sites"),
+  deletePubSite: (id: string) => request<{ ok: boolean }>(`/pub/sites/${id}`, { method: "DELETE" }),
   hideAd: (postId: string) => request<{ hidden: boolean }>(`/ads/${postId}/hide`, { method: "POST" }),
   reportAd: (postId: string) => request<{ reported: boolean }>(`/ads/${postId}/report`, { method: "POST" }),
   recordProfileView: (userId: string) =>
@@ -603,6 +608,7 @@ export type Ad = { post_id: string | null; text: string; image?: string | null; 
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
 export type LinkAdServe = { id: string; url: string; headline: string; description?: string | null; image?: string | null; owner_id?: string };
 export type LinkAd = { id: string; url: string; headline: string; description?: string | null; image?: string | null; cpc: number; impressions: number; clicks: number; ctr: number; spent: number; promoted_until?: string | null; active: boolean };
+export type PublisherSite = { id: string; name: string; domain?: string | null; site_key: string; impressions: number; clicks: number; ctr: number; earned: number; created_at?: string };
 export type BotPost = { post_id: string; text: string; owner_name: string; views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number };
 export type BotResult = { ok: boolean; earned: number; earner_id: string; spend: number; debited_from_advertiser: number; totals: { views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number } };
 export type AdAccount = {
