@@ -82,6 +82,12 @@ export default function SettingsScreen() {
           <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
         </TouchableOpacity>
 
+        <Text style={styles.groupTitle}>Account</Text>
+        <View style={styles.group}>
+          <Row icon="shield-checkmark-outline" label="Account & security" color="#22C55E" onPress={() => router.push("/account")} />
+          <Row icon="code-slash-outline" label="Developer API" color="#0EA5E9" onPress={() => router.push("/developer")} last />
+        </View>
+
         <Text style={styles.groupTitle}>General</Text>
         <View style={styles.group}>
           <Row icon="grid-outline" label="Customize navigation bar" color="#0EA5E9" onPress={() => router.push("/customize-nav")} />

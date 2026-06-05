@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
+import { useNavBar } from "@/src/context/NavBarContext";
 
 const BG_IMAGE =
   "https://images.unsplash.com/photo-1774646598677-cc38cb3cac00?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjB0b3BvZ3JhcGhpYyUyMG1hcHxlbnwwfHx8fDE3ODA1NTgzMjd8MA&ixlib=rb-4.1.0&q=85";
@@ -17,6 +18,7 @@ type Mode = "signin" | "signup";
 export default function LoginScreen() {
   const router = useRouter();
   const { user, loginLocal, registerLocal } = useAuth();
+  const { shortcuts, ready: navReady } = useNavBar();
   const [mode, setMode] = useState<Mode>("signin");
   const [busy, setBusy] = useState(false);
   const [identifier, setIdentifier] = useState("");
@@ -24,9 +26,16 @@ export default function LoginScreen() {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { if (user) router.replace("/(tabs)"); }, [user, router]);
+  // Land on the first item in the user's customized nav bar (not always the map).
+  useEffect(() => {
+    if (user && navReady) {
+      const first = shortcuts[0]?.route || "/(tabs)";
+      router.replace(first as any);
+    }
+  }, [user, navReady, shortcuts, router]);
 
   const submit = async () => {
     setBusy(true);
@@ -39,6 +48,7 @@ export default function LoginScreen() {
         if (!email.trim() || !password || !name.trim() || !username.trim())
           throw new Error("All fields required");
         if (password.length < 8) throw new Error("Password must be at least 8 characters");
+        if (!agreed) throw new Error("Please agree to the Terms of Service and Privacy Policy");
         await registerLocal(email.trim(), password, name.trim(), username.trim().toLowerCase());
       }
     } catch (e: any) {
@@ -87,7 +97,19 @@ export default function LoginScreen() {
               )}
               <TextInput style={styles.input} placeholder="Password" placeholderTextColor={theme.textMuted} value={password} onChangeText={setPassword} secureTextEntry testID="in-password" />
 
-              <TouchableOpacity style={[styles.submitBtn, busy && { opacity: 0.7 }]} onPress={submit} disabled={busy} testID="submit-btn">
+              {mode === "signup" && (
+                <TouchableOpacity style={styles.agreeRow} onPress={() => setAgreed((a) => !a)} activeOpacity={0.7} testID="agree-toggle">
+                  <Ionicons name={agreed ? "checkbox" : "square-outline"} size={20} color={agreed ? theme.primary : theme.textMuted} />
+                  <Text style={styles.agreeText}>
+                    I agree to the{" "}
+                    <Text style={styles.link} onPress={() => router.push("/legal/terms")}>Terms of Service</Text>
+                    {" "}and{" "}
+                    <Text style={styles.link} onPress={() => router.push("/legal/privacy")}>Privacy Policy</Text>.
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity style={[styles.submitBtn, (busy || (mode === "signup" && !agreed)) && { opacity: 0.5 }]} onPress={submit} disabled={busy || (mode === "signup" && !agreed)} testID="submit-btn">
                 {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{mode === "signin" ? "Sign in" : "Create account"}</Text>}
               </TouchableOpacity>
             </View>
@@ -127,4 +149,8 @@ const styles = StyleSheet.create({
   },
   submitBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, alignItems: "center", marginTop: 4 },
   submitText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  agreeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 2, marginTop: 2 },
+  agreeText: { flex: 1, color: theme.textSecondary, fontSize: 12.5, lineHeight: 18 },
+  link: { color: theme.primary, fontWeight: "700" },
 });
+

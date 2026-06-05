@@ -64,6 +64,20 @@ export const api = {
     request<{ available: boolean; reason?: string }>(`/auth/username-available?u=${encodeURIComponent(u)}`),
   setUsername: (username: string) =>
     request<User>("/auth/username", { method: "POST", body: JSON.stringify({ username }) }),
+  changeEmail: (current_password: string, new_email: string) =>
+    request<User>("/auth/me/email", { method: "PATCH", body: JSON.stringify({ current_password, new_email }) }),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ ok: boolean }>("/auth/me/password", { method: "PATCH", body: JSON.stringify({ current_password, new_password }) }),
+  setPhone: (phone: string) =>
+    request<User>("/auth/me/phone", { method: "PATCH", body: JSON.stringify({ phone }) }),
+  listApiKeys: () => request<{ keys: ApiKey[] }>("/auth/api-keys"),
+  createApiKey: (label: string) =>
+    request<{ id: string; label: string; token: string; created_at: string }>(
+      "/auth/api-keys", { method: "POST", body: JSON.stringify({ label }) }),
+  revokeApiKey: (id: string) =>
+    request<{ revoked: boolean }>(`/auth/api-keys/${id}`, { method: "DELETE" }),
+  getPolicies: () => request<{ tos_version: string; privacy_version: string; effective_date: string }>("/policies"),
+  acceptPolicies: () => request<User>("/auth/accept-policies", { method: "POST" }),
   uploadE2EKey: (public_key: string) =>
     request<{ ok: boolean }>("/auth/keys", { method: "POST", body: JSON.stringify({ public_key }) }),
   getUserE2EKey: (user_id: string) =>
@@ -431,6 +445,8 @@ export type User = {
   name: string;
   username?: string | null;
   picture?: string | null;
+  phone?: string | null;
+  phone_verified?: boolean;
   bio?: string;
   home_name?: string | null;
   home_longitude?: number | null;
@@ -441,6 +457,7 @@ export type User = {
   verified?: boolean;
   role?: string; // user | mod | admin
   sub_price?: number;
+  needs_policy_agreement?: boolean;
 };
 export type ProfilePatch = {
   name?: string; bio?: string; picture?: string;
@@ -452,7 +469,10 @@ export type WalletTxn = { id: string; kind: string; amount: number; from_user_id
 export type WalletSummary = {
   currency: string; total_earned: number; tips_total: number; subs_total: number;
   tips_count: number; active_subscribers: number; sub_price: number; recent: WalletTxn[];
+  total_spent: number; tips_sent_total: number; subs_sent_total: number;
+  subscriptions_count: number; sent: WalletTxn[];
 };
+export type ApiKey = { id: string; label: string; key_prefix: string; created_at: string };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
 export type PublicUser = {
   user_id: string;

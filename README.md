@@ -50,11 +50,21 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - Follow / unfollow, followers/following lists
 - Friend requests (send, accept, reject, remove) with friend status
 - A user's posts (originals plus reposts/quotes) shown on their profile, pinned first
-- Account settings and a customizable navigation bar
+- Tapping a post author (avatar or name) opens their profile
+- **Account & security** screen: change your **email** (password-confirmed), change your **password** (current + new), and add a **phone number** (stored now, SMS verification planned)
+- A customizable navigation bar; after login the app opens on the **first item in your nav bar** (not always the map)
+
+### Legal & onboarding
+- **Terms of Service & Privacy Policy**: agreement is required at sign-up (checkbox + in-app policy screens). Existing users who never agreed — or anyone after the policies are updated (versioned) — are re-prompted to accept before continuing.
+
+### Developer API
+- A detailed in-app **Developer API** section (Settings → Developer API): base URL, bearer-token auth, a quickstart, and a browsable endpoint reference grouped by area
+- **Personal API keys**: generate labeled keys (shown once), list, and revoke them. Keys are long-lived bearer tokens that work anywhere the REST API is used.
 
 ### Creators & monetization (fake payments)
 - **Tip** any creator (choose an amount + a note) and **subscribe** monthly at the creator's price, both through a reusable **test-mode checkout** (no real charge)
 - A creator's earnings are tracked and shown in a **Wallet** screen: total earned, tips vs. subscriptions, active subscribers, recent transactions, and a control to set your own monthly subscription price
+- The Wallet also shows a **Sent** section — the tips you've given and the subscriptions you pay for — plus your total spent and active-subscription count
 - All money is credited as earnings to the recipient. (Designed so a real payment processor can be dropped into the fake-payment step later.)
 
 ### Roles & moderation
@@ -232,6 +242,8 @@ Create `frontend/.env` (Expo automatically exposes `EXPO_PUBLIC_*` vars to the c
 | -------------------------- | :------: | :----: | ----------- |
 | `EXPO_PUBLIC_BACKEND_URL`  | **Yes** (native & prod web) | No | Base URL of the backend, no trailing slash and no `/api` (the client appends `/api`). Optional for local web dev (the Metro proxy serves `/api` same-origin); required for a deployed web build so it can reach the API cross-origin. |
 | `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes**  | No*    | Mapbox public access token for maps, geocoding, and directions. |
+| `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` | No | No* | Cloudinary cloud name. When set with the upload preset below, media (esp. video) uploads to the Cloudinary CDN and only a URL is stored — no size cap and a lighter feed. Without it, media falls back to base64 in the DB (≤25 MB/item). |
+| `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | No | No* | An **unsigned** Cloudinary upload preset name. See `frontend/CLOUDINARY_SETUP.md`. |
 
 \* `EXPO_PUBLIC_*` values are bundled into the client and are therefore **not secret at runtime**. Use a Mapbox **public** token (URL/domain-scoped where possible).
 
@@ -301,7 +313,7 @@ A successful response returns a `session_token` and your user object.
 
 ## Deployment
 
-- **Render (recommended):** `render.yaml` is a Render **Blueprint** that provisions a managed Postgres database (`nampo-db`), deploys the FastAPI API from `backend/Dockerfile` (`nampo-backend`, with a `/health` check and `autoDeploy`), **and** deploys the Expo web build as a static site (`nampo-web`). The database connection string is injected into the API as `DATABASE_URL` automatically (`fromDatabase`); the static site is configured with `EXPO_PUBLIC_BACKEND_URL` + `EXPO_PUBLIC_MAPBOX_TOKEN`. Mobile binaries are built separately with **EAS**. Full step-by-step in **`DEPLOY.md`** (~15 minutes).
+- **Render (recommended):** `render.yaml` is a Render **Blueprint** that provisions a managed Postgres database (`nampo-db`), deploys the FastAPI API from `backend/Dockerfile` (`nampo-backend`, with a `/health` check and `autoDeploy`), **and** deploys the Expo web build as a static site (`nampo-web`). The database connection string is injected into the API as `DATABASE_URL` automatically (`fromDatabase`); the static site is configured with `EXPO_PUBLIC_BACKEND_URL` + `EXPO_PUBLIC_MAPBOX_TOKEN` (and optional `EXPO_PUBLIC_CLOUDINARY_*`). Mobile binaries are built separately with **EAS** — see **`frontend/IOS_BUILD.md`** for the iOS/App Store flow (no Mac required). Full backend step-by-step in **`DEPLOY.md`** (~15 minutes).
 - **Docker:** `backend/Dockerfile` produces a self-contained image that runs `uvicorn server:app` on `$PORT` (default `8080`). Build/run it anywhere that supports containers and can reach a Postgres database via `DATABASE_URL`.
 - **AWS App Runner:** `backend/apprunner.yaml` is provided for source-based App Runner deploys.
 - **Other Postgres providers:** to bring your own database (Neon, Supabase, local), drop the `databases:` block from `render.yaml` and set `DATABASE_URL` yourself.
@@ -316,8 +328,8 @@ All routes are mounted under the **`/api`** prefix and (except auth/registration
 
 | Route group        | Base paths (examples) | What it does |
 | ------------------ | --------------------- | ------------ |
-| **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/keys`, `/auth/google/*` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username availability/claim, E2E public keys, optional Google OAuth. |
-| **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip`, `/users/{id}/subscribe`, `/wallet`, `/admin/users/{id}` | User search, public profiles, follow/friends; **tips & subscriptions** + the creator **wallet**; **admin** verify/role management. |
+| **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username claim; **change email / password**, **set phone**; **developer API keys** (create/list/revoke); ToS/Privacy policy versions + acceptance. |
+| **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip`, `/users/{id}/subscribe`, `/wallet`, `/admin/users/{id}` | User search, public profiles, follow/friends; **tips & subscriptions** + the creator **wallet** (earned **and sent**); **admin** verify/role management. |
 | **Posts / Feed**   | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, feeds, replies + **full comment threads**, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, **pinning**, hashtags. Forum posts carry `community_id` + `title`. |
 | **Stories**        | `/stories`, `/stories/tray`, `/stories/user/{id}`, `/stories/{id}/view\|viewers\|reply` | Create 24h ephemeral stories, story tray, view counts, viewer lists, and replies. |
 | **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/messages/{mid}/react`, `/conversations/{id}/read`, `/emojis` | DMs and group chats; text/place/media/voice/gif/file/contact/post messages; replies, ❤️ reactions, edits, receipts, deletion; **custom emoji** registry (`/emojis` GET/POST/DELETE). |

@@ -13,6 +13,8 @@ class User(BaseModel):
     name: str
     username: Optional[str] = None
     picture: Optional[str] = None
+    phone: Optional[str] = None
+    phone_verified: bool = False
     bio: Optional[str] = ""
     home_name: Optional[str] = None
     home_longitude: Optional[float] = None
@@ -23,6 +25,7 @@ class User(BaseModel):
     verified: bool = False
     role: str = "user"            # user | mod | admin
     sub_price: float = 4.99       # monthly subscription price others pay this user
+    needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
     created_at: datetime
 
 
@@ -86,7 +89,7 @@ class WalletTxn(BaseModel):
     id: str
     kind: str                 # tip | subscription
     amount: float
-    from_user_id: str
+    from_user_id: str         # counterparty: payer (received) or recipient (sent)
     from_name: str
     created_at: datetime
 
@@ -100,6 +103,12 @@ class WalletSummary(BaseModel):
     active_subscribers: int = 0
     sub_price: float = 4.99
     recent: List[WalletTxn] = []
+    # Money the user has sent to others (tips given + subscriptions they pay).
+    total_spent: float = 0
+    tips_sent_total: float = 0
+    subs_sent_total: float = 0
+    subscriptions_count: int = 0   # active subscriptions the user pays for
+    sent: List[WalletTxn] = []
 
 
 class PlaceCreate(BaseModel):

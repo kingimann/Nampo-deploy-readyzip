@@ -99,7 +99,7 @@ export default function WalletScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.section}>Recent</Text>
+          <Text style={styles.section}>Received</Text>
           {(w?.recent || []).length === 0 ? (
             <Text style={styles.empty}>No earnings yet. When people tip or subscribe to you, they'll show here.</Text>
           ) : (
@@ -113,6 +113,29 @@ export default function WalletScreen() {
                   <Text style={styles.txnKind}>{t.kind === "subscription" ? "Subscription" : "Tip"} · {fmtWhen(t.created_at)}</Text>
                 </View>
                 <Text style={styles.txnAmt}>+${t.amount.toFixed(2)}</Text>
+              </View>
+            ))
+          )}
+
+          <View style={styles.sentHeader}>
+            <Text style={[styles.section, { marginBottom: 0 }]}>Sent</Text>
+            <Text style={styles.spentTotal}>
+              ${(w?.total_spent ?? 0).toFixed(2)} · {w?.subscriptions_count ?? 0} active sub{(w?.subscriptions_count ?? 0) === 1 ? "" : "s"}
+            </Text>
+          </View>
+          {(w?.sent || []).length === 0 ? (
+            <Text style={styles.empty}>You haven't tipped or subscribed to anyone yet.</Text>
+          ) : (
+            (w?.sent || []).map((t) => (
+              <View key={t.id} style={styles.txn}>
+                <View style={[styles.txnIcon, { backgroundColor: theme.surfaceAlt }]}>
+                  <Ionicons name={t.kind === "subscription" ? "star-outline" : "arrow-up-circle-outline"} size={16} color={theme.textSecondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.txnName}>To {t.from_name}</Text>
+                  <Text style={styles.txnKind}>{t.kind === "subscription" ? "Subscription" : "Tip"} · {fmtWhen(t.created_at)}</Text>
+                </View>
+                <Text style={styles.txnAmtOut}>-${t.amount.toFixed(2)}</Text>
               </View>
             ))
           )}
@@ -150,4 +173,7 @@ const styles = StyleSheet.create({
   txnName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   txnKind: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
   txnAmt: { color: "#22C55E", fontSize: 15, fontWeight: "800" },
+  txnAmtOut: { color: theme.textSecondary, fontSize: 15, fontWeight: "800" },
+  sentHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginTop: 24, marginBottom: 10 },
+  spentTotal: { color: theme.textMuted, fontSize: 12, fontWeight: "700" },
 });

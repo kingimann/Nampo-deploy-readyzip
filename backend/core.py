@@ -120,13 +120,30 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     return user
 
 
+# Current legal policy versions. Bump these (to the new effective date) whenever
+# the Terms of Service or Privacy Policy materially change — anyone who agreed to
+# an older version is re-prompted to accept before they can keep using the app.
+TOS_VERSION = "2026-06-05"
+PRIVACY_VERSION = "2026-06-05"
+
+
+def _needs_policy_agreement(d: dict) -> bool:
+    return (
+        str(d.get("tos_version") or "") != TOS_VERSION
+        or str(d.get("privacy_version") or "") != PRIVACY_VERSION
+    )
+
+
 def _user_doc_to_model(d: dict) -> dict:
     return {
         "user_id": d["user_id"],
         "email": d["email"],
+        "needs_policy_agreement": _needs_policy_agreement(d),
         "name": d.get("name", ""),
         "username": d.get("username"),
         "picture": d.get("picture"),
+        "phone": d.get("phone"),
+        "phone_verified": bool(d.get("phone_verified", False)),
         "bio": d.get("bio", ""),
         "home_name": d.get("home_name"),
         "home_longitude": d.get("home_longitude"),

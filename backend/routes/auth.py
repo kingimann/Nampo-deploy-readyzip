@@ -15,6 +15,8 @@ from core import (
     _user_doc_to_model,
     db,
     get_current_user,
+    TOS_VERSION,
+    PRIVACY_VERSION,
 )
 from models import AuthResponse, ProfilePatch, User
 
@@ -42,6 +44,27 @@ class LoginRequest(BaseModel):
 
 class UsernameUpdate(BaseModel):
     username: str
+
+
+class EmailUpdate(BaseModel):
+    current_password: str
+    new_email: str
+
+
+class PasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class PhoneUpdate(BaseModel):
+    phone: str  # empty string clears it
+
+
+class ApiKeyCreate(BaseModel):
+    label: Optional[str] = None
+
+
+PHONE_RE = re.compile(r"^\+?[0-9\s\-().]{7,20}$")
 
 
 def _hash_password(plain: str) -> str:
@@ -81,6 +104,32 @@ async def root():
     return {"message": "Map App API"}
 
 
+
+
+@router.get("/policies")
+async def get_policies():
+    """Current legal policy versions (public)."""
+    return {
+        "tos_version": TOS_VERSION,
+        "privacy_version": PRIVACY_VERSION,
+        "effective_date": TOS_VERSION,
+    }
+
+
+@router.post("/auth/accept-policies", response_model=User)
+async def accept_policies(authorization: Optional[str] = Header(None)):
+    """Record that the user agrees to the current ToS + Privacy Policy."""
+    user = await get_current_user(authorization)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "tos_version": TOS_VERSION,
+            "privacy_version": PRIVACY_VERSION,
+            "policies_agreed_at": datetime.now(timezone.utc),
+        }},
+    )
+    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return User(**_user_doc_to_model(updated))
 
 
 @router.get("/auth/me", response_model=User)
@@ -144,13 +193,17 @@ async def register(body: RegisterRequest):
 
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     try:
+        now = datetime.now(timezone.utc)
         await db.users.insert_one({
             "user_id": user_id, "email": email, "username": username, "name": name,
             "picture": None, "bio": "",
             "hashed_password": _hash_password(body.password),
             "auth_providers": ["local"],
             "failed_login_attempts": 0, "locked_until": None,
-            "created_at": datetime.now(timezone.utc),
+            # Signing up requires agreeing to the current ToS + Privacy Policy.
+            "tos_version": TOS_VERSION, "privacy_version": PRIVACY_VERSION,
+            "policies_agreed_at": now,
+            "created_at": now,
         })
     except DuplicateKeyError:
         raise HTTPException(status_code=400, detail="Email or username taken")
@@ -236,6 +289,124 @@ async def set_username(body: UsernameUpdate, authorization: Optional[str] = Head
     )
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return User(**_user_doc_to_model(updated))
+
+
+@router.patch("/auth/me/email", response_model=User)
+async def change_email(body: EmailUpdate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    if not _verify_password(body.current_password or "", user.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    try:
+        valid = validate_email(body.new_email, check_deliverability=False)
+        new_email = valid.normalized.lower()
+    except EmailNotValidError:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if new_email == (user.get("email") or "").lower():
+        return User(**_user_doc_to_model(user))
+    existing = await db.users.find_one(
+        {"email": new_email, "user_id": {"$ne": user["user_id"]}}, {"_id": 0, "user_id": 1}
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="That email is already in use")
+    try:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"email": new_email}})
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="That email is already in use")
+    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return User(**_user_doc_to_model(updated))
+
+
+@router.patch("/auth/me/password")
+async def change_password(body: PasswordUpdate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    if not _verify_password(body.current_password or "", user.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    new_pw = body.new_password or ""
+    if not (8 <= len(new_pw) <= 128):
+        raise HTTPException(status_code=400, detail="Password must be 8-128 characters")
+    if new_pw == body.current_password:
+        raise HTTPException(status_code=400, detail="New password must be different")
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"hashed_password": _hash_password(new_pw)}}
+    )
+    return {"ok": True}
+
+
+@router.patch("/auth/me/phone", response_model=User)
+async def change_phone(body: PhoneUpdate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    raw = (body.phone or "").strip()
+    if raw == "":
+        # Clear the phone number.
+        await db.users.update_one(
+            {"user_id": user["user_id"]}, {"$set": {"phone": None, "phone_verified": False}}
+        )
+    else:
+        if not PHONE_RE.match(raw):
+            raise HTTPException(status_code=400, detail="Enter a valid phone number")
+        # Stored unverified for now; a verification step can be added later.
+        await db.users.update_one(
+            {"user_id": user["user_id"]}, {"$set": {"phone": raw, "phone_verified": False}}
+        )
+    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return User(**_user_doc_to_model(updated))
+
+
+# ── Developer API keys ──────────────────────────────────────────────────────
+# An API key is a long-lived bearer token stored in the same `user_sessions`
+# collection as login sessions (so get_current_user authenticates it for free),
+# tagged with kind="api_key" + a label. Listing shows only a masked prefix.
+
+@router.post("/auth/api-keys")
+async def create_api_key(body: ApiKeyCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    existing = await db.user_sessions.count_documents({"user_id": user["user_id"], "kind": "api_key"})
+    if existing >= 10:
+        raise HTTPException(status_code=400, detail="API key limit reached (10). Revoke one first.")
+    token = f"nami_sk_{secrets.token_urlsafe(32)}"
+    key_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    label = (body.label or "API key").strip()[:60] or "API key"
+    await db.user_sessions.insert_one({
+        "session_token": token,
+        "user_id": user["user_id"],
+        "expires_at": now + timedelta(days=365 * 5),
+        "created_at": now,
+        "kind": "api_key",
+        "key_id": key_id,
+        "label": label,
+        "key_prefix": token[:16],
+    })
+    # The full token is returned exactly once — it can't be retrieved again.
+    return {"id": key_id, "label": label, "token": token, "created_at": now}
+
+
+@router.get("/auth/api-keys")
+async def list_api_keys(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    rows = await db.user_sessions.find(
+        {"user_id": user["user_id"], "kind": "api_key"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return {
+        "keys": [
+            {
+                "id": r.get("key_id", ""),
+                "label": r.get("label", "API key"),
+                "key_prefix": r.get("key_prefix", ""),
+                "created_at": r.get("created_at"),
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.delete("/auth/api-keys/{key_id}")
+async def revoke_api_key(key_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    await db.user_sessions.delete_one(
+        {"user_id": user["user_id"], "kind": "api_key", "key_id": key_id}
+    )
+    return {"revoked": True}
 
 
 @router.get("/users/by-username/{username}")

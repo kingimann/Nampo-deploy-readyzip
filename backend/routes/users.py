@@ -364,6 +364,40 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
                   created_at=r["created_at"])
         for r in rows[:30]
     ]
+
+    # ── Money sent: tips given + active subscriptions this user pays for ──
+    sent_tips = await db.tips.find({"from_user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    paid_subs = await db.subscriptions.find(
+        {"subscriber_id": uid, "status": "active"}, {"_id": 0}
+    ).sort("created_at", -1).limit(200).to_list(200)
+    tips_sent_total = sum(float(t.get("amount", 0) or 0) for t in sent_tips)
+    subs_sent_total = sum(float(s.get("amount", 0) or 0) for s in paid_subs)
+
+    # Resolve the recipient names for display (tips don't store to_name).
+    need_ids = {t.get("to_user_id") for t in sent_tips} | {s.get("creator_id") for s in paid_subs}
+    need_ids.discard(None)
+    name_by_id: dict = {}
+    if need_ids:
+        urows = await db.users.find({"user_id": {"$in": list(need_ids)}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(need_ids))
+        name_by_id = {u["user_id"]: u.get("name", "Someone") for u in urows}
+
+    sent_items = [
+        {"id": t["id"], "kind": "tip", "amount": float(t.get("amount", 0) or 0),
+         "to_user_id": t.get("to_user_id", ""), "created_at": t["created_at"]}
+        for t in sent_tips
+    ] + [
+        {"id": s["id"], "kind": "subscription", "amount": float(s.get("amount", 0) or 0),
+         "to_user_id": s.get("creator_id", ""), "created_at": s.get("created_at") or s.get("started_at")}
+        for s in paid_subs
+    ]
+    sent_items.sort(key=lambda x: x["created_at"], reverse=True)
+    sent = [
+        WalletTxn(id=i["id"], kind=i["kind"], amount=i["amount"],
+                  from_user_id=i["to_user_id"], from_name=name_by_id.get(i["to_user_id"], "Someone"),
+                  created_at=i["created_at"])
+        for i in sent_items[:30]
+    ]
+
     return WalletSummary(
         total_earned=round(tips_total + subs_total, 2),
         tips_total=round(tips_total, 2),
@@ -372,4 +406,9 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
         active_subscribers=active_subscribers,
         sub_price=round(float(me.get("sub_price", 4.99) or 0), 2),
         recent=recent,
+        total_spent=round(tips_sent_total + subs_sent_total, 2),
+        tips_sent_total=round(tips_sent_total, 2),
+        subs_sent_total=round(subs_sent_total, 2),
+        subscriptions_count=len(paid_subs),
+        sent=sent,
     )
