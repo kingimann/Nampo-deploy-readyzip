@@ -187,6 +187,19 @@ class MessageReact(BaseModel):
     emoji: Optional[str] = "❤️"              # empty/None clears the reaction
 
 
+class CustomEmojiCreate(BaseModel):
+    shortcode: str                # e.g. "pepe" -> used as :pepe:
+    image_base64: str             # data URI
+
+
+class CustomEmoji(BaseModel):
+    id: str
+    shortcode: str
+    image_base64: str
+    owner_id: str
+    created_at: datetime
+
+
 class ReportCreate(BaseModel):
     reason: Optional[str] = "other"
 

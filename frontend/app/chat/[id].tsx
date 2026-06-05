@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
   KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking, Alert,
@@ -16,8 +16,10 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, Message, Post, PublicUser } from "@/src/api/client";
+import { api, Message, Post, PublicUser, CustomEmoji } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
+import EmojiText from "@/src/components/EmojiText";
+import CustomEmojiSheet from "@/src/components/CustomEmojiSheet";
 import VoiceMessage from "@/src/components/VoiceMessage";
 import RichText from "@/src/components/RichText";
 import LinkPreviewCard from "@/src/components/LinkPreviewCard";
@@ -49,6 +51,16 @@ export default function ChatScreen() {
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
   const [recMs, setRecMs] = useState(0);
   const lastTapRef = useRef<Record<string, number>>({});
+  const [emojis, setEmojis] = useState<CustomEmoji[]>([]);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const emojiMap = useMemo(
+    () => Object.fromEntries(emojis.map((e) => [e.shortcode, e.image_base64])),
+    [emojis],
+  );
+  const loadEmojis = useCallback(() => {
+    api.listCustomEmojis().then(setEmojis).catch(() => {});
+  }, []);
+  useEffect(() => { loadEmojis(); }, [loadEmojis]);
   const [sharedPosts, setSharedPosts] = useState<Record<string, Post>>({});
   const [gifOpen, setGifOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
@@ -648,7 +660,7 @@ export default function ChatScreen() {
                       </TouchableOpacity>
                     ) : (
                       <View>
-                        <RichText text={bodyText} style={[styles.bubbleText, mine && { color: "#fff" }]} />
+                        <EmojiText text={bodyText} emojis={emojiMap} style={[styles.bubbleText, mine && { color: "#fff" }]} />
                         {!encrypted && !!item.link_preview && (
                           <LinkPreviewCard preview={item.link_preview as any} />
                         )}
@@ -820,6 +832,14 @@ export default function ChatScreen() {
                     color={theme.primary}
                   />
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.attachBtn}
+                  onPress={() => { setAttachOpen(false); setEmojiOpen(true); }}
+                  disabled={sending}
+                  testID="emoji-btn"
+                >
+                  <Ionicons name="happy-outline" size={23} color={theme.primary} />
+                </TouchableOpacity>
                 <TextInput
                   style={styles.composerInput}
                   placeholder="Message..."
@@ -855,6 +875,14 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
+      <CustomEmojiSheet
+        visible={emojiOpen}
+        emojis={emojis}
+        myUserId={user?.user_id}
+        onClose={() => setEmojiOpen(false)}
+        onPick={(c) => setText((t) => `${t}${t && !t.endsWith(" ") ? " " : ""}:${c}: `)}
+        onChanged={loadEmojis}
+      />
       <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
       <ContactPickerSheet visible={contactOpen} onClose={() => setContactOpen(false)} onPick={sendContact} />
 

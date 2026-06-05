@@ -146,6 +146,12 @@ export const api = {
     request<Message>(`/conversations/${conv_id}/messages/${msg_id}/react`, {
       method: "POST", body: JSON.stringify({ emoji }),
     }),
+  // Custom emojis (global registry, used as :shortcode: in chat).
+  listCustomEmojis: () => request<CustomEmoji[]>("/emojis"),
+  createCustomEmoji: (shortcode: string, image_base64: string) =>
+    request<CustomEmoji>("/emojis", { method: "POST", body: JSON.stringify({ shortcode, image_base64 }) }),
+  deleteCustomEmoji: (id: string) =>
+    request<{ ok: boolean }>(`/emojis/${id}`, { method: "DELETE" }),
   deleteConversation: (conv_id: string) =>
     request<{ ok: boolean }>(`/conversations/${conv_id}`, { method: "DELETE" }),
 
@@ -507,6 +513,7 @@ export type Message = {
   read_at?: string | null;
   created_at: string;
 };
+export type CustomEmoji = { id: string; shortcode: string; image_base64: string; owner_id: string; created_at: string };
 export type MessageCreate = {
   type: MsgType; text?: string;
   place_name?: string; place_address?: string;
