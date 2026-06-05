@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Platform, Alert,
+  ActivityIndicator, Platform, Alert, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -85,11 +85,52 @@ const GROUPS: Group[] = [
     title: "Places & Directions", icon: "map",
     endpoints: [
       { method: "GET", path: "/places/search?q=", desc: "Search saved/known places.", auth: true },
+      { method: "GET", path: "/places", desc: "List your saved places.", auth: true },
       { method: "POST", path: "/eta", desc: "Create a shareable live-ETA link.", auth: true, body: `{"destination_name","eta_minutes"}` },
+      { method: "POST", path: "/eta/{id}/update", desc: "Push a live location update to an ETA share.", auth: true },
       { method: "GET", path: "/public/eta/{share_id}", desc: "Public ETA status (no auth).", auth: false },
     ],
   },
+  {
+    title: "Stories", icon: "ellipse",
+    endpoints: [
+      { method: "GET", path: "/stories/tray", desc: "Story tray (who has active stories).", auth: true },
+      { method: "POST", path: "/stories", desc: "Post a 24h story.", auth: true, body: `{"media":{"type","url"}}` },
+      { method: "POST", path: "/stories/{id}/view", desc: "Mark a story viewed.", auth: true },
+    ],
+  },
+  {
+    title: "Notifications", icon: "notifications",
+    endpoints: [
+      { method: "GET", path: "/notifications", desc: "Your notification feed.", auth: true },
+      { method: "GET", path: "/notifications/unread", desc: "Unread count.", auth: true },
+      { method: "POST", path: "/notifications/read-all", desc: "Mark all as read.", auth: true },
+    ],
+  },
+  {
+    title: "Payments", icon: "card",
+    endpoints: [
+      { method: "GET", path: "/payments/config", desc: "Whether real (Stripe) payments are enabled.", auth: true },
+      { method: "POST", path: "/payments/payouts/setup", desc: "Start Stripe Connect payout onboarding.", auth: true },
+      { method: "GET", path: "/payments/payouts/status", desc: "Your payout-account status.", auth: true },
+      { method: "POST", path: "/payments/checkout", desc: "Create a checkout (tip / subscription / promote).", auth: true, body: `{"kind","creator_id","amount"}` },
+    ],
+  },
+  {
+    title: "Meta", icon: "information-circle",
+    endpoints: [
+      { method: "GET", path: "/version", desc: "API name + version.", auth: false },
+      { method: "GET", path: "/v1/info", desc: "Machine-readable API overview & capabilities.", auth: false },
+    ],
+  },
 ];
+
+type Lang = "curl" | "js" | "python";
+const SAMPLE: Record<Lang, (base: string) => string> = {
+  curl: (b) => `curl ${b}/posts/feed \\\n  -H "Authorization: Bearer $NAMI_KEY"`,
+  js: (b) => `const res = await fetch("${b}/posts/feed", {\n  headers: { Authorization: \`Bearer \${process.env.NAMI_KEY}\` },\n});\nconst feed = await res.json();`,
+  python: (b) => `import requests\nr = requests.get(\n  "${b}/posts/feed",\n  headers={"Authorization": f"Bearer {NAMI_KEY}"},\n)\nfeed = r.json()`,
+};
 
 const METHOD_COLOR: Record<Method, string> = {
   GET: "#22C55E", POST: "#0EA5E9", PATCH: "#EAB308", DELETE: "#F15C6D",
@@ -104,6 +145,7 @@ export default function DeveloperScreen() {
   const [creating, setCreating] = useState(false);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>("Authentication");
+  const [lang, setLang] = useState<Lang>("curl");
 
   const load = useCallback(async () => {
     try { setKeys((await api.listApiKeys()).keys); } catch {} finally { setLoading(false); }
@@ -148,6 +190,16 @@ export default function DeveloperScreen() {
         <Text style={styles.lede}>
           Build on top of Nami. The REST API uses JSON over HTTPS and bearer-token auth.
         </Text>
+        <View style={styles.docLinks}>
+          <TouchableOpacity style={styles.docLink} onPress={() => Linking.openURL(`${BASE}/docs`)} testID="open-swagger">
+            <Ionicons name="book-outline" size={15} color={theme.primary} />
+            <Text style={styles.docLinkText}>Interactive docs</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.docLink} onPress={() => Linking.openURL(`${BASE}/openapi.json`)} testID="open-openapi">
+            <Ionicons name="code-download-outline" size={15} color={theme.primary} />
+            <Text style={styles.docLinkText}>OpenAPI schema</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Base URL + auth */}
         <Text style={styles.groupTitle}>Base URL</Text>
@@ -196,7 +248,9 @@ export default function DeveloperScreen() {
               <View style={styles.keyIcon}><Ionicons name="key" size={15} color={theme.primary} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.keyLabel} numberOfLines={1}>{k.label}</Text>
-                <Text style={styles.keyMeta}>{k.key_prefix}··· · {fmtDate(k.created_at)}</Text>
+                <Text style={styles.keyMeta}>
+                  {k.key_prefix}··· · {fmtDate(k.created_at)}{k.last_used_at ? ` · used ${fmtDate(k.last_used_at)}` : " · never used"}
+                </Text>
               </View>
               <TouchableOpacity onPress={() => revoke(k)} hitSlop={8} testID={`api-key-revoke-${k.id}`}>
                 <Ionicons name="trash-outline" size={18} color={theme.error} />
@@ -207,14 +261,25 @@ export default function DeveloperScreen() {
 
         {/* Quickstart */}
         <Text style={styles.groupTitle}>Quickstart</Text>
-        <TouchableOpacity
-          style={styles.codeBlock}
-          onPress={() => copy(`curl ${API_BASE}/posts/feed \\\n  -H "Authorization: Bearer YOUR_API_KEY"`, "Example")}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.codeBlockText} selectable>{`curl ${API_BASE}/posts/feed \\
-  -H "Authorization: Bearer YOUR_API_KEY"`}</Text>
+        <View style={styles.langRow}>
+          {(["curl", "js", "python"] as Lang[]).map((l) => (
+            <TouchableOpacity key={l} onPress={() => setLang(l)} style={[styles.langTab, lang === l && styles.langTabOn]} testID={`lang-${l}`}>
+              <Text style={[styles.langText, lang === l && { color: theme.primary }]}>{l === "js" ? "JavaScript" : l === "python" ? "Python" : "cURL"}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(SAMPLE[lang](API_BASE), "Example")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{SAMPLE[lang](API_BASE)}</Text>
         </TouchableOpacity>
+
+        {/* Conventions */}
+        <Text style={styles.groupTitle}>Conventions</Text>
+        <View style={styles.convCard}>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Format </Text>JSON request & response bodies; `Content-Type: application/json`.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Pagination </Text>List endpoints accept `?limit=` and `?offset=` where supported.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Errors </Text>Non-2xx responses return `{"{"}"detail": "message"{"}"}`. 401 = bad/missing token, 403 = not allowed, 404 = not found, 413 = too large, 429 = rate-limited.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Rate limits </Text>Fair-use; heavy automated traffic may be throttled (429).</Text>
+        </View>
 
         {/* Endpoint reference */}
         <Text style={styles.groupTitle}>Endpoint reference</Text>
@@ -256,6 +321,16 @@ function fmtDate(iso: string) {
 }
 
 const styles = StyleSheet.create({
+  docLinks: { flexDirection: "row", gap: 10, marginTop: 12 },
+  docLink: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  docLinkText: { color: theme.primary, fontSize: 13, fontWeight: "700" },
+  langRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  langTab: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  langTabOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  langText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
+  convCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14, gap: 9 },
+  convItem: { color: theme.textSecondary, fontSize: 13, lineHeight: 19 },
+  convKey: { color: theme.textPrimary, fontWeight: "800" },
   root: { flex: 1, backgroundColor: theme.bg },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   backBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },

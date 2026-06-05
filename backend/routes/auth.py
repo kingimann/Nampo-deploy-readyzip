@@ -394,6 +394,7 @@ async def list_api_keys(authorization: Optional[str] = Header(None)):
                 "label": r.get("label", "API key"),
                 "key_prefix": r.get("key_prefix", ""),
                 "created_at": r.get("created_at"),
+                "last_used_at": r.get("last_used_at"),
             }
             for r in rows
         ]
