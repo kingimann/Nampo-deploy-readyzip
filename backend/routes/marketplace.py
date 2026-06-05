@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from core import _conv_key, _public_user, db, get_current_user, _norm_dt
+from core import _conv_key, _public_user, db, get_current_user, _norm_dt, require_account_age
 from models import (
     ConversationView,
     Listing,
@@ -137,6 +137,7 @@ def _clean_photos(body) -> list:
 @router.post("/listings", response_model=Listing)
 async def create_listing(body: ListingCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    require_account_age(user, "sell on the marketplace")
     title = (body.title or "").strip()[:120]
     if not title:
         raise HTTPException(status_code=400, detail="Title required")

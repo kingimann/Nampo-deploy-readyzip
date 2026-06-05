@@ -82,6 +82,36 @@ def _norm_dt(dt: datetime) -> datetime:
     return dt
 
 
+def account_age_days(d: dict) -> int:
+    """How many whole days old this account is (0 on bad/missing timestamp)."""
+    try:
+        return (datetime.now(timezone.utc) - _norm_dt(d["created_at"])).days
+    except Exception:
+        return 0
+
+
+# Trust gate: selling on the marketplace and any monetization (link ads,
+# publisher sites, ad earnings) require an account at least this old.
+MIN_ACCOUNT_AGE_DAYS = 30
+
+
+def require_account_age(user: dict, action: str, days: int = MIN_ACCOUNT_AGE_DAYS):
+    """Raise 403 unless the account is old enough (admins are exempt)."""
+    from fastapi import HTTPException
+    if user.get("role") == "admin" or (user.get("email") or "").strip().lower() in ADMIN_EMAILS:
+        return
+    age = account_age_days(user)
+    if age < days:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "account_too_new",
+                "message": f"Your account must be at least {days} days old to {action}. "
+                           f"It's {age} day{'s' if age != 1 else ''} old — try again in {days - age} day{'s' if (days - age) != 1 else ''}.",
+            },
+        )
+
+
 def _slugify(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return s or "guide"

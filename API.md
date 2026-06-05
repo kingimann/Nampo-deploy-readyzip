@@ -240,6 +240,9 @@ Messages also support server-side encryption at rest regardless.
 | POST/GET/DELETE | `/ads/links` · `POST /ads/links/{id}/event` | Link ads — advertise your website |
 | POST | `/users/{id}/view` | Profile-view revenue tracking |
 
+> **Account-age gate:** creating a marketplace listing, a link ad, or a publisher
+> site requires an account **≥ 30 days old** (admins exempt) — `403 account_too_new`.
+
 **Publisher network** (display Nami ads on your own site & earn): `POST/GET/DELETE
 /pub/sites` (manage sites, get a `site_key`) · public `GET /pub/ad?site=` (JSON ad) ·
 `GET /pub/click?site=&ad=` (tracked redirect) · `GET /pub/unit?site=` (iframe ad unit) ·
