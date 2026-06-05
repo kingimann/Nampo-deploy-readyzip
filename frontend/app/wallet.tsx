@@ -113,6 +113,9 @@ export default function WalletScreen() {
         </TouchableOpacity>
         <Text style={styles.title}>Wallet</Text>
         <View style={{ flexDirection: "row" }}>
+          <TouchableOpacity onPress={() => router.push("/pay-qr")} style={styles.iconBtn} testID="wallet-qr">
+            <Ionicons name="qr-code-outline" size={22} color={theme.textPrimary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push("/money")} style={styles.iconBtn} testID="wallet-money">
             <Ionicons name="swap-horizontal" size={22} color={theme.textPrimary} />
           </TouchableOpacity>

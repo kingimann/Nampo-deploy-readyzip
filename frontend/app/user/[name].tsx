@@ -290,6 +290,10 @@ export default function UserProfileScreen() {
                     <Ionicons name="cash-outline" size={15} color={theme.textPrimary} />
                     <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>Tip</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnGhost]} onPress={() => router.push({ pathname: "/pay/[id]", params: { id: user.user_id } })} testID="profile-pay">
+                    <Ionicons name="qr-code-outline" size={15} color={theme.textPrimary} />
+                    <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>Pay</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.actionBtn, user.is_subscribed && styles.actionBtnGhost]}
                     onPress={onSubscribe}
