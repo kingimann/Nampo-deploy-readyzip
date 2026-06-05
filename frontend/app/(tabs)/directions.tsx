@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList,
-  ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Share,
+  ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Share, PanResponder,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -136,6 +136,20 @@ export default function DirectionsScreen() {
   const [showSteps, setShowSteps] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+
+  // Drag-or-tap handle for the foldable bottom panel.
+  // A small move counts as a tap (toggle); a clear vertical drag sets the state directly.
+  const panelHandle = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 24) setPanelOpen(false);
+        else if (g.dy < -24) setPanelOpen(true);
+        else setPanelOpen((o) => !o);
+      },
+    })
+  ).current;
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [navMode, setNavMode] = useState(false);
@@ -849,15 +863,13 @@ export default function DirectionsScreen() {
             { paddingBottom: insets.bottom + (navMode ? 26 : 90) },
           ]}
         >
-          <TouchableOpacity
-            style={styles.grabberWrap}
-            onPress={() => setPanelOpen((o) => !o)}
-            activeOpacity={0.7}
-            testID="panel-toggle"
-            hitSlop={10}
-          >
+          <View style={styles.grabberWrap} testID="panel-toggle" {...panelHandle.panHandlers}>
             <View style={styles.grabber} />
-          </TouchableOpacity>
+            <View style={styles.grabberHint}>
+              <Ionicons name={panelOpen ? "chevron-down" : "chevron-up"} size={15} color={theme.textSecondary} />
+              <Text style={styles.grabberHintText}>{panelOpen ? "Hide" : "Show details"}</Text>
+            </View>
+          </View>
 
           {!navMode && panelOpen && (
             <ScrollView
@@ -1199,8 +1211,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderColor: theme.border,
     paddingHorizontal: 20, paddingTop: 10, gap: 16,
   },
-  grabberWrap: { alignItems: "center", paddingVertical: 6 },
-  grabber: { width: 42, height: 5, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.55 },
+  grabberWrap: { alignSelf: "stretch", alignItems: "center", paddingTop: 12, paddingBottom: 10, gap: 6, marginHorizontal: -20, marginTop: -10 },
+  grabber: { width: 48, height: 6, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.7 },
+  grabberHint: { flexDirection: "row", alignItems: "center", gap: 4 },
+  grabberHintText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
   navCollapsedLine: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", textAlign: "center", paddingVertical: 2 },
   profileRow: { gap: 10, paddingRight: 16 },
   profileChip: {
