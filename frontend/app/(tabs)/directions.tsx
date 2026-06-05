@@ -135,6 +135,7 @@ export default function DirectionsScreen() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [showSteps, setShowSteps] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [navMode, setNavMode] = useState(false);
@@ -845,10 +846,20 @@ export default function DirectionsScreen() {
         <View
           style={[
             styles.bottomCard,
-            { paddingBottom: insets.bottom + (navMode ? 16 : 90) },
+            { paddingBottom: insets.bottom + (navMode ? 26 : 90) },
           ]}
         >
-          {!navMode && (
+          <TouchableOpacity
+            style={styles.grabberWrap}
+            onPress={() => setPanelOpen((o) => !o)}
+            activeOpacity={0.7}
+            testID="panel-toggle"
+            hitSlop={10}
+          >
+            <View style={styles.grabber} />
+          </TouchableOpacity>
+
+          {!navMode && panelOpen && (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -874,7 +885,7 @@ export default function DirectionsScreen() {
           )}
 
           {/* Alternate-route picker (only when Mapbox returned more than one). */}
-          {!navMode && routes.length > 1 && (
+          {!navMode && panelOpen && routes.length > 1 && (
             <View style={styles.routeOptions}>
               {routes.map((r, i) => {
                 const a = i === selectedRouteIdx;
@@ -903,96 +914,99 @@ export default function DirectionsScreen() {
           ) : routeInfo ? (
             navMode ? (
               <View style={styles.navFooter}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.footerEta}>{formatDuration(remainingDur ?? routeInfo.duration)}</Text>
-                  <Text style={styles.footerMeta}>
-                    {formatDistance(remainingDist ?? routeInfo.distance)} · arrive {arrivalTime(remainingDur ?? routeInfo.duration)}
+                {panelOpen ? (
+                  <View style={styles.navStats}>
+                    <View style={styles.navStat}>
+                      <Text style={styles.navStatHero}>{arrivalTime(remainingDur ?? routeInfo.duration)}</Text>
+                      <Text style={styles.navStatLabel}>arrival</Text>
+                    </View>
+                    <View style={styles.navStatDivider} />
+                    <View style={styles.navStat}>
+                      <Text style={styles.navStatValue}>{formatDuration(remainingDur ?? routeInfo.duration)}</Text>
+                      <Text style={styles.navStatLabel}>time left</Text>
+                    </View>
+                    <View style={styles.navStatDivider} />
+                    <View style={styles.navStat}>
+                      <Text style={styles.navStatValue}>{formatDistance(remainingDist ?? routeInfo.distance)}</Text>
+                      <Text style={styles.navStatLabel}>distance</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={styles.navCollapsedLine}>
+                    {formatDuration(remainingDur ?? routeInfo.duration)} · {formatDistance(remainingDist ?? routeInfo.distance)} · arrive {arrivalTime(remainingDur ?? routeInfo.duration)}
                   </Text>
+                )}
+                <View style={styles.navBtnRow}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const next = !voiceOn;
+                      setVoiceOn(next);
+                      if (!next) Speech.stop();
+                    }}
+                    style={[styles.iconCircle, voiceOn && { backgroundColor: "rgba(0,168,132,0.18)", borderColor: theme.primary }]}
+                    testID="voice-toggle"
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name={voiceOn ? "volume-high" : "volume-mute"} size={22} color={voiceOn ? theme.primary : theme.textMuted} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setShowSteps((s) => !s)}
+                    style={[styles.iconCircle, showSteps && { backgroundColor: theme.surfaceAlt, borderColor: theme.primary }]}
+                    testID="toggle-steps"
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="list" size={22} color={showSteps ? theme.primary : theme.textSecondary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={exitNav} style={styles.endBtn} testID="end-route-btn" activeOpacity={0.85}>
+                    <Ionicons name="close" size={18} color="#fff" />
+                    <Text style={styles.endBtnText}>End route</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    const next = !voiceOn;
-                    setVoiceOn(next);
-                    if (!next) Speech.stop();
-                  }}
-                  style={[styles.iconCircle, voiceOn && { backgroundColor: "rgba(59,130,246,0.18)" }]}
-                  testID="voice-toggle"
-                >
-                  <Ionicons name={voiceOn ? "volume-high" : "volume-mute"} size={18} color={voiceOn ? theme.primary : theme.textMuted} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setShowSteps((s) => !s)}
-                  style={styles.iconCircle}
-                  testID="toggle-steps"
-                >
-                  <Ionicons name="list" size={18} color={theme.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={exitNav} style={styles.endBtn} testID="end-route-btn">
-                  <Text style={styles.endBtnText}>End</Text>
-                </TouchableOpacity>
               </View>
             ) : (
               <>
-                <TouchableOpacity
-                  style={styles.routeBox}
-                  onPress={() => setShowSteps((s) => !s)}
-                  testID="route-summary"
-                  activeOpacity={0.85}
-                >
-                  <View>
-                    {routes.length <= 1 && (
-                      <Text style={styles.routeDuration}>{formatDuration(routeInfo.duration)}</Text>
-                    )}
-                    <Text style={styles.routeDistance}>
-                      {formatDistance(routeInfo.distance)} · {steps.length} steps · arrive {arrivalTime(routeInfo.duration)}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <Text style={styles.stepsToggleHint}>{showSteps ? "Hide steps" : "Steps"}</Text>
-                    <Ionicons
-                      name={showSteps ? "chevron-down" : "chevron-up"}
-                      size={18}
-                      color={theme.textSecondary}
-                    />
-                  </View>
-                </TouchableOpacity>
-                <View style={{ gap: 10 }}>
+                <View style={styles.goRow}>
                   <TouchableOpacity
-                    style={styles.startBtn}
+                    style={{ flex: 1 }}
+                    onPress={() => setShowSteps((s) => !s)}
+                    testID="route-summary"
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.goDur}>{formatDuration(routeInfo.duration)}</Text>
+                    <Text style={styles.goSub}>
+                      {arrivalTime(routeInfo.duration)} ETA · {formatDistance(routeInfo.distance)}
+                      {routes.length > 1 &&
+                      selectedRouteIdx === routes.reduce((m, x, j, arr) => (x.duration < arr[m].duration ? j : m), 0)
+                        ? " · Fastest"
+                        : ""}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.goBtn}
                     onPress={startNavigation}
                     testID="start-nav"
                     activeOpacity={0.85}
                   >
-                    <Ionicons name="navigate" size={18} color="#fff" />
-                    <Text style={styles.startBtnText}>Start Navigation</Text>
+                    <Text style={styles.goText}>GO</Text>
                   </TouchableOpacity>
-                  {!etaShare ? (
-                    <TouchableOpacity
-                      style={styles.secondaryBtn}
-                      onPress={shareEta}
-                      disabled={sharingEta}
-                      testID="share-eta-btn"
-                      activeOpacity={0.85}
-                    >
-                      {sharingEta ? <ActivityIndicator color={theme.primary} /> : (
-                        <>
-                          <Ionicons name="share-social" size={16} color={theme.primary} />
-                          <Text style={styles.secondaryBtnText}>Share live ETA</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.secondaryBtn}
-                      onPress={stopEtaShare}
-                      testID="stop-eta-btn"
-                      activeOpacity={0.85}
-                    >
-                      <Ionicons name="stop-circle" size={16} color={theme.error} />
-                      <Text style={[styles.secondaryBtnText, { color: theme.error }]}>Stop sharing ETA</Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
+                {panelOpen && (
+                  <View style={styles.goLinks}>
+                    <TouchableOpacity onPress={() => setShowSteps((s) => !s)} testID="toggle-steps-link" hitSlop={8}>
+                      <Text style={styles.linkText}>{showSteps ? "Hide steps" : `${steps.length} steps`}</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.linkDot}>·</Text>
+                    {!etaShare ? (
+                      <TouchableOpacity onPress={shareEta} disabled={sharingEta} testID="share-eta-btn" hitSlop={8}>
+                        <Text style={styles.linkText}>{sharingEta ? "Sharing…" : "Share live ETA"}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity onPress={stopEtaShare} testID="stop-eta-btn" hitSlop={8}>
+                        <Text style={[styles.linkText, { color: theme.error }]}>Stop sharing ETA</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
               </>
             )
           ) : (
@@ -1005,7 +1019,7 @@ export default function DirectionsScreen() {
             )
           )}
 
-          {showSteps && steps.length > 0 && (
+          {panelOpen && showSteps && steps.length > 0 && (
             <View style={styles.stepsList} testID="steps-list">
               <ScrollView style={{ maxHeight: 220 }}>
                 {steps.map((s, i) => (
@@ -1152,19 +1166,19 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   navBanner: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    paddingHorizontal: 16, paddingVertical: 16,
+    flexDirection: "row", alignItems: "center", gap: 16,
+    paddingHorizontal: 18, paddingVertical: 20,
   },
   navIconBox: {
-    width: 60, height: 60, borderRadius: 18,
+    width: 66, height: 66, borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center", justifyContent: "center",
   },
-  navDistBig: { color: "#fff", fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
-  navInstr: { color: "rgba(255,255,255,0.95)", fontSize: 15, fontWeight: "600", marginTop: 2 },
+  navDistBig: { color: "#fff", fontSize: 28, fontWeight: "800", letterSpacing: -0.6 },
+  navInstr: { color: "rgba(255,255,255,0.96)", fontSize: 16, fontWeight: "600", marginTop: 1 },
   thenRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 16, paddingVertical: 10,
+    paddingHorizontal: 18, paddingVertical: 13,
     backgroundColor: "rgba(0,0,0,0.25)",
   },
   thenText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "600", flex: 1 },
@@ -1183,8 +1197,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(10,10,12,0.97)",
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     borderTopWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 20, paddingTop: 20, gap: 16,
+    paddingHorizontal: 20, paddingTop: 10, gap: 16,
   },
+  grabberWrap: { alignItems: "center", paddingVertical: 6 },
+  grabber: { width: 42, height: 5, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.55 },
+  navCollapsedLine: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", textAlign: "center", paddingVertical: 2 },
   profileRow: { gap: 10, paddingRight: 16 },
   profileChip: {
     height: 42, flexShrink: 0,
@@ -1231,25 +1248,46 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: theme.primary, fontSize: 14, fontWeight: "700" },
 
-  // Navigation footer
-  navFooter: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingVertical: 6,
+  // Apple-style GO row
+  goRow: { flexDirection: "row", alignItems: "center", gap: 16 },
+  goDur: { color: theme.textPrimary, fontSize: 27, fontWeight: "800", letterSpacing: -0.6 },
+  goSub: { color: theme.textSecondary, fontSize: 14, marginTop: 2, fontWeight: "500" },
+  goBtn: {
+    width: 74, height: 74, borderRadius: 37,
+    backgroundColor: theme.primary,
+    alignItems: "center", justifyContent: "center",
   },
-  footerEta: { color: theme.textPrimary, fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
-  footerMeta: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+  goText: { color: "#fff", fontSize: 22, fontWeight: "800", letterSpacing: 0.5 },
+  goLinks: { flexDirection: "row", alignItems: "center", gap: 10 },
+  linkText: { color: theme.primary, fontSize: 14, fontWeight: "600" },
+  linkDot: { color: theme.textMuted, fontSize: 14 },
+
+  // Navigation footer
+  navFooter: { gap: 18, paddingTop: 8 },
+  navStats: {
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: theme.surface, borderRadius: 20,
+    borderWidth: 1, borderColor: theme.border,
+    paddingVertical: 22,
+  },
+  navStat: { flex: 1, alignItems: "center", gap: 6 },
+  navStatDivider: { width: 1, height: 38, backgroundColor: theme.border },
+  navStatHero: { color: theme.primary, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
+  navStatValue: { color: theme.textPrimary, fontSize: 25, fontWeight: "800", letterSpacing: -0.5 },
+  navStatLabel: { color: theme.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
+  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   iconCircle: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 54, height: 54, borderRadius: 27,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   endBtn: {
-    paddingHorizontal: 18, height: 44, borderRadius: 22,
-    backgroundColor: "rgba(239,68,68,0.18)",
-    borderWidth: 1, borderColor: "rgba(239,68,68,0.55)",
+    flex: 1, flexDirection: "row", gap: 8,
+    height: 54, borderRadius: 27,
+    backgroundColor: theme.error,
     alignItems: "center", justifyContent: "center",
   },
-  endBtnText: { color: theme.error, fontSize: 14, fontWeight: "800" },
+  endBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
   stepsList: {
     backgroundColor: theme.surface,
