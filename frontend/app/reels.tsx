@@ -14,7 +14,7 @@ import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean; screenW: number; screenH: number }) {
   const video = post.media?.find((m) => m.type === "video");
   const image = post.media?.find((m) => m.type === "image");
-  const videoUri = video?.base64 || video?.url || "";
+  const videoUri = video?.base64 || "";
   const player = useVideoPlayer(videoUri || "about:blank", (p) => { p.loop = true; p.muted = false; });
   const router = useRouter();
 
@@ -36,7 +36,7 @@ function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean;
   const onComment = () => router.push({ pathname: "/post/[id]", params: { id: post.id } });
   const onUser = () => router.push({ pathname: "/user/[name]", params: { name: post.author.name } });
 
-  const imageUri = image?.base64 || image?.url || "";
+  const imageUri = image?.base64 || "";
 
   return (
     <View style={{ width: screenW, height: screenH, backgroundColor: "#000" }}>
@@ -133,9 +133,9 @@ export default function ReelsScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : items.length === 0 ? (
         <View style={styles.center}>
-          <Ionicons name="play-circle-outline" size={52} color={theme.textMuted} />
-          <Text style={styles.empty}>No posts yet.</Text>
-          <Text style={[styles.empty, { fontSize: 13, marginTop: 4 }]}>Share something on the feed first!</Text>
+          <Ionicons name="videocam-outline" size={52} color={theme.textMuted} />
+          <Text style={styles.empty}>No reels yet.</Text>
+          <Text style={[styles.empty, { fontSize: 13, marginTop: 4 }]}>Post a video to the feed and it'll show up here.</Text>
         </View>
       ) : (
         <FlatList
