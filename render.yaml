@@ -39,13 +39,17 @@ services:
   - type: web
     runtime: static
     name: nampo-web
-    plan: free
-    buildCommand: cd frontend && npm ci && npx expo export -p web
+    # NOTE: static sites have no `plan` field — they're free. Adding one fails
+    # blueprint sync with "no such plan free for service type web".
+    # --no-audit/--no-fund avoids npm's "Exit handler never called!" crash that
+    # happens during the audit phase of `npm ci`.
+    buildCommand: cd frontend && npm ci --no-audit --no-fund && npx expo export -p web
     staticPublishPath: frontend/dist
     pullRequestPreviewsEnabled: false
     envVars:
+      # Expo SDK 54 requires Node >= 20.19.4.
       - key: NODE_VERSION
-        value: "20.18.0"
+        value: "20.19.4"
       # Baked into the web build. Paste your backend's URL once it's live
       # (e.g. https://nampo-backend.onrender.com — no trailing slash, no /api)
       # and a Mapbox PUBLIC token. Both are bundled, so use a public token.
