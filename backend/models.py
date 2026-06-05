@@ -397,16 +397,24 @@ class Post(BaseModel):
     poll: Optional[Poll] = None
     hashtags: List[str] = []
     likes_count: int = 0
+    dislikes_count: int = 0
     replies_count: int = 0
     reposts_count: int = 0
     quotes_count: int = 0
     bookmarks_count: int = 0
     views_count: int = 0
     liked_by_me: bool = False
+    disliked_by_me: bool = False
     bookmarked_by_me: bool = False
+    promoted: bool = False
+    promoted_until: Optional[datetime] = None
     edited_at: Optional[datetime] = None
     reposted_by_me: bool = False
     created_at: datetime
+
+
+class PromoteCreate(BaseModel):
+    days: int = 7
 
 
 Listing.model_rebuild()

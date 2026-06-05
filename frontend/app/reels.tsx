@@ -39,13 +39,22 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
 
   const [liked, setLiked] = useState(post.liked_by_me);
   const [likeCount, setLikeCount] = useState(post.likes_count);
+  const [disliked, setDisliked] = useState(!!post.disliked_by_me);
   const [reposted, setReposted] = useState(!!post.reposted_by_me);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
 
   const onLike = async () => {
-    setLiked((v) => !v);
-    setLikeCount((n) => n + (liked ? -1 : 1));
+    const nowLiked = !liked;
+    setLiked(nowLiked);
+    setLikeCount((n) => n + (nowLiked ? 1 : -1));
+    if (nowLiked && disliked) setDisliked(false);
     try { await api.toggleLike(post.id); } catch {}
+  };
+  const onDislike = async () => {
+    const nowDis = !disliked;
+    setDisliked(nowDis);
+    if (nowDis && liked) { setLiked(false); setLikeCount((n) => n - 1); }
+    try { await api.toggleDislike(post.id); } catch {}
   };
   const onRepost = async () => {
     setReposted((v) => !v);
@@ -123,6 +132,9 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         <TouchableOpacity style={styles.iconBtn} onPress={onLike} testID={`reel-like-${post.id}`}>
           <Ionicons name={liked ? "heart" : "heart-outline"} size={30} color={liked ? "#EF4444" : "#fff"} />
           <Text style={styles.metric}>{likeCount}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={onDislike} testID={`reel-dislike-${post.id}`}>
+          <Ionicons name={disliked ? "thumbs-down" : "thumbs-down-outline"} size={26} color={disliked ? "#8696A0" : "#fff"} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconBtn} onPress={onComment}>
           <Ionicons name="chatbubble-outline" size={28} color="#fff" />

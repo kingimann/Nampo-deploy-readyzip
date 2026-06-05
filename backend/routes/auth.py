@@ -403,12 +403,35 @@ async def username_available(u: str):
 async def set_username(body: UsernameUpdate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     username = _validate_username(body.username)
+    current = user.get("username") or ""
+    # No-op if unchanged.
+    if username == current:
+        updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+        return User(**_user_doc_to_model(updated))
+    # Usernames can only be changed once every 30 days (display name is free).
+    changed_at = user.get("username_changed_at")
+    if current and changed_at:
+        try:
+            delta = datetime.now(timezone.utc) - changed_at
+            if delta < timedelta(days=30):
+                days_left = max(1, 30 - delta.days)
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"You can change your username again in {days_left} day(s).",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     existing = await db.users.find_one(
         {"username": username, "user_id": {"$ne": user["user_id"]}}, {"_id": 0, "user_id": 1}
     )
     if existing:
         raise HTTPException(status_code=400, detail="Username taken")
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"username": username}})
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"username": username, "username_changed_at": datetime.now(timezone.utc)}},
+    )
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return User(**_user_doc_to_model(updated))
 

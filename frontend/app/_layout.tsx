@@ -33,6 +33,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/eta/", "/g/", "/guide/", "/group/", "/user/", "/hashtag/",
   "/story/",
   "/listing/", // marketplace listing detail
+  "/advertise",
   "/+html",
 ];
 
