@@ -13,7 +13,9 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from core import db, get_current_user
+from datetime import timedelta
+
+from core import db, get_current_user, is_admin
 
 router = APIRouter()
 
@@ -67,15 +69,39 @@ async def next_ad(
     }}
 
 
+async def _seen_recently(post_id: str, viewer_id: str, kind: str, hours: int) -> bool:
+    """Fraud guard: has this viewer already triggered `kind` for this ad recently?
+    Logs the event when it's new. Returns True if it's a duplicate."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    dup = await db.ad_events.find_one(
+        {"post_id": post_id, "viewer_id": viewer_id, "kind": kind, "created_at": {"$gte": since}},
+        {"_id": 0, "id": 1},
+    )
+    if dup:
+        return True
+    await db.ad_events.insert_one({
+        "id": str(uuid.uuid4()), "post_id": post_id, "viewer_id": viewer_id,
+        "kind": kind, "created_at": datetime.now(timezone.utc),
+    })
+    return False
+
+
 @router.post("/ads/{post_id}/event")
 async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     post = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not post:
         return {"ok": True}
+    viewer = me["user_id"]
+    # Never count the advertiser interacting with their own ad.
+    if viewer == post.get("user_id"):
+        return {"ok": True, "self": True}
     if body.type == "click":
+        # Dedupe billable clicks per viewer per ad (24h).
+        if await _seen_recently(post_id, viewer, "click", 24):
+            return {"ok": True, "duplicate": True}
         host = body.host_user_id
-        is_real = host and host != me["user_id"] and host != post.get("user_id")
+        is_real = host and host != viewer and host != post.get("user_id")
         budget = float(post.get("ad_budget", 0) or 0)
         if budget > 0:
             # Pay-per-click campaign: charge the advertiser's budget at CPC,
@@ -93,8 +119,62 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
             if is_real:
                 await _credit(host, AD_CLICK_PAYOUT, "ad_revenue", "Ad revenue")
     else:
+        # Dedupe impressions per viewer per ad per day (analytics hygiene).
+        if await _seen_recently(post_id, viewer, "impression", 24):
+            return {"ok": True, "duplicate": True}
         await db.posts.update_one({"id": post_id}, {"$inc": {"ad_impressions": 1}})
     return {"ok": True}
+
+
+@router.get("/admin/ad-revenue")
+async def admin_ad_revenue(authorization: Optional[str] = Header(None)):
+    """Platform-wide ad revenue dashboard (admin only)."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    posts = await db.posts.find(
+        {"promoted_until": {"$exists": True}},
+        {"_id": 0, "id": 1, "ad_spent": 1, "ad_impressions": 1, "ad_clicks": 1, "user_id": 1},
+    ).to_list(2000)
+    total_spend = round(sum(float(p.get("ad_spent", 0) or 0) for p in posts), 2)
+    total_impr = sum(int(p.get("ad_impressions", 0) or 0) for p in posts)
+    total_clicks = sum(int(p.get("ad_clicks", 0) or 0) for p in posts)
+
+    # What the platform paid out to hosts as ad/view revenue.
+    earn = await db.earnings.find(
+        {"kind": {"$in": ["ad_revenue", "views"]}}, {"_id": 0, "user_id": 1, "amount": 1}
+    ).to_list(5000)
+    paid_to_hosts = round(sum(float(e.get("amount", 0) or 0) for e in earn), 2)
+
+    # Top earners (hosts) and top advertisers (by spend).
+    by_host: dict = {}
+    for e in earn:
+        by_host[e["user_id"]] = by_host.get(e["user_id"], 0) + float(e.get("amount", 0) or 0)
+    by_adv: dict = {}
+    for p in posts:
+        sp = float(p.get("ad_spent", 0) or 0)
+        if sp > 0:
+            by_adv[p["user_id"]] = by_adv.get(p["user_id"], 0) + sp
+
+    async def _names(ids):
+        rows = await db.users.find({"user_id": {"$in": list(ids)}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(ids) or 1)
+        return {r["user_id"]: r.get("name", "User") for r in rows}
+
+    top_host_ids = sorted(by_host, key=by_host.get, reverse=True)[:10]
+    top_adv_ids = sorted(by_adv, key=by_adv.get, reverse=True)[:10]
+    names = await _names(set(top_host_ids) | set(top_adv_ids))
+
+    return {
+        "total_ad_spend": total_spend,
+        "paid_to_hosts": paid_to_hosts,
+        "platform_cut": round(total_spend - paid_to_hosts, 2),
+        "total_impressions": total_impr,
+        "total_clicks": total_clicks,
+        "ctr": round((total_clicks / total_impr * 100), 1) if total_impr else 0.0,
+        "active_campaigns": await db.posts.count_documents({"promoted_until": {"$gt": datetime.now(timezone.utc)}}),
+        "top_earners": [{"name": names.get(uid, "User"), "amount": round(by_host[uid], 2)} for uid in top_host_ids],
+        "top_advertisers": [{"name": names.get(uid, "User"), "amount": round(by_adv[uid], 2)} for uid in top_adv_ids],
+    }
 
 
 @router.get("/ads/campaigns")

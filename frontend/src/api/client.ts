@@ -289,6 +289,7 @@ export const api = {
   promotePost: (id: string, days = 7, opts?: { budget?: number; cpc?: number }) =>
     request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days, ...(opts || {}) }) }),
   getCampaigns: () => request<{ campaigns: AdCampaign[] }>("/ads/campaigns"),
+  getAdRevenue: () => request<AdRevenue>("/admin/ad-revenue"),
   pinPost: (id: string) =>
     request<Post>(`/posts/${id}/pin`, { method: "POST" }),
   toggleRepost: (id: string) =>
@@ -531,6 +532,12 @@ export type WalletSummary = {
 };
 export type Ad = { post_id: string; text: string; image?: string | null; author_name: string; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
+export type AdRevenue = {
+  total_ad_spend: number; paid_to_hosts: number; platform_cut: number;
+  total_impressions: number; total_clicks: number; ctr: number; active_campaigns: number;
+  top_earners: { name: string; amount: number }[];
+  top_advertisers: { name: string; amount: number }[];
+};
 export type ApiKey = { id: string; label: string; scopes?: string[]; key_prefix: string; created_at: string; last_used_at?: string | null };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
