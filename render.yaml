@@ -33,6 +33,15 @@ services:
       # key, so encryption is always on in production.
       - key: MESSAGE_ENC_KEY
         generateValue: true
+      # Powers the in-app @claude assistant bot (replies to DMs/mentions from
+      # the allowlist). Leave blank to disable. Get a key at console.anthropic.com.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Bot model + who it answers (comma-separated usernames). Optional.
+      - key: CLAUDE_BOT_MODEL
+        sync: false
+      - key: CLAUDE_BOT_ALLOW
+        value: iman
       # Comma-separated emails that are auto-granted the site admin role (can
       # verify users, set mod/admin roles, and moderate posts). Set yours here.
       - key: ADMIN_EMAILS
