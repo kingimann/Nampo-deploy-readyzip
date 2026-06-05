@@ -290,6 +290,8 @@ export const api = {
     request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days, ...(opts || {}) }) }),
   getCampaigns: () => request<{ campaigns: AdCampaign[] }>("/ads/campaigns"),
   getAdRevenue: () => request<AdRevenue>("/admin/ad-revenue"),
+  getPayouts: () => request<PayoutInfo>("/payouts"),
+  runPayouts: () => request<{ payouts_created: number; total_paid: number }>("/payouts/run", { method: "POST" }),
   pinPost: (id: string) =>
     request<Post>(`/posts/${id}/pin`, { method: "POST" }),
   toggleRepost: (id: string) =>
@@ -530,6 +532,8 @@ export type WalletSummary = {
   subscriptions_count: number; sent: WalletTxn[];
   ads_total?: number;
 };
+export type Payout = { id: string; amount: number; status: string; created_at: string };
+export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };
 export type Ad = { post_id: string; text: string; image?: string | null; author_name: string; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
 export type AdRevenue = {

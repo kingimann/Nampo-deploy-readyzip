@@ -66,6 +66,20 @@ Run through:
 
 Tips for verifying webhooks: in the Stripe Dashboard → Developers → Webhooks, watch deliveries to `…/api/payments/webhook`; you can also use the Stripe CLI (`stripe listen --forward-to .../api/payments/webhook`) locally.
 
+## Automated payouts
+Creator balances (tips + subscriptions + ad/view revenue, minus prior payouts) are
+batched and paid out on each creator's cadence (bi-weekly / monthly):
+- A background loop in the API runs hourly and pays anyone who's **due** (balance ≥
+  `MIN_PAYOUT`). Real **Stripe transfers** to connected accounts when Stripe is on,
+  otherwise simulated (test) payouts. History shows in the Wallet.
+- To also drive it from an external scheduler, set `CRON_SECRET` and add a **Render
+  Cron Job** that calls:
+  ```
+  curl -X POST https://nampo-backend.onrender.com/api/payouts/run \
+    -H "X-Cron-Key: $CRON_SECRET"
+  ```
+- Admins can also trigger a batch from the Wallet ("Run now") or `POST /payouts/run`.
+
 ## Notes
 - Use Stripe **test mode** keys + test cards first; flip to live keys when ready.
 - On iOS, selling digital goods may require Apple In-App Purchase rather than

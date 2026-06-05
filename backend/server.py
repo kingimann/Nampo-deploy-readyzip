@@ -19,6 +19,7 @@ from routes import (
     meta as meta_routes,
     notifications as notifications_routes,
     payments as payments_routes,
+    payouts as payouts_routes,
     places as places_routes,
     posts as posts_routes,
     reviews as reviews_routes,
@@ -120,6 +121,7 @@ api_router.include_router(stories_routes.router)
 api_router.include_router(payments_routes.router)
 api_router.include_router(webhooks_routes.router)
 api_router.include_router(ads_routes.router)
+api_router.include_router(payouts_routes.router)
 
 app.include_router(api_router)
 
@@ -132,4 +134,5 @@ async def _ws_eta(websocket: WebSocket, share_id: str):
 @app.on_event("startup")
 async def startup():
     await init_pool()
+    payouts_routes.start_scheduler()   # hourly auto-payout loop (best-effort)
     logger.info("Startup complete")

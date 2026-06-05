@@ -46,6 +46,12 @@ services:
         value: "0"
       - key: WEB_APP_URL
         value: https://nampo-web.onrender.com
+      # Automated payouts: minimum balance to pay, and a secret a Render Cron Job
+      # can send as the `X-Cron-Key` header to POST /api/payouts/run.
+      - key: MIN_PAYOUT
+        value: "1"
+      - key: CRON_SECRET
+        sync: false
 
   # Web frontend — the Expo app exported to a static site. Optional: mobile is
   # built separately with EAS. The web client calls the API cross-origin using

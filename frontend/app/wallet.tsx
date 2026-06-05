@@ -25,6 +25,8 @@ export default function WalletScreen() {
   const [payEnabled, setPayEnabled] = useState(false);
   const [payout, setPayout] = useState<{ connected: boolean; payouts_enabled: boolean; details_submitted: boolean } | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [payoutInfo, setPayoutInfo] = useState<Awaited<ReturnType<typeof api.getPayouts>> | null>(null);
+  const [runningPayout, setRunningPayout] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -38,8 +40,18 @@ export default function WalletScreen() {
       setPayEnabled(cfg.enabled);
       if (cfg.enabled) setPayout(await api.getPayoutStatus());
     } catch {}
+    try { setPayoutInfo(await api.getPayouts()); } catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const runPayoutsNow = async () => {
+    setRunningPayout(true);
+    try { await api.runPayouts(); await load(); } catch {} finally { setRunningPayout(false); }
+  };
+  const fmtDay = (iso?: string | null) => {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return "—"; }
+  };
 
   const setupPayouts = async () => {
     setConnecting(true);
@@ -158,6 +170,36 @@ export default function WalletScreen() {
             </View>
           )}
 
+          <View style={styles.payoutsHead}>
+            <Text style={[styles.section, { marginBottom: 0 }]}>Payouts</Text>
+            {user?.role === "admin" && (
+              <TouchableOpacity onPress={runPayoutsNow} disabled={runningPayout} testID="run-payouts">
+                {runningPayout ? <ActivityIndicator color={theme.primary} size="small" /> : <Text style={styles.runLink}>Run now</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.payoutsCard}>
+            <View style={styles.payoutsTop}>
+              <View>
+                <Text style={styles.balanceNum}>${(payoutInfo?.balance ?? 0).toFixed(2)}</Text>
+                <Text style={styles.balanceLabel}>available balance</Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={styles.balanceMeta}>{payoutInfo?.frequency === "biweekly" ? "Bi-weekly" : "Monthly"}</Text>
+                <Text style={styles.balanceMeta}>next: {fmtDay(payoutInfo?.next_payout)}</Text>
+              </View>
+            </View>
+            <Text style={styles.payoutsNote}>Paid out automatically on your schedule once you've connected payouts. ${(payoutInfo?.total_paid_out ?? 0).toFixed(2)} paid so far.</Text>
+            {(payoutInfo?.history || []).slice(0, 6).map((p) => (
+              <View key={p.id} style={styles.payoutRow}>
+                <Ionicons name={p.status === "paid" ? "checkmark-circle" : p.status === "failed" ? "alert-circle" : "time-outline"} size={15} color={p.status === "failed" ? theme.error : theme.primary} />
+                <Text style={styles.payoutDate}>{fmtDay(p.created_at)}</Text>
+                <Text style={styles.payoutStatus}>{p.status === "simulated" ? "test" : p.status}</Text>
+                <Text style={styles.payoutAmt}>${p.amount.toFixed(2)}</Text>
+              </View>
+            ))}
+          </View>
+
           <Text style={styles.section}>Your subscription price</Text>
           <View style={styles.priceRow}>
             <View style={styles.priceInput}>
@@ -248,6 +290,18 @@ const styles = StyleSheet.create({
   freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
   freqChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
   freqText: { color: theme.textSecondary, fontSize: 14, fontWeight: "700" },
+  payoutsHead: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginTop: 24, marginBottom: 10 },
+  runLink: { color: theme.primary, fontSize: 13, fontWeight: "700" },
+  payoutsCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 8 },
+  payoutsTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  balanceNum: { color: theme.textPrimary, fontSize: 26, fontWeight: "900", letterSpacing: -0.6 },
+  balanceLabel: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+  balanceMeta: { color: theme.textSecondary, fontSize: 12, fontWeight: "600" },
+  payoutsNote: { color: theme.textMuted, fontSize: 12, lineHeight: 17 },
+  payoutRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+  payoutDate: { color: theme.textSecondary, fontSize: 13, flex: 1 },
+  payoutStatus: { color: theme.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  payoutAmt: { color: theme.primary, fontSize: 14, fontWeight: "800", width: 70, textAlign: "right" },
   priceRow: { flexDirection: "row", gap: 10 },
   priceInput: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, height: 48 },
   dollar: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
