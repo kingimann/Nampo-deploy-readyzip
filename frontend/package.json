@@ -9,6 +9,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "go": "expo start --tunnel",
     "lint": "expo lint",
     "ios:build": "eas build --platform ios --profile production",
     "ios:build:preview": "eas build --platform ios --profile preview",
