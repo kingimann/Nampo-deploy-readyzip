@@ -18,7 +18,8 @@ from core import db, get_current_user
 router = APIRouter()
 
 # Revenue-share rates (test economy; tune freely).
-AD_CLICK_PAYOUT = 0.02            # host earns per ad click on their profile
+AD_CLICK_PAYOUT = 0.02            # flat host payout per click on non-budget ads
+HOST_REVENUE_SHARE = 0.5         # host's cut of a budget campaign's CPC (rest = platform)
 PROFILE_VIEWS_PER_PAYOUT = 100   # every N profile views …
 PROFILE_VIEW_PAYOUT = 0.10       # … the owner earns this
 
@@ -48,7 +49,9 @@ async def next_ad(
     q = {"promoted_until": {"$gt": now}, "user_id": {"$ne": me["user_id"]}}
     if exclude:
         q["id"] = {"$ne": exclude}
-    rows = await db.posts.find(q, {"_id": 0}).sort("promoted_until", -1).limit(20).to_list(20)
+    rows = await db.posts.find(q, {"_id": 0}).sort("promoted_until", -1).limit(40).to_list(40)
+    # Budget campaigns stop serving once the budget is spent.
+    rows = [r for r in rows if not (r.get("ad_budget") and float(r.get("ad_spent", 0) or 0) >= float(r["ad_budget"]))]
     if not rows:
         return {"ad": None}
     post = random.choice(rows)
@@ -67,18 +70,63 @@ async def next_ad(
 @router.post("/ads/{post_id}/event")
 async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
-    post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1, "user_id": 1})
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not post:
         return {"ok": True}
     if body.type == "click":
-        await db.posts.update_one({"id": post_id}, {"$inc": {"ad_clicks": 1}})
         host = body.host_user_id
-        # Pay the host for a genuine click (not self, not the advertiser).
-        if host and host != me["user_id"] and host != post.get("user_id"):
-            await _credit(host, AD_CLICK_PAYOUT, "ad_revenue", "Ad revenue")
+        is_real = host and host != me["user_id"] and host != post.get("user_id")
+        budget = float(post.get("ad_budget", 0) or 0)
+        if budget > 0:
+            # Pay-per-click campaign: charge the advertiser's budget at CPC,
+            # split between the host (where it was clicked) and the platform.
+            spent = float(post.get("ad_spent", 0) or 0)
+            if spent >= budget:
+                return {"ok": True, "served": False}
+            cpc = float(post.get("ad_cpc", 0.10) or 0.10)
+            charge = min(cpc, budget - spent)
+            await db.posts.update_one({"id": post_id}, {"$inc": {"ad_clicks": 1, "ad_spent": charge}})
+            if is_real and charge > 0:
+                await _credit(host, round(charge * HOST_REVENUE_SHARE, 2), "ad_revenue", "Ad revenue")
+        else:
+            await db.posts.update_one({"id": post_id}, {"$inc": {"ad_clicks": 1}})
+            if is_real:
+                await _credit(host, AD_CLICK_PAYOUT, "ad_revenue", "Ad revenue")
     else:
         await db.posts.update_one({"id": post_id}, {"$inc": {"ad_impressions": 1}})
     return {"ok": True}
+
+
+@router.get("/ads/campaigns")
+async def my_campaigns(authorization: Optional[str] = Header(None)):
+    """Analytics for the current user's promoted posts."""
+    me = await get_current_user(authorization)
+    now = datetime.now(timezone.utc)
+    rows = await db.posts.find(
+        {"user_id": me["user_id"], "promoted_until": {"$exists": True}}, {"_id": 0}
+    ).sort("promoted_until", -1).limit(50).to_list(50)
+    out = []
+    for r in rows:
+        imp = int(r.get("ad_impressions", 0) or 0)
+        clk = int(r.get("ad_clicks", 0) or 0)
+        budget = float(r.get("ad_budget", 0) or 0)
+        spent = float(r.get("ad_spent", 0) or 0)
+        until = r.get("ad" if False else "promoted_until")
+        active = False
+        try:
+            from core import _norm_dt
+            active = bool(until and _norm_dt(until) > now and (not budget or spent < budget))
+        except Exception:
+            pass
+        out.append({
+            "post_id": r["id"], "text": (r.get("text") or "")[:120],
+            "impressions": imp, "clicks": clk,
+            "ctr": round((clk / imp * 100), 1) if imp else 0.0,
+            "budget": round(budget, 2), "spent": round(spent, 2),
+            "cpc": round(float(r.get("ad_cpc", 0) or 0), 2),
+            "promoted_until": until, "active": active,
+        })
+    return {"campaigns": out}
 
 
 @router.post("/users/{user_id}/view")

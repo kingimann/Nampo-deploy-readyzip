@@ -570,7 +570,13 @@ async def promote_post(
         raise HTTPException(status_code=404, detail="Post not found or not yours")
     days = max(1, min(30, int(body.days or 7)))
     until = datetime.now(timezone.utc) + timedelta(days=days)
-    await db.posts.update_one({"id": post_id}, {"$set": {"promoted_until": until}})
+    patch = {"promoted_until": until}
+    # Optional pay-per-click campaign: fund a budget, charged per click at the CPC.
+    if body.budget is not None and body.budget > 0:
+        patch["ad_budget"] = round(float(body.budget), 2)
+        patch["ad_cpc"] = round(float(body.cpc or 0.10), 2)
+        patch["ad_spent"] = float(doc.get("ad_spent", 0) or 0)
+    await db.posts.update_one({"id": post_id}, {"$set": patch})
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, user["user_id"])
 

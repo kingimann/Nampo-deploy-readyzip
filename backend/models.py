@@ -579,6 +579,8 @@ class Post(BaseModel):
 
 class PromoteCreate(BaseModel):
     days: int = 7
+    budget: Optional[float] = None   # campaign budget in $ (pay-per-click)
+    cpc: Optional[float] = None      # cost per click in $
 
 
 Listing.model_rebuild()

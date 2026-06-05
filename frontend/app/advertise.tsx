@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, Post, mediaUri } from "@/src/api/client";
+import { api, Post, AdCampaign, mediaUri } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -42,6 +42,11 @@ export default function AdvertiseScreen() {
   const [payEnabled, setPayEnabled] = useState(false);
   useEffect(() => { api.getPaymentsConfig().then((c) => setPayEnabled(c.enabled)).catch(() => {}); }, []);
   const [result, setResult] = useState<Post | null>(null);
+  const [campaigns, setCampaigns] = useState<Record<string, AdCampaign>>({});
+  // Pay-per-click campaign config (optional).
+  const [ppc, setPpc] = useState(false);
+  const [budget, setBudget] = useState("20");
+  const [cpc, setCpc] = useState("0.25");
 
   // Prefilled demo card — this is a prototype, so we ship a working test card.
   const [card, setCard] = useState("4242 4242 4242 4242");
@@ -55,6 +60,10 @@ export default function AdvertiseScreen() {
     if (!user) return;
     try { setPosts(await api.listUserPostsAll(user.user_id)); }
     catch {} finally { setLoading(false); }
+    try {
+      const { campaigns } = await api.getCampaigns();
+      setCampaigns(Object.fromEntries(campaigns.map((c) => [c.post_id, c])));
+    } catch {}
   }, [user]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -76,15 +85,20 @@ export default function AdvertiseScreen() {
     setStep("pay");
   };
 
+  const campaignBudget = Math.max(1, Number(budget) || 0);
+  const campaignCpc = Math.max(0.01, Number(cpc) || 0.25);
+  const chargeAmount = ppc ? campaignBudget : selected.price;
+
   const pay = async () => {
     if (!picking) return;
     setBusy(true);
     try {
+      const ppcOpts = ppc ? { budget: campaignBudget, cpc: campaignCpc } : undefined;
       // Real payments: hand off to Stripe Checkout; the webhook promotes the
       // post once payment confirms. Falls back to the test flow when off.
       if (payEnabled) {
         try {
-          const { url } = await api.createCheckout("promote", "", selected.price, { post_id: picking.id, days: selDays });
+          const { url } = await api.createCheckout("promote", "", chargeAmount, { post_id: picking.id, days: selDays });
           await Linking.openURL(url);
           setBusy(false);
           return;
@@ -92,10 +106,11 @@ export default function AdvertiseScreen() {
       }
       // ── Test payment ────────────────────────────────────────────────
       await new Promise((r) => setTimeout(r, 1400));
-      const updated = await api.promotePost(picking.id, selDays);
+      const updated = await api.promotePost(picking.id, selDays, ppcOpts);
       setPosts((arr) => arr.map((p) => (p.id === updated.id ? updated : p)));
       setResult(updated);
       setStep("done");
+      load();
     } catch {
       Alert.alert("Payment failed", "Something went wrong. Please try again.");
     } finally {
@@ -158,6 +173,12 @@ export default function AdvertiseScreen() {
                     <Text style={styles.promotedNote}>● Promoted · ends {endsLabel(item.promoted_until)}</Text>
                   ) : (
                     <Text style={styles.rowMeta}>{item.likes_count} likes · {item.views_count || 0} views</Text>
+                  )}
+                  {campaigns[item.id] && (campaigns[item.id].impressions > 0 || campaigns[item.id].clicks > 0 || campaigns[item.id].budget > 0) && (
+                    <Text style={styles.adStats}>
+                      {campaigns[item.id].impressions.toLocaleString()} impressions · {campaigns[item.id].clicks} clicks · {campaigns[item.id].ctr}% CTR
+                      {campaigns[item.id].budget > 0 ? ` · $${campaigns[item.id].spent.toFixed(2)}/$${campaigns[item.id].budget.toFixed(2)}` : ""}
+                    </Text>
                   )}
                 </View>
                 <TouchableOpacity
@@ -225,9 +246,35 @@ export default function AdvertiseScreen() {
                   <Text style={styles.testBannerText}>Test mode · no real charge</Text>
                 </View>
 
+                <View style={styles.ppcRow}>
+                  <TouchableOpacity style={[styles.ppcTab, !ppc && styles.ppcTabOn]} onPress={() => setPpc(false)} testID="camp-flat">
+                    <Text style={[styles.ppcText, !ppc && { color: theme.primary }]}>Flat ({selected.label})</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.ppcTab, ppc && styles.ppcTabOn]} onPress={() => setPpc(true)} testID="camp-ppc">
+                    <Text style={[styles.ppcText, ppc && { color: theme.primary }]}>Pay-per-click</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {ppc && (
+                  <View style={styles.ppcInputs}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Budget ($)</Text>
+                      <View style={styles.inputWrap}>
+                        <TextInput style={styles.input} value={budget} onChangeText={(t) => setBudget(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="camp-budget" />
+                      </View>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Cost / click ($)</Text>
+                      <View style={styles.inputWrap}>
+                        <TextInput style={styles.input} value={cpc} onChangeText={(t) => setCpc(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="camp-cpc" />
+                      </View>
+                    </View>
+                  </View>
+                )}
+
                 <View style={styles.summary}>
-                  <Text style={styles.summaryLabel}>Promote · {selected.label}</Text>
-                  <Text style={styles.summaryPrice}>${selected.price.toFixed(2)}</Text>
+                  <Text style={styles.summaryLabel}>{ppc ? `Pay-per-click · ~${Math.floor(campaignBudget / campaignCpc)} clicks` : `Promote · ${selected.label}`}</Text>
+                  <Text style={styles.summaryPrice}>${chargeAmount.toFixed(2)}</Text>
                 </View>
 
                 <Text style={styles.fieldLabel}>Card number</Text>
@@ -303,7 +350,7 @@ export default function AdvertiseScreen() {
                   {busy ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.payBtnText}>Pay ${selected.price.toFixed(2)}</Text>
+                    <Text style={styles.payBtnText}>Pay ${chargeAmount.toFixed(2)}</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -362,6 +409,12 @@ const styles = StyleSheet.create({
   rowText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
   rowMeta: { color: theme.textMuted, fontSize: 12, marginTop: 3 },
   promotedNote: { color: theme.primary, fontSize: 12, fontWeight: "700", marginTop: 3 },
+  adStats: { color: theme.textMuted, fontSize: 11.5, marginTop: 3 },
+  ppcRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  ppcTab: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: "center", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  ppcTabOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  ppcText: { color: theme.textSecondary, fontSize: 13, fontWeight: "700" },
+  ppcInputs: { flexDirection: "row", gap: 12, marginBottom: 4 },
   promoteBtn: {
     paddingHorizontal: 16, paddingVertical: 9, borderRadius: 12,
     backgroundColor: theme.primary,
