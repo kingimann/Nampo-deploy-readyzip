@@ -166,12 +166,24 @@ export default function ReelsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const list = await api.reelsFeed();
-      // De-dupe so the same video never shows twice (and a lone video shows once).
+      const list = await api.reelsFeed(focus);
+      // Keep only reels with a genuinely playable video (no black screens), de-duped.
       const seen = new Set<string>();
-      setItems(list.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true))));
+      const valid = list.filter((p) => {
+        if (seen.has(p.id)) return false;
+        const uri = p.media?.find((m) => m.type === "video")?.base64 || "";
+        if (!(uri.startsWith("data:") || uri.startsWith("http"))) return false;
+        seen.add(p.id);
+        return true;
+      });
+      setItems(valid);
+      // No fresh reels to watch → send the user to the news feed instead of
+      // showing an empty/black screen.
+      if (valid.length === 0) {
+        router.replace("/(tabs)/feed");
+      }
     } catch {} finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  }, [focus, router]);
   // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
   useFocusEffect(useCallback(() => {
     setFocused(true);
