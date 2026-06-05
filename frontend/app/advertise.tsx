@@ -1,7 +1,7 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Image,
-  ActivityIndicator, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Modal, TextInput, Alert, KeyboardAvoidingView, Platform, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +39,8 @@ export default function AdvertiseScreen() {
   const [step, setStep] = useState<Step>("duration");
   const [selDays, setSelDays] = useState<number>(7);
   const [busy, setBusy] = useState(false);
+  const [payEnabled, setPayEnabled] = useState(false);
+  useEffect(() => { api.getPaymentsConfig().then((c) => setPayEnabled(c.enabled)).catch(() => {}); }, []);
   const [result, setResult] = useState<Post | null>(null);
 
   // Prefilled demo card — this is a prototype, so we ship a working test card.
@@ -78,10 +80,17 @@ export default function AdvertiseScreen() {
     if (!picking) return;
     setBusy(true);
     try {
-      // ── Fake payment ────────────────────────────────────────────────
-      // Simulate a payment-processor round-trip. When real payments land,
-      // replace this delay with a charge call (Stripe/RevenueCat/etc.) and
-      // only promote once it confirms.
+      // Real payments: hand off to Stripe Checkout; the webhook promotes the
+      // post once payment confirms. Falls back to the test flow when off.
+      if (payEnabled) {
+        try {
+          const { url } = await api.createCheckout("promote", "", selected.price, { post_id: picking.id, days: selDays });
+          await Linking.openURL(url);
+          setBusy(false);
+          return;
+        } catch {}
+      }
+      // ── Test payment ────────────────────────────────────────────────
       await new Promise((r) => setTimeout(r, 1400));
       const updated = await api.promotePost(picking.id, selDays);
       setPosts((arr) => arr.map((p) => (p.id === updated.id ? updated : p)));

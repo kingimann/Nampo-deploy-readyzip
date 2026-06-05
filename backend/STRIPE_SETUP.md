@@ -38,13 +38,18 @@ Redeploy the backend (it auto-deploys on push; env changes need a redeploy).
 - `POST /api/payments/checkout` — `{ kind: "tip"|"subscription", creator_id, amount }` → hosted checkout `url`
 - `POST /api/payments/webhook` — Stripe → credits the creator's wallet
 
-## Notes / next steps
-- **Subscriptions** currently use a one-time Checkout charge per period. For true
-  auto-renewing subscriptions, create Stripe **Products/Prices** and switch the
-  session to `mode="subscription"`.
-- **Tips** support Stripe server-side; the in-app tip flow still uses the test
-  sheet for variable-amount entry — wire it to `createCheckout("tip", …)` to go
-  fully live.
+## What's wired to Stripe
+- **Subscriptions** — true auto-renewing monthly subscriptions (`mode="subscription"`,
+  destination charge to the creator + `PLATFORM_FEE_PERCENT`).
+- **Tips** (creator profile) — one-time destination charge to the creator.
+- **Advertise / promote** — one-time charge to the platform; the webhook promotes
+  the post on success.
+- Each flow **falls back to the test sheet** when Stripe is off or the creator
+  hasn't set up payouts.
+- **DM tips** stay on the test flow for now (they post an inline chat receipt that
+  the webhook can't recreate yet) — easy to wire later.
+
+## Notes
 - Use Stripe **test mode** keys + test cards first; flip to live keys when ready.
 - On iOS, selling digital goods may require Apple In-App Purchase rather than
   Stripe — check Apple's rules for your use case (physical goods are exempt).

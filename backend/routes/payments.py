@@ -50,9 +50,11 @@ def _require_stripe():
 
 
 class CheckoutCreate(BaseModel):
-    kind: str            # "tip" | "subscription"
-    creator_id: str
-    amount: float = 0    # dollars (net the creator should receive); tips only
+    kind: str            # "tip" | "subscription" | "promote"
+    creator_id: Optional[str] = None
+    amount: float = 0    # dollars
+    post_id: Optional[str] = None   # promote
+    days: Optional[int] = None      # promote
 
 
 @router.get("/payments/config")
@@ -110,12 +112,38 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
 
 @router.post("/payments/checkout")
 async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = Header(None)):
-    """Create a Stripe Checkout session that pays the creator's connected
-    account (destination charge). Returns a hosted checkout URL."""
+    """Create a Stripe Checkout session and return a hosted checkout URL.
+    - tip:          one-time destination charge to the creator's account
+    - subscription: auto-renewing monthly destination charge to the creator
+    - promote:      one-time charge to the platform (boost your own post)"""
     _require_stripe()
     me = await get_current_user(authorization)
-    if body.creator_id == me["user_id"]:
-        raise HTTPException(status_code=400, detail="You can't pay yourself")
+
+    # ── Promote: pays the platform (no connected account / transfer) ──
+    if body.kind == "promote":
+        days = max(1, min(30, int(body.days or 7)))
+        net = round(float(body.amount or 0), 2)
+        if net <= 0 or not body.post_id:
+            raise HTTPException(status_code=400, detail="post_id and amount required")
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"Promote post · {days} days"},
+                    "unit_amount": int(round(net * 100)),
+                },
+                "quantity": 1,
+            }],
+            success_url=f"{WEB_APP_URL}/advertise?pay=success",
+            cancel_url=f"{WEB_APP_URL}/advertise?pay=cancel",
+            metadata={"kind": "promote", "post_id": body.post_id, "days": str(days), "buyer_id": me["user_id"]},
+        )
+        return {"url": session["url"], "id": session["id"]}
+
+    # ── Tip / subscription: pays a creator's connected account ──
+    if not body.creator_id or body.creator_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="Invalid recipient")
     creator = await db.users.find_one({"user_id": body.creator_id}, {"_id": 0})
     if not creator:
         raise HTTPException(status_code=404, detail="Creator not found")
@@ -123,24 +151,50 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
     if not dest:
         raise HTTPException(status_code=400, detail="This creator hasn't set up payouts yet")
 
+    meta = {
+        "kind": body.kind, "creator_id": body.creator_id,
+        "buyer_id": me["user_id"], "buyer_name": me.get("name", "Someone"),
+    }
+
     if body.kind == "subscription":
         net = round(float(creator.get("sub_price", 4.99) or 0), 2)
-        label = f"Subscription to {creator.get('name', 'creator')}"
-    else:
-        net = round(float(body.amount or 0), 2)
-        label = f"Tip to {creator.get('name', 'creator')}"
+        if net <= 0:
+            raise HTTPException(status_code=400, detail="Creator has no subscription price")
+        meta["net"] = str(net)
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"Subscription to {creator.get('name', 'creator')}"},
+                    "unit_amount": int(round(net * 100)),
+                    "recurring": {"interval": "month"},
+                },
+                "quantity": 1,
+            }],
+            subscription_data={
+                "application_fee_percent": PLATFORM_FEE_PERCENT,
+                "transfer_data": {"destination": dest},
+            },
+            success_url=f"{WEB_APP_URL}/wallet?pay=success",
+            cancel_url=f"{WEB_APP_URL}/wallet?pay=cancel",
+            metadata=meta,
+        )
+        return {"url": session["url"], "id": session["id"]}
+
+    # tip (one-time)
+    net = round(float(body.amount or 0), 2)
     if net <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
-
+    meta["net"] = str(net)
     gross_cents = int(round(net * 100))
     fee_cents = int(round(gross_cents * PLATFORM_FEE_PERCENT / 100.0))
-
     session = stripe.checkout.Session.create(
         mode="payment",
         line_items=[{
             "price_data": {
                 "currency": "usd",
-                "product_data": {"name": label},
+                "product_data": {"name": f"Tip to {creator.get('name', 'creator')}"},
                 "unit_amount": gross_cents,
             },
             "quantity": 1,
@@ -151,11 +205,7 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
         },
         success_url=f"{WEB_APP_URL}/wallet?pay=success",
         cancel_url=f"{WEB_APP_URL}/wallet?pay=cancel",
-        metadata={
-            "kind": body.kind, "creator_id": body.creator_id,
-            "buyer_id": me["user_id"], "buyer_name": me.get("name", "Someone"),
-            "net": str(net),
-        },
+        metadata=meta,
     )
     return {"url": session["url"], "id": session["id"]}
 
@@ -183,7 +233,13 @@ async def stripe_webhook(request: Request):
         buyer_id = meta.get("buyer_id")
         net = round(float(meta.get("net") or 0), 2)
         now = datetime.now(timezone.utc)
-        if creator_id and net > 0:
+        if kind == "promote" and meta.get("post_id"):
+            days = max(1, min(30, int(meta.get("days") or 7)))
+            await db.posts.update_one(
+                {"id": meta["post_id"]},
+                {"$set": {"promoted_until": now + timedelta(days=days)}},
+            )
+        elif creator_id and net > 0:
             await db.earnings.insert_one({
                 "id": str(uuid.uuid4()), "user_id": creator_id, "amount": net,
                 "kind": "subscription" if kind == "subscription" else "tip",
