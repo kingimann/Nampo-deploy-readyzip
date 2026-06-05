@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   cover: { height: 92, width: "100%" },
-  heroBody: { alignItems: "center", paddingHorizontal: 16, paddingBottom: 18, marginTop: -44 },
+  heroBody: { alignItems: "center", paddingHorizontal: 18, paddingBottom: 22, marginTop: -44 },
   avatarWrap: {
     borderRadius: 52, borderWidth: 4, borderColor: theme.surface,
     backgroundColor: theme.surface,
@@ -395,14 +395,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary, borderWidth: 2, borderColor: theme.surface,
     alignItems: "center", justifyContent: "center",
   },
-  name: { color: theme.textPrimary, fontSize: 22, fontWeight: "800", marginTop: 10, letterSpacing: -0.3 },
-  handle: { color: theme.primary, fontSize: 14, fontWeight: "700", marginTop: 3 },
-  bio: { color: theme.textPrimary, fontSize: 14, marginTop: 10, lineHeight: 19, textAlign: "center" },
-  email: { color: theme.textMuted, fontSize: 12.5, marginTop: 8 },
+  name: { color: theme.textPrimary, fontSize: 24, fontWeight: "800", marginTop: 12, letterSpacing: -0.3 },
+  handle: { color: theme.primary, fontSize: 14.5, fontWeight: "700", marginTop: 4 },
+  bio: { color: theme.textPrimary, fontSize: 15, marginTop: 12, lineHeight: 22, textAlign: "center" },
+  email: { color: theme.textMuted, fontSize: 13, marginTop: 9 },
 
   socialBar: {
     flexDirection: "row", alignItems: "center", alignSelf: "stretch",
-    marginTop: 16, paddingVertical: 12,
+    marginTop: 18, paddingVertical: 15,
     backgroundColor: theme.surfaceAlt, borderRadius: 16,
   },
   socialItem: { flex: 1, alignItems: "center", gap: 2 },
@@ -422,9 +422,9 @@ const styles = StyleSheet.create({
 
   // ── Content stats strip ─────────────────────────────────────────────────
   statsCard: {
-    marginTop: 12, flexDirection: "row", alignItems: "center",
+    marginTop: 14, flexDirection: "row", alignItems: "center",
     backgroundColor: theme.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: theme.border, paddingVertical: 14,
+    borderWidth: 1, borderColor: theme.border, paddingVertical: 18,
   },
   statCell: { flex: 1, alignItems: "center" },
   statCellDivider: { width: StyleSheet.hairlineWidth, height: 30, backgroundColor: theme.border },

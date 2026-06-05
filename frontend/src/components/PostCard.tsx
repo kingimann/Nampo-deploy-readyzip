@@ -250,26 +250,26 @@ export default function PostCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: theme.surface, borderRadius: 16,
+    backgroundColor: theme.surface, borderRadius: 18,
     borderWidth: 1, borderColor: theme.border,
-    padding: 14, gap: 8,
+    padding: 16, gap: 11,
   },
   repostBanner: {
     flexDirection: "row", alignItems: "center", gap: 6, marginBottom: -2,
   },
   repostBannerText: { color: theme.textMuted, fontSize: 12, fontWeight: "600", flex: 1 },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 11 },
   avatar: {
-    width: 38, height: 38, borderRadius: 19, overflow: "hidden",
+    width: 44, height: 44, borderRadius: 22, overflow: "hidden",
     backgroundColor: theme.primary,
     alignItems: "center", justifyContent: "center",
   },
   avatarImg: { width: "100%", height: "100%" },
-  avatarInit: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  author: { color: theme.textPrimary, fontSize: 14, fontWeight: "800", flexShrink: 1 },
+  avatarInit: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  author: { color: theme.textPrimary, fontSize: 15.5, fontWeight: "800", flexShrink: 1 },
   dot: { color: theme.textMuted, fontSize: 12 },
-  time: { color: theme.textMuted, fontSize: 12 },
-  body: { color: theme.textPrimary, fontSize: 15, lineHeight: 20 },
+  time: { color: theme.textMuted, fontSize: 12.5 },
+  body: { color: theme.textPrimary, fontSize: 16, lineHeight: 23 },
   placeRow: {
     flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: theme.surfaceAlt, borderRadius: 8,
@@ -277,10 +277,10 @@ const styles = StyleSheet.create({
   },
   placeText: { color: theme.textSecondary, fontSize: 11, fontWeight: "600", maxWidth: 200 },
   actionsRow: {
-    flexDirection: "row", alignItems: "center", gap: 24,
-    paddingTop: 8, marginTop: 4,
+    flexDirection: "row", alignItems: "center", gap: 26,
+    paddingTop: 12, marginTop: 6,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border,
   },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  actionText: { color: theme.textSecondary, fontSize: 12, fontWeight: "600" },
+  actionText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "600" },
 });

@@ -120,13 +120,13 @@ const styles = StyleSheet.create({
   title: { flex: 1, color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center" },
 
   account: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: theme.surface, borderRadius: 18,
+    flexDirection: "row", alignItems: "center", gap: 16,
+    backgroundColor: theme.surface, borderRadius: 20,
     borderWidth: 1, borderColor: theme.border,
-    padding: 14,
+    padding: 18,
   },
-  accAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.surfaceAlt },
-  accName: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  accAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: theme.surfaceAlt },
+  accName: { color: theme.textPrimary, fontSize: 19, fontWeight: "800" },
   accHandle: { color: theme.primary, fontSize: 13, fontWeight: "700", marginTop: 2 },
   accEmail: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
 
@@ -142,11 +142,11 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row", alignItems: "center", gap: 14,
-    paddingHorizontal: 14, paddingVertical: 13,
+    paddingHorizontal: 16, paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border,
   },
-  rowIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  rowLabel: { flex: 1, color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
+  rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  rowLabel: { flex: 1, color: theme.textPrimary, fontSize: 16, fontWeight: "600" },
 
   aboutRow: {
     flexDirection: "row", alignItems: "center", gap: 12,

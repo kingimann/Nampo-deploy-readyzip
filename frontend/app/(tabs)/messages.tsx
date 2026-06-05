@@ -20,6 +20,7 @@ export default function MessagesScreen() {
   const [convs, setConvs] = useState<ConversationView[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
   const [mode, setMode] = useState<Mode>(null);
   const [actionConv, setActionConv] = useState<ConversationView | null>(null);
 
@@ -190,11 +191,33 @@ export default function MessagesScreen() {
         </View>
       </View>
 
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={16} color={theme.textMuted} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search messages"
+          placeholderTextColor={theme.textMuted}
+          value={search}
+          onChangeText={setSearch}
+          testID="messages-search"
+        />
+        {!!search && (
+          <TouchableOpacity onPress={() => setSearch("")} testID="messages-search-clear">
+            <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <FlatList
-          data={convs}
+          data={convs.filter((c) => {
+            const q = search.trim().toLowerCase();
+            if (!q) return true;
+            const nm = c.kind === "group" ? (c.name || "Group") : (c.other_user?.name || "User");
+            return nm.toLowerCase().includes(q);
+          })}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80, gap: 8 }}
           refreshControl={
@@ -220,10 +243,16 @@ export default function MessagesScreen() {
             const displayPic = isGroup ? item.avatar : item.other_user?.picture;
             const last = item.last_message;
             const preview = last
-              ? last.type === "place"
+              ? last.deleted
+                ? "🚫 Message deleted"
+                : last.type === "place"
                 ? `📍 ${last.place_name || "Shared a place"}`
                 : last.type === "media"
                 ? "📎 Media"
+                : last.type === "voice"
+                ? "🎤 Voice message"
+                : last.type === "post"
+                ? "📄 Shared a post"
                 : last.text
               : "Say hi 👋";
             return (
@@ -452,6 +481,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8,
   },
   title: { color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
+  searchWrap: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginTop: 4, marginBottom: 6,
+    paddingHorizontal: 14, height: 42,
+    backgroundColor: theme.surface, borderRadius: 21,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  searchInput: {
+    flex: 1, color: theme.textPrimary, fontSize: 15,
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
+  },
   iconBtn: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
