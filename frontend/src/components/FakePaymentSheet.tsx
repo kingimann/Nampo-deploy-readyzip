@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +25,8 @@ type Props = {
   successText?: string;
   /** Gross the charge up on iOS to cover Apple's fee; `onPaid` still gets the net. */
   appleFee?: boolean;
+  /** When real payments are on: returns a Stripe Checkout URL (or null to fall back to test). */
+  onCheckout?: (amount: number, note: string) => Promise<string | null>;
   onClose: () => void;
   onPaid: (amount: number, note: string) => Promise<void> | void;
 };
@@ -32,7 +34,7 @@ type Props = {
 const PRESETS = [1, 3, 5, 10, 20, 50];
 
 export default function FakePaymentSheet({
-  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, onClose, onPaid,
+  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, onCheckout, onClose, onPaid,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [amt, setAmt] = useState(String(amount || 0));
@@ -56,6 +58,12 @@ export default function FakePaymentSheet({
     if (value <= 0) return;
     setBusy(true);
     try {
+      // Real payments: try Stripe Checkout first. A returned URL means we hand
+      // off to Stripe; null means this server/creator isn't set up → test flow.
+      if (onCheckout) {
+        const url = await onCheckout(value, note.trim());
+        if (url) { await Linking.openURL(url); onClose(); return; }
+      }
       await new Promise((r) => setTimeout(r, 1200)); // fake processing
       // The recipient is always credited the NET `value`; only the buyer's
       // charge is grossed up to absorb Apple's fee.

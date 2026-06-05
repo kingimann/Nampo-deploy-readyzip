@@ -319,6 +319,9 @@ export default function UserProfileScreen() {
             allowNote
             cta="Send"
             successText={`Your tip was sent to ${user.name}.`}
+            onCheckout={payEnabled ? async (amt) => {
+              try { return (await api.createCheckout("tip", user.user_id, amt)).url; } catch { return null; }
+            } : undefined}
             onClose={() => setTipOpen(false)}
             onPaid={async (amount, note) => { await api.tipUser(user.user_id, amount, note); }}
           />

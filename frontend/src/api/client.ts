@@ -104,9 +104,14 @@ export const api = {
   setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
   getPayoutStatus: () =>
     request<{ enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean }>("/payments/payouts/status"),
-  createCheckout: (kind: "tip" | "subscription", creator_id: string, amount: number) =>
+  createCheckout: (
+    kind: "tip" | "subscription" | "promote",
+    creator_id: string,
+    amount: number,
+    extra?: { post_id?: string; days?: number },
+  ) =>
     request<{ url: string; id: string }>("/payments/checkout", {
-      method: "POST", body: JSON.stringify({ kind, creator_id, amount }),
+      method: "POST", body: JSON.stringify({ kind, creator_id, amount, ...(extra || {}) }),
     }),
 
   listPlaces: () => request<Place[]>("/places"),
