@@ -394,7 +394,7 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
     recent = [
         WalletTxn(id=r["id"], kind=r.get("kind", "tip"), amount=r["amount"],
                   from_user_id=r.get("from_user_id", ""), from_name=r.get("from_name", "Someone"),
-                  created_at=r["created_at"])
+                  source=r.get("source", "test"), created_at=r["created_at"])
         for r in rows[:30]
     ]
 
@@ -416,18 +416,19 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
 
     sent_items = [
         {"id": t["id"], "kind": "tip", "amount": float(t.get("amount", 0) or 0),
-         "to_user_id": t.get("to_user_id", ""), "created_at": t["created_at"]}
+         "to_user_id": t.get("to_user_id", ""), "source": t.get("source", "test"), "created_at": t["created_at"]}
         for t in sent_tips
     ] + [
         {"id": s["id"], "kind": "subscription", "amount": float(s.get("amount", 0) or 0),
-         "to_user_id": s.get("creator_id", ""), "created_at": s.get("created_at") or s.get("started_at")}
+         "to_user_id": s.get("creator_id", ""), "source": s.get("source", "test"),
+         "created_at": s.get("created_at") or s.get("started_at")}
         for s in paid_subs
     ]
     sent_items.sort(key=lambda x: x["created_at"], reverse=True)
     sent = [
         WalletTxn(id=i["id"], kind=i["kind"], amount=i["amount"],
                   from_user_id=i["to_user_id"], from_name=name_by_id.get(i["to_user_id"], "Someone"),
-                  created_at=i["created_at"])
+                  source=i["source"], created_at=i["created_at"])
         for i in sent_items[:30]
     ]
 

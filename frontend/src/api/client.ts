@@ -548,7 +548,7 @@ export type ProfilePatch = {
   payout_threshold?: number;
 };
 export type SubTier = { id: string; name: string; price: number };
-export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; created_at: string };
+export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; created_at: string };
 export type WalletSummary = {
   currency: string; total_earned: number; tips_total: number; subs_total: number;
   tips_count: number; active_subscribers: number; sub_price: number; recent: WalletTxn[];

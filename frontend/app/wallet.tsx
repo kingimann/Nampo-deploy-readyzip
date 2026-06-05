@@ -1,17 +1,29 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Platform, Linking, Alert, Share,
+  ActivityIndicator, Platform, Linking, Alert, Share, Modal,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, WalletSummary } from "@/src/api/client";
+import { api, WalletSummary, WalletTxn } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
+}
+function fmtFull(iso: string) {
+  try {
+    return new Date(iso).toLocaleString([], {
+      year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+    });
+  } catch { return iso || "—"; }
+}
+function sourceLabel(src?: string) {
+  if (src === "stripe") return "Card · Stripe";
+  return "Test mode";
 }
 
 export default function WalletScreen() {
@@ -21,6 +33,8 @@ export default function WalletScreen() {
   const [w, setW] = useState<WalletSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [subTiers, setSubTiers] = useState<{ id: string; name: string; price: number }[]>([]);
+  const [detail, setDetail] = useState<{ txn: WalletTxn; direction: "received" | "sent" } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [payEnabled, setPayEnabled] = useState(false);
   const [payout, setPayout] = useState<{ connected: boolean; payouts_enabled: boolean; details_submitted: boolean } | null>(null);
   const [connecting, setConnecting] = useState(false);
@@ -256,7 +270,7 @@ export default function WalletScreen() {
             <Text style={styles.empty}>No earnings yet. When people tip or subscribe to you, they'll show here.</Text>
           ) : (
             (w?.recent || []).map((t) => (
-              <View key={t.id} style={styles.txn}>
+              <TouchableOpacity key={t.id} style={styles.txn} activeOpacity={0.6} onPress={() => { setCopied(false); setDetail({ txn: t, direction: "received" }); }} testID={`txn-recv-${t.id}`}>
                 <View style={[styles.txnIcon, { backgroundColor: theme.surfaceAlt }]}>
                   <Ionicons name={t.kind === "subscription" ? "star" : "cash"} size={16} color={theme.primary} />
                 </View>
@@ -265,7 +279,8 @@ export default function WalletScreen() {
                   <Text style={styles.txnKind}>{t.kind === "subscription" ? "Subscription" : "Tip"} · {fmtWhen(t.created_at)}</Text>
                 </View>
                 <Text style={styles.txnAmt}>+${t.amount.toFixed(2)}</Text>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={theme.textMuted} style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
             ))
           )}
 
@@ -279,7 +294,7 @@ export default function WalletScreen() {
             <Text style={styles.empty}>You haven't tipped or subscribed to anyone yet.</Text>
           ) : (
             (w?.sent || []).map((t) => (
-              <View key={t.id} style={styles.txn}>
+              <TouchableOpacity key={t.id} style={styles.txn} activeOpacity={0.6} onPress={() => { setCopied(false); setDetail({ txn: t, direction: "sent" }); }} testID={`txn-sent-${t.id}`}>
                 <View style={[styles.txnIcon, { backgroundColor: theme.surfaceAlt }]}>
                   <Ionicons name={t.kind === "subscription" ? "star-outline" : "arrow-up-circle-outline"} size={16} color={theme.textSecondary} />
                 </View>
@@ -288,11 +303,71 @@ export default function WalletScreen() {
                   <Text style={styles.txnKind}>{t.kind === "subscription" ? "Subscription" : "Tip"} · {fmtWhen(t.created_at)}</Text>
                 </View>
                 <Text style={styles.txnAmtOut}>-${t.amount.toFixed(2)}</Text>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={theme.textMuted} style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
             ))
           )}
         </ScrollView>
       )}
+
+      {/* ── Transaction detail ───────────────────────────────────────── */}
+      <Modal visible={!!detail} transparent animationType="fade" onRequestClose={() => setDetail(null)}>
+        <View style={styles.detailBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setDetail(null)} />
+          {detail && (
+            <View style={styles.detailCard}>
+              <View style={[styles.detailIcon, { backgroundColor: theme.surfaceAlt }]}>
+                <Ionicons
+                  name={detail.txn.kind === "subscription" ? "star" : "cash"}
+                  size={26}
+                  color={detail.direction === "received" ? theme.primary : theme.textSecondary}
+                />
+              </View>
+              <Text style={[styles.detailAmount, { color: detail.direction === "received" ? "#22C55E" : theme.textPrimary }]}>
+                {detail.direction === "received" ? "+" : "-"}${detail.txn.amount.toFixed(2)}
+              </Text>
+              <Text style={styles.detailKind}>
+                {detail.txn.kind === "subscription" ? "Subscription" : "Tip"} · {detail.direction === "received" ? "Received" : "Sent"}
+              </Text>
+
+              <View style={styles.detailDivider} />
+
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>{detail.direction === "received" ? "From" : "To"}</Text>
+                <Text style={styles.detailValue}>{detail.txn.from_name}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Amount</Text>
+                <Text style={styles.detailValue}>${detail.txn.amount.toFixed(2)} USD</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>When</Text>
+                <Text style={styles.detailValue}>{fmtFull(detail.txn.created_at)}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>How</Text>
+                <Text style={styles.detailValue}>{sourceLabel(detail.txn.source)}</Text>
+              </View>
+              <View style={[styles.detailRow, { alignItems: "flex-start" }]}>
+                <Text style={styles.detailLabel}>Transaction ID</Text>
+                <Text style={[styles.detailValue, styles.detailMono]} selectable numberOfLines={2}>{detail.txn.id}</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.copyBtn}
+                onPress={async () => { try { await Clipboard.setStringAsync(detail.txn.id); setCopied(true); } catch {} }}
+                testID="copy-txn-id"
+              >
+                <Ionicons name={copied ? "checkmark" : "copy-outline"} size={15} color={theme.primary} />
+                <Text style={styles.copyBtnText}>{copied ? "Copied" : "Copy transaction ID"}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.detailClose} onPress={() => setDetail(null)} testID="txn-close">
+                <Text style={styles.detailCloseText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -356,4 +431,19 @@ const styles = StyleSheet.create({
   txnAmtOut: { color: theme.textSecondary, fontSize: 15, fontWeight: "800" },
   sentHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", marginTop: 24, marginBottom: 10 },
   spentTotal: { color: theme.textMuted, fontSize: 12, fontWeight: "700" },
+
+  detailBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
+  detailCard: { width: "100%", maxWidth: 420, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 22, alignItems: "center" },
+  detailIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center" },
+  detailAmount: { fontSize: 32, fontWeight: "900", letterSpacing: -0.8, marginTop: 12 },
+  detailKind: { color: theme.textMuted, fontSize: 13, fontWeight: "700", marginTop: 2 },
+  detailDivider: { alignSelf: "stretch", height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginVertical: 16 },
+  detailRow: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, paddingVertical: 8 },
+  detailLabel: { color: theme.textMuted, fontSize: 13, fontWeight: "600" },
+  detailValue: { flex: 1, color: theme.textPrimary, fontSize: 14, fontWeight: "700", textAlign: "right" },
+  detailMono: { fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 12, fontWeight: "500" },
+  copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, alignSelf: "stretch", backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingVertical: 12, marginTop: 16 },
+  copyBtnText: { color: theme.primary, fontSize: 14, fontWeight: "800" },
+  detailClose: { paddingVertical: 12, marginTop: 4 },
+  detailCloseText: { color: theme.textMuted, fontSize: 14, fontWeight: "700" },
 });
