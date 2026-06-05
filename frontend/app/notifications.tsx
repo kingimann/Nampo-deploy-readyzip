@@ -17,6 +17,8 @@ const ICON: Record<Notification["type"], { name: any; color: string }> = {
   message:       { name: "mail",             color: "#3B82F6" },
   group_invite:  { name: "people",           color: "#7C3AED" },
   group_message: { name: "chatbubbles",      color: "#7C3AED" },
+  follow:        { name: "person-add",       color: "#0EA5E9" },
+  poke:          { name: "hand-left",        color: "#F59E0B" },
 };
 
 const VERB: Record<Notification["type"], string> = {
@@ -26,6 +28,8 @@ const VERB: Record<Notification["type"], string> = {
   message: "sent you a message",
   group_invite: "added you to a group",
   group_message: "messaged a group",
+  follow: "followed you",
+  poke: "poked you 👈",
 };
 
 export default function NotificationsScreen() {
@@ -54,6 +58,8 @@ export default function NotificationsScreen() {
     }
     if (n.conversation_id) {
       router.push({ pathname: "/chat/[id]", params: { id: n.conversation_id } });
+    } else if ((n.type === "poke" || n.type === "follow") && n.actor_name) {
+      router.push({ pathname: "/user/[name]", params: { name: n.actor_name } });
     } else if (n.post_id) {
       router.push({ pathname: "/(tabs)/feed" });
     }

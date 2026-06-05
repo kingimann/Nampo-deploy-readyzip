@@ -328,7 +328,11 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
     is_following = False
     is_followed_by = False
     friend_status = "none"
+    poked_me = False
     if viewer_id and viewer_id != user_id:
+        poked_me = bool(await db.pokes.find_one(
+            {"from_user_id": user_id, "to_user_id": viewer_id, "active": True}, {"_id": 0}
+        ))
         is_following = bool(
             await db.follows.find_one({"follower_id": viewer_id, "followee_id": user_id})
         )
@@ -364,6 +368,7 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         is_following=is_following,
         is_followed_by=is_followed_by,
         friend_status=friend_status,
+        poked_me=poked_me,
     )
 
 

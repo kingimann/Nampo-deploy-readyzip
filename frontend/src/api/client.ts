@@ -337,6 +337,8 @@ export const api = {
       `/hashtags/${encodeURIComponent(tag.replace(/^#/, ""))}/count`),
   toggleFollow: (uid: string) =>
     request<{ following: boolean }>(`/users/${uid}/follow`, { method: "POST" }),
+  pokeUser: (uid: string) =>
+    request<{ ok: boolean; already?: boolean }>(`/users/${uid}/poke`, { method: "POST" }),
   listFollowers: (uid: string) => request<PublicUser[]>(`/users/${uid}/followers`),
   listFollowing: (uid: string) => request<PublicUser[]>(`/users/${uid}/following`),
   sendFriendRequest: (uid: string) =>
@@ -605,6 +607,7 @@ export type PublicUser = {
   is_following?: boolean;
   is_followed_by?: boolean;
   friend_status?: FriendStatus;
+  poked_me?: boolean;
 };
 export type Place = {
   id: string; user_id: string; title: string; notes?: string;
@@ -708,7 +711,7 @@ export type ConversationView = {
 export type Notification = {
   id: string;
   user_id: string;
-  type: "like" | "repost" | "reply" | "message" | "group_invite" | "group_message";
+  type: "like" | "repost" | "reply" | "message" | "group_invite" | "group_message" | "follow" | "poke";
   actor_id?: string | null;
   actor_name?: string | null;
   actor_picture?: string | null;
