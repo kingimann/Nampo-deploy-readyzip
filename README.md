@@ -101,7 +101,7 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 ```
 
 - The frontend calls the backend at **`EXPO_PUBLIC_BACKEND_URL` + `/api`**. Auth is a Bearer **session token** stored in `expo-secure-store`.
-- On **web**, the client uses same-origin relative paths and a Metro dev proxy (`metro.config.js`) forwards `/api/*` and `/health` to the backend on port `8080`, avoiding CORS. On **native**, it uses the full `EXPO_PUBLIC_BACKEND_URL`.
+- On **native**, the client uses the full `EXPO_PUBLIC_BACKEND_URL`. On **web**, it uses `EXPO_PUBLIC_BACKEND_URL` when set (production static build) and otherwise falls back to same-origin relative paths so the Metro dev proxy (`metro.config.js`) forwards `/api/*` and `/health` to the backend on port `8080` during local development.
 - **Mapbox** work (geocoding, category search, turn-by-turn directions) happens **client-side** using `EXPO_PUBLIC_MAPBOX_TOKEN`.
 - **Foursquare** place enrichment happens **server-side** (`/api/foursquare/match`) using the optional `FSQ_API_KEY`.
 - Live ETA sharing rides a WebSocket at **`/api/ws/eta/{share_id}`**.
@@ -114,7 +114,7 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 Nampo-deploy-readyzip/
 ├── README.md                  # this file
 ├── DEPLOY.md                  # deploy to Render (Postgres + the API)
-├── render.yaml                # Render Blueprint (provisions Postgres + deploys backend/Dockerfile)
+├── render.yaml                # Render Blueprint (Postgres + API + Expo web static site)
 ├── design_guidelines.json     # design system (colors, typography, components)
 ├── test_result.md             # agent testing log / protocol
 ├── memory/                    # PRD and scratch notes
@@ -207,7 +207,7 @@ Create `frontend/.env` (Expo automatically exposes `EXPO_PUBLIC_*` vars to the c
 
 | Variable                   | Required | Secret | Description |
 | -------------------------- | :------: | :----: | ----------- |
-| `EXPO_PUBLIC_BACKEND_URL`  | **Yes** (native) | No | Base URL of the backend, no trailing slash and no `/api` (the client appends `/api`). Not needed for web (it uses the same-origin Metro proxy). |
+| `EXPO_PUBLIC_BACKEND_URL`  | **Yes** (native & prod web) | No | Base URL of the backend, no trailing slash and no `/api` (the client appends `/api`). Optional for local web dev (the Metro proxy serves `/api` same-origin); required for a deployed web build so it can reach the API cross-origin. |
 | `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes**  | No*    | Mapbox public access token for maps, geocoding, and directions. |
 
 \* `EXPO_PUBLIC_*` values are bundled into the client and are therefore **not secret at runtime**. Use a Mapbox **public** token (URL/domain-scoped where possible).
@@ -278,7 +278,7 @@ A successful response returns a `session_token` and your user object.
 
 ## Deployment
 
-- **Render (recommended):** `render.yaml` is a Render **Blueprint** that **provisions a managed Postgres database** (`nampo-db`) and deploys the FastAPI service from `backend/Dockerfile` with a `/health` health check and `autoDeploy`. The database's connection string is injected into the API as `DATABASE_URL` automatically (`fromDatabase`), so there's no manual DB setup — only the optional `FSQ_API_KEY` is prompted (`sync: false`). Full step-by-step in **`DEPLOY.md`** (~15 minutes).
+- **Render (recommended):** `render.yaml` is a Render **Blueprint** that provisions a managed Postgres database (`nampo-db`), deploys the FastAPI API from `backend/Dockerfile` (`nampo-backend`, with a `/health` check and `autoDeploy`), **and** deploys the Expo web build as a static site (`nampo-web`). The database connection string is injected into the API as `DATABASE_URL` automatically (`fromDatabase`); the static site is configured with `EXPO_PUBLIC_BACKEND_URL` + `EXPO_PUBLIC_MAPBOX_TOKEN`. Mobile binaries are built separately with **EAS**. Full step-by-step in **`DEPLOY.md`** (~15 minutes).
 - **Docker:** `backend/Dockerfile` produces a self-contained image that runs `uvicorn server:app` on `$PORT` (default `8080`). Build/run it anywhere that supports containers and can reach a Postgres database via `DATABASE_URL`.
 - **AWS App Runner:** `backend/apprunner.yaml` is provided for source-based App Runner deploys.
 - **Other Postgres providers:** to bring your own database (Neon, Supabase, local), drop the `databases:` block from `render.yaml` and set `DATABASE_URL` yourself.
