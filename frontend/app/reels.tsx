@@ -188,14 +188,11 @@ export default function ReelsScreen() {
         seen.add(p.id);
         return true;
       });
+      // Show whatever's playable. When there's nothing, fall through to the
+      // in-screen empty state below — never yank the user off to another tab.
       setItems(valid);
-      // No fresh reels to watch → send the user to the news feed instead of
-      // showing an empty/black screen.
-      if (valid.length === 0) {
-        router.replace("/(tabs)/feed");
-      }
     } catch {} finally { setLoading(false); setRefreshing(false); }
-  }, [focus, router]);
+  }, [focus]);
   // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
   useFocusEffect(useCallback(() => {
     setFocused(true);
