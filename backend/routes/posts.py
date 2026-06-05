@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, Header, HTTPException, Query
 from db import DuplicateKeyError
 
-from core import db, get_current_user
+from core import db, get_current_user, is_mod
 from models import (
     LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
     PostPatch, PublicUser, ReportCreate, PromoteCreate,
@@ -76,6 +76,7 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         user_id=doc["user_id"],
         name=author_doc.get("name", "Unknown") if author_doc else "Unknown",
         picture=author_doc.get("picture") if author_doc else None,
+        verified=bool(author_doc.get("verified", False)) if author_doc else False,
     )
     liked = False
     disliked = False
@@ -295,7 +296,11 @@ async def edit_post(
 @router.delete("/posts/{post_id}")
 async def delete_post(post_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
-    doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
+    # Owner can always delete; mods/admins can remove anyone's post (moderation).
+    if is_mod(user):
+        doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    else:
+        doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found")
     await db.posts.delete_one({"id": post_id})

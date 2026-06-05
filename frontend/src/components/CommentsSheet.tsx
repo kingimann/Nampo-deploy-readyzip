@@ -11,6 +11,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import RichText from "./RichText";
 import { fmtTime } from "./PostCard";
+import VerifiedBadge from "./VerifiedBadge";
 
 type Props = {
   visible: boolean;
@@ -161,6 +162,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                     <View style={{ flex: 1 }}>
                       <View style={styles.rowHead}>
                         <Text style={styles.rowName} numberOfLines={1}>{item.author.name}</Text>
+                        {item.author.verified && <VerifiedBadge size={12} />}
                         {item.pinned && (
                           <View style={styles.pinnedBadge}>
                             <Ionicons name="pin" size={10} color={theme.primary} />

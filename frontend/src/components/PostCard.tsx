@@ -13,6 +13,7 @@ import PollCard from "./PollCard";
 import QuoteCard from "./QuoteCard";
 import LikersModal from "./LikersModal";
 import ShareToChatSheet from "./ShareToChatSheet";
+import VerifiedBadge from "./VerifiedBadge";
 
 type Props = {
   post: Post;
@@ -127,6 +128,7 @@ export default function PostCard({
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={styles.author} numberOfLines={1}>{display.author.name}</Text>
+            {display.author.verified && <VerifiedBadge size={14} style={{ marginLeft: -2 }} />}
             <Text style={styles.dot}>·</Text>
             <Text style={styles.time}>{fmtTime(display.created_at)}</Text>
             {!!display.edited_at && (

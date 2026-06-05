@@ -20,6 +20,8 @@ class User(BaseModel):
     work_name: Optional[str] = None
     work_longitude: Optional[float] = None
     work_latitude: Optional[float] = None
+    verified: bool = False
+    role: str = "user"            # user | mod | admin
     created_at: datetime
 
 
@@ -29,10 +31,17 @@ class PublicUser(BaseModel):
     username: Optional[str] = None
     picture: Optional[str] = None
     bio: Optional[str] = ""
+    verified: bool = False
+    role: str = "user"
     stats: dict = {}
     is_following: bool = False
     is_followed_by: bool = False
     friend_status: str = "none"  # none | request_sent | request_received | friends
+
+
+class AdminUserPatch(BaseModel):
+    verified: Optional[bool] = None
+    role: Optional[str] = None    # user | mod | admin
 
 
 class AuthResponse(BaseModel):
@@ -422,6 +431,7 @@ class PostAuthor(BaseModel):
     user_id: str
     name: str
     picture: Optional[str] = None
+    verified: bool = False
 
 
 class Post(BaseModel):

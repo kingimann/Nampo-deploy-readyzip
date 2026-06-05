@@ -9,6 +9,7 @@ import { api, Post, PublicUser, FriendStatus } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
+import VerifiedBadge from "@/src/components/VerifiedBadge";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -87,6 +88,15 @@ export default function UserProfileScreen() {
     } catch {}
   };
 
+  // Admin-only: toggle verification / change a user's site role.
+  const doAdmin = async (patch: { verified?: boolean; role?: string }) => {
+    if (!user) return;
+    try {
+      const u = await api.adminPatchUser(user.user_id, patch);
+      setUser((prev) => (prev ? { ...prev, verified: u.verified, role: u.role } : prev));
+    } catch {}
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="user-profile-screen">
       <Stack.Screen options={{ headerShown: false }} />
@@ -115,7 +125,13 @@ export default function UserProfileScreen() {
                   <Text style={styles.avatarInit}>{(user.name?.[0] || "?").toUpperCase()}</Text>
                 )}
               </View>
-              <Text style={styles.name}>{user.name}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
+                <Text style={styles.name}>{user.name}</Text>
+                {user.verified && <VerifiedBadge size={18} />}
+              </View>
+              {!!user.role && user.role !== "user" && (
+                <Text style={styles.roleTag}>{user.role === "admin" ? "ADMIN" : "MODERATOR"}</Text>
+              )}
               {!!user.bio && <Text style={styles.bio}>{user.bio}</Text>}
               <View style={styles.statsRow}>
                 <View style={styles.statBox}>
@@ -178,6 +194,22 @@ export default function UserProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+              {me?.role === "admin" && user.user_id !== me?.user_id && (
+                <View style={styles.adminRow}>
+                  <TouchableOpacity style={styles.adminBtn} onPress={() => doAdmin({ verified: !user.verified })} testID="admin-verify">
+                    <Ionicons name="checkmark-circle" size={14} color="#1D9BF0" />
+                    <Text style={styles.adminBtnText}>{user.verified ? "Unverify" : "Verify"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.adminBtn} onPress={() => doAdmin({ role: user.role === "mod" ? "user" : "mod" })} testID="admin-mod">
+                    <Ionicons name="shield-half-outline" size={14} color={theme.primary} />
+                    <Text style={styles.adminBtnText}>{user.role === "mod" ? "Remove mod" : "Make mod"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.adminBtn} onPress={() => doAdmin({ role: user.role === "admin" ? "user" : "admin" })} testID="admin-admin">
+                    <Ionicons name="shield-checkmark-outline" size={14} color={theme.primary} />
+                    <Text style={styles.adminBtnText}>{user.role === "admin" ? "Remove admin" : "Make admin"}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               <Text style={styles.postsLabel}>Posts</Text>
             </View>
           }
@@ -221,6 +253,17 @@ const styles = StyleSheet.create({
   },
   avatarInit: { color: "#fff", fontSize: 32, fontWeight: "800" },
   name: { color: theme.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 6 },
+  roleTag: {
+    color: theme.primary, fontSize: 10.5, fontWeight: "900", letterSpacing: 1,
+    marginTop: 2,
+  },
+  adminRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 12 },
+  adminBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7,
+  },
+  adminBtnText: { color: theme.textPrimary, fontSize: 12, fontWeight: "700" },
   bio: { color: theme.textSecondary, fontSize: 13, textAlign: "center", marginTop: 2, paddingHorizontal: 24 },
   statsRow: { flexDirection: "row", gap: 18, marginTop: 12 },
   statBox: { alignItems: "center" },

@@ -6,10 +6,33 @@ from typing import List, Optional
 from fastapi import APIRouter, Header, HTTPException, Query
 from db import DuplicateKeyError
 
-from core import _public_user, db, get_current_user
-from models import PublicUser
+from core import _public_user, db, get_current_user, is_admin
+from models import AdminUserPatch, PublicUser
 
 router = APIRouter()
+
+
+@router.patch("/admin/users/{user_id}", response_model=PublicUser)
+async def admin_patch_user(
+    user_id: str, body: AdminUserPatch, authorization: Optional[str] = Header(None)
+):
+    """Admin-only: toggle a user's verified badge and set their site role."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    patch: dict = {}
+    if body.verified is not None:
+        patch["verified"] = bool(body.verified)
+    if body.role is not None:
+        if body.role not in ("user", "mod", "admin"):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        patch["role"] = body.role
+    if patch:
+        await db.users.update_one({"user_id": user_id}, {"$set": patch})
+    return await _public_user(user_id, viewer_id=me["user_id"])
 
 
 @router.get("/users/search", response_model=List[PublicUser])

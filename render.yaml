@@ -28,6 +28,10 @@ services:
           property: connectionString
       - key: CORS_ORIGINS
         value: "*"
+      # Comma-separated emails that are auto-granted the site admin role (can
+      # verify users, set mod/admin roles, and moderate posts). Set yours here.
+      - key: ADMIN_EMAILS
+        sync: false
       # Optional — only needed for Foursquare place matching. Render will prompt
       # you to paste it (sync:false keeps it out of git); leave blank to skip.
       - key: FSQ_API_KEY

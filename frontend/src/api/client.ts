@@ -76,6 +76,8 @@ export const api = {
 
   searchUsers: (q: string) => request<PublicUser[]>(`/users/search?q=${encodeURIComponent(q)}`),
   getPublicUser: (id: string) => request<PublicUser>(`/users/${id}/public`),
+  adminPatchUser: (userId: string, body: { verified?: boolean; role?: string }) =>
+    request<PublicUser>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(body) }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),
@@ -414,6 +416,8 @@ export type User = {
   work_name?: string | null;
   work_longitude?: number | null;
   work_latitude?: number | null;
+  verified?: boolean;
+  role?: string; // user | mod | admin
 };
 export type ProfilePatch = {
   name?: string; bio?: string; picture?: string;
@@ -427,6 +431,8 @@ export type PublicUser = {
   username?: string | null;
   picture?: string | null;
   bio?: string;
+  verified?: boolean;
+  role?: string;
   stats?: { places?: number; guides?: number; reviews?: number; followers?: number; following?: number; friends?: number };
   is_following?: boolean;
   is_followed_by?: boolean;
@@ -590,7 +596,7 @@ export type Poll = {
   closed: boolean;
 };
 export type PollCreate = { options: string[]; duration_hours: number };
-export type PostAuthor = { user_id: string; name: string; picture?: string | null };
+export type PostAuthor = { user_id: string; name: string; picture?: string | null; verified?: boolean };
 export type PostMedia = {
   type: "image" | "video";
   base64: string;
