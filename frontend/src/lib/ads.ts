@@ -3,10 +3,11 @@
 
 export type AdMarker = { __ad: number };
 
-// First ad after this many posts, then one every `AD_EVERY` after. Keeping the
-// first slot low means short lists (e.g. a profile with 2-3 posts) still show an ad.
-export const AD_FIRST = 2;
-export const AD_EVERY = 5;
+// First ad after this many posts, then one every `AD_EVERY` after. Kept sparse
+// so the newsfeed isn't flooded with sponsored posts. Short lists (e.g. a
+// profile with a few posts) still get exactly one ad via the guarantee below.
+export const AD_FIRST = 5;
+export const AD_EVERY = 10;
 
 /** Weave ad markers into a post list. `__ad` is the slot ordinal (0,1,2…) so each
  *  slot can request distinct inventory and rotate. Guarantees at least one ad on

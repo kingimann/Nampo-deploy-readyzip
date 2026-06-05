@@ -13,6 +13,8 @@ import { api, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import PostCard from "@/src/components/PostCard";
+import AdSlot from "@/src/components/AdSlot";
+import { interleaveAds, isAd } from "@/src/lib/ads";
 
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbnxlbnwwfHx8fDE3ODA1NTgzMjh8MA&ixlib=rb-4.1.0&q=85";
@@ -348,18 +350,22 @@ export default function ProfileScreen() {
           </View>
         ) : (
           <View style={{ gap: 10 }}>
-            {myPosts.map((p) => (
-              <PostCard
-                key={p.id}
-                post={p}
-                viewerId={user?.user_id}
-                onLike={onLike}
-                onDislike={onDislike}
-                onRepost={onRepost}
-                onReply={onReply}
-                onBookmark={onBookmark}
-              />
-            ))}
+            {interleaveAds(myPosts).map((item) =>
+              isAd(item) ? (
+                <AdSlot key={`ad-${item.__ad}`} placement="profile" index={item.__ad} />
+              ) : (
+                <PostCard
+                  key={item.id}
+                  post={item}
+                  viewerId={user?.user_id}
+                  onLike={onLike}
+                  onDislike={onDislike}
+                  onRepost={onRepost}
+                  onReply={onReply}
+                  onBookmark={onBookmark}
+                />
+              ),
+            )}
           </View>
         )}
       </ScrollView>
