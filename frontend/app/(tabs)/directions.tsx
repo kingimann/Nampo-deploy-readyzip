@@ -837,33 +837,6 @@ export default function DirectionsScreen() {
                 <Ionicons name="locate" size={20} color={theme.primary} />
               </TouchableOpacity>
             </View>
-
-            {/* Search-along-route quick chips */}
-            <View style={styles.sarChips} pointerEvents="box-none">
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 8, paddingHorizontal: 14 }}
-              >
-                {([
-                  { cat: "gas_station", label: "Gas", icon: "speedometer-outline" as const },
-                  { cat: "coffee", label: "Coffee", icon: "cafe-outline" as const },
-                  { cat: "restaurant", label: "Food", icon: "restaurant-outline" as const },
-                  { cat: "parking_lot", label: "Parking", icon: "car-sport-outline" as const },
-                ]).map((c) => (
-                  <TouchableOpacity
-                    key={c.cat}
-                    style={styles.sarChip}
-                    onPress={() => openSAR(c.cat)}
-                    activeOpacity={0.85}
-                    testID={`sar-${c.cat}`}
-                  >
-                    <Ionicons name={c.icon} size={14} color="#fff" />
-                    <Text style={styles.sarChipText}>{c.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
           </>
         )}
 
