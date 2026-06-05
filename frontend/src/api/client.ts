@@ -133,8 +133,9 @@ export const api = {
     request<PublicUser>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(body) }),
   tipUser: (userId: string, amount: number, message?: string) =>
     request<{ id: string }>(`/users/${userId}/tip`, { method: "POST", body: JSON.stringify({ amount, message: message || "" }) }),
-  subscribeUser: (userId: string) =>
-    request<{ subscribed: boolean }>(`/users/${userId}/subscribe`, { method: "POST" }),
+  getSubscriptionTiers: () => request<{ tiers: SubTier[] }>("/subscription-tiers"),
+  subscribeUser: (userId: string, tier = "plus") =>
+    request<{ subscribed: boolean }>(`/users/${userId}/subscribe`, { method: "POST", body: JSON.stringify({ tier }) }),
   unsubscribeUser: (userId: string) =>
     request<{ subscribed: boolean }>(`/users/${userId}/subscribe`, { method: "DELETE" }),
   getWallet: () => request<WalletSummary>("/wallet"),
@@ -156,7 +157,7 @@ export const api = {
     kind: "tip" | "subscription" | "promote",
     creator_id: string,
     amount: number,
-    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string },
+    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string; tier?: string },
   ) =>
     request<{ url: string; id: string }>("/payments/checkout", {
       method: "POST", body: JSON.stringify({ kind, creator_id, amount, ...(extra || {}) }),
@@ -542,6 +543,7 @@ export type ProfilePatch = {
   payout_frequency?: string;
   payout_threshold?: number;
 };
+export type SubTier = { id: string; name: string; price: number };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; created_at: string };
 export type WalletSummary = {
   currency: string; total_earned: number; tips_total: number; subs_total: number;

@@ -230,6 +230,15 @@ def _has_api_access(user: dict) -> bool:
     return _active_plan(user) is not None
 
 
+# Fixed subscription tiers a fan chooses from (creators don't set custom prices).
+SUBSCRIPTION_TIERS = [
+    {"id": "basic", "name": "Basic", "price": 2.99},
+    {"id": "plus",  "name": "Plus",  "price": 4.99},
+    {"id": "vip",   "name": "VIP",   "price": 9.99},
+]
+SUBSCRIPTION_TIERS_BY_ID = {t["id"]: t for t in SUBSCRIPTION_TIERS}
+
+
 def _needs_policy_agreement(d: dict) -> bool:
     return (
         str(d.get("tos_version") or "") != TOS_VERSION

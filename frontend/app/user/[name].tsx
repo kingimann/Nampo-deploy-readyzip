@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Linking,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Linking, Modal,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { api, Post, PublicUser, FriendStatus } from "@/src/api/client";
+import { api, Post, PublicUser, FriendStatus, SubTier } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
@@ -49,6 +49,9 @@ export default function UserProfileScreen() {
   const [tipOpen, setTipOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
   const [payEnabled, setPayEnabled] = useState(false);
+  const [tiers, setTiers] = useState<SubTier[]>([]);
+  const [tierOpen, setTierOpen] = useState(false);
+  const [chosenTier, setChosenTier] = useState<SubTier | null>(null);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -64,11 +67,17 @@ export default function UserProfileScreen() {
       } catch {}
       return;
     }
-    // Real payments: route through Stripe Checkout when the creator has payouts
-    // set up. Otherwise fall back to the in-app test payment sheet.
+    setTierOpen(true);   // choose a tier
+  };
+
+  const chooseTier = async (tier: SubTier) => {
+    if (!user) return;
+    setTierOpen(false);
+    setChosenTier(tier);
+    // Real payments: route through Stripe Checkout; else fall back to the test sheet.
     if (payEnabled) {
       try {
-        const { url } = await api.createCheckout("subscription", user.user_id, 0);
+        const { url } = await api.createCheckout("subscription", user.user_id, 0, { tier: tier.id });
         await Linking.openURL(url);
         return;
       } catch {}
@@ -100,6 +109,7 @@ export default function UserProfileScreen() {
       setRefreshing(false);
     }
     try { setPayEnabled((await api.getPaymentsConfig()).enabled); } catch {}
+    try { setTiers((await api.getSubscriptionTiers()).tiers); } catch {}
   }, [name, me]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -269,7 +279,7 @@ export default function UserProfileScreen() {
                   >
                     <Ionicons name={user.is_subscribed ? "checkmark-circle" : "star"} size={15} color={user.is_subscribed ? theme.textPrimary : "#fff"} />
                     <Text style={[styles.actionBtnText, user.is_subscribed && { color: theme.textPrimary }]} numberOfLines={1}>
-                      {user.is_subscribed ? "Subscribed" : `Subscribe $${withAppleFee(user.sub_price ?? 0).toFixed(2)}`}
+                      {user.is_subscribed ? "Subscribed" : "Subscribe"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -326,18 +336,37 @@ export default function UserProfileScreen() {
           />
           <FakePaymentSheet
             visible={subOpen}
-            title={`Subscribe to ${user.name}`}
-            subtitle={`Monthly — ${user.name} receives $${(user.sub_price ?? 4.99).toFixed(2)}`}
-            amount={user.sub_price ?? 4.99}
+            title={`${chosenTier?.name || ""} subscription to ${user.name}`}
+            subtitle={`Monthly — ${user.name} receives $${(chosenTier?.price ?? 0).toFixed(2)}`}
+            amount={chosenTier?.price ?? 4.99}
             appleFee
             cta="Subscribe"
             successText={`You're subscribed to ${user.name}!`}
             onClose={() => setSubOpen(false)}
             onPaid={async () => {
-              await api.subscribeUser(user.user_id);
+              await api.subscribeUser(user.user_id, chosenTier?.id || "plus");
               setUser((p) => (p ? { ...p, is_subscribed: true, subscriber_count: (p.subscriber_count || 0) + 1 } : p));
             }}
           />
+
+          <Modal visible={tierOpen} transparent animationType="fade" onRequestClose={() => setTierOpen(false)}>
+            <View style={styles.tierBackdrop}>
+              <View style={styles.tierCard}>
+                <Text style={styles.tierTitle}>Subscribe to {user.name}</Text>
+                <Text style={styles.tierSub}>Choose a tier</Text>
+                {tiers.map((t) => (
+                  <TouchableOpacity key={t.id} style={styles.tierRow} onPress={() => chooseTier(t)} testID={`tier-${t.id}`}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.tierName}>{t.name}</Text>
+                    </View>
+                    <Text style={styles.tierPrice}>${withAppleFee(t.price).toFixed(2)}/mo</Text>
+                    <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity onPress={() => setTierOpen(false)}><Text style={styles.tierCancel}>Cancel</Text></TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </>
       )}
     </SafeAreaView>
@@ -413,4 +442,22 @@ const styles = StyleSheet.create({
     textTransform: "uppercase", letterSpacing: 0.6,
     alignSelf: "flex-start", marginTop: 14,
   },
+  tierBackdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center", justifyContent: "center", padding: 24,
+  },
+  tierCard: {
+    width: "100%", maxWidth: 420, backgroundColor: theme.surface,
+    borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 18,
+  },
+  tierTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  tierSub: { color: theme.textMuted, fontSize: 13, marginTop: 2, marginBottom: 12 },
+  tierRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: theme.surfaceAlt, borderRadius: 14, borderWidth: 1, borderColor: theme.border,
+    paddingHorizontal: 14, paddingVertical: 14, marginBottom: 10,
+  },
+  tierName: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  tierPrice: { color: theme.primary, fontSize: 15, fontWeight: "800" },
+  tierCancel: { color: theme.textMuted, fontSize: 14, fontWeight: "700", textAlign: "center", marginTop: 4, paddingVertical: 8 },
 });

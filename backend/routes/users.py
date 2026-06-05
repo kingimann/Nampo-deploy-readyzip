@@ -5,9 +5,13 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel
 from db import DuplicateKeyError
 
-from core import _public_user, db, get_current_user, is_admin
+from core import (
+    _public_user, db, get_current_user, is_admin,
+    SUBSCRIPTION_TIERS, SUBSCRIPTION_TIERS_BY_ID,
+)
 from services.email import send_email
 from models import AdminUserPatch, PublicUser, Tip, TipCreate, WalletSummary, WalletTxn
 
@@ -311,26 +315,39 @@ async def tip_user(user_id: str, body: TipCreate, authorization: Optional[str] =
     return Tip(**tip)
 
 
+@router.get("/subscription-tiers")
+async def subscription_tiers():
+    return {"tiers": SUBSCRIPTION_TIERS}
+
+
+class SubscribeBody(BaseModel):
+    tier: str = "plus"
+
+
 @router.post("/users/{user_id}/subscribe")
-async def subscribe_user(user_id: str, authorization: Optional[str] = Header(None)):
+async def subscribe_user(user_id: str, body: SubscribeBody = SubscribeBody(), authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     if user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't subscribe to yourself")
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    tier = SUBSCRIPTION_TIERS_BY_ID.get(body.tier)
+    if not tier:
+        raise HTTPException(status_code=400, detail="Choose a valid subscription tier")
     existing = await db.subscriptions.find_one(
         {"subscriber_id": me["user_id"], "creator_id": user_id, "status": "active"}, {"_id": 0}
     )
     if existing:
         return {"subscribed": True}
-    price = round(float(target.get("sub_price", 4.99) or 0), 2)
+    price = round(float(tier["price"]), 2)
     now = datetime.now(timezone.utc)
     await db.subscriptions.insert_one({
         "id": str(uuid.uuid4()),
         "subscriber_id": me["user_id"],
         "creator_id": user_id,
         "amount": price,
+        "tier": tier["id"],
         "status": "active",
         "started_at": now,
         "renews_at": now + timedelta(days=30),

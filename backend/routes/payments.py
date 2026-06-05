@@ -60,6 +60,7 @@ class CheckoutCreate(BaseModel):
     days: Optional[int] = None             # promote
     conversation_id: Optional[str] = None  # tip sent from a DM
     note: Optional[str] = None             # tip message
+    tier: Optional[str] = None             # subscription tier id
 
 
 @router.get("/payments/config")
@@ -162,16 +163,19 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
     }
 
     if body.kind == "subscription":
-        net = round(float(creator.get("sub_price", 4.99) or 0), 2)
-        if net <= 0:
-            raise HTTPException(status_code=400, detail="Creator has no subscription price")
+        from core import SUBSCRIPTION_TIERS_BY_ID
+        tier = SUBSCRIPTION_TIERS_BY_ID.get(body.tier or "plus")
+        if not tier:
+            raise HTTPException(status_code=400, detail="Choose a valid subscription tier")
+        net = round(float(tier["price"]), 2)
         meta["net"] = str(net)
+        meta["tier"] = tier["id"]
         session = stripe.checkout.Session.create(
             mode="subscription",
             line_items=[{
                 "price_data": {
                     "currency": "usd",
-                    "product_data": {"name": f"Subscription to {creator.get('name', 'creator')}"},
+                    "product_data": {"name": f"{tier['name']} subscription to {creator.get('name', 'creator')}"},
                     "unit_amount": int(round(net * 100)),
                     "recurring": {"interval": "month"},
                 },
@@ -403,7 +407,7 @@ async def stripe_webhook(request: Request):
             if kind == "subscription" and buyer_id:
                 await db.subscriptions.insert_one({
                     "id": str(uuid.uuid4()), "subscriber_id": buyer_id, "creator_id": creator_id,
-                    "amount": net, "status": "active", "source": "stripe",
+                    "amount": net, "tier": meta.get("tier"), "status": "active", "source": "stripe",
                     "started_at": now, "renews_at": now + timedelta(days=30), "created_at": now,
                 })
             # Receipt to the creator (in-app + email).
