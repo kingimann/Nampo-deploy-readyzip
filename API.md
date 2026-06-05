@@ -160,8 +160,10 @@ Scopes: `profile` (default) and `email`. Codes are single-use and expire in 10 m
 | GET | `/users/{id}/followers` · `/following` | Connection lists |
 | POST | `/friends/request/{id}` · `/accept/{id}` · `/reject/{id}` | Friend requests |
 | POST | `/users/{id}/tip` | Tip a creator |
-| POST/DELETE | `/users/{id}/subscribe` | Subscribe / unsubscribe |
-| GET | `/wallet` | Earnings + money sent |
+| POST | `/users/{id}/poke` | Poke (Facebook-style); they can poke back |
+| GET | `/subscription-tiers` | The three fixed subscription tiers |
+| POST/DELETE | `/users/{id}/subscribe` | Subscribe (body `{tier}`) / unsubscribe |
+| GET | `/wallet` · `/wallet/export` | Earnings + money sent · CSV export |
 
 ### Posts & feed
 | Method | Path | Description |
@@ -170,15 +172,32 @@ Scopes: `profile` (default) and `email`. Codes are single-use and expire in 10 m
 | POST | `/posts` | Create post (text, media[], poll, parent_id, quote_of, community_id) |
 | GET/DELETE | `/posts/{id}` | Fetch / delete |
 | POST | `/posts/{id}/like\|dislike\|repost\|bookmark\|pin\|promote\|report` | Engagement |
+| POST | `/posts/{id}/view` · GET `/posts/{id}/viewers` | Record a view · who viewed (author only) |
+| PATCH | `/posts/{id}/privacy` | Per-post `likes_disabled` + `comment_policy` (everyone\|followers\|friends\|nobody) |
 | GET | `/posts/{id}/thread` | Threaded replies |
 | GET | `/hashtags/{tag}` | Posts by tag |
+
+Posts carry `likes_disabled`, `comment_policy` and a per-viewer `can_comment`.
+New posts default to the author's `default_comment_policy` / `default_likes_disabled`.
 
 ### Stories
 `GET /stories/tray` · `POST /stories` · `POST /stories/{id}/view|reply` · `GET /stories/{id}/viewers`
 
 ### Messaging
-`GET/POST /conversations` · `GET/POST /conversations/{id}/messages` (text, media, voice,
-place, post, gif, file, contact, **tip**) · `POST /conversations/{id}/messages/{mid}/react`
+`GET/POST /conversations` · `POST /conversations/groups` · `GET/POST /conversations/{id}/messages`
+(text, media, voice, place, post, gif, file, contact, **tip**) ·
+`PATCH|DELETE /conversations/{id}/messages/{mid}` · `POST .../{mid}/react` ·
+`POST /conversations/{id}/read` (read receipts).
+
+**Presence & status (Snapchat-style):** `POST /conversations/{id}/presence` `{typing}`
+heartbeat · `GET /conversations/{id}/presence` → `{typing, active}`. Messages return
+`delivered_at` and `read_at` so clients can show Sent → Delivered → Read.
+
+**End-to-end encryption (optional, client-side):** `POST /auth/keys` publish your X25519
+public key · `GET /users/{id}/key` fetch a peer's · `POST|GET|DELETE /auth/keys/backup`
+store/fetch a passphrase-encrypted private-key backup (opaque blob). Text/media bodies are
+sealed client-side with NaCl `box`; the server only ever stores ciphertext for E2E messages.
+Messages also support server-side encryption at rest regardless.
 
 ### Communities (forum)
 `GET/POST /communities` · `GET /communities/{name}` · `POST /communities/{name}/join`
@@ -199,6 +218,37 @@ place, post, gif, file, contact, **tip**) · `POST /conversations/{id}/messages/
 ### Payments (when Stripe is configured)
 `GET /payments/config` · `POST /payments/payouts/setup` · `GET /payments/payouts/status`
 · `POST /payments/checkout` (`kind`: tip | subscription | promote) · `POST /payments/webhook`
+· `GET/POST /payments/api-plan*` · `GET/POST /payments/api-usage*` (plans + pay-as-you-go)
+
+### Money (peer-to-peer)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET/POST | `/money/security` | Get / set the sender's transfer security question (answer is hashed) |
+| POST | `/money/send` | Send money — body `{to_user_id, amount, note, answer}` (security answer required) |
+| POST | `/money/request` | Request money from someone |
+| GET | `/money/requests` | Incoming + outgoing requests |
+| POST | `/money/requests/{id}/pay\|decline\|cancel` | Pay (needs `answer`) / decline / cancel |
+
+### Ads & advertising
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/ads/next?placement=&slot=` | Next sponsored post for a slot |
+| POST | `/ads/{id}/event` | Record `impression` / `click` (host attribution + billing) |
+| POST | `/ads/{id}/hide\|report` | Hide / report an ad |
+| GET | `/ads/campaigns` | Your promoted-post analytics |
+| GET/POST | `/ads/account` · `/ads/account/topup` | Prepaid ad balance + top-up |
+| POST | `/users/{id}/view` | Profile-view revenue tracking |
+| GET | `/admin/ad-revenue` | Platform ad dashboard (admin) |
+| GET/POST | `/admin/bot/posts` · `/admin/bot/run` | Test bot for wallet/analytics (admin) |
+
+### Payouts
+`GET /payouts` (balance, schedule, history) · `POST /payouts/run` (admin or `X-Cron-Key`).
+Per-creator `payout_frequency` and `payout_threshold` via `PATCH /auth/me`.
+
+### Login with Nami (OAuth2) & connected apps
+`GET/POST /oauth/apps` (manage your apps) · `/oauth/authorize` · `POST /oauth/token` ·
+`GET /oauth/userinfo` · `GET /oauth/connections` · `DELETE /oauth/connections/{client_id}` ·
+`POST /oauth/revoke`. See **Login with Nami** above for the full flow.
 
 ---
 
