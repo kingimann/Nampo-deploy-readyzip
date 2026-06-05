@@ -58,6 +58,10 @@ class PhoneUpdate(BaseModel):
     phone: str  # empty string clears it
 
 
+class ApiKeyCreate(BaseModel):
+    label: Optional[str] = None
+
+
 PHONE_RE = re.compile(r"^\+?[0-9\s\-().]{7,20}$")
 
 
@@ -314,6 +318,63 @@ async def change_phone(body: PhoneUpdate, authorization: Optional[str] = Header(
         )
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return User(**_user_doc_to_model(updated))
+
+
+# ── Developer API keys ──────────────────────────────────────────────────────
+# An API key is a long-lived bearer token stored in the same `user_sessions`
+# collection as login sessions (so get_current_user authenticates it for free),
+# tagged with kind="api_key" + a label. Listing shows only a masked prefix.
+
+@router.post("/auth/api-keys")
+async def create_api_key(body: ApiKeyCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    existing = await db.user_sessions.count_documents({"user_id": user["user_id"], "kind": "api_key"})
+    if existing >= 10:
+        raise HTTPException(status_code=400, detail="API key limit reached (10). Revoke one first.")
+    token = f"nami_sk_{secrets.token_urlsafe(32)}"
+    key_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    label = (body.label or "API key").strip()[:60] or "API key"
+    await db.user_sessions.insert_one({
+        "session_token": token,
+        "user_id": user["user_id"],
+        "expires_at": now + timedelta(days=365 * 5),
+        "created_at": now,
+        "kind": "api_key",
+        "key_id": key_id,
+        "label": label,
+        "key_prefix": token[:16],
+    })
+    # The full token is returned exactly once — it can't be retrieved again.
+    return {"id": key_id, "label": label, "token": token, "created_at": now}
+
+
+@router.get("/auth/api-keys")
+async def list_api_keys(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    rows = await db.user_sessions.find(
+        {"user_id": user["user_id"], "kind": "api_key"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return {
+        "keys": [
+            {
+                "id": r.get("key_id", ""),
+                "label": r.get("label", "API key"),
+                "key_prefix": r.get("key_prefix", ""),
+                "created_at": r.get("created_at"),
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.delete("/auth/api-keys/{key_id}")
+async def revoke_api_key(key_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    await db.user_sessions.delete_one(
+        {"user_id": user["user_id"], "kind": "api_key", "key_id": key_id}
+    )
+    return {"revoked": True}
 
 
 @router.get("/users/by-username/{username}")

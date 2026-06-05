@@ -70,6 +70,12 @@ export const api = {
     request<{ ok: boolean }>("/auth/me/password", { method: "PATCH", body: JSON.stringify({ current_password, new_password }) }),
   setPhone: (phone: string) =>
     request<User>("/auth/me/phone", { method: "PATCH", body: JSON.stringify({ phone }) }),
+  listApiKeys: () => request<{ keys: ApiKey[] }>("/auth/api-keys"),
+  createApiKey: (label: string) =>
+    request<{ id: string; label: string; token: string; created_at: string }>(
+      "/auth/api-keys", { method: "POST", body: JSON.stringify({ label }) }),
+  revokeApiKey: (id: string) =>
+    request<{ revoked: boolean }>(`/auth/api-keys/${id}`, { method: "DELETE" }),
   uploadE2EKey: (public_key: string) =>
     request<{ ok: boolean }>("/auth/keys", { method: "POST", body: JSON.stringify({ public_key }) }),
   getUserE2EKey: (user_id: string) =>
@@ -463,6 +469,7 @@ export type WalletSummary = {
   total_spent: number; tips_sent_total: number; subs_sent_total: number;
   subscriptions_count: number; sent: WalletTxn[];
 };
+export type ApiKey = { id: string; label: string; key_prefix: string; created_at: string };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
 export type PublicUser = {
   user_id: string;
