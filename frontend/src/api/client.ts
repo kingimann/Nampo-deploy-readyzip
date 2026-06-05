@@ -515,6 +515,7 @@ export type User = {
   role?: string; // user | mod | admin
   sub_price?: number;
   payout_frequency?: string; // biweekly | monthly
+  payout_threshold?: number;
   needs_policy_agreement?: boolean;
 };
 export type ProfilePatch = {
@@ -523,6 +524,7 @@ export type ProfilePatch = {
   work_name?: string | null; work_longitude?: number | null; work_latitude?: number | null;
   sub_price?: number;
   payout_frequency?: string;
+  payout_threshold?: number;
 };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; created_at: string };
 export type WalletSummary = {

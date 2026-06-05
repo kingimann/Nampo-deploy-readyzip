@@ -26,6 +26,7 @@ class User(BaseModel):
     role: str = "user"            # user | mod | admin
     sub_price: float = 4.99       # monthly subscription price others pay this user
     payout_frequency: str = "monthly"  # biweekly | monthly
+    payout_threshold: float = 0   # hold earnings until balance reaches this
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
     created_at: datetime
 
@@ -69,6 +70,7 @@ class ProfilePatch(BaseModel):
     work_latitude: Optional[float] = None
     sub_price: Optional[float] = None
     payout_frequency: Optional[str] = None   # biweekly | monthly
+    payout_threshold: Optional[float] = None
 
 
 class TipCreate(BaseModel):

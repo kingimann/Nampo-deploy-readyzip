@@ -52,6 +52,16 @@ services:
         value: "1"
       - key: CRON_SECRET
         sync: false
+      # Optional — payout receipt emails (SMTP). Leave blank to skip (in-app
+      # notification receipt still works).
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
 
   # Web frontend — the Expo app exported to a static site. Optional: mobile is
   # built separately with EAS. The web client calls the API cross-origin using

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   ActivityIndicator, Platform, Linking, Alert,
@@ -27,6 +27,8 @@ export default function WalletScreen() {
   const [connecting, setConnecting] = useState(false);
   const [payoutInfo, setPayoutInfo] = useState<Awaited<ReturnType<typeof api.getPayouts>> | null>(null);
   const [runningPayout, setRunningPayout] = useState(false);
+  const [threshold, setThreshold] = useState("");
+  const [savingThreshold, setSavingThreshold] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -44,9 +46,16 @@ export default function WalletScreen() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  useEffect(() => { if (user?.payout_threshold != null) setThreshold(String(user.payout_threshold || "")); }, [user?.payout_threshold]);
+
   const runPayoutsNow = async () => {
     setRunningPayout(true);
     try { await api.runPayouts(); await load(); } catch {} finally { setRunningPayout(false); }
+  };
+  const saveThreshold = async () => {
+    setSavingThreshold(true);
+    try { await api.updateMe({ payout_threshold: Math.max(0, Number(threshold) || 0) }); if (typeof refresh === "function") await refresh(); }
+    catch {} finally { setSavingThreshold(false); }
   };
   const fmtDay = (iso?: string | null) => {
     if (!iso) return "—";
@@ -190,6 +199,24 @@ export default function WalletScreen() {
               </View>
             </View>
             <Text style={styles.payoutsNote}>Paid out automatically on your schedule once you've connected payouts. ${(payoutInfo?.total_paid_out ?? 0).toFixed(2)} paid so far.</Text>
+            <View style={styles.thresholdRow}>
+              <Text style={styles.thresholdLabel}>Hold until balance reaches</Text>
+              <View style={styles.thresholdInputWrap}>
+                <Text style={styles.dollar}>$</Text>
+                <TextInput
+                  style={styles.thresholdInput}
+                  value={threshold}
+                  onChangeText={(t) => setThreshold(t.replace(/[^0-9.]/g, ""))}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={theme.textMuted}
+                  testID="payout-threshold"
+                />
+              </View>
+              <TouchableOpacity style={styles.thresholdBtn} onPress={saveThreshold} disabled={savingThreshold} testID="save-threshold">
+                {savingThreshold ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.thresholdBtnText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
             {(payoutInfo?.history || []).slice(0, 6).map((p) => (
               <View key={p.id} style={styles.payoutRow}>
                 <Ionicons name={p.status === "paid" ? "checkmark-circle" : p.status === "failed" ? "alert-circle" : "time-outline"} size={15} color={p.status === "failed" ? theme.error : theme.primary} />
@@ -302,6 +329,12 @@ const styles = StyleSheet.create({
   payoutDate: { color: theme.textSecondary, fontSize: 13, flex: 1 },
   payoutStatus: { color: theme.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
   payoutAmt: { color: theme.primary, fontSize: 14, fontWeight: "800", width: 70, textAlign: "right" },
+  thresholdRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  thresholdLabel: { color: theme.textSecondary, fontSize: 12.5, flex: 1 },
+  thresholdInputWrap: { flexDirection: "row", alignItems: "center", backgroundColor: theme.surfaceAlt, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 10, height: 38, width: 84 },
+  thresholdInput: { flex: 1, color: theme.textPrimary, fontSize: 14, paddingHorizontal: 2, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  thresholdBtn: { backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 14, height: 38, alignItems: "center", justifyContent: "center" },
+  thresholdBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   priceRow: { flexDirection: "row", gap: 10 },
   priceInput: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, height: 48 },
   dollar: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },

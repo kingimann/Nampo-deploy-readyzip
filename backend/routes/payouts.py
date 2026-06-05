@@ -50,10 +50,12 @@ async def process_payouts(only_due: bool = True) -> dict:
         if not uid:
             continue
         balance = round(total_earned - paid.get(uid, 0), 2)
-        if balance < MIN_PAYOUT:
-            continue
         user = await db.users.find_one({"user_id": uid}, {"_id": 0})
         if not user:
+            continue
+        # Per-creator threshold: hold earnings until the balance reaches it.
+        threshold = max(MIN_PAYOUT, float(user.get("payout_threshold", 0) or 0))
+        if balance < threshold:
             continue
         if only_due:
             last = await db.payouts.find_one({"user_id": uid}, {"_id": 0}, sort=[("created_at", -1)])
@@ -80,6 +82,26 @@ async def process_payouts(only_due: bool = True) -> dict:
             "status": status, "stripe_transfer_id": transfer_id,
             "frequency": user.get("payout_frequency", "monthly"), "created_at": now,
         })
+        # Receipt: in-app notification (always) + best-effort email.
+        try:
+            from routes.notifications import emit_notification
+            await emit_notification(user_id=uid, actor_id=None, ntype="payout",
+                                    message=f"Payout sent: ${balance:.2f}")
+        except Exception:
+            pass
+        try:
+            from services.email import send_email
+            if user.get("email"):
+                where = "your connected account" if status == "paid" else "your balance (test mode)"
+                send_email(
+                    user["email"], f"You've been paid ${balance:.2f}",
+                    f"Hi {user.get('name', 'there')},\n\n"
+                    f"A payout of ${balance:.2f} was sent to {where}.\n"
+                    f"Schedule: {user.get('payout_frequency', 'monthly')}.\n\n"
+                    f"Thanks for creating on Nami.",
+                )
+        except Exception:
+            pass
         created += 1
         total += balance
     return {"payouts_created": created, "total_paid": round(total, 2)}
