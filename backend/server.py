@@ -164,4 +164,9 @@ async def startup():
         asyncio.create_task(_keepalive_loop())   # keep the free instance warm
     except Exception:
         pass
+    try:
+        from services.claude_bot import start_bot
+        start_bot()                               # @claude replies in-app (if API key set)
+    except Exception:
+        pass
     logger.info("Startup complete")
