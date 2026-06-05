@@ -126,7 +126,8 @@ export default function AdvertiseScreen() {
   };
 
   const doTopup = async () => {
-    const amt = Math.max(1, Number(topupAmount) || 0);
+    const amt = Number(topupAmount) || 0;
+    if (amt <= 0) { setTopupMsg("Enter an amount to add."); return; }
     setTopupBusy(true);
     setTopupMsg(null);
     try {
@@ -184,16 +185,9 @@ export default function AdvertiseScreen() {
                     <Text style={styles.addFundsText}>Add funds</Text>
                   </TouchableOpacity>
                 </View>
-                {account?.paused ? (
-                  <View style={styles.pausedBanner}>
-                    <Ionicons name="pause-circle" size={14} color={theme.error} />
-                    <Text style={styles.pausedText}>Your ads are paused — add funds to start showing them again.</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.balanceSub}>
-                    Charged as your ads are seen: ${(account?.rates?.view ?? 0.01).toFixed(2)}/view · ${(account?.rates?.click ?? 0.10).toFixed(2)}/click · ${(account?.rates?.comment ?? 0.05).toFixed(2)}/comment.
-                  </Text>
-                )}
+                <Text style={styles.balanceSub}>
+                  Your ads always show — funding is optional. When you add funds, usage is drawn as ads are seen: ${(account?.rates?.view ?? 0.01).toFixed(2)}/view · ${(account?.rates?.click ?? 0.10).toFixed(2)}/click · ${(account?.rates?.comment ?? 0.05).toFixed(2)}/comment.
+                </Text>
                 <Text style={styles.balanceMeta}>
                   {account?.active_campaigns ?? 0} active · ${(account?.lifetime_spend ?? 0).toFixed(2)} spent so far
                 </Text>
@@ -474,7 +468,7 @@ export default function AdvertiseScreen() {
             {topupMsg && <Text style={styles.topupMsg}>{topupMsg}</Text>}
 
             <TouchableOpacity style={[styles.payBtn, topupBusy && { opacity: 0.7 }]} onPress={doTopup} disabled={topupBusy} testID="topup-submit">
-              {topupBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>Add ${Math.max(1, Number(topupAmount) || 0).toFixed(2)}</Text>}
+              {topupBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>Add ${(Number(topupAmount) || 0).toFixed(2)}</Text>}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -515,12 +509,6 @@ const styles = StyleSheet.create({
   addFundsText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   balanceSub: { color: theme.textSecondary, fontSize: 12.5, lineHeight: 18 },
   balanceMeta: { color: theme.textMuted, fontSize: 12 },
-  pausedBanner: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: theme.surfaceAlt, borderRadius: 10, borderWidth: 1, borderColor: theme.error,
-    paddingHorizontal: 10, paddingVertical: 8,
-  },
-  pausedText: { flex: 1, color: theme.error, fontSize: 12.5, fontWeight: "600" },
 
   presetRow: { flexDirection: "row", gap: 8, marginVertical: 10 },
   preset: { flex: 1, alignItems: "center", paddingVertical: 11, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },

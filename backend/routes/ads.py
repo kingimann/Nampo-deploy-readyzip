@@ -102,17 +102,9 @@ async def next_ad(
     now = datetime.now(timezone.utc)
     q = {"promoted_until": {"$gt": now}, "user_id": {"$ne": me["user_id"]}}
     rows = await db.posts.find(q, {"_id": 0}).sort("promoted_until", -1).limit(40).to_list(40)
-    # Budget campaigns stop serving once the budget is spent.
-    rows = [r for r in rows if not (r.get("ad_budget") and float(r.get("ad_spent", 0) or 0) >= float(r["ad_budget"]))]
-    # Pause advertisers whose prepaid ad balance is depleted (funded accounts only).
-    adv_ids = {r.get("user_id") for r in rows if r.get("user_id")}
-    if adv_ids:
-        advs = await db.users.find(
-            {"user_id": {"$in": list(adv_ids)}}, {"_id": 0, "user_id": 1, "ad_balance": 1}
-        ).to_list(len(adv_ids))
-        paused = {a["user_id"] for a in advs if a.get("ad_balance") is not None and float(a.get("ad_balance") or 0) <= 0}
-        if paused:
-            rows = [r for r in rows if r.get("user_id") not in paused]
+    # No requirements or minimums to be served: any active promoted post shows,
+    # regardless of ad balance or budget. Balances/budgets only meter billing —
+    # they never gate whether an ad appears.
     # Drop ads this viewer has hidden or reported.
     hidden = {h.get("post_id") for h in await db.ad_hides.find({"viewer_id": me["user_id"]}, {"_id": 0, "post_id": 1}).to_list(500)}
     rows = [r for r in rows if r["id"] not in hidden]
@@ -343,7 +335,7 @@ async def ad_account(authorization: Optional[str] = Header(None)):
     return {
         "balance": bal_f,
         "funded": funded,
-        "paused": funded and bal_f <= 0,
+        "paused": False,  # ads never pause — funding is optional, no minimum
         "active_campaigns": active,
         "lifetime_spend": spent,
         "stripe_enabled": pay_on,
