@@ -45,12 +45,21 @@ export default function PostDetailScreen() {
     setReplies((arr) => arr.map((r) => r.id === target.id ? modify(r) : r));
   };
 
+  // Replace a post's engagement fields with the server's authoritative values.
+  const applyEngagement = (u: Post) => updateInList(u, (q) => ({
+    ...q,
+    liked_by_me: u.liked_by_me, likes_count: u.likes_count,
+    disliked_by_me: u.disliked_by_me, dislikes_count: u.dislikes_count,
+  }));
+
   const onLike = async (p: Post) => {
     updateInList(p, (q) => ({
       ...q, liked_by_me: !q.liked_by_me,
       likes_count: q.likes_count + (q.liked_by_me ? -1 : 1),
+      disliked_by_me: q.liked_by_me ? q.disliked_by_me : false,
+      dislikes_count: (q.dislikes_count || 0) - (!q.liked_by_me && q.disliked_by_me ? 1 : 0),
     }));
-    try { await api.toggleLike(p.id); } catch { load(); }
+    try { applyEngagement(await api.toggleLike(p.id)); } catch { load(); }
   };
   const onDislike = async (p: Post) => {
     updateInList(p, (q) => {
@@ -63,7 +72,7 @@ export default function PostDetailScreen() {
         likes_count: q.likes_count - (nowDis && q.liked_by_me ? 1 : 0),
       };
     });
-    try { await api.toggleDislike(p.id); } catch { load(); }
+    try { applyEngagement(await api.toggleDislike(p.id)); } catch { load(); }
   };
   const onRepost = async (p: Post) => {
     const target = p.repost_of || p.id;

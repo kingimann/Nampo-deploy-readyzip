@@ -70,6 +70,11 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
     try { await api.deletePost(c.id); } catch {}
   };
 
+  const applyEngagement = (u: Post) => setReplies((arr) => arr.map((r) =>
+    r.id === u.id
+      ? { ...r, liked_by_me: u.liked_by_me, likes_count: u.likes_count, disliked_by_me: u.disliked_by_me, dislikes_count: u.dislikes_count }
+      : r,
+  ));
   const reactLike = (c: Post) => {
     setReplies((arr) => arr.map((r) => {
       if (r.id !== c.id) return r;
@@ -82,7 +87,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         dislikes_count: (r.dislikes_count || 0) - (nowLiked && r.disliked_by_me ? 1 : 0),
       };
     }));
-    api.toggleLike(c.id).catch(() => {});
+    api.toggleLike(c.id).then(applyEngagement).catch(() => {});
   };
   const reactDislike = (c: Post) => {
     setReplies((arr) => arr.map((r) => {
@@ -96,7 +101,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         likes_count: r.likes_count - (nowDis && r.liked_by_me ? 1 : 0),
       };
     }));
-    api.toggleDislike(c.id).catch(() => {});
+    api.toggleDislike(c.id).then(applyEngagement).catch(() => {});
   };
 
   const openProfile = (name?: string) => {
