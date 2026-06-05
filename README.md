@@ -343,7 +343,7 @@ All routes are mounted under the **`/api`** prefix and (except auth/registration
 | **Notifications**  | `/notifications`, `/notifications/unread`, `/notifications/read-all` | Notification feed, unread counts, mark single/all read, delete. |
 | **Foursquare**     | `/foursquare/match` | Match a place against Foursquare for a business profile (needs `FSQ_API_KEY`). |
 
-The full set of endpoints is the source of truth — see each module under `backend/routes/`. (Interactive docs are available at `/docs` when running locally, since FastAPI exposes Swagger by default.)
+The full set of endpoints is the source of truth — see each module under `backend/routes/`. For a developer-facing reference see **`API.md`**, the in-app **Developer API** screen (Settings → Developer API, with API-key management), the machine-readable `GET /api/v1/info`, and the interactive **Swagger docs at `/docs`** (`/openapi.json` for the schema) which FastAPI exposes by default.
 
 ---
 

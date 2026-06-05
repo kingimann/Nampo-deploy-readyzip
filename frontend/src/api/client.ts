@@ -492,7 +492,7 @@ export type WalletSummary = {
   total_spent: number; tips_sent_total: number; subs_sent_total: number;
   subscriptions_count: number; sent: WalletTxn[];
 };
-export type ApiKey = { id: string; label: string; key_prefix: string; created_at: string };
+export type ApiKey = { id: string; label: string; key_prefix: string; created_at: string; last_used_at?: string | null };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
 export type PublicUser = {
   user_id: string;

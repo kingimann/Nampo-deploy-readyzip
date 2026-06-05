@@ -15,6 +15,7 @@ from routes import (
     guides as guides_routes,
     marketplace as marketplace_routes,
     messaging as messaging_routes,
+    meta as meta_routes,
     notifications as notifications_routes,
     payments as payments_routes,
     places as places_routes,
@@ -24,7 +25,22 @@ from routes import (
     users as users_routes,
 )
 
-app = FastAPI()
+API_VERSION = "1.0.0"
+
+app = FastAPI(
+    title="Nami API",
+    version=API_VERSION,
+    description=(
+        "REST API for Nami — social feed, maps & directions, messaging, "
+        "communities, marketplace, creator monetization and more.\n\n"
+        "**Auth:** send `Authorization: Bearer <API key or session token>` on every "
+        "request. Generate API keys in the app under Settings → Developer API.\n\n"
+        "All endpoints are under the `/api` prefix. Interactive docs: `/docs` · "
+        "OpenAPI schema: `/openapi.json`."
+    ),
+    contact={"name": "Nami", "url": "https://nampo-web.onrender.com"},
+    license_info={"name": "Proprietary"},
+)
 
 _origins = os.environ.get("CORS_ORIGINS", "*")
 allow_origins = (
@@ -55,6 +71,7 @@ async def health():
 
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(meta_routes.router)
 api_router.include_router(auth_routes.router)
 api_router.include_router(users_routes.router)
 api_router.include_router(places_routes.router)

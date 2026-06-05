@@ -117,6 +117,18 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     user = await db.users.find_one({"user_id": session["user_id"]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Best-effort "last used" tracking for developer API keys (throttled to once
+    # an hour so it doesn't write on every request). Never blocks the request.
+    if session.get("kind") == "api_key":
+        try:
+            now = datetime.now(timezone.utc)
+            last = session.get("last_used_at")
+            if not last or (now - _norm_dt(last)).total_seconds() > 3600:
+                await db.user_sessions.update_one(
+                    {"session_token": token}, {"$set": {"last_used_at": now}}
+                )
+        except Exception:
+            pass
     return user
 
 
