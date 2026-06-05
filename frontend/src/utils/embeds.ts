@@ -43,3 +43,21 @@ export function getEmbed(text?: string | null): Embed | null {
   }
   return null;
 }
+
+/**
+ * Detect an image/GIF link in text (direct files, imgur, giphy) and return a
+ * directly-renderable image URL, or null. Used to show images/GIFs inline in
+ * posts and comments.
+ */
+export function getInlineImage(text?: string | null): string | null {
+  if (!text) return null;
+  let m: RegExpMatchArray | null;
+  // Direct image/gif file URL.
+  if ((m = text.match(/https?:\/\/[^\s]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s]*)?/i))) return m[0];
+  // Giphy share or media link → direct gif.
+  if ((m = text.match(/media\.giphy\.com\/media\/([A-Za-z0-9]+)/))) return `https://media.giphy.com/media/${m[1]}/giphy.gif`;
+  if ((m = text.match(/giphy\.com\/gifs\/[\w-]*?-([A-Za-z0-9]{6,})(?:[/?\s]|$)/))) return `https://media.giphy.com/media/${m[1]}/giphy.gif`;
+  // Imgur single image page → direct file (skip albums/galleries).
+  if ((m = text.match(/(?:i\.)?imgur\.com\/(?!a\/|gallery\/)([A-Za-z0-9]{5,})(?:\.(?:png|jpe?g|gif|webp))?/))) return `https://i.imgur.com/${m[1]}.png`;
+  return null;
+}
