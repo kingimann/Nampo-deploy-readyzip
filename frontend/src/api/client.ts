@@ -417,15 +417,19 @@ export type FsqProfile = {
   photo?: string | null;
   distance?: number | null;
 };
+export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact";
 export type Message = {
   id: string; conversation_id: string; sender_id: string;
-  type: "text" | "place" | "media" | "voice" | "post"; text?: string;
+  type: MsgType; text?: string;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
   audio_base64?: string | null;
   audio_duration_ms?: number | null;
   post_id?: string | null;
+  gif_url?: string | null;
+  file_base64?: string | null; file_name?: string | null; file_size?: number | null; file_mime?: string | null;
+  contact_user_id?: string | null; contact_name?: string | null; contact_picture?: string | null;
   link_preview?: LinkPreview | null;
   deleted?: boolean;
   edited_at?: string | null;
@@ -433,13 +437,16 @@ export type Message = {
   created_at: string;
 };
 export type MessageCreate = {
-  type: "text" | "place" | "media" | "voice" | "post"; text?: string;
+  type: MsgType; text?: string;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
   audio_base64?: string;
   audio_duration_ms?: number;
   post_id?: string;
+  gif_url?: string;
+  file_base64?: string; file_name?: string; file_size?: number; file_mime?: string;
+  contact_user_id?: string; contact_name?: string; contact_picture?: string;
 };
 export type ConversationView = {
   id: string;

@@ -387,6 +387,15 @@ async def send_message(
         exists = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})
         if not exists:
             raise HTTPException(status_code=404, detail="Post not found")
+    if body.type == "gif" and not (body.gif_url or "").strip():
+        raise HTTPException(status_code=400, detail="gif_url required")
+    if body.type == "file":
+        if not (body.file_base64 or ""):
+            raise HTTPException(status_code=400, detail="File required")
+        if len(body.file_base64) > 8 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (8MB limit)")
+    if body.type == "contact" and not (body.contact_user_id or body.contact_name):
+        raise HTTPException(status_code=400, detail="Contact required")
     # Link preview for text messages (best-effort, mirrors post creation).
     link_prev: Optional[dict] = None
     if body.type == "text":
@@ -411,6 +420,14 @@ async def send_message(
         "audio_base64": audio_b64,
         "audio_duration_ms": body.audio_duration_ms if body.type == "voice" else None,
         "post_id": post_id,
+        "gif_url": body.gif_url if body.type == "gif" else None,
+        "file_base64": body.file_base64 if body.type == "file" else None,
+        "file_name": (body.file_name or "file")[:200] if body.type == "file" else None,
+        "file_size": body.file_size if body.type == "file" else None,
+        "file_mime": body.file_mime if body.type == "file" else None,
+        "contact_user_id": body.contact_user_id if body.type == "contact" else None,
+        "contact_name": (body.contact_name or "")[:120] if body.type == "contact" else None,
+        "contact_picture": body.contact_picture if body.type == "contact" else None,
         "link_preview": link_prev,
         "deleted": False,
         "created_at": now,
@@ -433,6 +450,12 @@ async def send_message(
         preview = "🎤 sent a voice message"
     elif body.type == "post":
         preview = "📄 shared a post"
+    elif body.type == "gif":
+        preview = "🎞️ sent a GIF"
+    elif body.type == "file":
+        preview = f"📎 {(body.file_name or 'file')[:60]}"
+    elif body.type == "contact":
+        preview = f"👤 {(body.contact_name or 'contact')[:60]}"
     else:
         preview = "📎 sent media"
     for pid in conv["participant_ids"]:

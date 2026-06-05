@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
 import {
   useAudioRecorder,
   AudioModule,
@@ -15,12 +16,14 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, Message, Post } from "@/src/api/client";
+import { api, Message, Post, PublicUser } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
 import VoiceMessage from "@/src/components/VoiceMessage";
 import RichText from "@/src/components/RichText";
 import LinkPreviewCard from "@/src/components/LinkPreviewCard";
 import QuoteCard from "@/src/components/QuoteCard";
+import GifPickerSheet from "@/src/components/GifPickerSheet";
+import ContactPickerSheet from "@/src/components/ContactPickerSheet";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { ensureKeyPair, getPeerPublicKey, encryptForPeer, isE2E, tryDecrypt } from "@/src/utils/e2e";
@@ -44,6 +47,8 @@ export default function ChatScreen() {
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
   const [sharedPosts, setSharedPosts] = useState<Record<string, Post>>({});
+  const [gifOpen, setGifOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
   const recordStartRef = useRef<number>(0);
 
   // Generate / load our keypair and publish public key. Then fetch peer's key.
@@ -182,6 +187,54 @@ export default function ChatScreen() {
     } finally {
       setSending(false);
     }
+  };
+
+  const sendGif = async (gifUrl: string) => {
+    if (!id || !gifUrl) return;
+    try {
+      const msg = await api.sendMessage(id, { type: "gif", gif_url: gifUrl });
+      setMessages((m) => [...m, msg]);
+    } catch {}
+  };
+
+  const pickFile = async () => {
+    if (!id) return;
+    try {
+      const res: any = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+      if (res.canceled) return;
+      const asset = res.assets?.[0];
+      if (!asset?.uri) return;
+      // Read the file into a base64 data URI (works web + native).
+      const blob = await (await fetch(asset.uri)).blob();
+      const dataUri: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      if (dataUri.length > 8 * 1024 * 1024) { return; }
+      const msg = await api.sendMessage(id, {
+        type: "file",
+        file_base64: dataUri,
+        file_name: asset.name || "file",
+        file_size: asset.size || blob.size,
+        file_mime: asset.mimeType || blob.type,
+      });
+      setMessages((m) => [...m, msg]);
+    } catch {}
+  };
+
+  const sendContact = async (u: PublicUser) => {
+    if (!id) return;
+    try {
+      const msg = await api.sendMessage(id, {
+        type: "contact",
+        contact_user_id: u.user_id,
+        contact_name: u.name,
+        contact_picture: u.picture || undefined,
+      });
+      setMessages((m) => [...m, msg]);
+    } catch {}
   };
 
   const send = async () => {
@@ -428,6 +481,44 @@ export default function ChatScreen() {
                           <ActivityIndicator color={mine ? "#fff" : theme.primary} size="small" />
                         </View>
                       )
+                    ) : item.type === "gif" && item.gif_url ? (
+                      <Image source={{ uri: item.gif_url }} style={styles.gifImg} resizeMode="cover" />
+                    ) : item.type === "file" ? (
+                      <TouchableOpacity
+                        style={styles.fileRow}
+                        onPress={() => item.file_base64 && Linking.openURL(item.file_base64).catch(() => {})}
+                        testID={`file-msg-${item.id}`}
+                      >
+                        <View style={[styles.fileIcon, { backgroundColor: mine ? "rgba(255,255,255,0.2)" : theme.surfaceAlt }]}>
+                          <Ionicons name="document-text" size={20} color={mine ? "#fff" : theme.primary} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.fileName, mine && { color: "#fff" }]} numberOfLines={1}>{item.file_name || "File"}</Text>
+                          {!!item.file_size && (
+                            <Text style={[styles.fileSize, mine && { color: "rgba(255,255,255,0.75)" }]}>
+                              {(item.file_size / 1024).toFixed(0)} KB
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    ) : item.type === "contact" ? (
+                      <TouchableOpacity
+                        style={styles.contactRow}
+                        onPress={() => item.contact_name && router.push({ pathname: "/user/[name]", params: { name: item.contact_name } })}
+                        testID={`contact-msg-${item.id}`}
+                      >
+                        <View style={styles.contactAvatar}>
+                          {item.contact_picture ? (
+                            <Image source={{ uri: item.contact_picture }} style={{ width: "100%", height: "100%" }} />
+                          ) : (
+                            <Text style={styles.contactInit}>{(item.contact_name?.[0] || "?").toUpperCase()}</Text>
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.contactName, mine && { color: "#fff" }]} numberOfLines={1}>{item.contact_name}</Text>
+                          <Text style={[styles.contactSub, mine && { color: "rgba(255,255,255,0.75)" }]}>Tap to view profile</Text>
+                        </View>
+                      </TouchableOpacity>
                     ) : (
                       <View>
                         <RichText text={bodyText} style={[styles.bubbleText, mine && { color: "#fff" }]} />
@@ -500,6 +591,36 @@ export default function ChatScreen() {
                     )}
                   </View>
                   <Text style={styles.attachItemLabel}>Location</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.attachItem}
+                  onPress={() => { setAttachOpen(false); setGifOpen(true); }}
+                  testID="attach-gif"
+                >
+                  <View style={[styles.attachItemIcon, { backgroundColor: "#EC4899" }]}>
+                    <Ionicons name="film" size={20} color="#fff" />
+                  </View>
+                  <Text style={styles.attachItemLabel}>GIF</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.attachItem}
+                  onPress={() => { setAttachOpen(false); pickFile(); }}
+                  testID="attach-file"
+                >
+                  <View style={[styles.attachItemIcon, { backgroundColor: "#F59E0B" }]}>
+                    <Ionicons name="document" size={20} color="#fff" />
+                  </View>
+                  <Text style={styles.attachItemLabel}>File</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.attachItem}
+                  onPress={() => { setAttachOpen(false); setContactOpen(true); }}
+                  testID="attach-contact"
+                >
+                  <View style={[styles.attachItemIcon, { backgroundColor: "#3B82F6" }]}>
+                    <Ionicons name="person" size={20} color="#fff" />
+                  </View>
+                  <Text style={styles.attachItemLabel}>Contact</Text>
                 </TouchableOpacity>
               </View>
             </>
@@ -586,6 +707,9 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
+      <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
+      <ContactPickerSheet visible={contactOpen} onClose={() => setContactOpen(false)} onPick={sendContact} />
+
       {/* Message action sheet (long-press a bubble) */}
       <Modal
         visible={!!actionMsg}
@@ -660,6 +784,16 @@ const styles = StyleSheet.create({
   mediaWrap: { width: 250 },
   sharedWrap: { width: 250 },
   sharedLoading: { width: 200, height: 80, alignItems: "center", justifyContent: "center" },
+  gifImg: { width: 200, height: 200, borderRadius: 12, backgroundColor: theme.surfaceAlt },
+  fileRow: { flexDirection: "row", alignItems: "center", gap: 10, width: 220 },
+  fileIcon: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  fileName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
+  fileSize: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+  contactRow: { flexDirection: "row", alignItems: "center", gap: 10, width: 220 },
+  contactAvatar: { width: 42, height: 42, borderRadius: 21, overflow: "hidden", backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+  contactInit: { color: "#fff", fontSize: 17, fontWeight: "700" },
+  contactName: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  contactSub: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
   placeHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   placeName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", flex: 1 },
   placeAddr: { color: theme.textSecondary, fontSize: 12 },

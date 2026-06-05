@@ -149,7 +149,7 @@ class Review(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    type: Literal["text", "place", "media", "voice", "post"] = "text"
+    type: Literal["text", "place", "media", "voice", "post", "gif", "file", "contact"] = "text"
     text: Optional[str] = ""
     place_name: Optional[str] = None
     place_address: Optional[str] = None
@@ -159,6 +159,14 @@ class MessageCreate(BaseModel):
     audio_base64: Optional[str] = None       # voice note (data URI or raw base64)
     audio_duration_ms: Optional[int] = None  # length of the voice note
     post_id: Optional[str] = None            # shared post (type == "post")
+    gif_url: Optional[str] = None            # type == "gif"
+    file_base64: Optional[str] = None        # type == "file" (data URI)
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    file_mime: Optional[str] = None
+    contact_user_id: Optional[str] = None    # type == "contact" (an app user)
+    contact_name: Optional[str] = None
+    contact_picture: Optional[str] = None
 
 
 class MessageEdit(BaseModel):
@@ -183,6 +191,14 @@ class Message(BaseModel):
     audio_base64: Optional[str] = None       # voice note
     audio_duration_ms: Optional[int] = None  # length of the voice note
     post_id: Optional[str] = None            # shared post (type == "post")
+    gif_url: Optional[str] = None            # type == "gif"
+    file_base64: Optional[str] = None        # type == "file"
+    file_name: Optional[str] = None
+    file_size: Optional[int] = None
+    file_mime: Optional[str] = None
+    contact_user_id: Optional[str] = None    # type == "contact"
+    contact_name: Optional[str] = None
+    contact_picture: Optional[str] = None
     link_preview: Optional[dict] = None      # OpenGraph preview for links in text
     deleted: bool = False                    # soft-deleted tombstone
     reactions: dict = {}              # {user_id: emoji}
