@@ -165,6 +165,10 @@ class MessageEdit(BaseModel):
     text: str
 
 
+class ReportCreate(BaseModel):
+    reason: Optional[str] = "other"
+
+
 class Message(BaseModel):
     id: str
     conversation_id: str

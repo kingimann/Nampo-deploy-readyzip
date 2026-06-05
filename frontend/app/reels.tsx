@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  Image, useWindowDimensions, Platform, RefreshControl, Pressable,
+  Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,9 +10,11 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { api, Post } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
+import CommentsSheet from "@/src/components/CommentsSheet";
 
-function Reel({ post, active, muted, onToggleMute, screenW, screenH }: {
-  post: Post; active: boolean; muted: boolean; onToggleMute: () => void; screenW: number; screenH: number;
+function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH }: {
+  post: Post; active: boolean; muted: boolean; onToggleMute: () => void;
+  onOpenComments: (p: Post) => void; screenW: number; screenH: number;
 }) {
   const video = post.media?.find((m) => m.type === "video");
   const image = post.media?.find((m) => m.type === "image");
@@ -50,8 +52,20 @@ function Reel({ post, active, muted, onToggleMute, screenW, screenH }: {
     setRepostCount((n) => n + (reposted ? -1 : 1));
     try { await api.toggleRepost(post.repost_of || post.id); } catch {}
   };
-  const onComment = () => router.push({ pathname: "/post/[id]", params: { id: post.id } });
+  const onComment = () => onOpenComments(post);
   const onUser = () => router.push({ pathname: "/user/[name]", params: { name: post.author.name } });
+  const onReport = () => {
+    const doReport = () => { api.reportPost(post.id, "inappropriate").catch(() => {}); };
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line no-alert
+      if (typeof window !== "undefined" && window.confirm("Report this reel?")) doReport();
+    } else {
+      Alert.alert("Report reel", "Report this reel for review?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Report", style: "destructive", onPress: doReport },
+      ]);
+    }
+  };
 
   const imageUri = image?.base64 || "";
 
@@ -122,6 +136,9 @@ function Reel({ post, active, muted, onToggleMute, screenW, screenH }: {
           <Ionicons name="eye-outline" size={26} color="#fff" />
           <Text style={styles.metric}>{post.views_count || 0}</Text>
         </View>
+        <TouchableOpacity style={styles.iconBtn} onPress={onReport} testID={`reel-report-${post.id}`}>
+          <Ionicons name="flag-outline" size={24} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.bottom}>
@@ -144,12 +161,23 @@ export default function ReelsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [focused, setFocused] = useState(true);
+  const [commentsPost, setCommentsPost] = useState<Post | null>(null);
 
   const load = useCallback(async () => {
-    try { setItems(await api.reelsFeed()); }
-    catch {} finally { setLoading(false); setRefreshing(false); }
+    try {
+      const list = await api.reelsFeed();
+      // De-dupe so the same video never shows twice (and a lone video shows once).
+      const seen = new Set<string>();
+      setItems(list.filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true))));
+    } catch {} finally { setLoading(false); setRefreshing(false); }
   }, []);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
+  useFocusEffect(useCallback(() => {
+    setFocused(true);
+    load();
+    return () => setFocused(false);
+  }, [load]));
 
   // When opened from a feed video, jump to that reel.
   const focusIndex = focus ? items.findIndex((i) => i.id === focus) : -1;
@@ -208,15 +236,22 @@ export default function ReelsScreen() {
           renderItem={({ item, index }) => (
             <Reel
               post={item}
-              active={index === activeIdx}
+              active={index === activeIdx && focused && !commentsPost}
               muted={muted}
               onToggleMute={() => setMuted((m) => !m)}
+              onOpenComments={(p) => setCommentsPost(p)}
               screenW={screenW}
               screenH={screenH}
             />
           )}
         />
       )}
+
+      <CommentsSheet
+        visible={!!commentsPost}
+        post={commentsPost}
+        onClose={() => setCommentsPost(null)}
+      />
     </SafeAreaView>
   );
 }

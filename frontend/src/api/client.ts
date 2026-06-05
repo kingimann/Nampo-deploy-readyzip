@@ -157,6 +157,10 @@ export const api = {
     request<Post>("/posts", { method: "POST", body: JSON.stringify(body) }),
   editPost: (id: string, body: { text?: string; media?: PostMedia[] }) =>
     request<Post>(`/posts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  reportPost: (id: string, reason?: string) =>
+    request<{ ok: boolean }>(`/posts/${id}/report`, {
+      method: "POST", body: JSON.stringify({ reason: reason || "other" }),
+    }),
   deletePost: (id: string) =>
     request<{ ok: boolean }>(`/posts/${id}`, { method: "DELETE" }),
   getPost: (id: string) => request<Post>(`/posts/${id}`),

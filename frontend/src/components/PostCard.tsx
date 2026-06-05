@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image,
+  View, Text, StyleSheet, TouchableOpacity, Image, Alert, Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Post } from "@/src/api/client";
+import { api, Post } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import MediaGrid from "./MediaGrid";
 import RichText from "./RichText";
@@ -68,6 +68,22 @@ export default function PostCard({
     else onReply(display);
   };
 
+  const reportPost = () => {
+    const doReport = () => { api.reportPost(display.id, "inappropriate").catch(() => {}); };
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line no-alert
+      if (typeof window !== "undefined" && window.confirm("Report this post for review?")) doReport();
+    } else {
+      Alert.alert("Report post", "Report this post for review?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Report", style: "destructive", onPress: doReport },
+      ]);
+    }
+  };
+
+  const showMenu = !isOwner || !!onMore;
+  const onMenuPress = () => { if (isOwner) onMore?.(post); else reportPost(); };
+
   return (
     <TouchableOpacity
       style={styles.card}
@@ -105,9 +121,9 @@ export default function PostCard({
             )}
           </View>
         </View>
-        {isOwner && onMore && (
+        {showMenu && (
           <TouchableOpacity
-            onPress={(e) => { e.stopPropagation?.(); onMore(post); }}
+            onPress={(e) => { e.stopPropagation?.(); onMenuPress(); }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             testID={`post-more-${post.id}`}
           >

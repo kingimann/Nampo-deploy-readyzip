@@ -9,11 +9,12 @@ from db import DuplicateKeyError
 from core import db, get_current_user
 from models import (
     LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
-    PostPatch, PublicUser,
+    PostPatch, PublicUser, ReportCreate,
 )
 from routes.notifications import emit_notification
 from services.link_preview import fetch_link_preview, first_url
 import re
+import math
 import asyncio
 from datetime import timedelta
 
@@ -300,15 +301,81 @@ async def list_replies(post_id: str, authorization: Optional[str] = Header(None)
     return [await _hydrate_post(d, user["user_id"]) for d in docs]
 
 
+async def _viewer_affinity(viewer_id: str):
+    """Build the viewer's affinity to authors and hashtags from what they
+    like / bookmark / view. Heavier weight for stronger signals."""
+    async def _ids(coll, limit, weight):
+        rows = await coll.find(
+            {"user_id": viewer_id}, {"_id": 0, "post_id": 1}
+        ).sort("created_at", -1).limit(limit).to_list(limit)
+        return [(r["post_id"], weight) for r in rows if r.get("post_id")]
+
+    pairs = (
+        await _ids(db.post_bookmarks, 100, 4.0)
+        + await _ids(db.post_likes, 200, 3.0)
+        + await _ids(db.post_views, 300, 1.0)
+    )
+    weight_by_post: dict = {}
+    for pid, w in pairs:
+        weight_by_post[pid] = weight_by_post.get(pid, 0.0) + w
+    author_aff: dict = {}
+    tag_aff: dict = {}
+    pids = list(weight_by_post.keys())
+    if pids:
+        docs = await db.posts.find(
+            {"id": {"$in": pids}}, {"_id": 0, "id": 1, "user_id": 1, "hashtags": 1}
+        ).to_list(len(pids))
+        for d in docs:
+            w = weight_by_post.get(d["id"], 0.0)
+            author_aff[d.get("user_id")] = author_aff.get(d.get("user_id"), 0.0) + w
+            for t in (d.get("hashtags") or []):
+                tag_aff[t] = tag_aff.get(t, 0.0) + w
+    return author_aff, tag_aff
+
+
+def _rank_score(doc: dict, author_aff: dict, tag_aff: dict, now: datetime) -> float:
+    """Blend personal affinity, overall engagement, and recency into one score."""
+    score = 2.0 * author_aff.get(doc.get("user_id"), 0.0)
+    for t in (doc.get("hashtags") or []):
+        score += 1.0 * tag_aff.get(t, 0.0)
+    eng = (
+        doc.get("likes_count", 0)
+        + 2.0 * doc.get("replies_count", 0)
+        + 1.5 * doc.get("reposts_count", 0)
+        + 0.2 * doc.get("views_count", 0)
+    )
+    score += 0.6 * math.log1p(max(0.0, eng))
+    created = doc.get("created_at")
+    age_h = 1e6
+    try:
+        age_h = max(0.0, (now - created).total_seconds() / 3600.0)
+    except Exception:
+        pass
+    score += 6.0 * math.exp(-age_h / 36.0)  # decays over ~1.5 days
+    return score
+
+
+async def _rank_docs(docs: list, viewer_id: str, top: int) -> list:
+    """Personalized re-rank: best matches for this viewer first."""
+    if not docs:
+        return docs
+    author_aff, tag_aff = await _viewer_affinity(viewer_id)
+    now = datetime.now(timezone.utc)
+    ranked = sorted(docs, key=lambda d: _rank_score(d, author_aff, tag_aff, now), reverse=True)
+    return ranked[:top]
+
+
 @router.get("/feed/explore", response_model=List[Post])
 async def explore_feed(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    # Pull a broad recent candidate set, then rank it for this viewer.
     cursor = db.posts.find(
         {"parent_id": None, "group_id": {"$in": [None, ""]}},
         {"_id": 0},
-    ).sort("created_at", -1).limit(100)
-    docs = await cursor.to_list(100)
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    ).sort("created_at", -1).limit(300)
+    docs = await cursor.to_list(300)
+    ranked = await _rank_docs(docs, user["user_id"], 100)
+    return [await _hydrate_post(d, user["user_id"]) for d in ranked]
 
 
 @router.get("/feed/home", response_model=List[Post])
@@ -322,10 +389,11 @@ async def home_feed(authorization: Optional[str] = Header(None)):
         db.posts.find(
             {"parent_id": None, "user_id": {"$in": ids}, "group_id": {"$in": [None, ""]}},
             {"_id": 0},
-        ).sort("created_at", -1).limit(100)
+        ).sort("created_at", -1).limit(200)
     )
-    docs = await cursor.to_list(100)
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    docs = await cursor.to_list(200)
+    ranked = await _rank_docs(docs, user["user_id"], 100)
+    return [await _hydrate_post(d, user["user_id"]) for d in ranked]
 
 
 @router.get("/posts/user/{user_id}", response_model=List[Post])
@@ -579,18 +647,46 @@ async def record_view(post_id: str, authorization: Optional[str] = Header(None))
         return {"viewed": False}
 
 
+@router.post("/posts/{post_id}/report")
+async def report_post(
+    post_id: str, body: ReportCreate, authorization: Optional[str] = Header(None)
+):
+    """Flag a post or reel for moderation (one report per user per post)."""
+    user = await get_current_user(authorization)
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    existing = await db.reports.find_one(
+        {"post_id": post_id, "reporter_id": user["user_id"]}, {"_id": 0, "id": 1}
+    )
+    if not existing:
+        await db.reports.insert_one({
+            "id": str(uuid.uuid4()),
+            "post_id": post_id,
+            "reporter_id": user["user_id"],
+            "reason": (body.reason or "other")[:200],
+            "created_at": datetime.now(timezone.utc),
+        })
+    return {"ok": True}
+
+
 @router.get("/feed/reels", response_model=List[Post])
 async def reels_feed(authorization: Optional[str] = Header(None)):
-    """Vertical video feed: posts that contain at least one video media item."""
+    """Vertical video feed: posts that contain at least one video media item,
+    de-duplicated and personalized for the viewer."""
     user = await get_current_user(authorization)
     cursor = (
         db.posts.find(
             {"parent_id": None, "media": {"$elemMatch": {"type": "video"}}},
             {"_id": 0},
-        ).sort("created_at", -1).limit(50)
+        ).sort("created_at", -1).limit(150)
     )
-    docs = await cursor.to_list(50)
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    docs = await cursor.to_list(150)
+    # De-dupe by id so the same video never repeats.
+    seen: set = set()
+    unique = [d for d in docs if not (d["id"] in seen or seen.add(d["id"]))]
+    ranked = await _rank_docs(unique, user["user_id"], 50)
+    return [await _hydrate_post(d, user["user_id"]) for d in ranked]
 
 
 @router.get("/posts/user/{user_id}/all", response_model=List[Post])
