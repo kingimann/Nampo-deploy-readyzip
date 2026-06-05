@@ -22,6 +22,15 @@ from routes.ads import bill_link_ad, _seen_recently
 router = APIRouter()
 
 
+def _public_base(request: Request) -> str:
+    """Absolute public origin, honoring the TLS-terminating proxy (Render) so we
+    never emit an http:// URL that browsers block as mixed content on https."""
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    proto = proto.split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}"
+
+
 # ── Publisher site management (authenticated) ────────────────────────────────
 class SiteCreate(BaseModel):
     name: str
@@ -100,7 +109,7 @@ async def serve_ad(request: Request, site: str = Query(...)):
     await db.ad_sites.update_one(
         {"id": s["id"]}, {"$inc": {"impressions": 1, "earned": credited}}
     )
-    base = str(request.base_url).rstrip("/")
+    base = _public_base(request)
     domain = ad.get("url", "")
     try:
         from urllib.parse import urlparse
@@ -133,7 +142,7 @@ async def click_ad(site: str = Query(...), ad: str = Query(...)):
 @router.get("/pub/unit", response_class=HTMLResponse)
 async def ad_unit(request: Request, site: str = Query(...)):
     """Self-contained HTML ad unit — embed it in an <iframe>."""
-    base = str(request.base_url).rstrip("/")
+    base = _public_base(request)
     safe_site = html.escape(site)
     page = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -171,7 +180,7 @@ async def ad_unit(request: Request, site: str = Query(...)):
 @router.get("/pub/embed.js")
 async def embed_js(request: Request, site: str = Query(...)):
     """Loader snippet: <script src=".../pub/embed.js?site=KEY" data-width data-height></script>"""
-    base = str(request.base_url).rstrip("/")
+    base = _public_base(request)
     js = """(function(){
   var s=document.currentScript;
   var site="__SITE__";
