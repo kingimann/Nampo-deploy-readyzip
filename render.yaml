@@ -41,9 +41,10 @@ services:
     name: nampo-web
     # NOTE: static sites have no `plan` field — they're free. Adding one fails
     # blueprint sync with "no such plan free for service type web".
-    # --no-audit/--no-fund avoids npm's "Exit handler never called!" crash that
-    # happens during the audit phase of `npm ci`.
-    buildCommand: cd frontend && npm ci --no-audit --no-fund && npx expo export -p web
+    # Install with Yarn (this repo's declared packageManager) — npm ci crashes
+    # here with "Exit handler never called!" (an npm 10/11 bug). Corepack ships
+    # with Node 20 and provides yarn@1.22.22 from package.json's packageManager.
+    buildCommand: cd frontend && corepack enable && yarn install --network-timeout 1000000 && npx expo export -p web
     staticPublishPath: frontend/dist
     pullRequestPreviewsEnabled: false
     envVars:
