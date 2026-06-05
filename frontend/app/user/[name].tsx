@@ -226,6 +226,13 @@ const styles = StyleSheet.create({
   statBox: { alignItems: "center" },
   statNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
   statLabel: { color: theme.textMuted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
+  actionRow: { flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap", justifyContent: "center" },
+  actionBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: theme.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 999,
+  },
+  actionBtnGhost: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  actionBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   dmBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: theme.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 999,

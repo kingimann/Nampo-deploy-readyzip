@@ -43,6 +43,10 @@ logging.basicConfig(
 )
 
 
+@app.get("/")
+async def root():
+    return {"status": "ok", "app": "Atlas Maps API"}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}

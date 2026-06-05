@@ -155,7 +155,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="profile-screen">
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 100 }} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <SidebarMenuButton />
           <Text style={styles.title}>Profile</Text>
@@ -338,38 +338,38 @@ const styles = StyleSheet.create({
   bio: { color: theme.textPrimary, fontSize: 13, marginTop: 8, lineHeight: 18 },
 
   statsRow: {
-    marginTop: 16, flexDirection: "row", gap: 12,
+    marginTop: 12, flexDirection: "row", gap: 10,
   },
   statBox: {
-    flex: 1, backgroundColor: theme.surface, borderRadius: 16,
+    flex: 1, backgroundColor: theme.surface, borderRadius: 14,
     borderWidth: 1, borderColor: theme.border,
-    paddingVertical: 16, alignItems: "center",
+    paddingVertical: 10, alignItems: "center",
   },
-  statNum: { color: theme.textPrimary, fontSize: 22, fontWeight: "800" },
-  statLabel: { color: theme.textSecondary, fontSize: 12, marginTop: 4 },
+  statNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  statLabel: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
 
   section: {
-    marginTop: 24,
-    backgroundColor: theme.surface, borderRadius: 20,
+    marginTop: 16,
+    backgroundColor: theme.surface, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border,
-    padding: 16, gap: 12,
+    padding: 14, gap: 10,
   },
   sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", marginBottom: 4 },
   aboutRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   aboutText: { color: theme.textSecondary, fontSize: 14 },
 
   signoutBtn: {
-    marginTop: 24,
+    marginTop: 16,
     flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center",
-    paddingVertical: 16, borderRadius: 16,
+    paddingVertical: 12, borderRadius: 14,
     backgroundColor: "rgba(239,68,68,0.1)",
     borderWidth: 1, borderColor: "rgba(239,68,68,0.3)",
   },
   signoutText: { color: theme.error, fontWeight: "700", fontSize: 15 },
 
   postsHeader: {
-    color: theme.textPrimary, fontSize: 18, fontWeight: "800",
-    marginTop: 28, marginBottom: 10, letterSpacing: -0.3,
+    color: theme.textPrimary, fontSize: 16, fontWeight: "800",
+    marginTop: 18, marginBottom: 8, letterSpacing: -0.3,
   },
   postsEmpty: {
     alignItems: "center", paddingVertical: 32, gap: 10,
