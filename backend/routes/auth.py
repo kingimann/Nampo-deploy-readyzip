@@ -247,6 +247,10 @@ async def login(body: LoginRequest):
             upd["locked_until"] = now + timedelta(minutes=LOCKOUT_MINUTES)
         await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": upd})
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Banned / suspended accounts can't sign in (with the moderator's reason).
+    from core import _enforce_moderation, _effective_role
+    if _effective_role(user_doc) != "admin":
+        _enforce_moderation(user_doc)
     await db.users.update_one(
         {"user_id": user_doc["user_id"]},
         {"$set": {"failed_login_attempts": 0, "locked_until": None}},

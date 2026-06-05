@@ -82,6 +82,29 @@ def _norm_dt(dt: datetime) -> datetime:
     return dt
 
 
+def _enforce_moderation(user: dict):
+    """Raise 403 (with the moderator's reason) if the user is banned or
+    currently suspended. No-op otherwise."""
+    if user.get("banned"):
+        reason = (user.get("ban_reason") or "").strip()
+        msg = "Your account has been banned." + (f"\nReason: {reason}" if reason else "")
+        raise HTTPException(status_code=403, detail={"code": "banned", "message": msg, "reason": reason})
+    su = user.get("suspended_until")
+    if su:
+        try:
+            until = _norm_dt(su)
+        except Exception:
+            return
+        if until > datetime.now(timezone.utc):
+            reason = (user.get("suspend_reason") or "").strip()
+            try:
+                until_str = until.strftime("%b %d, %Y")
+            except Exception:
+                until_str = str(su)
+            msg = f"Your account is suspended until {until_str}." + (f"\nReason: {reason}" if reason else "")
+            raise HTTPException(status_code=403, detail={"code": "suspended", "message": msg, "reason": reason, "until": until.isoformat()})
+
+
 def account_age_days(d: dict) -> int:
     """How many whole days old this account is (0 on bad/missing timestamp)."""
     try:
@@ -151,17 +174,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="User not found")
     # Account moderation — banned/suspended users are locked out (admins exempt).
     if _effective_role(user) != "admin":
-        if user.get("banned"):
-            raise HTTPException(status_code=403, detail={"code": "banned", "message": "Your account has been banned."})
-        su = user.get("suspended_until")
-        if su:
-            try:
-                if _norm_dt(su) > datetime.now(timezone.utc):
-                    raise HTTPException(status_code=403, detail={"code": "suspended", "message": "Your account is temporarily suspended."})
-            except HTTPException:
-                raise
-            except Exception:
-                pass
+        _enforce_moderation(user)
     # Developer API keys are a paid add-on and require an active plan.
     if session.get("kind") == "api_key":
         if not _has_api_access(user):

@@ -28,7 +28,22 @@ export default function AdminUsersScreen() {
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<AdminUser | null>(null);
   const [busy, setBusy] = useState(false);
-  const [suspendFor, setSuspendFor] = useState<AdminUser | null>(null);
+  const [mod, setMod] = useState<{ user: AdminUser; kind: "ban" | "suspend" } | null>(null);
+  const [modReason, setModReason] = useState("");
+  const [modDays, setModDays] = useState("7");
+  const [modBusy, setModBusy] = useState(false);
+
+  const openMod = (u: AdminUser, kind: "ban" | "suspend") => { setSel(null); setModReason(""); setModDays("7"); setMod({ user: u, kind }); };
+  const submitMod = async () => {
+    if (!mod) return;
+    setModBusy(true);
+    try {
+      if (mod.kind === "ban") await api.adminBanUser(mod.user.user_id, modReason.trim());
+      else await api.adminSuspendUser(mod.user.user_id, Math.max(0.04, Number(modDays) || 7), modReason.trim());
+      setMod(null); load(q);
+    } catch (e: any) { Alert.alert("Couldn't apply", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setModBusy(false); }
+  };
 
   const load = useCallback(async (term: string) => {
     setLoading(true);
@@ -137,9 +152,9 @@ export default function AdminUsersScreen() {
               {sel.suspended || sel.banned ? (
                 <Action icon="play-circle-outline" label="Lift ban / suspension" onPress={patch(sel, () => api.adminUnbanUser(sel.user_id), { banned: false, suspended: false })} />
               ) : (
-                <Action icon="time-outline" label="Suspend…" onPress={() => { const s = sel; setSel(null); setSuspendFor(s); }} />
+                <Action icon="time-outline" label="Suspend…" onPress={() => openMod(sel, "suspend")} />
               )}
-              {!sel.banned && <Action icon="ban-outline" label="Ban" danger onPress={patch(sel, () => api.adminBanUser(sel.user_id), { banned: true })} />}
+              {!sel.banned && <Action icon="ban-outline" label="Ban…" danger onPress={() => openMod(sel, "ban")} />}
               <Action icon="trash-outline" label="Remove account" danger onPress={() => confirmRemove(sel)} />
               <TouchableOpacity onPress={() => setSel(null)}><Text style={styles.cancel}>Close</Text></TouchableOpacity>
             </View>
@@ -147,28 +162,51 @@ export default function AdminUsersScreen() {
         </View>
       </Modal>
 
-      {/* Suspend duration picker */}
-      <Modal visible={!!suspendFor} transparent animationType="fade" onRequestClose={() => setSuspendFor(null)}>
+      {/* Ban / suspend with a reason (+ custom duration) */}
+      <Modal visible={!!mod} transparent animationType="fade" onRequestClose={() => !modBusy && setMod(null)}>
         <View style={styles.centerBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSuspendFor(null)} />
-          {suspendFor && (
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => !modBusy && setMod(null)} />
+          {mod && (
             <View style={styles.suspendCard}>
-              <Text style={styles.suspendTitle}>Suspend {suspendFor.name}</Text>
-              {SUSPEND_OPTIONS.map((o) => (
-                <TouchableOpacity
-                  key={o.days}
-                  style={styles.suspendRow}
-                  onPress={async () => {
-                    const u = suspendFor; setSuspendFor(null);
-                    try { await api.adminSuspendUser(u.user_id, o.days); load(q); } catch (e: any) { Alert.alert("Couldn't suspend", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
-                  }}
-                  testID={`suspend-${o.days}`}
-                >
-                  <Ionicons name="time-outline" size={18} color={theme.primary} />
-                  <Text style={styles.suspendLabel}>{o.label}</Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity onPress={() => setSuspendFor(null)}><Text style={styles.cancel}>Cancel</Text></TouchableOpacity>
+              <Text style={styles.suspendTitle}>{mod.kind === "ban" ? "Ban" : "Suspend"} {mod.user.name}</Text>
+
+              {mod.kind === "suspend" && (
+                <>
+                  <Text style={styles.fieldLabel}>Duration</Text>
+                  <View style={styles.chipRow}>
+                    {SUSPEND_OPTIONS.map((o) => {
+                      const on = String(o.days) === modDays;
+                      return (
+                        <TouchableOpacity key={o.days} style={[styles.chip, on && styles.chipOn]} onPress={() => setModDays(String(o.days))} testID={`susp-${o.days}`}>
+                          <Text style={[styles.chipText, on && { color: theme.primary }]}>{o.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.daysRow}>
+                    <Text style={styles.daysLabel}>Custom</Text>
+                    <TextInput style={styles.daysInput} value={modDays} onChangeText={(t) => setModDays(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" testID="susp-custom" />
+                    <Text style={styles.daysUnit}>days</Text>
+                  </View>
+                </>
+              )}
+
+              <Text style={styles.fieldLabel}>Reason (shown to the user)</Text>
+              <TextInput
+                style={styles.reasonInput}
+                value={modReason}
+                onChangeText={setModReason}
+                placeholder={mod.kind === "ban" ? "e.g. Repeated spam / abuse" : "e.g. Temporary cool-down"}
+                placeholderTextColor={theme.textMuted}
+                multiline
+                maxLength={300}
+                testID="mod-reason"
+              />
+
+              <TouchableOpacity style={[styles.modBtn, mod.kind === "ban" && { backgroundColor: theme.error }, modBusy && { opacity: 0.6 }]} onPress={submitMod} disabled={modBusy} testID="mod-submit">
+                {modBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.modBtnText}>{mod.kind === "ban" ? "Ban account" : `Suspend ${Number(modDays) || 7} day${(Number(modDays) || 7) === 1 ? "" : "s"}`}</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setMod(null)}><Text style={styles.cancel}>Cancel</Text></TouchableOpacity>
             </View>
           )}
         </View>
@@ -221,6 +259,16 @@ const styles = StyleSheet.create({
   cancel: { color: theme.textMuted, fontSize: 14, fontWeight: "700", textAlign: "center", paddingVertical: 14 },
   suspendCard: { width: "100%", maxWidth: 380, backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 18 },
   suspendTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 8 },
-  suspendRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
-  suspendLabel: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
+  fieldLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "700", marginTop: 12, marginBottom: 6 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surfaceAlt },
+  chipOn: { borderColor: theme.primary, backgroundColor: theme.bg },
+  chipText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
+  daysRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  daysLabel: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
+  daysInput: { width: 70, height: 38, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surfaceAlt, color: theme.textPrimary, fontSize: 15, fontWeight: "700", textAlign: "center", ...webInput },
+  daysUnit: { color: theme.textMuted, fontSize: 13 },
+  reasonInput: { backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 10, minHeight: 64, color: theme.textPrimary, fontSize: 14, textAlignVertical: "top", ...webInput },
+  modBtn: { backgroundColor: theme.primary, borderRadius: 12, height: 48, alignItems: "center", justifyContent: "center", marginTop: 16 },
+  modBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 });
