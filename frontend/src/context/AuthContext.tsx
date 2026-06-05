@@ -10,6 +10,7 @@ import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 import { api, SESSION_TOKEN_KEY, User } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
+import { ensureKeyPair } from "@/src/utils/e2e";
 
 type AuthState = {
   loading: boolean;
@@ -28,6 +29,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+
+  // Once signed in, make sure our E2E keypair exists and our public key is
+  // published — so peers can end-to-end encrypt to us from the first message.
+  useEffect(() => {
+    if (user?.user_id) { ensureKeyPair().catch(() => {}); }
+  }, [user?.user_id]);
 
   const checkSession = useCallback(async () => {
     try {

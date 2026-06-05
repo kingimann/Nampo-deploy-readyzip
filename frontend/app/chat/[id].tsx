@@ -555,8 +555,10 @@ export default function ChatScreen() {
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text style={styles.title} numberOfLines={1}>{name || "Chat"}</Text>
           <View style={styles.encRow}>
-            <Ionicons name="lock-closed" size={10} color={theme.textMuted} />
-            <Text style={styles.encText}>Encrypted</Text>
+            <Ionicons name={peerKey ? "lock-closed" : "lock-closed-outline"} size={10} color={peerKey ? theme.primary : theme.textMuted} />
+            <Text style={[styles.encText, peerKey && { color: theme.primary }]}>
+              {peerKey ? "End-to-end encrypted" : "Encrypted"}
+            </Text>
           </View>
         </View>
         <View style={{ width: 40 }} />

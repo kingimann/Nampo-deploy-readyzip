@@ -488,7 +488,9 @@ async def send_message(
     is_group = conv.get("kind") == "group"
     plaintext = (body.text or "").strip()
     if body.type == "text":
-        preview = plaintext[:140]
+        # End-to-end encrypted bodies are opaque to the server — never put the
+        # ciphertext in a notification; show a generic preview instead.
+        preview = "🔒 New message" if plaintext.startswith("e2e:v1:") else plaintext[:140]
     elif body.type == "place":
         preview = "📍 sent a place"
     elif body.type == "voice":

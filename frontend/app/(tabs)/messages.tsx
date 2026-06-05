@@ -258,6 +258,8 @@ export default function MessagesScreen() {
                 ? "🎤 Voice message"
                 : last.type === "post"
                 ? "📄 Shared a post"
+                : (last.text || "").startsWith("e2e:v1:")
+                ? "🔒 Encrypted message"
                 : last.text
               : "Say hi 👋";
             return (
