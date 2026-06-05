@@ -1,346 +1,347 @@
-# Atlas Maps (Nampo)
+# Nampo
 
-A dark-themed, full-stack maps + social application. It pairs Apple-/Google-Maps-style
-navigation (Mapbox-powered) with a Twitter/Instagram-style social layer — posts, stories,
-reels, groups, messaging, and a local marketplace — on top of a single FastAPI backend.
+**Nampo** is a social + maps app for mobile (and the web) that blends a Twitter/Instagram-style social network with a full-featured, Google-Maps-style navigation experience. Users get a **news feed** with photos and videos, **reels**, ephemeral **stories**, **direct and group messaging** (with voice notes and shared live locations), an interactive **Mapbox map** with **turn-by-turn navigation**, saved **places** and shareable **guides**, rich **profiles** with follows and friend requests, a **marketplace** for buying and selling, and **groups** with posts, pins, and admin roles — all on top of a single FastAPI backend.
 
-The mobile/web client is built with **Expo (React Native + expo-router)** and the API is a
-**FastAPI** service backed by **PostgreSQL** (through a Mongo-style query wrapper).
+The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking over REST and WebSockets to a **FastAPI** server (`backend/`).
 
-> **Naming note:** the project is referred to as both **"Atlas Maps"** (the Expo app name,
-> the API root response, and `memory/PRD.md`) and **"Nampo"** (the repo/deploy artifacts and
-> `render.yaml`'s `nampo-backend` service). They are the same project.
+> Note on naming: the project is branded **Nampo** in its deployment docs; the application code and Expo manifest still use the internal name **"Atlas Maps"** (the API root returns `{"app": "Atlas Maps API"}`). They refer to the same app.
 
 ---
 
-## Table of contents
+## Key features
 
-- [Architecture](#architecture)
-- [Feature surface](#feature-surface)
-- [Repository layout](#repository-layout)
-- [Backend](#backend)
-  - [Data layer](#data-layer)
-  - [Auth](#auth)
-  - [Environment variables](#backend-environment-variables)
-  - [Running locally](#running-the-backend-locally)
-- [Frontend](#frontend)
-  - [Environment variables](#frontend-environment-variables)
-  - [Running locally](#running-the-frontend-locally)
-- [API reference](#api-reference)
-- [Testing](#testing)
-- [Deployment](#deployment)
-- [Known gaps & caveats](#known-gaps--caveats)
+### Social / Feed
+- News feed with text, photos, and videos (home/following feed and an explore feed)
+- Likes, replies/threads, bookmarks, reposts, and quote-reposts
+- Polls (timed, single-choice) attached to posts
+- Hashtags (browse posts by tag, with counts) and rich link previews
+- X-style impression / view-count tracking on posts
+- Likers and reposters lists per post
+
+### Reels & Stories
+- Reels: a vertical, full-screen video feed (`/feed/reels`)
+- Stories: 24-hour ephemeral image/video stories with a story tray, view counts, viewer lists, and story replies
+
+### Messaging
+- One-to-one (DM) and group conversations
+- Message types: text, shared **place/location**, media (images/video), and **voice notes**
+- Reactions, edits, read receipts, unread counts, and message deletion
+- Group conversation management (rename, avatar, add/remove members, leave)
+- Optional at-rest message encryption (Fernet) when a key is configured
+- "Contact seller" flow that spins up a DM from a marketplace listing
+
+### Maps & Navigation
+- Full-screen interactive **Mapbox GL** map rendered through a `react-native-webview` bridge
+- Forward geocoding, category/POI search, and reverse lookups via the Mapbox Search/Geocoding APIs
+- **Turn-by-turn directions** (driving, walking, cycling, driving-with-traffic) with alternates, road exclusions (toll/motorway/ferry), and speed-limit annotations via the Mapbox Directions API
+- Multiple map styles (streets, satellite, dark, outdoors)
+- Live **ETA sharing**: share your real-time location/ETA to a destination over a WebSocket; recipients watch it move on a public link
+- Optional **Foursquare** place matching to enrich a pin with a business profile (rating, hours, phone, website, photo)
+
+### Profile & Settings
+- Profiles with avatar, bio, username, and home/work saved locations
+- Follow / unfollow, followers/following lists
+- Friend requests (send, accept, reject, remove) with friend status
+- A user's posts (originals plus reposts/quotes) shown on their profile
+- Account settings and a customizable navigation bar
+
+### Discovery
+- User search
+- Saved **places** and **recents**
+- **Guides**: curated, optionally public/cloneable collections of places (with shareable slugs)
+- **Reviews** for places (1–5 stars + text)
+- **Marketplace** listings (price, category, photo, location, sold status)
+- **Groups**: public/private communities with posts, pinned posts, join requests, and member roles (owner/admin/member)
+- Notifications feed (with unread counts and mark-as-read)
 
 ---
 
-## Architecture
+## Tech stack
+
+**Frontend**
+- React Native `0.81` + **Expo SDK 54** (new architecture enabled)
+- **expo-router** (file-based routing, typed routes) on top of React Navigation
+- **TypeScript** (strict)
+- **expo-video** and **expo-audio** for video playback and voice-note recording/playback
+- **Mapbox GL JS** rendered inside `react-native-webview` (`MapboxWebView`)
+- expo-location, expo-image-picker, expo-secure-store, expo-haptics, expo-blur, expo-linear-gradient, reanimated, gesture-handler
+- `tweetnacl` for client-side E2E key material
+
+**Backend**
+- **FastAPI** + **Uvicorn** (ASGI)
+- **Pydantic v2** models
+- **PostgreSQL** via the async **asyncpg** driver, accessed through a thin MongoDB-style wrapper (`db.py`) so route code reads like Motor/PyMongo (each "collection" is a table with a single JSONB `doc` column)
+- bcrypt for password hashing, `cryptography` (Fernet) for optional message encryption at rest
+- `httpx` for outbound calls (Foursquare matching, link-preview scraping)
+- WebSockets for live ETA sharing
+
+> **Database note:** the running backend uses **PostgreSQL** (`DATABASE_URL`, `asyncpg`). The wrapper in `backend/db.py` deliberately mimics a Mongo API, which is why some deployment docs (`DEPLOY.md`, `REPLIT.md`, `render.yaml`, `.replit`) and the older test suite still refer to `MONGO_URL` / `DB_NAME`. For the current code, the database connection is configured with **`DATABASE_URL`**.
+
+---
+
+## Architecture overview
 
 ```
-┌─────────────────────────────┐         HTTPS / WSS          ┌──────────────────────────┐
-│  Expo client                │  ───────────────────────▶   │  FastAPI backend         │
-│  (iOS / Android / Web)       │   /api/...  +  /api/ws/eta   │  server.py               │
-│                              │  ◀───────────────────────   │                          │
-│  expo-router screens         │                              │  routes/*  (13 modules)  │
-│  src/api/client.ts (REST)    │                              │  services/* (enc, links) │
-│  MapboxWebView (WebView GL)  │                              │  core.py  (auth, deps)   │
-└──────────────┬──────────────┘                              │  db.py  (Mongo→Postgres) │
-               │                                               └────────────┬─────────────┘
-               │ direct calls                                              │ asyncpg pool
-               ▼                                                            ▼
-   Mapbox APIs (geocode, GL JS,                                     PostgreSQL
-   directions, tiles, styles)                                 (JSONB "doc"-per-row tables)
+┌──────────────────────────┐         REST  /api/*  +  WS  /api/ws/eta/*        ┌──────────────────────────┐
+│   Expo / React Native    │ ───────────────────────────────────────────────▶ │      FastAPI backend     │
+│   (frontend/)            │   Authorization: Bearer <session_token>          │      (backend/)          │
+│                          │ ◀─────────────────────────────────────────────── │                          │
+│  - expo-router screens   │                                                   │  - routes/* (APIRouter)  │
+│  - MapboxWebView (GL JS) │                                                   │  - PostgreSQL (asyncpg)  │
+└──────────┬───────────────┘                                                   └──────────────────────────┘
+           │
+           │  direct client→Mapbox calls (geocode, search, directions)
+           ▼
+   ┌─────────────────┐        the backend also calls Foursquare (place match)
+   │  Mapbox APIs    │        and scrapes link previews via httpx
+   └─────────────────┘
 ```
 
-Key design points:
-
-- **One FastAPI app** mounts all routers under the `/api` prefix and exposes `/` and
-  `/health` for platform health checks. A single WebSocket route (`/api/ws/eta/{share_id}`)
-  powers live ETA sharing.
-- **The web client uses relative URLs** (`""` base) so a same-origin server or a dev proxy
-  handles routing and CORS is sidestepped. Native builds use the full
-  `EXPO_PUBLIC_BACKEND_URL` and derive `wss://` from it automatically.
-- **Mapbox runs inside a WebView** (`MapboxWebView.tsx` injects Mapbox GL JS), so the same
-  map code works on native and web without a native Mapbox SDK build.
+- The frontend calls the backend at **`EXPO_PUBLIC_BACKEND_URL` + `/api`**. Auth is a Bearer **session token** stored in `expo-secure-store`.
+- On **web**, the client uses same-origin relative paths and a Metro dev proxy (`metro.config.js`) forwards `/api/*` and `/health` to the backend on port `8080`, avoiding CORS. On **native**, it uses the full `EXPO_PUBLIC_BACKEND_URL`.
+- **Mapbox** work (geocoding, category search, turn-by-turn directions) happens **client-side** using `EXPO_PUBLIC_MAPBOX_TOKEN`.
+- **Foursquare** place enrichment happens **server-side** (`/api/foursquare/match`) using the optional `FSQ_API_KEY`.
+- Live ETA sharing rides a WebSocket at **`/api/ws/eta/{share_id}`**.
 
 ---
 
-## Feature surface
-
-**Maps & navigation**
-- Four Mapbox styles (streets, satellite-streets, dark, outdoors), traffic overlay, 3D
-  buildings, compass reset.
-- Search with category quick-filters plus saved Home/Work shortcut chips.
-- Per-user Recents (capped list).
-- Multi-stop directions (drive / walk / cycle) with turn-by-turn steps.
-- Voice navigation via `expo-speech` with a mute toggle.
-- Live ETA sharing over WebSocket; the public `/eta/{id}` viewer needs no account.
-
-**Place cards & reviews**
-- Distance, ratings, reviews, plus Directions / Save / Share / Open-in-Maps actions.
-- Five-star write-a-review modal with a race-safe upsert.
-- Optional Foursquare business-profile enrichment (requires an API key).
-
-**Library**
-- Saved Places and Guides. Each guide has a color, an icon, a public toggle, and a unique
-  slug. Public guides are viewable at `/g/{slug}` and can be cloned into your own library.
-
-**Social layer**
-- **Posts / feed:** text, media (images/video), polls, link previews, hashtags, replies,
-  reposts, quote-reposts, likes, bookmarks, and view counts. Home and Explore feeds.
-- **Stories:** 24h ephemeral image/video stories with a tray, view counts, viewer lists,
-  and direct replies.
-- **Reels:** a video-only feed.
-- **Groups:** public/private groups with owners/admins/members, join requests, promotions,
-  pinned posts, and group-only post feeds.
-- **Messaging:** 1:1 and group conversations, text + shared-place + media bubbles, unread
-  badges, read receipts, delete-own-message, and (optional) message encryption at rest.
-- **Connections:** follow/unfollow plus a bidirectional friend-request system.
-- **Notifications:** likes, reposts, replies, messages, and group activity.
-- **Marketplace:** local listings with photos, price/currency, categories, and a
-  "contact seller" action that opens a conversation.
-
----
-
-## Repository layout
+## Project structure
 
 ```
-.
-├── README.md            ← this file
-├── DEPLOY.md            ← step-by-step hosted-deploy walkthrough
-├── REPLIT.md            ← Replit-specific notes
-├── render.yaml          ← Render Blueprint (deploys the backend)
-├── replit.nix           ← Replit environment
-├── design_guidelines.json
-├── memory/PRD.md        ← product requirements / feature log
-├── test_result.md       ← test iteration log
+Nampo-deploy-readyzip/
+├── README.md                  # this file
+├── DEPLOY.md                  # deploy to Render + a managed database
+├── REPLIT.md                  # run the backend on Replit
+├── render.yaml                # Render Blueprint (deploys backend/Dockerfile)
+├── .replit / replit.nix       # Replit run + Nix config
+├── design_guidelines.json     # design system (colors, typography, components)
+├── test_result.md             # agent testing log / protocol
+├── memory/                    # PRD and scratch notes
 │
-├── backend/
-│   ├── server.py        ← FastAPI app, router mounting, WebSocket, startup
-│   ├── core.py          ← shared deps: DB proxy, auth, helpers (slugs, users)
-│   ├── db.py            ← Mongo-compatible async wrapper over PostgreSQL (asyncpg)
-│   ├── models.py        ← all Pydantic models
-│   ├── requirements.txt
-│   ├── Dockerfile       ← container build (uvicorn server:app)
-│   ├── apprunner.yaml   ← optional AWS App Runner config
-│   ├── routes/          ← 13 route modules (see API reference)
-│   ├── services/        ← encryption.py (Fernet), link_preview.py (OpenGraph)
-│   └── tests/           ← pytest suites (343 test functions across iterations)
+├── backend/                   # FastAPI service
+│   ├── server.py              # app entry: CORS, routers, /health, ETA WebSocket, startup
+│   ├── core.py                # shared deps: DB proxy, get_current_user(), helpers, env
+│   ├── db.py                  # PostgreSQL-backed, Mongo-style async DB wrapper
+│   ├── models.py              # all Pydantic request/response models
+│   ├── requirements.txt       # Python dependencies
+│   ├── Dockerfile             # container image (used by Render)
+│   ├── apprunner.yaml         # optional AWS App Runner config
+│   ├── routes/                # one APIRouter module per domain (see API overview)
+│   │   ├── auth.py            # register/login, sessions, username, Google OAuth, E2E keys
+│   │   ├── users.py          # search, follows, friends
+│   │   ├── places.py         # saved places + recents
+│   │   ├── guides.py         # guides + public/cloneable guides
+│   │   ├── reviews.py        # place reviews
+│   │   ├── messaging.py      # DMs, groups, messages, voice/place/media
+│   │   ├── notifications.py  # notifications feed
+│   │   ├── eta.py            # ETA share REST + WebSocket
+│   │   ├── posts.py          # feed, posts, likes, reposts, bookmarks, polls, reels
+│   │   ├── marketplace.py    # listings
+│   │   ├── groups.py         # communities, members, pins, requests
+│   │   ├── foursquare.py     # Foursquare place match
+│   │   └── stories.py        # ephemeral stories
+│   ├── services/
+│   │   ├── encryption.py     # optional Fernet message encryption at rest
+│   │   └── link_preview.py   # OpenGraph/link-preview scraping
+│   └── tests/                # pytest suites (see Testing)
 │
-└── frontend/
-    ├── app/             ← expo-router screens (tabs + stacks + dynamic routes)
-    ├── src/
-    │   ├── api/client.ts   ← typed REST client + shared TS types
-    │   ├── api/mapbox.ts    ← Mapbox geocode/directions helpers
-    │   ├── components/      ← PostCard, StoryTray, MapboxWebView, etc.
-    │   ├── context/         ← Auth / NavBar / Sidebar React contexts
-    │   ├── hooks/, utils/   ← icon fonts, storage, E2E key helpers
-    │   └── theme.ts         ← colors + Mapbox style URLs
-    ├── constants/, scripts/, assets/
-    ├── app.json, package.json, tsconfig.json, metro.config.js, eslint.config.js
+└── frontend/                  # Expo / React Native client
+    ├── app.json               # Expo app manifest (name, plugins, permissions)
+    ├── package.json           # scripts + dependencies
+    ├── metro.config.js        # dev proxy of /api + /health to the backend
+    ├── app/                   # expo-router routes
+    │   ├── _layout.tsx        # root layout (auth gate, tab bar, providers)
+    │   ├── (tabs)/            # main tabs: index(Map), feed, messages, groups,
+    │   │                      #   marketplace, profile, directions, favorites
+    │   ├── auth.tsx / login.tsx
+    │   ├── chat/[id].tsx      # conversation screen
+    │   ├── reels.tsx          # reels feed
+    │   ├── story/[userId].tsx # story viewer
+    │   ├── post/[id].tsx, hashtag/[tag].tsx, bookmarks.tsx, notifications.tsx
+    │   ├── group/[id]/...     # group detail + members
+    │   ├── guide/[id].tsx, g/[slug].tsx (public guide)
+    │   ├── eta/[shareId].tsx  # public ETA viewer
+    │   └── user/[name].tsx, people.tsx, connections.tsx, settings.tsx, ...
+    └── src/
+        ├── api/client.ts      # typed API client (reads EXPO_PUBLIC_BACKEND_URL/MAPBOX_TOKEN)
+        ├── api/mapbox.ts      # geocoding, category search, directions
+        ├── components/        # PostCard, StoryTray, MapboxWebView, VoiceMessage, etc.
+        ├── context/           # Auth, Sidebar, NavBar contexts
+        └── utils/             # secure storage, e2e helpers
 ```
 
 ---
 
-## Backend
+## Prerequisites
 
-### Data layer
+- **Node.js 20+** and **npm** (or Yarn 1.x — the repo pins `yarn@1.22.22`)
+- **Python 3.11**
+- A **PostgreSQL** database (local or managed) reachable via a connection string
+- The **Expo CLI** (run via `npx expo`, no global install needed)
+- For device testing: the **Expo Go** app, or an iOS Simulator / Android Emulator
+- A **Mapbox access token** (free tier) for maps, geocoding, and directions
+- *(Optional)* a **Foursquare Places API key** for business-profile enrichment
 
-`db.py` is the interesting piece: it exposes a **Motor/PyMongo-style async API**
-(`find_one`, `find().sort().limit().to_list()`, `insert_one`, `update_one` with `$set`/`$inc`,
-`delete_many`, `count_documents`, etc.) but stores everything in **PostgreSQL**. Each
-"collection" is a table with a single `jsonb` `doc` column; Mongo update operators are
-applied in Python and written back as a JSONB update. This lets route code read like Mongo
-while running on Postgres.
+---
 
-`core.py` provides a lazy `db` proxy (the real connection pool is created during FastAPI
-startup via `init_pool()`), the `get_current_user` bearer-token dependency, slug generation,
-and the public-user/stats builder.
+## Environment variables
 
-Collections in use: `users`, `user_sessions` (TTL), `places`, `recents`, `guides`,
-`reviews`, `conversations`, `messages`, `eta_shares` (TTL), `posts`, `stories`, `groups`,
-`follows`, `friendships`, `friend_requests`, `notifications`, `listings`, and an
-`oauth_states` table auto-provisioned for Google sign-in CSRF state.
+### Backend
 
-### Auth
+| Variable          | Required | Secret | Default        | Description |
+| ----------------- | :------: | :----: | -------------- | ----------- |
+| `DATABASE_URL`    | **Yes**  | **Yes**| —              | PostgreSQL DSN the app connects to (asyncpg). |
+| `CORS_ORIGINS`    | No       | No     | `*`            | Comma-separated allowed origins, or `*` for all. |
+| `MESSAGE_ENC_KEY` | No       | **Yes**| *(none)*       | Fernet key. If set, messages are encrypted at rest; if absent/invalid, messaging still works in plaintext. |
+| `FSQ_API_KEY`     | No       | **Yes**| `""`           | Foursquare Places API key for `/api/foursquare/match`. Without it, place matching returns nothing. |
+| `GOOGLE_OAUTH_CLIENT_ID` | No | **Yes** | `""`        | Enables Google sign-in (`/api/auth/google/*`). Optional — email/password is the primary path. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | No | **Yes** | `""`    | Paired with the client ID for Google OAuth. |
+| `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render/Replit inject this). |
 
-- **Primary:** email/password with bcrypt. Register, login, logout, username
-  availability/claim, and `PATCH /auth/me` for profile (name, bio, picture, Home/Work).
-- **Optional:** Google OAuth (`/auth/google/login` → `/auth/google/callback`), gated on
-  `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
-- **Sessions:** opaque bearer `session_token` stored in `user_sessions` with expiry; sent as
-  `Authorization: Bearer <token>`.
-- **Optional E2E messaging keys:** clients can upload a public key
-  (`POST /auth/keys`) and fetch peers' keys; `services/encryption.py` (Fernet) encrypts
-  message bodies at rest when `MESSAGE_ENC_KEY` is set, transparently passing through
-  plaintext when it isn't.
+> **Legacy / deploy-doc note:** `render.yaml`, `.replit`, `DEPLOY.md`, and `REPLIT.md` mention `MONGO_URL` and `DB_NAME` from the project's earlier MongoDB iteration. The current code reads **`DATABASE_URL`** instead and does not use `DB_NAME`. If you follow those docs, substitute your PostgreSQL `DATABASE_URL` accordingly.
 
-### Backend environment variables
+### Frontend
 
-| Variable | Required | Purpose |
-|---|---|---|
-| `DATABASE_URL` | **Yes** | PostgreSQL DSN. The app reads this at startup (`init_pool`). |
-| `CORS_ORIGINS` | No | Comma-separated allowed origins, or `*` (default). |
-| `FSQ_API_KEY` | No | Foursquare key for place-profile matching. Disabled if blank. |
-| `MESSAGE_ENC_KEY` | No | Fernet key to encrypt messages at rest. Plaintext if unset. |
-| `GOOGLE_OAUTH_CLIENT_ID` / `..._SECRET` | No | Enables Google sign-in. |
-| `PORT` | No | Server port (defaults to 8080; platforms inject this). |
+Create `frontend/.env` (Expo automatically exposes `EXPO_PUBLIC_*` vars to the client bundle):
 
-> **Config mismatch to be aware of:** `DEPLOY.md` and `render.yaml` still reference
-> `MONGO_URL` / `DB_NAME` from an earlier MongoDB iteration, but the current code reads
-> **`DATABASE_URL`** and talks to PostgreSQL via `asyncpg`. When deploying, set
-> `DATABASE_URL` to your Postgres connection string regardless of what the older docs say.
+| Variable                   | Required | Secret | Description |
+| -------------------------- | :------: | :----: | ----------- |
+| `EXPO_PUBLIC_BACKEND_URL`  | **Yes** (native) | No | Base URL of the backend, no trailing slash and no `/api` (the client appends `/api`). Not needed for web (it uses the same-origin Metro proxy). |
+| `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes**  | No*    | Mapbox public access token for maps, geocoding, and directions. |
 
-### Running the backend locally
+\* `EXPO_PUBLIC_*` values are bundled into the client and are therefore **not secret at runtime**. Use a Mapbox **public** token (URL/domain-scoped where possible).
+
+---
+
+## Local setup & running
+
+The backend and frontend run as two separate processes.
+
+### 1. Backend (FastAPI)
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+
+# Install dependencies (a virtualenv is recommended)
 pip install -r requirements.txt
 
-export DATABASE_URL="postgresql://user:password@localhost:5432/atlas"
-export CORS_ORIGINS="*"
-# optional: FSQ_API_KEY, MESSAGE_ENC_KEY, GOOGLE_OAUTH_CLIENT_ID/SECRET
+# Point at your PostgreSQL database
+export DATABASE_URL="postgresql://user:password@localhost:5432/nampo"
+# Optional:
+# export CORS_ORIGINS="*"
+# export FSQ_API_KEY="..."
+# export MESSAGE_ENC_KEY="$(python -c 'from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())')"
 
-uvicorn server:app --host 0.0.0.0 --port 8080 --reload
+# Run with auto-reload on port 8080
+uvicorn server:app --reload --port 8080
 ```
 
-Health check: `GET http://localhost:8080/health` → `{"status":"ok"}`.
-Root: `GET /` → `{"status":"ok","app":"Atlas Maps API"}`.
+Health checks:
+- `GET /health` → `{"status":"ok"}`
+- `GET /` → `{"status":"ok","app":"Atlas Maps API"}`
+- `GET /api/` → API root for the auth router
 
----
-
-## Frontend
-
-Expo SDK 54, React 19, React Native 0.81, expo-router 6 (typed routes). Routing lives in
-`app/`: a `(tabs)` group (map, directions, favorites, feed, marketplace, groups, messages,
-profile) plus stack screens and dynamic routes such as `post/[id]`, `user/[name]`,
-`group/[id]`, `chat/[id]`, `story/[userId]`, `g/[slug]`, `hashtag/[tag]`, and `eta/[shareId]`.
-
-The map is rendered by `src/components/MapboxWebView.tsx`, which builds an HTML page that
-loads Mapbox GL JS and is displayed via `react-native-webview` — the same code path on
-native and web.
-
-### Frontend environment variables
-
-Create `frontend/.env` (Expo exposes `EXPO_PUBLIC_*` vars to the client):
-
-| Variable | Required | Purpose |
-|---|---|---|
-| `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes** | Mapbox access token (maps, geocoding, directions). |
-| `EXPO_PUBLIC_BACKEND_URL` | Native only | Full backend URL, e.g. `https://your-api.example.com` — no trailing slash, no `/api`. Web uses relative paths and ignores this. |
-
-### Running the frontend locally
+### 2. Frontend (Expo)
 
 ```bash
 cd frontend
-yarn            # or: npm install
-# create .env with the two vars above
-npx expo start  # then press w (web), i (iOS), or a (Android)
+
+# Create your env file
+cat > .env <<'EOF'
+EXPO_PUBLIC_BACKEND_URL=http://localhost:8080
+EXPO_PUBLIC_MAPBOX_TOKEN=pk.your_mapbox_public_token
+EOF
+
+# Install dependencies
+npm install        # or: yarn
+
+# Start the dev server (then press i / a / w, or scan the QR in Expo Go)
+npx expo start
 ```
 
----
+Useful scripts (`frontend/package.json`): `npm run android`, `npm run ios`, `npm run web`, `npm run lint`.
 
-## API reference
+> On **web**, the Metro dev server proxies `/api/*` and `/health` to `http://localhost:8080`, so the frontend and backend share an origin and you don't need `EXPO_PUBLIC_BACKEND_URL`. On **native devices**, set it to a URL your device can reach (your machine's LAN IP or a tunnel), not `localhost`.
 
-All routes are mounted under `/api`. Grouped by module:
-
-**auth** — `GET /` · Google `GET /auth/google/login`, `GET /auth/google/callback` ·
-`GET/PATCH /auth/me` · `POST /auth/logout` · `POST /auth/register` · `POST /auth/login` ·
-`GET /auth/username-available` · `POST /auth/username` · `GET /users/by-username/{username}` ·
-`POST /auth/keys` · `GET /users/{user_id}/key`
-
-**users** — `GET /users/search` · `GET /users/{id}/public` · `POST /users/{id}/follow` ·
-`GET /users/{id}/followers|following` · friend flow:
-`POST /friends/request/{id}`, `POST /friends/accept/{id}`, `POST /friends/reject/{id}`,
-`DELETE /friends/{id}`, `DELETE /friends/request/{id}`, `GET /friends`, `GET /friends/requests`
-
-**places** — `GET/POST /places` · `GET/DELETE /places/{id}` ·
-`GET/POST /recents` · `DELETE /recents/{id}` · `DELETE /recents`
-
-**guides** — `GET/POST /guides` · `PATCH/DELETE /guides/{id}` ·
-`POST/DELETE /guides/{id}/places/{place_id}` ·
-`GET /public/guides/{slug}` · `POST /public/guides/{slug}/clone`
-
-**reviews** — `GET /reviews` · `POST /reviews` (upsert) · `DELETE /reviews/{id}`
-
-**messaging** — `POST /conversations` · `POST /conversations/groups` ·
-`PATCH /conversations/{id}` · `POST /conversations/{id}/leave` · `GET /conversations` ·
-`GET/POST /conversations/{id}/messages` · `POST /conversations/{id}/read` ·
-`DELETE /conversations/{id}/messages/{msg_id}` · `DELETE /conversations/{id}`
-
-**notifications** — `GET /notifications` · `GET /notifications/unread` ·
-`POST /notifications/{id}/read` · `POST /notifications/read-all` · `DELETE /notifications/{id}`
-
-**eta** — `POST /eta` · `POST /eta/{share_id}/update` · `POST /eta/{share_id}/stop` ·
-`GET /public/eta/{share_id}` · WebSocket `GET /api/ws/eta/{share_id}`
-
-**posts** — `POST /posts` · `PATCH/DELETE/GET /posts/{id}` · `GET /posts/{id}/replies` ·
-`GET /feed/explore|home|reels` · `GET /posts/user/{id}` and `/posts/user/{id}/all` ·
-`POST /posts/{id}/like|repost|bookmark|vote|view` · `GET /bookmarks` ·
-`GET /hashtags/{tag}` and `/hashtags/{tag}/count` ·
-`GET /posts/{id}/likers|reposters`
-
-**stories** — `POST /stories` · `GET /stories/tray` · `GET /stories/user/{id}` ·
-`POST /stories/{id}/view` · `GET /stories/{id}/viewers` · `DELETE /stories/{id}` ·
-`POST /stories/{id}/reply`
-
-**groups** — `GET/POST /groups` · `GET/PATCH/DELETE /groups/{id}` ·
-pins: `POST/DELETE /groups/{id}/pins/{post_id}`, `GET /groups/{id}/pins` ·
-membership: `POST /groups/{id}/join|leave`,
-`POST /groups/{id}/members/{id}/promote|demote`, `DELETE /groups/{id}/members/{id}` ·
-requests: `GET /groups/{id}/requests`, `POST .../approve|reject` ·
-posts: `GET/POST /groups/{id}/posts` · `GET /groups/{id}/members`
-
-**marketplace** — `GET/POST /listings` · `GET /listings/user/{id}` ·
-`GET/PATCH/DELETE /listings/{id}` · `POST /listings/{id}/contact`
-
-**foursquare** — `GET /foursquare/match`
-
-Interactive docs are available at `/docs` (Swagger) and `/redoc` when the server is running.
-
----
-
-## Testing
-
-Backend tests use pytest and live in `backend/tests/`, organized as numbered iteration
-suites (ETA/races, local auth, polish/coverage, groups, group admin actions, the core
-map-app surface, etc.) — **343 test functions** in total. `conftest.py` holds shared fixtures.
+Create your first account from the app's sign-up screen, or directly against the API:
 
 ```bash
-cd backend
-pip install pytest pytest-asyncio   # if not already installed
-pytest
+curl -X POST http://localhost:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"supersecret","name":"You","username":"you"}'
 ```
+
+A successful response returns a `session_token` and your user object.
+
+---
+
+## Running on Replit
+
+The Replit setup runs the **backend** (the API). See **`REPLIT.md`** for the full walkthrough. In short:
+
+1. Import the repo into Replit (or upload the project so `.replit`, `replit.nix`, and `backend/` are at the top level).
+2. Add your database connection string as a **Secret** (lock icon). `.replit` presets `CORS_ORIGINS` and a `PORT`. (`FSQ_API_KEY` is optional.)
+3. Press **Run** — Replit installs deps and starts Uvicorn with `--reload`. Watch the logs for the pool-ready and `Uvicorn running` messages, then hit `/health` on the webview URL.
+4. The frontend is a separate Expo app: point its `EXPO_PUBLIC_BACKEND_URL` at the Repl's public URL.
+
+> The `.replit` secret guidance is written for the older Mongo build (`MONGO_URL`). For the current code, supply your PostgreSQL **`DATABASE_URL`** as the secret instead.
 
 ---
 
 ## Deployment
 
-Two paths ship in the repo (see `DEPLOY.md` for the full walkthrough):
+- **Render (recommended):** `render.yaml` is a Render **Blueprint** that builds `backend/Dockerfile` and deploys the FastAPI service with a `/health` health check and `autoDeploy`. Secrets are marked `sync: false` so Render prompts you to paste them in the dashboard. Full step-by-step in **`DEPLOY.md`** (database + Render in ~15 minutes).
+- **Docker:** `backend/Dockerfile` produces a self-contained image that runs `uvicorn server:app` on `$PORT` (default `8080`). Build/run it anywhere that supports containers.
+- **AWS App Runner:** `backend/apprunner.yaml` is provided for source-based App Runner deploys.
 
-1. **Render Blueprint** (`render.yaml`) — builds `backend/Dockerfile` as a Docker web
-   service named `nampo-backend`, with `/health` as the health check and secrets prompted in
-   the dashboard. **Remember to provide `DATABASE_URL`** (the blueprint's older `MONGO_URL`
-   entry predates the Postgres migration).
-2. **Docker / AWS App Runner** — the `Dockerfile` runs `uvicorn server:app` on `$PORT`
-   (default 8080); `apprunner.yaml` is included for source-based App Runner deploys.
-
-After the backend is live, point the client at it by setting `EXPO_PUBLIC_BACKEND_URL` in
-`frontend/.env`, then build/run with Expo.
-
-> On free hosting tiers the API may sleep after idle and take ~30s to wake on the first
-> request — fine for development, upgrade for always-on.
+After the backend is live, set the frontend's `EXPO_PUBLIC_BACKEND_URL` to the deployed URL (no trailing slash, no `/api`) and rebuild/restart Expo.
 
 ---
 
-## Known gaps & caveats
+## API overview
 
-- **MongoDB → PostgreSQL transition is mid-flight in the docs.** Code uses `DATABASE_URL`
-  + asyncpg, but `DEPLOY.md`/`render.yaml` and `memory/PRD.md` still mention Mongo. Trust the
-  code: set `DATABASE_URL`.
-- **Not shipped (need paid/native dependencies):** offline maps (require a native dev
-  build), full Foursquare business profiles (need your API key), Street View, GTFS transit,
-  and live traffic incidents.
-- **Foursquare and Google OAuth are optional** and silently disabled without their keys.
-- **Message encryption** falls back to plaintext (with a logged warning) if
-  `MESSAGE_ENC_KEY` is missing or invalid.
+All routes are mounted under the **`/api`** prefix and (except auth/registration and a few public endpoints) require an `Authorization: Bearer <session_token>` header.
+
+| Route group        | Base paths (examples) | What it does |
+| ------------------ | --------------------- | ------------ |
+| **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/keys`, `/auth/google/*` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username availability/claim, E2E public keys, optional Google OAuth. |
+| **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*` | User search, public profiles, follow/unfollow, followers/following, and the full friend-request lifecycle. |
+| **Posts / Feed**   | `/posts`, `/feed/home`, `/feed/explore`, `/feed/reels`, `/posts/{id}/like\|repost\|bookmark\|vote\|view`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, home/explore/reels feeds, replies/threads, likes, reposts & quotes, bookmarks, polls, view tracking, hashtags, likers/reposters. |
+| **Stories**        | `/stories`, `/stories/tray`, `/stories/user/{id}`, `/stories/{id}/view\|viewers\|reply` | Create 24h ephemeral stories, story tray, view counts, viewer lists, and replies. |
+| **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/read` | DMs and group chats; send text/place/media/voice messages; reactions, edits, read receipts, deletion; group management. |
+| **Groups**         | `/groups`, `/groups/{id}/join\|leave\|posts\|pins\|requests\|members/*` | Public/private communities: membership & join requests, posts, pinned posts, member roles (promote/demote/remove). |
+| **Marketplace**    | `/listings`, `/listings/{id}`, `/listings/{id}/contact` | Create/update/delete listings, browse by user, and start a DM with a seller. |
+| **Places**         | `/places`, `/recents` | Saved map places and recent searches (create/list/delete). |
+| **Guides**         | `/guides`, `/guides/{id}/places/{pid}`, `/public/guides/{slug}`, `/public/guides/{slug}/clone` | Curated place collections; add/remove places; publish via slug; view/clone public guides. |
+| **Reviews**        | `/reviews` | Create/list/delete 1–5★ place reviews. |
+| **ETA**            | `/eta`, `/eta/{id}/update\|stop`, `/public/eta/{id}`, **WS** `/ws/eta/{share_id}` | Create and update live ETA shares; public read; real-time location stream over WebSocket. |
+| **Notifications**  | `/notifications`, `/notifications/unread`, `/notifications/read-all` | Notification feed, unread counts, mark single/all read, delete. |
+| **Foursquare**     | `/foursquare/match` | Match a place against Foursquare for a business profile (needs `FSQ_API_KEY`). |
+
+The full set of endpoints is the source of truth — see each module under `backend/routes/`. (Interactive docs are available at `/docs` when running locally, since FastAPI exposes Swagger by default.)
+
+---
+
+## Testing / scripts
+
+- **Backend tests** live in `backend/tests/` (pytest), covering auth, posts/newsfeed, reposts, recents/guides, ETA & race conditions, notifications, groups, and several feature iterations. Run with:
+  ```bash
+  cd backend
+  pip install pytest pytest-asyncio httpx
+  pytest
+  ```
+  > Heads-up: several test files were written against the earlier MongoDB build (they import `pymongo` and read `MONGO_URL`/`DB_NAME`). Treat them as reference/regression material; adapt fixtures if you run them against the current PostgreSQL backend.
+
+- **Frontend lint:** `npm run lint` (eslint-config-expo).
+- **Helper scripts** (`frontend/scripts/`): `check-pkg.js` (preinstall guard), `install-guard.sh`, and `reset-project.js` (Expo starter reset — not needed for normal development).
+- `test_result.md` documents the project's agent-driven testing protocol and the latest test plan/status.
+
+---
+
+## License / notes
+
+No license file is present in the repository. Treat this project as **proprietary / unlicensed** unless a `LICENSE` is added by the owner.
+
+Additional context:
+- The design system (colors, typography, component styles, map styles) is documented in `design_guidelines.json`.
+- The product requirements live in `memory/PRD.md`.

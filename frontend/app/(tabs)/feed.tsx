@@ -13,6 +13,7 @@ import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 import PostComposer from "@/src/components/PostComposer";
 import StoryTray from "@/src/components/StoryTray";
+import CommentsSheet from "@/src/components/CommentsSheet";
 
 type Tab = "home" | "explore";
 
@@ -30,6 +31,7 @@ export default function FeedScreen() {
   const [editing, setEditing] = useState<Post | null>(null);
   const [quoting, setQuoting] = useState<Post | null>(null);
   const [actionPost, setActionPost] = useState<Post | null>(null);
+  const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const viewedRef = useRef<Set<string>>(new Set());
 
   const onViewable = useRef(({ viewableItems }: any) => {
@@ -122,6 +124,16 @@ export default function FeedScreen() {
   const onMore = (post: Post) => {
     if (post.user_id !== user?.user_id) return;
     setActionPost(post);
+  };
+
+  const onCommented = (postId: string) => {
+    setPosts((arr) => arr.map((p) => {
+      const bump = (q: Post): Post => ({ ...q, replies_count: (q.replies_count || 0) + 1 });
+      if (p.id === postId) return bump(p);
+      if (p.reposted_post && p.reposted_post.id === postId)
+        return { ...p, reposted_post: bump(p.reposted_post) };
+      return p;
+    }));
   };
 
   const doDelete = async (p: Post) => {
@@ -237,6 +249,7 @@ export default function FeedScreen() {
               onRepost={onRepost}
               onQuote={onQuote}
               onReply={onReply}
+              onComments={(p) => setCommentsPost(p)}
               onBookmark={onBookmark}
               onMore={onMore}
               onPollUpdated={onPollUpdated}
@@ -244,6 +257,13 @@ export default function FeedScreen() {
           )}
         />
       )}
+
+      <CommentsSheet
+        visible={!!commentsPost}
+        post={commentsPost}
+        onClose={() => setCommentsPost(null)}
+        onCommented={(postId) => onCommented(postId)}
+      />
 
       <TouchableOpacity
         style={[styles.fab, { bottom: 20 }]}

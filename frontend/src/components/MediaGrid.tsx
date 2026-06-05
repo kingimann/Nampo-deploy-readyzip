@@ -10,24 +10,25 @@ import { theme } from "@/src/theme";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
-function VideoTile({ uri, style }: { uri: string; style: any }) {
+function VideoTile({ uri, style, onPress }: { uri: string; style: any; onPress?: () => void }) {
   const player = useVideoPlayer(uri, (p) => { p.loop = true; p.muted = true; });
   const [playing, setPlaying] = useState(false);
+  // When onPress is provided (feed → Reels), show a poster + play button and
+  // hand the tap off instead of playing inline.
+  const handle = () => {
+    if (onPress) { onPress(); return; }
+    if (playing) { player.pause(); setPlaying(false); }
+    else { player.play(); setPlaying(true); }
+  };
   return (
-    <Pressable
-      onPress={() => {
-        if (playing) { player.pause(); setPlaying(false); }
-        else { player.play(); setPlaying(true); }
-      }}
-      style={style}
-    >
+    <Pressable onPress={handle} style={style}>
       <VideoView
         player={player}
         style={StyleSheet.absoluteFill}
         nativeControls={false}
         contentFit="cover"
       />
-      {!playing && (
+      {(!playing || !!onPress) && (
         <View style={styles.playOverlay}>
           <Ionicons name="play" size={32} color="#fff" />
         </View>
@@ -39,9 +40,12 @@ function VideoTile({ uri, style }: { uri: string; style: any }) {
 export default function MediaGrid({
   media,
   testID,
+  onVideoPress,
 }: {
   media: PostMedia[];
   testID?: string;
+  /** If set, tapping a video opens this (e.g. the Reels player) instead of inline play. */
+  onVideoPress?: () => void;
 }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   if (!media || media.length === 0) return null;
@@ -52,7 +56,7 @@ export default function MediaGrid({
     if (m.type === "video") {
       return (
         <View key={idx} style={[styles.tile, style]}>
-          <VideoTile uri={uri} style={StyleSheet.absoluteFill} />
+          <VideoTile uri={uri} style={StyleSheet.absoluteFill} onPress={onVideoPress} />
         </View>
       );
     }

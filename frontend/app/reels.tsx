@@ -1,37 +1,54 @@
-import React, { useCallback, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  Image, useWindowDimensions, Platform, RefreshControl,
+  Image, useWindowDimensions, Platform, RefreshControl, Pressable,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { api, Post } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 
-function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean; screenW: number; screenH: number }) {
+function Reel({ post, active, muted, onToggleMute, screenW, screenH }: {
+  post: Post; active: boolean; muted: boolean; onToggleMute: () => void; screenW: number; screenH: number;
+}) {
   const video = post.media?.find((m) => m.type === "video");
   const image = post.media?.find((m) => m.type === "image");
   const videoUri = video?.base64 || "";
-  const player = useVideoPlayer(videoUri || "about:blank", (p) => { p.loop = true; p.muted = false; });
+  const player = useVideoPlayer(videoUri || "about:blank", (p) => { p.loop = true; p.muted = muted; });
   const router = useRouter();
+  const [paused, setPaused] = useState(false);
 
+  // Play only when this reel is on screen and not manually paused.
   React.useEffect(() => {
     if (!videoUri) return;
-    if (active) { try { player.play(); } catch {} }
+    if (active && !paused) { try { player.play(); } catch {} }
     else { try { player.pause(); } catch {} }
     return () => { try { player.pause(); } catch {} };
-  }, [active, player, videoUri]);
+  }, [active, paused, player, videoUri]);
+
+  // Keep the player's mute in sync with the global toggle.
+  React.useEffect(() => { try { player.muted = muted; } catch {} }, [muted, player]);
+
+  // Resume from paused whenever the reel becomes active again.
+  React.useEffect(() => { if (active) setPaused(false); }, [active]);
 
   const [liked, setLiked] = useState(post.liked_by_me);
   const [likeCount, setLikeCount] = useState(post.likes_count);
+  const [reposted, setReposted] = useState(!!post.reposted_by_me);
+  const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
 
   const onLike = async () => {
     setLiked((v) => !v);
     setLikeCount((n) => n + (liked ? -1 : 1));
     try { await api.toggleLike(post.id); } catch {}
+  };
+  const onRepost = async () => {
+    setReposted((v) => !v);
+    setRepostCount((n) => n + (reposted ? -1 : 1));
+    try { await api.toggleRepost(post.repost_of || post.id); } catch {}
   };
   const onComment = () => router.push({ pathname: "/post/[id]", params: { id: post.id } });
   const onUser = () => router.push({ pathname: "/user/[name]", params: { name: post.author.name } });
@@ -41,12 +58,19 @@ function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean;
   return (
     <View style={{ width: screenW, height: screenH, backgroundColor: "#000" }}>
       {videoUri ? (
-        <VideoView
-          player={player}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          nativeControls={false}
-        />
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} testID={`reel-tap-${post.id}`}>
+          <VideoView
+            player={player}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            nativeControls={false}
+          />
+          {paused && (
+            <View style={styles.centerPlay} pointerEvents="none">
+              <Ionicons name="play" size={66} color="rgba(255,255,255,0.92)" />
+            </View>
+          )}
+        </Pressable>
       ) : imageUri ? (
         <Image
           source={{ uri: imageUri }}
@@ -68,7 +92,13 @@ function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean;
           </View>
         </View>
       )}
-      <View style={styles.scrim} />
+      <View style={styles.scrim} pointerEvents="none" />
+
+      {!!videoUri && (
+        <TouchableOpacity style={styles.muteBtn} onPress={onToggleMute} testID="reel-mute" activeOpacity={0.85}>
+          <Ionicons name={muted ? "volume-mute" : "volume-high"} size={18} color="#fff" />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.rightCol}>
         <TouchableOpacity style={styles.iconBtn} onPress={onUser}>
@@ -76,7 +106,7 @@ function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean;
             <Text style={styles.avatarLetter}>{(post.author.name?.[0] || "?").toUpperCase()}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn} onPress={onLike}>
+        <TouchableOpacity style={styles.iconBtn} onPress={onLike} testID={`reel-like-${post.id}`}>
           <Ionicons name={liked ? "heart" : "heart-outline"} size={30} color={liked ? "#EF4444" : "#fff"} />
           <Text style={styles.metric}>{likeCount}</Text>
         </TouchableOpacity>
@@ -84,6 +114,14 @@ function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean;
           <Ionicons name="chatbubble-outline" size={28} color="#fff" />
           <Text style={styles.metric}>{post.replies_count || 0}</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={onRepost} testID={`reel-repost-${post.id}`}>
+          <Ionicons name="repeat" size={28} color={reposted ? "#22C55E" : "#fff"} />
+          <Text style={styles.metric}>{repostCount}</Text>
+        </TouchableOpacity>
+        <View style={styles.iconBtn}>
+          <Ionicons name="eye-outline" size={26} color="#fff" />
+          <Text style={styles.metric}>{post.views_count || 0}</Text>
+        </View>
       </View>
 
       <View style={styles.bottom}>
@@ -99,17 +137,25 @@ function Reel({ post, active, screenW, screenH }: { post: Post; active: boolean;
 export default function ReelsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [items, setItems] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [muted, setMuted] = useState(false);
 
   const load = useCallback(async () => {
     try { setItems(await api.reelsFeed()); }
     catch {} finally { setLoading(false); setRefreshing(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // When opened from a feed video, jump to that reel.
+  const focusIndex = focus ? items.findIndex((i) => i.id === focus) : -1;
+  useEffect(() => {
+    if (focusIndex >= 0) setActiveIdx(focusIndex);
+  }, [focusIndex]);
 
   const onViewable = useRef(({ viewableItems }: any) => {
     if (viewableItems?.length) {
@@ -158,10 +204,13 @@ export default function ReelsScreen() {
             />
           }
           getItemLayout={(_, index) => ({ length: screenH, offset: screenH * index, index })}
+          initialScrollIndex={focusIndex > 0 ? focusIndex : undefined}
           renderItem={({ item, index }) => (
             <Reel
               post={item}
               active={index === activeIdx}
+              muted={muted}
+              onToggleMute={() => setMuted((m) => !m)}
               screenW={screenW}
               screenH={screenH}
             />
@@ -187,6 +236,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
   empty: { color: theme.textMuted, fontSize: 15, textAlign: "center", paddingHorizontal: 40 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.15)" },
+  centerPlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  muteBtn: {
+    position: "absolute", right: 16, top: 104,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center",
+    zIndex: 10,
+  },
   textBg: { alignItems: "center", justifyContent: "center", backgroundColor: "#0A0A0A" },
   textCard: {
     width: "80%", padding: 28, borderRadius: 20,

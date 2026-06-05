@@ -23,8 +23,10 @@ type Props = {
   onRepost: (p: Post) => void;
   onQuote?: (p: Post) => void;
   onReply: (p: Post) => void;
+  /** If set, the comment button opens this (Instagram-style sheet) instead of onReply. */
+  onComments?: (p: Post) => void;
   onBookmark: (p: Post) => void;
-  onMore?: (p: Post) => void;  // long-press for owner actions
+  onMore?: (p: Post) => void;  // owner actions (••• button + long-press)
   onPollUpdated?: (p: Post) => void;
 };
 
@@ -39,7 +41,7 @@ export function fmtTime(iso: string) {
 }
 
 export default function PostCard({
-  post, viewerId, disableOpen, onLike, onRepost, onQuote, onReply, onBookmark, onMore, onPollUpdated,
+  post, viewerId, disableOpen, onLike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated,
 }: Props) {
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
@@ -47,10 +49,22 @@ export default function PostCard({
   // with a "X reposted" banner.
   const isRepost = !!post.repost_of && post.reposted_post;
   const display = (isRepost ? post.reposted_post! : post);
+  const isOwner = !!viewerId && display.user_id === viewerId;
+  const hasVideo = (display.media || []).some((m) => m.type === "video");
 
   const openDetail = () => {
     if (disableOpen) return;
     router.push({ pathname: "/post/[id]", params: { id: display.id } });
+  };
+
+  // Instagram-style: tapping a video in the feed jumps to the Reels player.
+  const openReel = () => {
+    router.push({ pathname: "/reels", params: { focus: display.id } });
+  };
+
+  const onCommentPress = () => {
+    if (onComments) onComments(display);
+    else onReply(display);
   };
 
   const onShare = async () => {
@@ -102,6 +116,15 @@ export default function PostCard({
             )}
           </View>
         </View>
+        {isOwner && onMore && (
+          <TouchableOpacity
+            onPress={(e) => { e.stopPropagation?.(); onMore(post); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            testID={`post-more-${post.id}`}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color={theme.textMuted} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {!!display.text && (
@@ -111,7 +134,11 @@ export default function PostCard({
       {display.quoted_post && <QuoteCard post={display.quoted_post} />}
 
       {display.media && display.media.length > 0 && (
-        <MediaGrid media={display.media} testID={`post-${post.id}`} />
+        <MediaGrid
+          media={display.media}
+          testID={`post-${post.id}`}
+          onVideoPress={hasVideo ? openReel : undefined}
+        />
       )}
 
       {display.link_preview && !display.quoted_post && (
@@ -136,7 +163,7 @@ export default function PostCard({
       <View style={styles.actionsRow}>
         <TouchableOpacity
           style={styles.actionBtn}
-          onPress={(e) => { e.stopPropagation?.(); onReply(display); }}
+          onPress={(e) => { e.stopPropagation?.(); onCommentPress(); }}
           testID={`reply-${post.id}`}
         >
           <Ionicons name="chatbubble-outline" size={17} color={theme.textSecondary} />

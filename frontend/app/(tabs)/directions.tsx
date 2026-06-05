@@ -52,6 +52,7 @@ const stepIconFor = (modifier?: string, type?: string): keyof typeof Ionicons.gl
 };
 
 const formatDistance = (m: number) => {
+  if (m < 15) return "< 10 m";
   if (m < 50) return `${Math.round(m / 10) * 10} m`;
   if (m < 1000) return `${Math.round(m / 50) * 50} m`;
   return `${(m / 1000).toFixed(1)} km`;
@@ -134,6 +135,7 @@ export default function DirectionsScreen() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [showSteps, setShowSteps] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
   const [navMode, setNavMode] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
   const [distToManeuver, setDistToManeuver] = useState<number | null>(null);
@@ -288,7 +290,8 @@ export default function DirectionsScreen() {
   }, [waypoints, userLocation, profile, navMode, excludes, applyRoute]);
 
   // Auto-compute route when waypoints / profile / excludes change (NOT every GPS tick).
-  useEffect(() => { recomputeRoute(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [waypoints, profile, excludes]);
+  // Gated on mapReady so the very first route reliably draws after the map loads.
+  useEffect(() => { if (mapReady) recomputeRoute(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [waypoints, profile, excludes, mapReady]);
 
   // Search
   useEffect(() => {
@@ -313,10 +316,31 @@ export default function DirectionsScreen() {
 
   const onMapReady = useCallback(() => {
     mapRef.current?.setStyle(MAP_STYLES.find((s) => s.key === "dark")!.url);
+    setMapReady(true);
+  }, []);
+
+  // Long-press the map → set that point as the destination.
+  const setDestinationTo = useCallback((lng: number, lat: number, name: string) => {
+    setWaypoints((ws) => {
+      const next = [...ws];
+      const last = next[next.length - 1];
+      next[next.length - 1] = {
+        id: last.id,
+        query: name,
+        isUserLocation: false,
+        feature: { id: `pin_${Date.now()}`, name, full_address: "", longitude: lng, latitude: lat },
+      };
+      return next;
+    });
+    setActiveWaypointId(null);
+    setResults([]);
   }, []);
 
   const onEvent = (e: MapboxEvent) => {
     if (e.type === "ready") onMapReady();
+    else if (e.type === "longpress" && !navMode) {
+      setDestinationTo(e.lng, e.lat, "Dropped pin");
+    }
   };
 
   const updateWaypoint = (id: string, patch: Partial<Waypoint>) => {
@@ -334,6 +358,28 @@ export default function DirectionsScreen() {
       if (ws.length <= 2) return ws;
       return ws.filter((w) => w.id !== id);
     });
+  };
+  // Swap origin and destination (carries the "your location" flag with its slot).
+  const swapEnds = () => {
+    setWaypoints((ws) => {
+      if (ws.length < 2) return ws;
+      const next = [...ws];
+      const a = next[0], b = next[next.length - 1];
+      next[0] = { ...b, id: a.id };
+      next[next.length - 1] = { ...a, id: b.id };
+      return next;
+    });
+    setActiveWaypointId(null);
+    setResults([]);
+  };
+  // Reset the planner back to "your location → empty".
+  const clearRoute = () => {
+    setWaypoints([
+      { id: newId(), query: "Your location", feature: null, isUserLocation: true },
+      { id: newId(), query: "", feature: null },
+    ]);
+    setActiveWaypointId(null);
+    setResults([]);
   };
   const pickResult = (f: GeocodeFeature) => {
     if (!activeWaypointId) return;
@@ -621,10 +667,21 @@ export default function DirectionsScreen() {
                   </View>
                 );
               })}
-              <TouchableOpacity style={styles.addStopBtn} onPress={addStop} testID="add-stop">
-                <Ionicons name="add" size={16} color={theme.primary} />
-                <Text style={styles.addStopText}>Add stop</Text>
+              <TouchableOpacity style={styles.swapBtn} onPress={swapEnds} testID="swap-waypoints" activeOpacity={0.85}>
+                <Ionicons name="swap-vertical" size={18} color={theme.primary} />
               </TouchableOpacity>
+              <View style={styles.cardActions}>
+                <TouchableOpacity style={styles.addStopBtn} onPress={addStop} testID="add-stop">
+                  <Ionicons name="add" size={16} color={theme.primary} />
+                  <Text style={styles.addStopText}>Add stop</Text>
+                </TouchableOpacity>
+                {!!routeInfo && (
+                  <TouchableOpacity style={styles.addStopBtn} onPress={clearRoute} testID="clear-route">
+                    <Ionicons name="close" size={16} color={theme.textMuted} />
+                    <Text style={[styles.addStopText, { color: theme.textMuted }]}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             {profile.startsWith("driving") && (
@@ -1060,7 +1117,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 6,
     shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 12, elevation: 6,
+    position: "relative",
   },
+  swapBtn: {
+    position: "absolute", right: 8, top: 24,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border,
+    alignItems: "center", justifyContent: "center",
+  },
+  cardActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   input: {
