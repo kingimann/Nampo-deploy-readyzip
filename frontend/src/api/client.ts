@@ -135,6 +135,16 @@ export const api = {
   getPublicUser: (id: string) => request<PublicUser>(`/users/${id}/public`),
   adminPatchUser: (userId: string, body: { verified?: boolean; role?: string }) =>
     request<PublicUser>(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  adminListUsers: (q = "", limit = 50, offset = 0) =>
+    request<{ users: AdminUser[]; total: number }>(`/admin/users?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`),
+  adminBanUser: (userId: string, reason = "") =>
+    request<{ ok: boolean }>(`/admin/users/${userId}/ban`, { method: "POST", body: JSON.stringify({ reason }) }),
+  adminUnbanUser: (userId: string) =>
+    request<{ ok: boolean }>(`/admin/users/${userId}/unban`, { method: "POST" }),
+  adminSuspendUser: (userId: string, days: number, reason = "") =>
+    request<{ ok: boolean; until: string }>(`/admin/users/${userId}/suspend`, { method: "POST", body: JSON.stringify({ days, reason }) }),
+  adminRemoveUser: (userId: string) =>
+    request<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
   tipUser: (userId: string, amount: number, message?: string) =>
     request<{ id: string }>(`/users/${userId}/tip`, { method: "POST", body: JSON.stringify({ amount, message: message || "" }) }),
   getSubscriptionTiers: () => request<{ tiers: SubTier[] }>("/subscription-tiers"),
@@ -637,6 +647,11 @@ export type DevWebhook = { id: string; url: string; events: string[]; active: bo
 export type OveragePack = { id: string; name: string; requests: number; price: number };
 export type ApiUsage = { plan?: string | null; used: number; quota: number; extra_credits: number; limit: number; resets_at?: string | null; packs: OveragePack[]; stripe_enabled: boolean };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
+export type AdminUser = {
+  user_id: string; name: string; username?: string | null; email?: string | null;
+  picture?: string | null; role: string; verified: boolean; banned: boolean;
+  suspended: boolean; suspended_until?: string | null; created_at?: string;
+};
 export type MoneyRequest = {
   id: string; from_user_id: string; to_user_id: string; amount: number; note: string;
   status: "pending" | "paid" | "declined" | "cancelled"; direction: "incoming" | "outgoing";

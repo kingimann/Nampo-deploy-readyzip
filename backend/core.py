@@ -149,6 +149,19 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     user = await db.users.find_one({"user_id": session["user_id"]})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    # Account moderation — banned/suspended users are locked out (admins exempt).
+    if _effective_role(user) != "admin":
+        if user.get("banned"):
+            raise HTTPException(status_code=403, detail={"code": "banned", "message": "Your account has been banned."})
+        su = user.get("suspended_until")
+        if su:
+            try:
+                if _norm_dt(su) > datetime.now(timezone.utc):
+                    raise HTTPException(status_code=403, detail={"code": "suspended", "message": "Your account is temporarily suspended."})
+            except HTTPException:
+                raise
+            except Exception:
+                pass
     # Developer API keys are a paid add-on and require an active plan.
     if session.get("kind") == "api_key":
         if not _has_api_access(user):
@@ -311,7 +324,7 @@ def _user_doc_to_model(d: dict) -> dict:
 # listing their email in ADMIN_EMAILS; everything else is granted in-app.
 # A baked-in owner email guarantees the account is admin even when the env var
 # isn't set on the host.
-BOOTSTRAP_ADMIN_EMAILS = {"ifakhargomi@gmail.com"}
+BOOTSTRAP_ADMIN_EMAILS = {"imanfakhargomi@hotmail.com"}
 ADMIN_EMAILS = BOOTSTRAP_ADMIN_EMAILS | {
     e.strip().lower()
     for e in (os.environ.get("ADMIN_EMAILS", "") or "").split(",")
