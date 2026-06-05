@@ -99,6 +99,15 @@ export const api = {
   unsubscribeUser: (userId: string) =>
     request<{ subscribed: boolean }>(`/users/${userId}/subscribe`, { method: "DELETE" }),
   getWallet: () => request<WalletSummary>("/wallet"),
+  // Payments (Stripe Connect) — inert until the server has STRIPE_SECRET_KEY set.
+  getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number }>("/payments/config"),
+  setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
+  getPayoutStatus: () =>
+    request<{ enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean }>("/payments/payouts/status"),
+  createCheckout: (kind: "tip" | "subscription", creator_id: string, amount: number) =>
+    request<{ url: string; id: string }>("/payments/checkout", {
+      method: "POST", body: JSON.stringify({ kind, creator_id, amount }),
+    }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),

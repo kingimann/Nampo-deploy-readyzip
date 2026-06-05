@@ -36,6 +36,16 @@ services:
       # you to paste it (sync:false keeps it out of git); leave blank to skip.
       - key: FSQ_API_KEY
         sync: false
+      # Optional — real payouts via Stripe Connect. Leave blank to keep test
+      # payments. See backend/STRIPE_SETUP.md.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PLATFORM_FEE_PERCENT
+        value: "0"
+      - key: WEB_APP_URL
+        value: https://nampo-web.onrender.com
 
   # Web frontend — the Expo app exported to a static site. Optional: mobile is
   # built separately with EAS. The web client calls the API cross-origin using

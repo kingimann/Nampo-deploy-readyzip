@@ -16,6 +16,7 @@ from routes import (
     marketplace as marketplace_routes,
     messaging as messaging_routes,
     notifications as notifications_routes,
+    payments as payments_routes,
     places as places_routes,
     posts as posts_routes,
     reviews as reviews_routes,
@@ -68,6 +69,7 @@ api_router.include_router(groups_routes.router)
 api_router.include_router(communities_routes.router)
 api_router.include_router(fsq_routes.router)
 api_router.include_router(stories_routes.router)
+api_router.include_router(payments_routes.router)
 
 app.include_router(api_router)
 

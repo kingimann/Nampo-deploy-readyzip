@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, Linking, Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +22,9 @@ export default function WalletScreen() {
   const [loading, setLoading] = useState(true);
   const [price, setPrice] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
+  const [payEnabled, setPayEnabled] = useState(false);
+  const [payout, setPayout] = useState<{ connected: boolean; payouts_enabled: boolean; details_submitted: boolean } | null>(null);
+  const [connecting, setConnecting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -29,8 +32,24 @@ export default function WalletScreen() {
       setW(data);
       setPrice(String(data.sub_price ?? ""));
     } catch {} finally { setLoading(false); }
+    // Payment/payout status (Stripe) — harmless when Stripe is off.
+    try {
+      const cfg = await api.getPaymentsConfig();
+      setPayEnabled(cfg.enabled);
+      if (cfg.enabled) setPayout(await api.getPayoutStatus());
+    } catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const setupPayouts = async () => {
+    setConnecting(true);
+    try {
+      const { url } = await api.setupPayouts();
+      await Linking.openURL(url);
+    } catch (e: any) {
+      Alert.alert("Couldn't start payout setup", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setConnecting(false); }
+  };
 
   const savePrice = async () => {
     const p = Math.max(0, Number(price) || 0);
@@ -80,6 +99,41 @@ export default function WalletScreen() {
               <Text style={styles.statLabel}>subscribers</Text>
             </View>
           </View>
+
+          <Text style={styles.section}>Getting paid</Text>
+          {payEnabled ? (
+            <View style={styles.payoutCard}>
+              <View style={styles.payoutHead}>
+                <View style={[styles.payoutDot, { backgroundColor: payout?.payouts_enabled ? "#22C55E" : theme.textMuted }]} />
+                <Text style={styles.payoutStatus}>
+                  {payout?.payouts_enabled ? "Payouts active" : payout?.connected ? "Setup incomplete" : "Not set up"}
+                </Text>
+              </View>
+              <Text style={styles.payoutSub}>
+                {payout?.payouts_enabled
+                  ? "Tips and subscriptions are paid out to your connected account via Stripe."
+                  : "Connect a bank account or card with Stripe to receive real payouts. Until then, payments run in test mode."}
+              </Text>
+              <TouchableOpacity style={styles.payoutBtn} onPress={setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
+                {connecting ? <ActivityIndicator color="#fff" size="small" /> : (
+                  <>
+                    <Ionicons name="card-outline" size={16} color="#fff" />
+                    <Text style={styles.payoutBtnText}>{payout?.payouts_enabled ? "Manage payouts" : payout?.connected ? "Finish setup" : "Set up payouts"}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.payoutCard}>
+              <View style={styles.payoutHead}>
+                <Ionicons name="flask-outline" size={16} color={theme.primary} />
+                <Text style={styles.payoutStatus}>Test mode</Text>
+              </View>
+              <Text style={styles.payoutSub}>
+                Real payouts aren't enabled on this server yet. Tips and subscriptions are simulated, and all earnings are credited to you in-app.
+              </Text>
+            </View>
+          )}
 
           <Text style={styles.section}>Your subscription price</Text>
           <View style={styles.priceRow}>
@@ -160,6 +214,13 @@ const styles = StyleSheet.create({
   statNum: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
   statLabel: { color: theme.textMuted, fontSize: 11 },
   section: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 24, marginBottom: 10 },
+  payoutCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 10 },
+  payoutHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  payoutDot: { width: 9, height: 9, borderRadius: 5 },
+  payoutStatus: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  payoutSub: { color: theme.textSecondary, fontSize: 13, lineHeight: 19 },
+  payoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12, marginTop: 2 },
+  payoutBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   priceRow: { flexDirection: "row", gap: 10 },
   priceInput: { flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, height: 48 },
   dollar: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },

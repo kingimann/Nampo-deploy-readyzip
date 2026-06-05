@@ -20,5 +20,8 @@ cryptography==48.0.0
 # HTTP client (link previews, foursquare matching)
 httpx==0.28.1
 
+# Payments (optional — real payouts via Stripe Connect; app runs without it)
+stripe==11.4.1
+
 # Config
 python-dotenv==1.2.2

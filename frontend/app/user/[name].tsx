@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -46,6 +46,7 @@ export default function UserProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+  const [payEnabled, setPayEnabled] = useState(false);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -59,9 +60,18 @@ export default function UserProfileScreen() {
         await api.unsubscribeUser(user.user_id);
         setUser((p) => (p ? { ...p, is_subscribed: false, subscriber_count: Math.max(0, (p.subscriber_count || 1) - 1) } : p));
       } catch {}
-    } else {
-      setSubOpen(true);
+      return;
     }
+    // Real payments: route through Stripe Checkout when the creator has payouts
+    // set up. Otherwise fall back to the in-app test payment sheet.
+    if (payEnabled) {
+      try {
+        const { url } = await api.createCheckout("subscription", user.user_id, 0);
+        await Linking.openURL(url);
+        return;
+      } catch {}
+    }
+    setSubOpen(true);
   };
 
   const load = useCallback(async () => {
@@ -86,6 +96,7 @@ export default function UserProfileScreen() {
       setLoading(false);
       setRefreshing(false);
     }
+    try { setPayEnabled((await api.getPaymentsConfig()).enabled); } catch {}
   }, [name, me]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
