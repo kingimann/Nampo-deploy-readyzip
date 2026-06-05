@@ -1,14 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking, Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Clipboard from "expo-clipboard";
-import * as DocumentPicker from "expo-document-picker";
 import {
   useAudioRecorder,
   AudioModule,
@@ -199,28 +198,42 @@ export default function ChatScreen() {
 
   const pickFile = async () => {
     if (!id) return;
+    // Web uses a native file input (no extra dependency). On native devices a
+    // document picker module would be required, so we degrade gracefully.
+    if (Platform.OS !== "web") {
+      Alert.alert("File attachments", "Sending files is available on the web app.");
+      return;
+    }
     try {
-      const res: any = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
-      if (res.canceled) return;
-      const asset = res.assets?.[0];
-      if (!asset?.uri) return;
-      // Read the file into a base64 data URI (works web + native).
-      const blob = await (await fetch(asset.uri)).blob();
-      const dataUri: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-      if (dataUri.length > 8 * 1024 * 1024) { return; }
-      const msg = await api.sendMessage(id, {
-        type: "file",
-        file_base64: dataUri,
-        file_name: asset.name || "file",
-        file_size: asset.size || blob.size,
-        file_mime: asset.mimeType || blob.type,
-      });
-      setMessages((m) => [...m, msg]);
+      const doc: any = (globalThis as any).document;
+      if (!doc) return;
+      const input = doc.createElement("input");
+      input.type = "file";
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const dataUri: string = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        if (dataUri.length > 8 * 1024 * 1024) {
+          Alert.alert("File too large", "Please pick a file under ~6 MB.");
+          return;
+        }
+        try {
+          const msg = await api.sendMessage(id, {
+            type: "file",
+            file_base64: dataUri,
+            file_name: file.name,
+            file_size: file.size,
+            file_mime: file.type,
+          });
+          setMessages((m) => [...m, msg]);
+        } catch {}
+      };
+      input.click();
     } catch {}
   };
 
