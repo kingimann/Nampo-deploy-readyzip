@@ -381,8 +381,8 @@ async def send_message(
             b = d.get("base64") or ""
             if not b:
                 continue
-            if len(b) > 8 * 1024 * 1024:
-                raise HTTPException(status_code=413, detail="Media too large (8MB limit)")
+            if len(b) > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Media too large (25MB limit)")
             d["type"] = d.get("type") or "image"
             media.append(d)
         if not media:
