@@ -29,7 +29,7 @@ import ContactPickerSheet from "@/src/components/ContactPickerSheet";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
-import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, isE2E, tryDecrypt } from "@/src/utils/e2e";
+import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, encryptDataForRecipients, decryptData, isE2EMedia, isE2E, tryDecrypt } from "@/src/utils/e2e";
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -48,6 +48,8 @@ export default function ChatScreen() {
   const [groupRecipients, setGroupRecipients] = useState<Uint8Array[]>([]);
   const groupE2E = isGroup && groupRecipients.length > 0;
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
+  // Decrypted media/voice/file payloads (data URIs), keyed e.g. v:<id>, f:<id>, m:<id>:<idx>.
+  const [blobs, setBlobs] = useState<Record<string, string>>({});
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
   const [sharingLocation, setSharingLocation] = useState(false);
@@ -137,6 +139,52 @@ export default function ChatScreen() {
         }
       }
       if (changed && !cancelled) setDecrypted(next);
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, peerKey, keyByUser, isGroup]);
+
+  // Recipients to seal attachments to (DM peer or all group members), or null.
+  const e2eRecipients = (): Uint8Array[] | null => {
+    if (groupE2E) return groupRecipients;
+    if (peerKey) return [peerKey];
+    return null;
+  };
+  // pure-JS crypto: cap E2E attachments so encryption stays fast and within caps.
+  const E2E_MEDIA_MAX = 5 * 1024 * 1024;
+  const maybeEncrypt = async (dataUri: string): Promise<string> => {
+    const r = e2eRecipients();
+    if (!r) return dataUri;
+    if ((dataUri || "").length > E2E_MEDIA_MAX) throw new Error("E2E_TOO_BIG");
+    return await encryptDataForRecipients(dataUri, r);
+  };
+
+  // Decrypt any encrypted media/voice/file payloads lazily for rendering.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const next: Record<string, string> = { ...blobs };
+      let changed = false;
+      const senderKey = (m: Message) => m.sender_id === user?.user_id
+        ? null : (isGroup ? keyByUser[m.sender_id] || null : peerKey);
+      for (const m of messages) {
+        const sk = senderKey(m);
+        if (m.type === "voice" && m.audio_base64 && isE2EMedia(m.audio_base64) && next[`v:${m.id}`] === undefined) {
+          const d = await decryptData(m.audio_base64, sk); if (d) { next[`v:${m.id}`] = d; changed = true; }
+        }
+        if (m.type === "file" && m.file_base64 && isE2EMedia(m.file_base64) && next[`f:${m.id}`] === undefined) {
+          const d = await decryptData(m.file_base64, sk); if (d) { next[`f:${m.id}`] = d; changed = true; }
+        }
+        if (m.type === "media" && m.media) {
+          for (let i = 0; i < m.media.length; i++) {
+            const b = m.media[i]?.base64 || "";
+            if (isE2EMedia(b) && next[`m:${m.id}:${i}`] === undefined) {
+              const d = await decryptData(b, sk); if (d) { next[`m:${m.id}:${i}`] = d; changed = true; }
+            }
+          }
+        }
+      }
+      if (changed && !cancelled) setBlobs(next);
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,13 +399,16 @@ export default function ChatScreen() {
           try {
             const msg = await api.sendMessage(id, {
               type: "file",
-              file_base64: dataUri,
+              file_base64: await maybeEncrypt(dataUri),
               file_name: file.name,
               file_size: file.size,
               file_mime: file.type,
             });
+            if (e2eRecipients()) setBlobs((b) => ({ ...b, [`f:${msg.id}`]: dataUri }));
             setMessages((m) => [...m, msg]);
-          } catch {}
+          } catch (e: any) {
+            if (String(e?.message) === "E2E_TOO_BIG") Alert.alert("Too large to encrypt", "Encrypted files must be under ~5 MB.");
+          }
         };
         input.click();
       } catch {}
@@ -386,14 +437,18 @@ export default function ChatScreen() {
       }
       const msg = await api.sendMessage(id, {
         type: "file",
-        file_base64: dataUri,
+        file_base64: await maybeEncrypt(dataUri),
         file_name: file.name,
         file_size: file.size ?? undefined,
         file_mime: file.mimeType ?? undefined,
       });
+      if (e2eRecipients()) setBlobs((b) => ({ ...b, [`f:${msg.id}`]: dataUri }));
       setMessages((m) => [...m, msg]);
-    } catch {
-      Alert.alert("Couldn't attach file", "Please try again.");
+    } catch (e: any) {
+      Alert.alert(
+        String(e?.message) === "E2E_TOO_BIG" ? "Too large to encrypt" : "Couldn't attach file",
+        String(e?.message) === "E2E_TOO_BIG" ? "Encrypted files must be under ~5 MB." : "Please try again.",
+      );
     }
   };
 
@@ -463,9 +518,16 @@ export default function ChatScreen() {
     if (!media.length) return;
     setSending(true);
     try {
-      const msg = await api.sendMessage(id, { type: "media", media });
+      let outMedia = media;
+      if (e2eRecipients()) {
+        outMedia = await Promise.all(media.map(async (mm) => ({ ...mm, base64: await maybeEncrypt(mm.base64) })));
+      }
+      const msg = await api.sendMessage(id, { type: "media", media: outMedia });
+      if (e2eRecipients()) media.forEach((mm, i) => setBlobs((b) => ({ ...b, [`m:${msg.id}:${i}`]: mm.base64 })));
       setMessages((m) => [...m, msg]);
-    } catch {} finally { setSending(false); }
+    } catch (e: any) {
+      if (String(e?.message) === "E2E_TOO_BIG") Alert.alert("Too large to encrypt", "Encrypted photos/videos must be under ~5 MB.");
+    } finally { setSending(false); }
   };
 
   // Share your current GPS position as a place bubble.
@@ -550,11 +612,14 @@ export default function ChatScreen() {
       });
       const msg = await api.sendMessage(id!, {
         type: "voice",
-        audio_base64: dataUri,
+        audio_base64: await maybeEncrypt(dataUri),
         audio_duration_ms: elapsed,
       });
+      if (e2eRecipients()) setBlobs((b) => ({ ...b, [`v:${msg.id}`]: dataUri }));
       setMessages((m) => [...m, msg]);
-    } catch {} finally {
+    } catch (e: any) {
+      if (String(e?.message) === "E2E_TOO_BIG") Alert.alert("Too large to encrypt", "Encrypted voice notes must be under ~5 MB.");
+    } finally {
       setSending(false);
     }
   };
@@ -659,16 +724,27 @@ export default function ChatScreen() {
                         </Text>
                       </TouchableOpacity>
                     ) : item.type === "voice" && item.audio_base64 ? (
-                      <VoiceMessage
-                        uri={item.audio_base64}
-                        durationMs={item.audio_duration_ms}
-                        mine={mine}
-                        testID={`voice-msg-${item.id}`}
-                      />
+                      (() => {
+                        const uri = isE2EMedia(item.audio_base64 || "") ? blobs[`v:${item.id}`] : item.audio_base64;
+                        return uri ? (
+                          <VoiceMessage uri={uri} durationMs={item.audio_duration_ms} mine={mine} testID={`voice-msg-${item.id}`} />
+                        ) : (
+                          <View style={styles.sharedLoading}><ActivityIndicator color={mine ? "#fff" : theme.primary} size="small" /></View>
+                        );
+                      })()
                     ) : item.type === "media" && (item.media || []).length > 0 ? (
-                      <View style={styles.mediaWrap}>
-                        <MediaGrid media={item.media || []} testID={`msg-${item.id}`} />
-                      </View>
+                      (() => {
+                        const arr = (item.media || []).map((mm, i) =>
+                          isE2EMedia(mm.base64 || "") ? { ...mm, base64: blobs[`m:${item.id}:${i}`] } : mm);
+                        const ready = arr.every((mm) => mm.url || mm.base64 !== undefined);
+                        return ready ? (
+                          <View style={styles.mediaWrap}>
+                            <MediaGrid media={arr as any} testID={`msg-${item.id}`} />
+                          </View>
+                        ) : (
+                          <View style={styles.sharedLoading}><ActivityIndicator color={mine ? "#fff" : theme.primary} size="small" /></View>
+                        );
+                      })()
                     ) : item.type === "post" && item.post_id ? (
                       sharedPosts[item.post_id] ? (
                         <View style={styles.sharedWrap}>
@@ -684,7 +760,10 @@ export default function ChatScreen() {
                     ) : item.type === "file" ? (
                       <TouchableOpacity
                         style={styles.fileRow}
-                        onPress={() => item.file_base64 && Linking.openURL(item.file_base64).catch(() => {})}
+                        onPress={() => {
+                          const u = isE2EMedia(item.file_base64 || "") ? blobs[`f:${item.id}`] : item.file_base64;
+                          if (u) Linking.openURL(u).catch(() => {});
+                        }}
                         testID={`file-msg-${item.id}`}
                       >
                         <View style={[styles.fileIcon, { backgroundColor: mine ? "rgba(255,255,255,0.2)" : theme.surfaceAlt }]}>

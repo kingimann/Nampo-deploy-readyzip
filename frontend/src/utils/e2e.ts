@@ -121,6 +121,70 @@ export function isE2E(value: string): boolean {
   return typeof value === "string" && value.startsWith(PREFIX);
 }
 
+// ── Binary payloads (media / voice / files) — hybrid encryption ──────────────
+// The blob is sealed ONCE with a random symmetric key (secretbox); that key is
+// then sealed to each recipient (and self) with box. Efficient for groups.
+const MEDIA_PREFIX = "e2eb:v1:";
+
+export function isE2EMedia(value: string): boolean {
+  return typeof value === "string" && value.startsWith(MEDIA_PREFIX);
+}
+
+export async function encryptDataForRecipients(
+  dataUri: string,
+  recipientPubs: Uint8Array[],
+): Promise<string> {
+  const { priv, pub } = await ensureKeyPair();
+  const key = nacl.randomBytes(nacl.secretbox.keyLength);
+  const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
+  const ct = nacl.secretbox(decodeUTF8(dataUri), nonce, key);
+  const sealKey = (peer: Uint8Array) => {
+    const kn = nacl.randomBytes(nacl.box.nonceLength);
+    const kb = nacl.box(key, kn, peer, priv);
+    return `${encodeBase64(kn)}.${encodeBase64(kb)}`;
+  };
+  const seen = new Set<string>();
+  const envs: string[] = [];
+  for (const p of [...recipientPubs, pub]) {
+    const k = encodeBase64(p);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    envs.push(sealKey(p));
+  }
+  return `${MEDIA_PREFIX}${encodeBase64(nonce)}:${encodeBase64(ct)}~${envs.join("|")}`;
+}
+
+export async function decryptData(value: string, senderPub: Uint8Array | null): Promise<string | null> {
+  if (!isE2EMedia(value)) return null;
+  const { priv } = await ensureKeyPair();
+  const body = value.slice(MEDIA_PREFIX.length);
+  const [head, envPart] = body.split("~");
+  if (!head || !envPart) return null;
+  const [nB, ctB] = head.split(":");
+  if (!nB || !ctB) return null;
+  const peers: Uint8Array[] = [];
+  if (senderPub) peers.push(senderPub);
+  if (cachedPub) peers.push(cachedPub);
+  for (const env of envPart.split("|")) {
+    const [kn, kb] = env.split(".");
+    if (!kn || !kb) continue;
+    try {
+      const key = (() => {
+        for (const peer of peers) {
+          const k = nacl.box.open(decodeBase64(kb), decodeBase64(kn), peer, priv);
+          if (k) return k;
+        }
+        return null;
+      })();
+      if (key) {
+        const data = nacl.secretbox.open(decodeBase64(ctB), decodeBase64(nB), key);
+        if (data) return encodeUTF8(data);
+      }
+    } catch {}
+  }
+  return null;
+}
+
 export async function tryDecrypt(value: string, peerPub: Uint8Array | null): Promise<string | null> {
   if (!isE2E(value)) return null;
   const { priv } = await ensureKeyPair();
