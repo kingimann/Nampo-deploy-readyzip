@@ -11,7 +11,7 @@ import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
-import { withAppleFee, appleFeeNote, isApplePlatform } from "@/src/lib/pricing";
+import { withAppleFee } from "@/src/lib/pricing";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -277,9 +277,10 @@ export default function UserProfileScreen() {
           <FakePaymentSheet
             visible={tipOpen}
             title={`Tip ${user.name}`}
-            subtitle={isApplePlatform ? `Amount the creator receives — buyer pays ${appleFeeNote}` : "100% goes to the creator"}
+            subtitle="Enter what the creator receives"
             amount={5}
             editableAmount
+            appleFee
             allowNote
             cta="Send"
             successText={`Your tip was sent to ${user.name}.`}
@@ -289,8 +290,9 @@ export default function UserProfileScreen() {
           <FakePaymentSheet
             visible={subOpen}
             title={`Subscribe to ${user.name}`}
-            subtitle={isApplePlatform ? `Monthly — ${user.name} receives $${(user.sub_price ?? 4.99).toFixed(2)} (${appleFeeNote})` : "Monthly subscription — funds go to the creator"}
-            amount={withAppleFee(user.sub_price ?? 4.99)}
+            subtitle={`Monthly — ${user.name} receives $${(user.sub_price ?? 4.99).toFixed(2)}`}
+            amount={user.sub_price ?? 4.99}
+            appleFee
             cta="Subscribe"
             successText={`You're subscribed to ${user.name}!`}
             onClose={() => setSubOpen(false)}

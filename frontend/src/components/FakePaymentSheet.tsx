@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
+import { withAppleFee, isApplePlatform } from "@/src/lib/pricing";
 
 const formatCard = (t: string) => t.replace(/\D/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
 const formatExp = (t: string) => {
@@ -22,6 +23,8 @@ type Props = {
   allowNote?: boolean;
   cta?: string;
   successText?: string;
+  /** Gross the charge up on iOS to cover Apple's fee; `onPaid` still gets the net. */
+  appleFee?: boolean;
   onClose: () => void;
   onPaid: (amount: number, note: string) => Promise<void> | void;
 };
@@ -29,7 +32,7 @@ type Props = {
 const PRESETS = [1, 3, 5, 10, 20, 50];
 
 export default function FakePaymentSheet({
-  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, onClose, onPaid,
+  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, onClose, onPaid,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [amt, setAmt] = useState(String(amount || 0));
@@ -44,13 +47,18 @@ export default function FakePaymentSheet({
     if (visible) { setAmt(String(amount || 0)); setNote(""); setBusy(false); setDone(false); }
   }, [visible, amount]);
 
-  const value = Math.max(0, Number(amt) || 0);
+  const value = Math.max(0, Number(amt) || 0);   // net — what the recipient receives
+  const charged = appleFee ? withAppleFee(value) : value;  // gross — what the buyer pays
+  const feeApplied = appleFee && isApplePlatform && charged > value;
+  const fee = Math.round((charged - value) * 100) / 100;
 
   const pay = async () => {
     if (value <= 0) return;
     setBusy(true);
     try {
       await new Promise((r) => setTimeout(r, 1200)); // fake processing
+      // The recipient is always credited the NET `value`; only the buyer's
+      // charge is grossed up to absorb Apple's fee.
       await onPaid(value, note.trim());
       setDone(true);
     } catch {
@@ -68,7 +76,11 @@ export default function FakePaymentSheet({
             <View style={styles.doneWrap}>
               <View style={styles.doneCheck}><Ionicons name="checkmark" size={38} color="#fff" /></View>
               <Text style={styles.doneTitle}>Payment successful</Text>
-              <Text style={styles.doneSub}>{successText || `You paid $${value.toFixed(2)}. The money goes to the creator.`}</Text>
+              <Text style={styles.doneSub}>
+                {feeApplied
+                  ? `You paid $${charged.toFixed(2)} — the recipient receives $${value.toFixed(2)} after the App Store fee.`
+                  : (successText || `You paid $${value.toFixed(2)}. The money goes to the creator.`)}
+              </Text>
               <TouchableOpacity style={styles.payBtn} onPress={onClose} testID="pay-done"><Text style={styles.payBtnText}>Done</Text></TouchableOpacity>
             </View>
           ) : (
@@ -99,7 +111,24 @@ export default function FakePaymentSheet({
               ) : (
                 <View style={styles.summary}>
                   <Text style={styles.summaryLabel}>{title}</Text>
-                  <Text style={styles.summaryPrice}>${value.toFixed(2)}</Text>
+                  <Text style={styles.summaryPrice}>${charged.toFixed(2)}</Text>
+                </View>
+              )}
+
+              {feeApplied && (
+                <View style={styles.feeBox}>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>Recipient receives</Text>
+                    <Text style={styles.feeVal}>${value.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.feeRow}>
+                    <Text style={styles.feeLabel}>App Store fee (30%)</Text>
+                    <Text style={styles.feeVal}>${fee.toFixed(2)}</Text>
+                  </View>
+                  <View style={[styles.feeRow, styles.feeTotal]}>
+                    <Text style={styles.feeTotalLabel}>You pay</Text>
+                    <Text style={styles.feeTotalVal}>${charged.toFixed(2)}</Text>
+                  </View>
                 </View>
               )}
 
@@ -129,7 +158,7 @@ export default function FakePaymentSheet({
               </View>
 
               <TouchableOpacity style={[styles.payBtn, (busy || value <= 0) && { opacity: 0.6 }]} onPress={pay} disabled={busy || value <= 0} testID="pay-submit">
-                {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>{cta || "Pay"} ${value.toFixed(2)}</Text>}
+                {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>{cta || "Pay"} ${charged.toFixed(2)}</Text>}
               </TouchableOpacity>
             </ScrollView>
           )}
@@ -155,6 +184,13 @@ const styles = StyleSheet.create({
   summary: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 14, marginVertical: 6 },
   summaryLabel: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", flex: 1 },
   summaryPrice: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  feeBox: { backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 12, marginTop: 8, gap: 6 },
+  feeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  feeLabel: { color: theme.textMuted, fontSize: 13 },
+  feeVal: { color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
+  feeTotal: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, paddingTop: 6, marginTop: 2 },
+  feeTotalLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  feeTotalVal: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.bg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, height: 48, marginBottom: 8 },
   dollar: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
   input: { flex: 1, color: theme.textPrimary, fontSize: 15, height: "100%", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },

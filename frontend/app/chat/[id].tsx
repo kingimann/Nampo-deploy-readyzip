@@ -941,10 +941,11 @@ export default function ChatScreen() {
       <FakePaymentSheet
         visible={tipOpen}
         title={`Tip ${peer?.name || "this user"}`}
-        subtitle="100% goes to them"
+        subtitle="Enter what they receive"
         amount={5}
         editableAmount
         allowNote
+        appleFee
         cta="Send tip"
         successText={`Your tip was sent to ${peer?.name || "them"}.`}
         onClose={() => setTipOpen(false)}
