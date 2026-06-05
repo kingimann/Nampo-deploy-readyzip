@@ -1,13 +1,13 @@
 """Marketplace listings + contact seller."""
 import math
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from core import _conv_key, _public_user, db, get_current_user
+from core import _conv_key, _public_user, db, get_current_user, _norm_dt
 from models import (
     ConversationView,
     Listing,
@@ -117,6 +117,15 @@ async def _saved_ids_for(user_id: str) -> set:
 
 _MEDIA_LIMIT = 8 * 1024 * 1024
 
+# Anti-spam: min seconds between a user's listings, and a per-day cap.
+LISTING_COOLDOWN_SECONDS = 120
+LISTING_DAILY_CAP = 20
+
+
+def _norm_title(t: str) -> str:
+    """Normalize a title for duplicate detection (lowercase, collapse spaces)."""
+    return " ".join((t or "").lower().split())
+
 
 def _clean_photos(body) -> list:
     photos = list(body.photos or [])
@@ -133,11 +142,50 @@ async def create_listing(body: ListingCreate, authorization: Optional[str] = Hea
         raise HTTPException(status_code=400, detail="Title required")
     if body.price < 0:
         raise HTTPException(status_code=400, detail="Price must be ≥ 0")
+
+    now = datetime.now(timezone.utc)
+    uid = user["user_id"]
+    # ── Anti-spam ──────────────────────────────────────────────────────────
+    # 1) Cooldown between listings.
+    last = await db.listings.find_one({"user_id": uid}, {"_id": 0, "created_at": 1}, sort=[("created_at", -1)])
+    if last and last.get("created_at"):
+        try:
+            since = (now - _norm_dt(last["created_at"])).total_seconds()
+            if since < LISTING_COOLDOWN_SECONDS:
+                wait = int(LISTING_COOLDOWN_SECONDS - since)
+                raise HTTPException(status_code=429, detail={
+                    "code": "listing_cooldown",
+                    "message": f"Please wait {wait}s before posting another listing.",
+                })
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+    # 2) Daily cap.
+    day_ago = now - timedelta(days=1)
+    recent_count = await db.listings.count_documents({"user_id": uid, "created_at": {"$gte": day_ago}})
+    if recent_count >= LISTING_DAILY_CAP:
+        raise HTTPException(status_code=429, detail={
+            "code": "listing_daily_cap",
+            "message": f"You've hit the daily limit of {LISTING_DAILY_CAP} listings. Try again tomorrow.",
+        })
+    # 3) No duplicates — same normalized title with an active listing.
+    norm = _norm_title(title)
+    dupe = await db.listings.find_one(
+        {"user_id": uid, "status": "active", "title_norm": norm}, {"_id": 0, "id": 1}
+    )
+    if dupe:
+        raise HTTPException(status_code=409, detail={
+            "code": "duplicate_listing",
+            "message": "You already have an active listing with this title.",
+        })
+
     photos = _clean_photos(body)
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["user_id"],
         "title": title,
+        "title_norm": _norm_title(title),
         "price": float(body.price),
         "currency": (body.currency or "USD")[:8],
         "category": body.category or "other",

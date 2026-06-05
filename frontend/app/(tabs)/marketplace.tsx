@@ -81,6 +81,7 @@ export default function MarketplaceScreen() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [posting, setPosting] = useState(false);
+  const [postErr, setPostErr] = useState<string | null>(null);
   // Location + radius (Facebook-Marketplace style).
   const [coords, setCoords] = useState<[number, number] | null>(null);
   const [locality, setLocality] = useState("");
@@ -186,7 +187,7 @@ export default function MarketplaceScreen() {
   const submit = async () => {
     const title = draft.title.trim();
     if (!title) return;
-    setPosting(true);
+    setPosting(true); setPostErr(null);
     try {
       const p = await api.createListing({
         title,
@@ -206,7 +207,9 @@ export default function MarketplaceScreen() {
       setListings((x) => [p, ...x]);
       setDraft({ ...EMPTY_DRAFT });
       setComposeOpen(false);
-    } catch {} finally { setPosting(false); }
+    } catch (e: any) {
+      setPostErr(String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setPosting(false); }
   };
 
   const openListing = (l: Listing) =>
@@ -521,6 +524,7 @@ export default function MarketplaceScreen() {
                 maxLength={2000}
                 testID="listing-desc-input"
               />
+              {!!postErr && <Text style={styles.postErr}>{postErr}</Text>}
               <TouchableOpacity
                 style={[styles.postBtn, (!draft.title.trim() || posting) && { opacity: 0.5 }]}
                 onPress={submit}
@@ -791,6 +795,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary, alignItems: "center",
   },
   postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  postErr: { color: theme.error, fontSize: 13, fontWeight: "600", marginBottom: 8, textAlign: "center" },
 
   // Location + radius bar (browse)
   locBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
