@@ -283,7 +283,7 @@ export default function FeedScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            isAd(item) ? <AdSlot placement="feed" /> : (
+            isAd(item) ? <AdSlot placement="feed" index={item.__ad} /> : (
             <PostCard
               post={item}
               viewerId={user?.user_id}

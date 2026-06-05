@@ -128,7 +128,7 @@ export default function CommunityScreen() {
           }
           ListEmptyComponent={<Text style={styles.empty}>No threads yet. Start the first one with the + button.</Text>}
           renderItem={({ item }) => (
-            isAd(item) ? <AdSlot placement="community" /> : (
+            isAd(item) ? <AdSlot placement="community" index={item.__ad} /> : (
             <PostCard
               post={item}
               viewerId={user?.user_id}

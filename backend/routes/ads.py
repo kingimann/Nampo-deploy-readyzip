@@ -42,15 +42,13 @@ class AdEvent(BaseModel):
 @router.get("/ads/next")
 async def next_ad(
     placement: str = Query("feed"),
-    exclude: Optional[str] = Query(None),
+    slot: Optional[int] = Query(None),   # rotate inventory across slots in one scroll
     authorization: Optional[str] = Header(None),
 ):
     """Return one active sponsored post for an ad slot (or {ad: null})."""
     me = await get_current_user(authorization)
     now = datetime.now(timezone.utc)
     q = {"promoted_until": {"$gt": now}, "user_id": {"$ne": me["user_id"]}}
-    if exclude:
-        q["id"] = {"$ne": exclude}
     rows = await db.posts.find(q, {"_id": 0}).sort("promoted_until", -1).limit(40).to_list(40)
     # Budget campaigns stop serving once the budget is spent.
     rows = [r for r in rows if not (r.get("ad_budget") and float(r.get("ad_spent", 0) or 0) >= float(r["ad_budget"]))]
@@ -59,7 +57,9 @@ async def next_ad(
     rows = [r for r in rows if r["id"] not in hidden]
     from routes.posts import _hydrate_post
     if rows:
-        post = random.choice(rows)
+        # Rotate by slot so consecutive ad slots show different inventory;
+        # random when no slot is given.
+        post = rows[slot % len(rows)] if slot is not None else random.choice(rows)
         full = await _hydrate_post(post, me["user_id"])
         return {"house": False, "post": full.model_dump(),
                 "reason": "It's a promoted post matched to this spot."}

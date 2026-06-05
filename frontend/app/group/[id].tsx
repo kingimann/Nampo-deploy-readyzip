@@ -367,7 +367,7 @@ export default function GroupDetailScreen() {
         }
         renderItem={({ item }) => {
           if (isAd(item)) return (
-            <View style={{ paddingHorizontal: 12, marginBottom: 10 }}><AdSlot placement="group" /></View>
+            <View style={{ paddingHorizontal: 12, marginBottom: 10 }}><AdSlot placement="group" index={item.__ad} /></View>
           );
           const pinnedSet = new Set(group.pinned_post_ids || []);
           if (pinnedSet.has(item.id)) return null; // de-dupe pinned posts from main feed
