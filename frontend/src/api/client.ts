@@ -127,9 +127,11 @@ export const api = {
   getWallet: () => request<WalletSummary>("/wallet"),
   // Ads + creator ad revenue
   getNextAd: (placement: string, exclude?: string) =>
-    request<{ ad: Ad | null }>(`/ads/next?placement=${encodeURIComponent(placement)}${exclude ? `&exclude=${exclude}` : ""}`),
+    request<{ ad: Ad | null; house?: boolean }>(`/ads/next?placement=${encodeURIComponent(placement)}${exclude ? `&exclude=${exclude}` : ""}`),
   adEvent: (postId: string, type: "impression" | "click", host_user_id?: string) =>
     request<{ ok: boolean }>(`/ads/${postId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
+  hideAd: (postId: string) => request<{ hidden: boolean }>(`/ads/${postId}/hide`, { method: "POST" }),
+  reportAd: (postId: string) => request<{ reported: boolean }>(`/ads/${postId}/report`, { method: "POST" }),
   recordProfileView: (userId: string) =>
     request<{ ok: boolean; views?: number }>(`/users/${userId}/view`, { method: "POST" }),
   // Payments (Stripe Connect) — inert until the server has STRIPE_SECRET_KEY set.
@@ -537,7 +539,7 @@ export type WalletSummary = {
 };
 export type Payout = { id: string; amount: number; status: string; created_at: string };
 export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };
-export type Ad = { post_id: string; text: string; image?: string | null; author_name: string; author_picture?: string | null };
+export type Ad = { post_id: string | null; text: string; image?: string | null; author_name: string; reason?: string | null; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
 export type AdRevenue = {
   total_ad_spend: number; paid_to_hosts: number; platform_cut: number;
