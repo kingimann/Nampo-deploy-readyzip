@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
   },
   placeText: { color: theme.textSecondary, fontSize: 11, fontWeight: "600", maxWidth: 200 },
   actionsRow: {
-    flexDirection: "row", alignItems: "center", gap: 26,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingTop: 12, marginTop: 6,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border,
   },
