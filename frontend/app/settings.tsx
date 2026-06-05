@@ -89,6 +89,9 @@ export default function SettingsScreen() {
           <Row icon="code-slash-outline" label="Developer API" color="#0EA5E9" onPress={() => router.push("/developer")} />
           <Row icon="cash-outline" label="Monetize your site" color="#16A34A" onPress={() => router.push("/monetize")} last={user?.role !== "admin"} />
           {user?.role === "admin" && (
+            <Row icon="people-circle-outline" label="Manage users (admin)" color="#F97316" onPress={() => router.push("/admin-users")} />
+          )}
+          {user?.role === "admin" && (
             <Row icon="bar-chart-outline" label="Ad revenue (admin)" color="#EAB308" onPress={() => router.push("/admin-revenue")} />
           )}
           {user?.role === "admin" && (

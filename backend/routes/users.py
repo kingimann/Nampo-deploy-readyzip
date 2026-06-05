@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from db import DuplicateKeyError
 
 from core import (
-    _public_user, db, get_current_user, is_admin,
+    _public_user, db, get_current_user, is_admin, _effective_role, _norm_dt,
     SUBSCRIPTION_TIERS, SUBSCRIPTION_TIERS_BY_ID,
 )
 from services.email import send_email
@@ -44,6 +44,109 @@ async def admin_patch_user(
     if patch:
         await db.users.update_one({"user_id": user_id}, {"$set": patch})
     return await _public_user(user_id, viewer_id=me["user_id"])
+
+
+def _admin_user_view(u: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    su = u.get("suspended_until")
+    suspended = False
+    try:
+        suspended = bool(su and _norm_dt(su) > now)
+    except Exception:
+        suspended = False
+    return {
+        "user_id": u["user_id"], "name": u.get("name"), "username": u.get("username"),
+        "email": u.get("email"), "picture": u.get("picture"),
+        "role": _effective_role(u), "verified": bool(u.get("verified", False)),
+        "banned": bool(u.get("banned", False)),
+        "suspended": suspended, "suspended_until": su if suspended else None,
+        "created_at": u.get("created_at"),
+    }
+
+
+@router.get("/admin/users")
+async def admin_list_users(
+    q: str = Query("", description="search name/username/email"),
+    limit: int = Query(50), offset: int = Query(0),
+    authorization: Optional[str] = Header(None),
+):
+    """Admin-only: list/search every user on the site."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    query: dict = {}
+    if q.strip():
+        pat = re.escape(q.strip())
+        query = {"$or": [
+            {"email": {"$regex": pat, "$options": "i"}},
+            {"name": {"$regex": pat, "$options": "i"}},
+            {"username": {"$regex": pat, "$options": "i"}},
+        ]}
+    total = await db.users.count_documents(query)
+    lim = max(1, min(int(limit or 50), 100))
+    rows = await db.users.find(query, {"_id": 0}).sort("created_at", -1).skip(max(0, int(offset or 0))).limit(lim).to_list(lim)
+    return {"users": [_admin_user_view(u) for u in rows], "total": total}
+
+
+class ModerationBody(BaseModel):
+    days: Optional[float] = None     # for suspend
+    reason: Optional[str] = ""
+
+
+async def _require_admin_target(user_id: str, me: dict):
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="You can't moderate yourself")
+    if _effective_role(target) == "admin":
+        raise HTTPException(status_code=400, detail="You can't moderate another admin")
+    return target
+
+
+@router.post("/admin/users/{user_id}/ban")
+async def admin_ban_user(user_id: str, body: ModerationBody, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    await _require_admin_target(user_id, me)
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "banned": True, "ban_reason": (body.reason or "")[:300], "suspended_until": None,
+    }})
+    await db.user_sessions.delete_many({"user_id": user_id})  # force log-out
+    return {"ok": True}
+
+
+@router.post("/admin/users/{user_id}/unban")
+async def admin_unban_user(user_id: str, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"banned": False, "suspended_until": None}})
+    return {"ok": True}
+
+
+@router.post("/admin/users/{user_id}/suspend")
+async def admin_suspend_user(user_id: str, body: ModerationBody, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    await _require_admin_target(user_id, me)
+    days = max(0.04, min(float(body.days or 7), 3650))
+    until = datetime.now(timezone.utc) + timedelta(days=days)
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "suspended_until": until, "suspend_reason": (body.reason or "")[:300],
+    }})
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"ok": True, "until": until}
+
+
+@router.delete("/admin/users/{user_id}")
+async def admin_remove_user(user_id: str, authorization: Optional[str] = Header(None)):
+    """Remove (delete) a user account and their sessions."""
+    me = await get_current_user(authorization)
+    await _require_admin_target(user_id, me)
+    await db.users.delete_one({"user_id": user_id})
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"ok": True}
 
 
 @router.get("/users/search", response_model=List[PublicUser])

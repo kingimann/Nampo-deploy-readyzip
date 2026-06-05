@@ -44,6 +44,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/connected-apps",
   "/admin-revenue",
   "/admin-bot",
+  "/admin-users",
   "/privacy",
   "/encryption-key",
   "/oauth/",
