@@ -392,18 +392,22 @@ export type FsqProfile = {
 };
 export type Message = {
   id: string; conversation_id: string; sender_id: string;
-  type: "text" | "place" | "media"; text?: string;
+  type: "text" | "place" | "media" | "voice"; text?: string;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
+  audio_base64?: string | null;
+  audio_duration_ms?: number | null;
   read_at?: string | null;
   created_at: string;
 };
 export type MessageCreate = {
-  type: "text" | "place" | "media"; text?: string;
+  type: "text" | "place" | "media" | "voice"; text?: string;
   place_name?: string; place_address?: string;
   place_longitude?: number; place_latitude?: number;
   media?: PostMedia[];
+  audio_base64?: string;
+  audio_duration_ms?: number;
 };
 export type ConversationView = {
   id: string;

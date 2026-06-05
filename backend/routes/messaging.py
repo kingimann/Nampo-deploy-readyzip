@@ -355,6 +355,13 @@ async def send_message(
         raise HTTPException(status_code=400, detail="Empty message")
     if body.type == "place" and (body.place_longitude is None or body.place_latitude is None):
         raise HTTPException(status_code=400, detail="Place coords required")
+    audio_b64: Optional[str] = None
+    if body.type == "voice":
+        audio_b64 = body.audio_base64 or ""
+        if not audio_b64:
+            raise HTTPException(status_code=400, detail="Audio required")
+        if len(audio_b64) > 8 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Voice note too large (8MB limit)")
     media = []
     if body.type == "media":
         if not body.media:
@@ -382,6 +389,8 @@ async def send_message(
         "place_longitude": body.place_longitude,
         "place_latitude": body.place_latitude,
         "media": media,
+        "audio_base64": audio_b64,
+        "audio_duration_ms": body.audio_duration_ms if body.type == "voice" else None,
         "created_at": now,
     }
     await db.messages.insert_one(msg.copy())
@@ -394,7 +403,14 @@ async def send_message(
     # encrypted version we just stored.
     is_group = conv.get("kind") == "group"
     plaintext = (body.text or "").strip()
-    preview = plaintext[:140] if body.type == "text" else ("📍 sent a place" if body.type == "place" else "📎 sent media")
+    if body.type == "text":
+        preview = plaintext[:140]
+    elif body.type == "place":
+        preview = "📍 sent a place"
+    elif body.type == "voice":
+        preview = "🎤 sent a voice message"
+    else:
+        preview = "📎 sent media"
     for pid in conv["participant_ids"]:
         if pid == user["user_id"]:
             continue

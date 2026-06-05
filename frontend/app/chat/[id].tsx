@@ -6,9 +6,17 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import {
+  useAudioRecorder,
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+} from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, Message } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
+import VoiceMessage from "@/src/components/VoiceMessage";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { ensureKeyPair, getPeerPublicKey, encryptForPeer, isE2E, tryDecrypt } from "@/src/utils/e2e";
@@ -25,6 +33,10 @@ export default function ChatScreen() {
   const listRef = useRef<FlatList<Message>>(null);
   const [peerKey, setPeerKey] = useState<Uint8Array | null>(null);
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [recording, setRecording] = useState(false);
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const recordStartRef = useRef<number>(0);
 
   // Generate / load our keypair and publish public key. Then fetch peer's key.
   useEffect(() => {
@@ -150,6 +162,96 @@ export default function ChatScreen() {
     } catch {} finally { setSending(false); }
   };
 
+  // Share your current GPS position as a place bubble.
+  const shareLocation = async () => {
+    if (!id || sharingLocation || sending) return;
+    setSharingLocation(true);
+    try {
+      let { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") {
+        const req = await Location.requestForegroundPermissionsAsync();
+        status = req.status;
+      }
+      if (status !== "granted") return;
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      // Try to reverse-geocode for a friendly address (best-effort).
+      let address = "";
+      try {
+        const places = await Location.reverseGeocodeAsync({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        });
+        const p = places?.[0];
+        if (p) {
+          address = [p.name, p.street, p.city, p.region]
+            .filter(Boolean)
+            .join(", ");
+        }
+      } catch {}
+      const msg = await api.sendMessage(id, {
+        type: "place",
+        place_name: "My location",
+        place_address: address,
+        place_longitude: pos.coords.longitude,
+        place_latitude: pos.coords.latitude,
+      });
+      setMessages((m) => [...m, msg]);
+    } catch {} finally {
+      setSharingLocation(false);
+    }
+  };
+
+  // Begin recording a voice note.
+  const startRecording = async () => {
+    if (!id || sending || recording) return;
+    try {
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
+      if (!perm.granted) return;
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      recordStartRef.current = Date.now();
+      setRecording(true);
+    } catch {
+      setRecording(false);
+    }
+  };
+
+  // Stop, encode and send (or discard if `cancel`).
+  const stopRecording = async (cancel = false) => {
+    if (!recording) return;
+    setRecording(false);
+    const elapsed = Date.now() - recordStartRef.current;
+    try {
+      await audioRecorder.stop();
+      await setAudioModeAsync({ allowsRecording: false });
+    } catch {}
+    const uri = audioRecorder.uri;
+    if (cancel || !uri || elapsed < 600) return; // ignore accidental taps
+    setSending(true);
+    try {
+      // Read the recorded file into a base64 data URI (works web + native).
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      const dataUri: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const msg = await api.sendMessage(id!, {
+        type: "voice",
+        audio_base64: dataUri,
+        audio_duration_ms: elapsed,
+      });
+      setMessages((m) => [...m, msg]);
+    } catch {} finally {
+      setSending(false);
+    }
+  };
+
   const openPlace = (m: Message) => {
     if (m.place_longitude == null || m.place_latitude == null) return;
     router.push({
@@ -222,6 +324,13 @@ export default function ChatScreen() {
                           Tap to view on map →
                         </Text>
                       </TouchableOpacity>
+                    ) : item.type === "voice" && item.audio_base64 ? (
+                      <VoiceMessage
+                        uri={item.audio_base64}
+                        durationMs={item.audio_duration_ms}
+                        mine={mine}
+                        testID={`voice-msg-${item.id}`}
+                      />
                     ) : item.type === "media" && (item.media || []).length > 0 ? (
                       <View style={{ width: 240 }}>
                         <MediaGrid media={item.media || []} testID={`msg-${item.id}`} />
@@ -261,31 +370,79 @@ export default function ChatScreen() {
         )}
 
         <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
-          <TouchableOpacity
-            style={styles.attachBtn}
-            onPress={sendMedia}
-            disabled={sending}
-            testID="attach-btn"
-          >
-            <Ionicons name="image-outline" size={22} color={theme.primary} />
-          </TouchableOpacity>
-          <TextInput
-            style={styles.composerInput}
-            placeholder="Message..."
-            placeholderTextColor={theme.textMuted}
-            value={text}
-            onChangeText={setText}
-            multiline
-            testID="msg-input"
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, (!text.trim() || sending) && { opacity: 0.5 }]}
-            onPress={send}
-            disabled={!text.trim() || sending}
-            testID="send-btn"
-          >
-            <Ionicons name="send" size={18} color="#fff" />
-          </TouchableOpacity>
+          {recording ? (
+            <>
+              <TouchableOpacity
+                style={styles.attachBtn}
+                onPress={() => stopRecording(true)}
+                testID="voice-cancel-btn"
+              >
+                <Ionicons name="trash-outline" size={22} color={theme.error} />
+              </TouchableOpacity>
+              <View style={styles.recordingPill}>
+                <View style={styles.recDot} />
+                <Text style={styles.recText}>Recording… release to send</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.sendBtn}
+                onPress={() => stopRecording(false)}
+                testID="voice-send-btn"
+              >
+                <Ionicons name="send" size={18} color="#fff" />
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.attachBtn}
+                onPress={shareLocation}
+                disabled={sending || sharingLocation}
+                testID="location-btn"
+              >
+                {sharingLocation ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <Ionicons name="location-outline" size={22} color={theme.primary} />
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.attachBtn}
+                onPress={sendMedia}
+                disabled={sending}
+                testID="attach-btn"
+              >
+                <Ionicons name="image-outline" size={22} color={theme.primary} />
+              </TouchableOpacity>
+              <TextInput
+                style={styles.composerInput}
+                placeholder="Message..."
+                placeholderTextColor={theme.textMuted}
+                value={text}
+                onChangeText={setText}
+                multiline
+                testID="msg-input"
+              />
+              {text.trim() ? (
+                <TouchableOpacity
+                  style={[styles.sendBtn, sending && { opacity: 0.5 }]}
+                  onPress={send}
+                  disabled={sending}
+                  testID="send-btn"
+                >
+                  <Ionicons name="send" size={18} color="#fff" />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.sendBtn, sending && { opacity: 0.5 }]}
+                  onPress={startRecording}
+                  disabled={sending}
+                  testID="mic-btn"
+                >
+                  <Ionicons name="mic" size={20} color="#fff" />
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -352,6 +509,12 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
-    marginRight: 4,
   },
+  recordingPill: {
+    flex: 1, flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 22, paddingHorizontal: 16, minHeight: 44,
+  },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: theme.error },
+  recText: { color: theme.textSecondary, fontSize: 14, fontWeight: "500" },
 });

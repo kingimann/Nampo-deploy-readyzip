@@ -149,13 +149,15 @@ class Review(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    type: Literal["text", "place", "media"] = "text"
+    type: Literal["text", "place", "media", "voice"] = "text"
     text: Optional[str] = ""
     place_name: Optional[str] = None
     place_address: Optional[str] = None
     place_longitude: Optional[float] = None
     place_latitude: Optional[float] = None
     media: Optional[List["PostMedia"]] = None
+    audio_base64: Optional[str] = None       # voice note (data URI or raw base64)
+    audio_duration_ms: Optional[int] = None  # length of the voice note
 
 
 class Message(BaseModel):
@@ -169,6 +171,8 @@ class Message(BaseModel):
     place_longitude: Optional[float] = None
     place_latitude: Optional[float] = None
     media: List["PostMedia"] = []
+    audio_base64: Optional[str] = None       # voice note
+    audio_duration_ms: Optional[int] = None  # length of the voice note
     reactions: dict = {}              # {user_id: emoji}
     edited_at: Optional[datetime] = None
     read_at: Optional[datetime] = None  # last_read[peer] >= created_at
