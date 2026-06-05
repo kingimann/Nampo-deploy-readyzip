@@ -24,7 +24,7 @@ type Props = {
 };
 
 const MAX_MEDIA = 4;
-const MAX_MEDIA_BYTES = 8 * 1024 * 1024; // mirrors the backend per-item limit
+const MAX_MEDIA_BYTES = 25 * 1024 * 1024; // mirrors the backend per-item limit
 const TEXT_MAX = 500;
 const POLL_DURATIONS: { label: string; hours: number }[] = [
   { label: "1 hour", hours: 1 },
@@ -84,7 +84,7 @@ export default function PostComposer({
         selectionLimit: MAX_MEDIA - media.length,
         quality: 0.7,
         base64: true,
-        videoMaxDuration: 60,
+        videoMaxDuration: 30,
       });
       if (result.canceled) return;
       // Reading a video into base64 can take a few seconds — show a spinner.
@@ -117,10 +117,11 @@ export default function PostComposer({
         }
         // Enforce the backend's ~8MB-per-item limit before sending.
         if (uri.length > MAX_MEDIA_BYTES) {
+          const mb = (uri.length / (1024 * 1024)).toFixed(0);
           Alert.alert(
             isVideo ? "Video too large" : "Image too large",
             isVideo
-              ? "Please pick a shorter clip (under ~10 seconds)."
+              ? `This clip is ~${mb}MB; the limit is 25MB. Pick a shorter or lower-resolution clip (≈15–20s).`
               : "Please pick a smaller image.",
           );
           continue;

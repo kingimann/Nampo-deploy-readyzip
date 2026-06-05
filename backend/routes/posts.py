@@ -48,7 +48,7 @@ def _hydrate_poll(poll_doc: dict, viewer_id: Optional[str], votes: dict) -> Poll
 
 # Hard cap on individual media base64 payloads to keep Mongo docs sane.
 MAX_MEDIA_PER_POST = 4
-MAX_MEDIA_BYTES_EACH = 8 * 1024 * 1024  # ~8MB encoded
+MAX_MEDIA_BYTES_EACH = 25 * 1024 * 1024  # ~25MB encoded (base64 ≈ +33%, so ~18MB of real video)
 
 
 def _normalize_media(items: Optional[list]) -> list:
@@ -64,7 +64,7 @@ def _normalize_media(items: Optional[list]) -> list:
         if not b:
             continue
         if len(b) > MAX_MEDIA_BYTES_EACH:
-            raise HTTPException(status_code=413, detail="Media too large (8MB limit)")
+            raise HTTPException(status_code=413, detail="Media too large (25MB limit)")
         d["type"] = d.get("type") or "image"
         out.append(d)
     return out
