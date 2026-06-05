@@ -50,22 +50,33 @@ export default function MarketplaceScreen() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("recent");
   const [condFilter, setCondFilter] = useState("all");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
   const [savedView, setSavedView] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [draft, setDraft] = useState({ title: "", price: "", category: "other", condition: "used", description: "", photos: [] as string[] });
   const [posting, setPosting] = useState(false);
+
+  const filtersActive = cat !== "all" || condFilter !== "all" || sort !== "recent" || !!minPrice || !!maxPrice;
 
   const load = useCallback(async () => {
     try {
       const list = savedView
         ? await api.listSavedListings()
         : await api.listListings({
-            category: cat, q, sort,
+            category: cat === "all" ? undefined : cat, q, sort,
             condition: condFilter === "all" ? undefined : condFilter,
+            min_price: minPrice ? Number(minPrice) : undefined,
+            max_price: maxPrice ? Number(maxPrice) : undefined,
           });
       setListings(list);
     } catch {} finally { setLoading(false); setRefreshing(false); }
-  }, [cat, q, sort, condFilter, savedView]);
+  }, [cat, q, sort, condFilter, minPrice, maxPrice, savedView]);
+
+  const resetFilters = () => {
+    setCat("all"); setCondFilter("all"); setSort("recent"); setMinPrice(""); setMaxPrice("");
+  };
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => { setLoading(true); load(); }, [load]);
@@ -126,41 +137,35 @@ export default function MarketplaceScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.searchPill}>
-        <Ionicons name="search" size={17} color={theme.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search Marketplace"
-          placeholderTextColor={theme.textMuted}
-          value={q}
-          onChangeText={setQ}
-          returnKeyType="search"
-          testID="market-search"
-        />
-        {!!q && (
-          <TouchableOpacity onPress={() => setQ("")}>
-            <Ionicons name="close-circle" size={17} color={theme.textMuted} />
+      <View style={styles.searchRow}>
+        <View style={styles.searchPill}>
+          <Ionicons name="search" size={17} color={theme.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search Marketplace"
+            placeholderTextColor={theme.textMuted}
+            value={q}
+            onChangeText={setQ}
+            returnKeyType="search"
+            testID="market-search"
+          />
+          {!!q && (
+            <TouchableOpacity onPress={() => setQ("")}>
+              <Ionicons name="close-circle" size={17} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+        {!savedView && (
+          <TouchableOpacity
+            style={[styles.filterBtn, filtersActive && styles.filterBtnActive]}
+            onPress={() => setFiltersOpen(true)}
+            testID="market-filters"
+          >
+            <Ionicons name="options-outline" size={20} color={filtersActive ? theme.primary : theme.textSecondary} />
+            {filtersActive && <View style={styles.filterDot} />}
           </TouchableOpacity>
         )}
       </View>
-
-      {!savedView && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {CATEGORIES.map((c) => {
-            const a = c.key === cat;
-            return (
-              <TouchableOpacity
-                key={c.key}
-                onPress={() => setCat(c.key)}
-                style={[styles.chip, a && styles.chipActive]}
-                testID={`market-cat-${c.key}`}
-              >
-                <Text style={[styles.chipText, { color: a ? "#fff" : theme.textSecondary }]}>{c.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      )}
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
@@ -221,7 +226,7 @@ export default function MarketplaceScreen() {
       )}
 
       <TouchableOpacity
-        style={[styles.fab, { bottom: insets.bottom + 70 }]}
+        style={[styles.fab, { bottom: insets.bottom + 66 }]}
         onPress={() => setComposeOpen(true)}
         testID="new-listing-fab"
       >
@@ -338,6 +343,80 @@ export default function MarketplaceScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      <Modal visible={filtersOpen} transparent animationType="slide" onRequestClose={() => setFiltersOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setFiltersOpen(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "85%" }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.filterHead}>
+              <Text style={styles.sheetTitle}>Filters</Text>
+              <TouchableOpacity onPress={resetFilters} testID="market-reset-filters">
+                <Text style={styles.resetText}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.filterLabel}>Category</Text>
+              <View style={styles.condWrap}>
+                {CATEGORIES.map((c) => {
+                  const a = c.key === cat;
+                  return (
+                    <TouchableOpacity key={c.key} onPress={() => setCat(c.key)} style={[styles.condChip, a && styles.condChipActive]} testID={`market-cat-${c.key}`}>
+                      <Text style={[styles.condChipText, { color: a ? theme.primary : theme.textMuted }]}>{c.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.filterLabel}>Condition</Text>
+              <View style={styles.condWrap}>
+                {[{ key: "all", label: "Any" }, ...CONDITIONS].map((c) => {
+                  const a = c.key === condFilter;
+                  return (
+                    <TouchableOpacity key={c.key} onPress={() => setCondFilter(c.key)} style={[styles.condChip, a && styles.condChipActive]} testID={`market-cond-${c.key}`}>
+                      <Text style={[styles.condChipText, { color: a ? theme.primary : theme.textMuted }]}>{c.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.filterLabel}>Price range (USD)</Text>
+              <View style={styles.priceRow}>
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="Min"
+                  placeholderTextColor={theme.textMuted}
+                  value={minPrice}
+                  onChangeText={(t) => setMinPrice(t.replace(/[^0-9]/g, ""))}
+                  keyboardType="number-pad"
+                  testID="market-min-price"
+                />
+                <Text style={styles.priceDash}>–</Text>
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="Max"
+                  placeholderTextColor={theme.textMuted}
+                  value={maxPrice}
+                  onChangeText={(t) => setMaxPrice(t.replace(/[^0-9]/g, ""))}
+                  keyboardType="number-pad"
+                  testID="market-max-price"
+                />
+              </View>
+
+              <Text style={styles.filterLabel}>Sort by</Text>
+              {SORTS.map((s) => (
+                <TouchableOpacity key={s.key} style={styles.sortRow} onPress={() => setSort(s.key)} testID={`market-sort-${s.key}`}>
+                  <Text style={[styles.sortRowText, sort === s.key && { color: theme.primary, fontWeight: "800" }]}>{s.label}</Text>
+                  {sort === s.key && <Ionicons name="checkmark" size={18} color={theme.primary} />}
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity style={styles.applyBtn} onPress={() => setFiltersOpen(false)} testID="market-apply-filters">
+                <Text style={styles.applyText}>Show results</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -382,6 +461,17 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   filterBtnActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  filterDot: { position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary },
+  filterHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  resetText: { color: theme.primary, fontSize: 14, fontWeight: "700" },
+  priceRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  priceInput: {
+    flex: 1, height: 46, backgroundColor: theme.surfaceAlt, borderRadius: 12,
+    borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14,
+    color: theme.textPrimary, fontSize: 15,
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
+  },
+  priceDash: { color: theme.textMuted, fontSize: 16 },
   tabs: {
     flexDirection: "row", gap: 8,
     marginHorizontal: 16, marginTop: 10, marginBottom: 6,
@@ -419,7 +509,7 @@ const styles = StyleSheet.create({
   sortRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
   sortRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
   searchPill: {
-    marginHorizontal: 16, marginTop: 8, marginBottom: 4, height: 44,
+    flex: 1, height: 44,
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: theme.surface, borderRadius: 14,
     paddingHorizontal: 14,

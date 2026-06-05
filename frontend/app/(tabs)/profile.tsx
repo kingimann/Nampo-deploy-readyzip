@@ -33,6 +33,7 @@ export default function ProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
+  const [profileTab, setProfileTab] = useState<"posts" | "media">("posts");
 
   const loadPosts = useCallback(async () => {
     if (!user) return;
@@ -51,6 +52,20 @@ export default function ProfileScreen() {
       likes_count: x.likes_count + (x.liked_by_me ? -1 : 1),
     }));
     try { await api.toggleLike(p.id); } catch { loadPosts(); }
+  };
+  const onDislike = async (p: Post) => {
+    setMyPosts((arr) => arr.map((x) => {
+      if (x.id !== p.id) return x;
+      const nowDis = !x.disliked_by_me;
+      return {
+        ...x,
+        disliked_by_me: nowDis,
+        dislikes_count: (x.dislikes_count || 0) + (nowDis ? 1 : -1),
+        liked_by_me: nowDis ? false : x.liked_by_me,
+        likes_count: x.likes_count - (nowDis && x.liked_by_me ? 1 : 0),
+      };
+    }));
+    try { await api.toggleDislike(p.id); } catch { loadPosts(); }
   };
   const onRepost = async (p: Post) => {
     try { await api.toggleRepost(p.repost_of || p.id); loadPosts(); } catch { loadPosts(); }
@@ -275,16 +290,62 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.postsHeaderRow}>
-          <Text style={styles.postsHeader}>Your posts</Text>
-          {!loadingPosts && myPosts.length > 0 && (
-            <View style={styles.postsCount}>
-              <Text style={styles.postsCountText}>{myPosts.length}</Text>
-            </View>
-          )}
+        <View style={styles.profileTabs}>
+          <TouchableOpacity
+            style={[styles.profileTab, profileTab === "posts" && styles.profileTabActive]}
+            onPress={() => setProfileTab("posts")}
+            testID="profile-tab-posts"
+          >
+            <Ionicons name="list" size={16} color={profileTab === "posts" ? theme.primary : theme.textMuted} />
+            <Text style={[styles.profileTabText, { color: profileTab === "posts" ? theme.primary : theme.textMuted }]}>Posts</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.profileTab, profileTab === "media" && styles.profileTabActive]}
+            onPress={() => setProfileTab("media")}
+            testID="profile-tab-media"
+          >
+            <Ionicons name="grid" size={15} color={profileTab === "media" ? theme.primary : theme.textMuted} />
+            <Text style={[styles.profileTabText, { color: profileTab === "media" ? theme.primary : theme.textMuted }]}>Photos &amp; videos</Text>
+          </TouchableOpacity>
         </View>
+
         {loadingPosts ? (
           <ActivityIndicator color={theme.primary} style={{ marginTop: 12 }} />
+        ) : profileTab === "media" ? (
+          (() => {
+            const mediaItems = myPosts.flatMap((p) => (p.media || []).map((m) => ({ m, postId: p.id })));
+            if (mediaItems.length === 0) {
+              return (
+                <View style={styles.postsEmpty}>
+                  <Ionicons name="images-outline" size={28} color={theme.textMuted} />
+                  <Text style={styles.postsEmptyText}>No photos or videos yet.</Text>
+                </View>
+              );
+            }
+            return (
+              <View style={styles.mediaGrid}>
+                {mediaItems.map(({ m, postId }, i) => (
+                  <TouchableOpacity
+                    key={`${postId}-${i}`}
+                    style={styles.mediaTile}
+                    activeOpacity={0.85}
+                    onPress={() => m.type === "video"
+                      ? router.push({ pathname: "/reels", params: { focus: postId } })
+                      : router.push({ pathname: "/post/[id]", params: { id: postId } })}
+                    testID={`profile-media-${i}`}
+                  >
+                    {m.type === "video" ? (
+                      <View style={[StyleSheet.absoluteFill, styles.mediaVideo]}>
+                        <Ionicons name="play" size={22} color="#fff" />
+                      </View>
+                    ) : (
+                      <Image source={{ uri: m.base64 }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            );
+          })()
         ) : myPosts.length === 0 ? (
           <View style={styles.postsEmpty}>
             <Ionicons name="newspaper-outline" size={28} color={theme.textMuted} />
@@ -298,6 +359,7 @@ export default function ProfileScreen() {
                 post={p}
                 viewerId={user?.user_id}
                 onLike={onLike}
+                onDislike={onDislike}
                 onRepost={onRepost}
                 onReply={onReply}
                 onBookmark={onBookmark}
@@ -444,6 +506,20 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center",
   },
   postsCountText: { color: theme.textSecondary, fontSize: 12, fontWeight: "700" },
+  profileTabs: {
+    flexDirection: "row", gap: 8, marginTop: 20, marginBottom: 12,
+    backgroundColor: theme.surface, borderRadius: 14, padding: 4,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  profileTab: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 9, borderRadius: 10,
+  },
+  profileTabActive: { backgroundColor: theme.surfaceAlt },
+  profileTabText: { fontSize: 13, fontWeight: "700" },
+  mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
+  mediaTile: { width: "32%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: theme.surfaceAlt },
+  mediaVideo: { backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
   postsEmpty: {
     alignItems: "center", paddingVertical: 32, gap: 10,
     backgroundColor: theme.surface, borderRadius: 16,

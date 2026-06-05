@@ -20,6 +20,7 @@ type Props = {
   /** Disable navigating to detail (for the post detail screen header). */
   disableOpen?: boolean;
   onLike: (p: Post) => void;
+  onDislike?: (p: Post) => void;
   onRepost: (p: Post) => void;
   onQuote?: (p: Post) => void;
   onReply: (p: Post) => void;
@@ -41,7 +42,7 @@ export function fmtTime(iso: string) {
 }
 
 export default function PostCard({
-  post, viewerId, disableOpen, onLike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated,
+  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated,
 }: Props) {
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
@@ -99,6 +100,12 @@ export default function PostCard({
           <Text style={styles.repostBannerText} numberOfLines={1}>
             {post.author.name} reposted
           </Text>
+        </View>
+      )}
+      {display.promoted && (
+        <View style={styles.sponsoredBanner}>
+          <Ionicons name="megaphone" size={13} color={theme.primary} />
+          <Text style={styles.sponsoredText}>Sponsored</Text>
         </View>
       )}
       <View style={styles.cardTop}>
@@ -209,6 +216,25 @@ export default function PostCard({
           </Text>
         </TouchableOpacity>
 
+        {onDislike && (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={(e) => { e.stopPropagation?.(); onDislike(display); }}
+            testID={`dislike-${post.id}`}
+          >
+            <Ionicons
+              name={display.disliked_by_me ? "thumbs-down" : "thumbs-down-outline"}
+              size={17}
+              color={display.disliked_by_me ? "#8696A0" : theme.textSecondary}
+            />
+            {!!display.dislikes_count && display.dislikes_count > 0 && (
+              <Text style={[styles.actionText, display.disliked_by_me && { color: "#8696A0" }]}>
+                {display.dislikes_count}
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={(e) => { e.stopPropagation?.(); onBookmark(display); }}
@@ -258,6 +284,8 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 6, marginBottom: -2,
   },
   repostBannerText: { color: theme.textMuted, fontSize: 12, fontWeight: "600", flex: 1 },
+  sponsoredBanner: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: -2 },
+  sponsoredText: { color: theme.primary, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 11 },
   avatar: {
     width: 44, height: 44, borderRadius: 22, overflow: "hidden",

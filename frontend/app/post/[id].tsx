@@ -52,6 +52,19 @@ export default function PostDetailScreen() {
     }));
     try { await api.toggleLike(p.id); } catch { load(); }
   };
+  const onDislike = async (p: Post) => {
+    updateInList(p, (q) => {
+      const nowDis = !q.disliked_by_me;
+      return {
+        ...q,
+        disliked_by_me: nowDis,
+        dislikes_count: (q.dislikes_count || 0) + (nowDis ? 1 : -1),
+        liked_by_me: nowDis ? false : q.liked_by_me,
+        likes_count: q.likes_count - (nowDis && q.liked_by_me ? 1 : 0),
+      };
+    });
+    try { await api.toggleDislike(p.id); } catch { load(); }
+  };
   const onRepost = async (p: Post) => {
     const target = p.repost_of || p.id;
     updateInList({ ...p, id: target } as Post, (q) => ({
@@ -106,6 +119,7 @@ export default function PostDetailScreen() {
                 viewerId={user?.user_id}
                 disableOpen
                 onLike={onLike}
+                onDislike={onDislike}
                 onRepost={onRepost}
                 onReply={() => onReply()}
                 onBookmark={onBookmark}
@@ -133,6 +147,7 @@ export default function PostDetailScreen() {
               post={item}
               viewerId={user?.user_id}
               onLike={onLike}
+              onDislike={onDislike}
               onRepost={onRepost}
               onReply={() => onReply()}
               onBookmark={onBookmark}

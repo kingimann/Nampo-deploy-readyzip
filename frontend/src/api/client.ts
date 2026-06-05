@@ -171,6 +171,10 @@ export const api = {
   exploreFeed: () => request<Post[]>("/feed/explore"),
   toggleLike: (id: string) =>
     request<Post>(`/posts/${id}/like`, { method: "POST" }),
+  toggleDislike: (id: string) =>
+    request<Post>(`/posts/${id}/dislike`, { method: "POST" }),
+  promotePost: (id: string, days = 7) =>
+    request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days }) }),
   toggleRepost: (id: string) =>
     request<Post>(`/posts/${id}/repost`, { method: "POST" }),
   toggleBookmark: (id: string) =>
@@ -546,11 +550,12 @@ export type Post = {
   link_preview?: LinkPreview | null;
   poll?: Poll | null;
   hashtags?: string[];
-  likes_count: number; replies_count: number; reposts_count?: number;
+  likes_count: number; dislikes_count?: number; replies_count: number; reposts_count?: number;
   quotes_count?: number;
   bookmarks_count?: number;
   views_count?: number;
-  liked_by_me: boolean; reposted_by_me?: boolean; bookmarked_by_me?: boolean;
+  liked_by_me: boolean; disliked_by_me?: boolean; reposted_by_me?: boolean; bookmarked_by_me?: boolean;
+  promoted?: boolean; promoted_until?: string | null;
   edited_at?: string | null;
   created_at: string;
 };

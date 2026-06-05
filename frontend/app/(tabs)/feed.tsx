@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -19,6 +19,7 @@ type Tab = "home" | "explore";
 
 export default function FeedScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>("explore");
   const [posts, setPosts] = useState<Post[]>([]);
@@ -70,6 +71,27 @@ export default function FeedScreen() {
       return p;
     }));
     try { await api.toggleLike(post.id); } catch { load(); }
+  };
+
+  const onDislike = async (post: Post) => {
+    setPosts((arr) => arr.map((p) => {
+      const upd = (q: Post): Post => {
+        const nowDis = !q.disliked_by_me;
+        const clearedLike = nowDis && q.liked_by_me;
+        return {
+          ...q,
+          disliked_by_me: nowDis,
+          dislikes_count: (q.dislikes_count || 0) + (nowDis ? 1 : -1),
+          liked_by_me: nowDis ? false : q.liked_by_me,
+          likes_count: q.likes_count - (clearedLike ? 1 : 0),
+        };
+      };
+      if (p.id === post.id) return upd(p);
+      if (p.reposted_post && p.reposted_post.id === post.id)
+        return { ...p, reposted_post: upd(p.reposted_post) };
+      return p;
+    }));
+    try { await api.toggleDislike(post.id); } catch { load(); }
   };
 
   const onRepost = async (post: Post) => {
@@ -246,6 +268,7 @@ export default function FeedScreen() {
               post={item}
               viewerId={user?.user_id}
               onLike={onLike}
+              onDislike={onDislike}
               onRepost={onRepost}
               onQuote={onQuote}
               onReply={onReply}
@@ -307,6 +330,14 @@ export default function FeedScreen() {
             >
               <Ionicons name="create-outline" size={18} color={theme.primary} />
               <Text style={styles.actionBtnText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, { marginTop: 6 }]}
+              onPress={() => { setActionPost(null); router.push("/advertise"); }}
+              testID="post-action-promote"
+            >
+              <Ionicons name="megaphone-outline" size={18} color={theme.primary} />
+              <Text style={styles.actionBtnText}>Promote</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtn, { marginTop: 6 }]}

@@ -9,7 +9,7 @@ from db import DuplicateKeyError
 from core import db, get_current_user
 from models import (
     LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
-    PostPatch, PublicUser, ReportCreate,
+    PostPatch, PublicUser, ReportCreate, PromoteCreate,
 )
 from routes.notifications import emit_notification
 from services.link_preview import fetch_link_preview, first_url
@@ -78,11 +78,17 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         picture=author_doc.get("picture") if author_doc else None,
     )
     liked = False
+    disliked = False
     reposted = False
     bookmarked = False
     if viewer_id:
         liked = bool(
             await db.post_likes.find_one(
+                {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0}
+            )
+        )
+        disliked = bool(
+            await db.post_dislikes.find_one(
                 {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0}
             )
         )
@@ -134,17 +140,31 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         poll=poll_obj,
         hashtags=doc.get("hashtags", []) or [],
         likes_count=doc.get("likes_count", 0),
+        dislikes_count=doc.get("dislikes_count", 0),
         replies_count=doc.get("replies_count", 0),
         reposts_count=doc.get("reposts_count", 0),
         quotes_count=doc.get("quotes_count", 0),
         bookmarks_count=doc.get("bookmarks_count", 0),
         views_count=doc.get("views_count", 0),
         liked_by_me=liked,
+        disliked_by_me=disliked,
         reposted_by_me=reposted,
         bookmarked_by_me=bookmarked,
+        promoted=_is_promoted(doc),
+        promoted_until=doc.get("promoted_until") if _is_promoted(doc) else None,
         edited_at=doc.get("edited_at"),
         created_at=doc["created_at"],
     )
+
+
+def _is_promoted(doc: dict) -> bool:
+    until = doc.get("promoted_until")
+    if not until:
+        return False
+    try:
+        return until > datetime.now(timezone.utc)
+    except Exception:
+        return False
 
 
 @router.post("/posts", response_model=Post)
@@ -352,6 +372,13 @@ def _rank_score(doc: dict, author_aff: dict, tag_aff: dict, now: datetime) -> fl
     except Exception:
         pass
     score += 6.0 * math.exp(-age_h / 36.0)  # decays over ~1.5 days
+    pu = doc.get("promoted_until")
+    if pu:
+        try:
+            if pu > now:
+                score += 50.0  # promoted posts surface first
+        except Exception:
+            pass
     return score
 
 
@@ -420,6 +447,11 @@ async def toggle_like(post_id: str, authorization: Optional[str] = Header(None))
         await db.post_likes.delete_one({"post_id": post_id, "user_id": user["user_id"]})
         await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": -1}})
     else:
+        # Like and dislike are mutually exclusive — clear any dislike first.
+        dis = await db.post_dislikes.find_one({"post_id": post_id, "user_id": user["user_id"]}, {"_id": 0})
+        if dis:
+            await db.post_dislikes.delete_one({"post_id": post_id, "user_id": user["user_id"]})
+            await db.posts.update_one({"id": post_id}, {"$inc": {"dislikes_count": -1}})
         try:
             await db.post_likes.insert_one({
                 "post_id": post_id, "user_id": user["user_id"],
@@ -435,6 +467,51 @@ async def toggle_like(post_id: str, authorization: Optional[str] = Header(None))
             )
         except DuplicateKeyError:
             pass
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, user["user_id"])
+
+
+@router.post("/posts/{post_id}/dislike", response_model=Post)
+async def toggle_dislike(post_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    existing = await db.post_dislikes.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
+    if existing:
+        await db.post_dislikes.delete_one({"post_id": post_id, "user_id": uid})
+        await db.posts.update_one({"id": post_id}, {"$inc": {"dislikes_count": -1}})
+    else:
+        # Clear any like first (mutually exclusive).
+        like = await db.post_likes.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
+        if like:
+            await db.post_likes.delete_one({"post_id": post_id, "user_id": uid})
+            await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": -1}})
+        try:
+            await db.post_dislikes.insert_one({
+                "post_id": post_id, "user_id": uid, "created_at": datetime.now(timezone.utc),
+            })
+            await db.posts.update_one({"id": post_id}, {"$inc": {"dislikes_count": 1}})
+        except DuplicateKeyError:
+            pass
+    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
+    return await _hydrate_post(updated, uid)
+
+
+@router.post("/posts/{post_id}/promote", response_model=Post)
+async def promote_post(
+    post_id: str, body: PromoteCreate, authorization: Optional[str] = Header(None)
+):
+    """Boost your own post for N days — it surfaces higher and shows a
+    'Sponsored' badge."""
+    user = await get_current_user(authorization)
+    doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found or not yours")
+    days = max(1, min(30, int(body.days or 7)))
+    until = datetime.now(timezone.utc) + timedelta(days=days)
+    await db.posts.update_one({"id": post_id}, {"$set": {"promoted_until": until}})
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, user["user_id"])
 

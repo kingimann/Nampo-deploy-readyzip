@@ -70,6 +70,35 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
     try { await api.deletePost(c.id); } catch {}
   };
 
+  const reactLike = (c: Post) => {
+    setReplies((arr) => arr.map((r) => {
+      if (r.id !== c.id) return r;
+      const nowLiked = !r.liked_by_me;
+      return {
+        ...r,
+        liked_by_me: nowLiked,
+        likes_count: r.likes_count + (nowLiked ? 1 : -1),
+        disliked_by_me: nowLiked ? false : r.disliked_by_me,
+        dislikes_count: (r.dislikes_count || 0) - (nowLiked && r.disliked_by_me ? 1 : 0),
+      };
+    }));
+    api.toggleLike(c.id).catch(() => {});
+  };
+  const reactDislike = (c: Post) => {
+    setReplies((arr) => arr.map((r) => {
+      if (r.id !== c.id) return r;
+      const nowDis = !r.disliked_by_me;
+      return {
+        ...r,
+        disliked_by_me: nowDis,
+        dislikes_count: (r.dislikes_count || 0) + (nowDis ? 1 : -1),
+        liked_by_me: nowDis ? false : r.liked_by_me,
+        likes_count: r.likes_count - (nowDis && r.liked_by_me ? 1 : 0),
+      };
+    }));
+    api.toggleDislike(c.id).catch(() => {});
+  };
+
   const openProfile = (name?: string) => {
     if (!name) return;
     onClose();
@@ -121,6 +150,15 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                         {!!item.edited_at && <Text style={styles.rowTime}>· edited</Text>}
                       </View>
                       {!!item.text && <RichText text={item.text} style={styles.rowText} />}
+                      <View style={styles.reactRow}>
+                        <TouchableOpacity onPress={() => reactLike(item)} style={styles.reactBtn} testID={`comment-like-${item.id}`}>
+                          <Ionicons name={item.liked_by_me ? "heart" : "heart-outline"} size={14} color={item.liked_by_me ? "#EF4444" : theme.textMuted} />
+                          {!!item.likes_count && item.likes_count > 0 && <Text style={styles.reactText}>{item.likes_count}</Text>}
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => reactDislike(item)} style={styles.reactBtn} testID={`comment-dislike-${item.id}`}>
+                          <Ionicons name={item.disliked_by_me ? "thumbs-down" : "thumbs-down-outline"} size={13} color={item.disliked_by_me ? "#8696A0" : theme.textMuted} />
+                        </TouchableOpacity>
+                      </View>
                       {item.user_id === user?.user_id && (
                         <View style={styles.rowActions}>
                           <TouchableOpacity onPress={() => beginEdit(item)} testID={`comment-edit-${item.id}`}>
@@ -206,6 +244,9 @@ const styles = StyleSheet.create({
   rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "800", flexShrink: 1 },
   rowTime: { color: theme.textMuted, fontSize: 11 },
   rowText: { color: theme.textPrimary, fontSize: 14, lineHeight: 19 },
+  reactRow: { flexDirection: "row", gap: 16, marginTop: 6 },
+  reactBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
+  reactText: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
   rowActions: { flexDirection: "row", gap: 16, marginTop: 5 },
   rowAction: { color: theme.textMuted, fontSize: 12, fontWeight: "700" },
 
