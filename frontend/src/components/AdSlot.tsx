@@ -85,7 +85,6 @@ export default function AdSlot({ placement, host, index }: { placement: string; 
       <PostCard
         post={post}
         viewerId={user?.user_id}
-        hideSponsoredLabel
         onLike={onLike}
         onRepost={onRepost}
         onReply={onReply}
