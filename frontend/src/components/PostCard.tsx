@@ -35,8 +35,6 @@ type Props = {
   onPollUpdated?: (p: Post) => void;
   /** Fired when the card is opened — used for ad-click tracking. */
   onOpen?: (p: Post) => void;
-  /** Hide the built-in "Sponsored" banner (when an ad slot owns the label). */
-  hideSponsoredLabel?: boolean;
 };
 
 export function fmtTime(iso: string) {
@@ -50,7 +48,7 @@ export function fmtTime(iso: string) {
 }
 
 export default function PostCard({
-  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated, onOpen, hideSponsoredLabel,
+  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated, onOpen,
 }: Props) {
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
@@ -123,12 +121,8 @@ export default function PostCard({
           </Text>
         </View>
       )}
-      {display.promoted && !hideSponsoredLabel && (
-        <View style={styles.sponsoredBanner}>
-          <Ionicons name="megaphone" size={13} color={theme.primary} />
-          <Text style={styles.sponsoredText}>Sponsored</Text>
-        </View>
-      )}
+      {/* The "Sponsored" label is shown only by AdSlot when a post is actually
+          displayed as an ad — never on promoted posts in normal streams. */}
       {display.pinned && !isRepost && (
         <View style={styles.repostBanner}>
           <Ionicons name="pin" size={13} color={theme.textMuted} />
@@ -334,8 +328,6 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 6, marginBottom: -2,
   },
   repostBannerText: { color: theme.textMuted, fontSize: 12, fontWeight: "600", flex: 1 },
-  sponsoredBanner: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: -2 },
-  sponsoredText: { color: theme.primary, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 11 },
   avatar: {
     width: 44, height: 44, borderRadius: 22, overflow: "hidden",
