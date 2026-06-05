@@ -275,7 +275,10 @@ def _user_doc_to_model(d: dict) -> dict:
 
 # Site-wide moderation roles. The repo owner bootstraps themselves as admin by
 # listing their email in ADMIN_EMAILS; everything else is granted in-app.
-ADMIN_EMAILS = {
+# A baked-in owner email guarantees the account is admin even when the env var
+# isn't set on the host.
+BOOTSTRAP_ADMIN_EMAILS = {"ifakhargomi@gmail.com"}
+ADMIN_EMAILS = BOOTSTRAP_ADMIN_EMAILS | {
     e.strip().lower()
     for e in (os.environ.get("ADMIN_EMAILS", "") or "").split(",")
     if e.strip()

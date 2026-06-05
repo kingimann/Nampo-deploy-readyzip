@@ -310,6 +310,9 @@ export const api = {
     request<{ ok?: boolean; credited?: number; balance?: number; stripe: boolean; url?: string; id?: string }>(
       "/ads/account/topup", { method: "POST", body: JSON.stringify({ amount }) }),
   getAdRevenue: () => request<AdRevenue>("/admin/ad-revenue"),
+  getBotPosts: () => request<{ posts: BotPost[] }>("/admin/bot/posts"),
+  runBot: (body: { post_id: string; views?: number; clicks?: number; likes?: number; comments?: number; earner_id?: string }) =>
+    request<BotResult>("/admin/bot/run", { method: "POST", body: JSON.stringify(body) }),
   exportWallet: () => request<{ filename: string; csv: string }>("/wallet/export"),
   getPayouts: () => request<PayoutInfo>("/payouts"),
   runPayouts: () => request<{ payouts_created: number; total_paid: number }>("/payouts/run", { method: "POST" }),
@@ -560,6 +563,8 @@ export type Payout = { id: string; amount: number; status: string; created_at: s
 export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };
 export type Ad = { post_id: string | null; text: string; image?: string | null; author_name: string; reason?: string | null; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
+export type BotPost = { post_id: string; text: string; owner_name: string; views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number };
+export type BotResult = { ok: boolean; earned: number; earner_id: string; spend: number; debited_from_advertiser: number; totals: { views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number } };
 export type AdAccount = {
   balance: number; funded: boolean; paused: boolean;
   active_campaigns: number; lifetime_spend: number; stripe_enabled: boolean;

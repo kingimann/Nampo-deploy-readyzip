@@ -265,6 +265,120 @@ async def admin_ad_revenue(authorization: Optional[str] = Header(None)):
     }
 
 
+# ── Admin test bot: simulate engagement on a sponsored post ──────────────────
+class BotRun(BaseModel):
+    post_id: str
+    views: int = 0
+    clicks: int = 0
+    likes: int = 0
+    comments: int = 0
+    earner_id: Optional[str] = None   # who receives the host ad-revenue (default: caller)
+
+
+@router.get("/admin/bot/posts")
+async def bot_posts(authorization: Optional[str] = Header(None)):
+    """List sponsored posts the admin can bot-test (admin only)."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    now = datetime.now(timezone.utc)
+    rows = await db.posts.find(
+        {"promoted_until": {"$gt": now}}, {"_id": 0}
+    ).sort("promoted_until", -1).limit(100).to_list(100)
+    owner_ids = {r.get("user_id") for r in rows if r.get("user_id")}
+    names: dict = {}
+    if owner_ids:
+        urows = await db.users.find(
+            {"user_id": {"$in": list(owner_ids)}}, {"_id": 0, "user_id": 1, "name": 1}
+        ).to_list(len(owner_ids))
+        names = {u["user_id"]: u.get("name", "User") for u in urows}
+    posts = [{
+        "post_id": r["id"],
+        "text": (r.get("text") or "")[:120],
+        "owner_name": names.get(r.get("user_id"), "User"),
+        "views": int(r.get("views_count", 0) or 0),
+        "likes": int(r.get("likes_count", 0) or 0),
+        "comments": int(r.get("replies_count", 0) or 0),
+        "impressions": int(r.get("ad_impressions", 0) or 0),
+        "clicks": int(r.get("ad_clicks", 0) or 0),
+        "spent": round(float(r.get("ad_spent", 0) or 0), 2),
+    } for r in rows]
+    return {"posts": posts}
+
+
+@router.post("/admin/bot/run")
+async def bot_run(body: BotRun, authorization: Optional[str] = Header(None)):
+    """Simulate views/clicks/likes/comments on a sponsored post to test wallet
+    and analytics. Counters only — no real like/comment records are created.
+    Admin only. Credits the earner (default: caller) with host ad-revenue so
+    you can verify earnings appear in the wallet."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    post = await db.posts.find_one({"id": body.post_id}, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    clamp = lambda n: max(0, min(100000, int(n or 0)))
+    views, clicks, likes, comments = clamp(body.views), clamp(body.clicks), clamp(body.likes), clamp(body.comments)
+
+    # Bump engagement + ad-analytics counters (counters only — no real docs).
+    inc: dict = {}
+    if views:
+        inc["views_count"] = views
+        inc["ad_impressions"] = views
+    if likes:
+        inc["likes_count"] = likes
+    if comments:
+        inc["replies_count"] = comments
+        inc["ad_comments"] = comments
+    if clicks:
+        inc["ad_clicks"] = clicks
+
+    # Advertiser spend (so the campaign's spend/analytics move like real traffic).
+    cpc = float(post.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC
+    spend = round(views * AD_RATE_VIEW + clicks * cpc + comments * AD_RATE_COMMENT, 2)
+    if spend:
+        inc["ad_spent"] = spend
+    if inc:
+        await db.posts.update_one({"id": body.post_id}, {"$inc": inc})
+
+    # Debit the advertiser's prepaid balance (if funded) so balance drain is testable.
+    advertiser = post.get("user_id")
+    adv_bal = await _ad_balance(advertiser)
+    debited = 0.0
+    if adv_bal is not None and spend > 0:
+        debited = round(min(spend, adv_bal), 2)
+        if debited > 0:
+            await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -debited}})
+
+    # Credit the host/earner with ad revenue so the wallet shows real earnings.
+    earner = body.earner_id or me["user_id"]
+    earned = round(spend * HOST_REVENUE_SHARE, 2)
+    if earned > 0:
+        await _credit(earner, earned, "ad_revenue", "View bot (test)")
+
+    fresh = await db.posts.find_one(
+        {"id": body.post_id},
+        {"_id": 0, "views_count": 1, "likes_count": 1, "replies_count": 1,
+         "ad_impressions": 1, "ad_clicks": 1, "ad_comments": 1, "ad_spent": 1},
+    ) or {}
+    return {
+        "ok": True,
+        "earned": earned,
+        "earner_id": earner,
+        "spend": spend,
+        "debited_from_advertiser": debited,
+        "totals": {
+            "views": int(fresh.get("views_count", 0) or 0),
+            "likes": int(fresh.get("likes_count", 0) or 0),
+            "comments": int(fresh.get("replies_count", 0) or 0),
+            "impressions": int(fresh.get("ad_impressions", 0) or 0),
+            "clicks": int(fresh.get("ad_clicks", 0) or 0),
+            "spent": round(float(fresh.get("ad_spent", 0) or 0), 2),
+        },
+    }
+
+
 @router.get("/ads/campaigns")
 async def my_campaigns(authorization: Optional[str] = Header(None)):
     """Analytics for the current user's promoted posts."""
