@@ -10,7 +10,8 @@ import MediaGrid from "./MediaGrid";
 import RichText from "./RichText";
 import LinkPreviewCard from "./LinkPreviewCard";
 import EmbedCard from "./EmbedCard";
-import { getEmbed } from "@/src/utils/embeds";
+import InlineMedia from "./InlineMedia";
+import { getEmbed, getInlineImage } from "@/src/utils/embeds";
 import PollCard from "./PollCard";
 import QuoteCard from "./QuoteCard";
 import LikersModal from "./LikersModal";
@@ -57,6 +58,7 @@ export default function PostCard({
   const isOwner = !!viewerId && display.user_id === viewerId;
   const hasVideo = (display.media || []).some((m) => m.type === "video");
   const embed = getEmbed(display.text);
+  const inlineImg = !embed && !(display.media || []).length ? getInlineImage(display.text) : null;
 
   const openDetail = () => {
     if (disableOpen) return;
@@ -166,6 +168,8 @@ export default function PostCard({
 
       {embed ? (
         <EmbedCard url={embed.url} aspect={embed.aspect} />
+      ) : inlineImg ? (
+        <InlineMedia uri={inlineImg} />
       ) : display.link_preview && !display.quoted_post ? (
         <LinkPreviewCard preview={display.link_preview} />
       ) : null}

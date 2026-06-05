@@ -12,6 +12,9 @@ import { theme } from "@/src/theme";
 import RichText from "./RichText";
 import { fmtTime } from "./PostCard";
 import VerifiedBadge from "./VerifiedBadge";
+import InlineMedia from "./InlineMedia";
+import GifPickerSheet from "./GifPickerSheet";
+import { getInlineImage } from "@/src/utils/embeds";
 
 type Props = {
   visible: boolean;
@@ -32,6 +35,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<Post | null>(null);
+  const [gifOpen, setGifOpen] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const load = useCallback(async () => {
@@ -98,6 +102,18 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
     setReplyTo(c); setEditingId(null);
     setText(c.author.username ? `@${c.author.username} ` : "");
     inputRef.current?.focus();
+  };
+  // Post a GIF as a comment — its URL renders inline (getInlineImage).
+  const sendGif = async (url: string) => {
+    setGifOpen(false);
+    if (!post || !url) return;
+    try {
+      const parentId = replyTo ? replyTo.id : post.id;
+      const reply = await api.createPost({ text: url, parent_id: parentId });
+      setReplies((arr) => [...arr, reply]);
+      if (!replyTo) onCommented?.(post.id, reply);
+      setReplyTo(null);
+    } catch {}
   };
   const removeComment = async (c: Post) => {
     setReplies((arr) => arr.filter((r) => r.id !== c.id));
@@ -211,6 +227,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                         <Text style={styles.replyingTo}>Replying to <Text style={{ color: theme.primary }}>@{row.replyToName}</Text></Text>
                       )}
                       {!!item.text && <RichText text={item.text} style={styles.rowText} />}
+                      {(() => { const im = getInlineImage(item.text); return im ? <InlineMedia uri={im} compact /> : null; })()}
                       <View style={styles.reactRow}>
                         <TouchableOpacity onPress={() => reactLike(item)} style={styles.reactBtn} testID={`comment-like-${item.id}`}>
                           <Ionicons name={item.liked_by_me ? "heart" : "heart-outline"} size={14} color={item.liked_by_me ? "#EF4444" : theme.textMuted} />
@@ -282,6 +299,11 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                 multiline
                 testID="comment-input"
               />
+              {!editingId && (
+                <TouchableOpacity onPress={() => setGifOpen(true)} style={styles.gifBtn} testID="comment-gif">
+                  <Ionicons name="film-outline" size={20} color={theme.primary} />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={send}
                 disabled={!text.trim() || sending}
@@ -294,6 +316,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
           </View>
         </KeyboardAvoidingView>
       </View>
+      <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
     </Modal>
   );
 }
@@ -360,4 +383,5 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18, backgroundColor: theme.primary,
     alignItems: "center", justifyContent: "center",
   },
+  gifBtn: { width: 32, height: 36, alignItems: "center", justifyContent: "center" },
 });
