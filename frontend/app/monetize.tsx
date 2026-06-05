@@ -116,7 +116,7 @@ export default function MonetizeScreen() {
             </View>
           ))}
 
-          <Text style={styles.footer}>Earnings require valid traffic — views/clicks from your own or related accounts don't count, and there are daily limits to keep it fair.</Text>
+          <Text style={styles.footer}>Your account must be at least 30 days old to monetize. Earnings also require valid traffic — views/clicks from your own or related accounts don't count, and there are daily limits to keep it fair.</Text>
         </ScrollView>
       )}
     </SafeAreaView>

@@ -231,7 +231,7 @@ export default function AdvertiseScreen() {
                     <Text style={styles.linkNewText}>New</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.linkSectionSub}>Promote your website across Nami and partner sites. Charged per view/click from your ad balance.</Text>
+                <Text style={styles.linkSectionSub}>Promote your website across Nami and partner sites. Charged per view/click from your ad balance. Requires an account 30+ days old.</Text>
                 {linkAds.map((a) => (
                   <View key={a.id} style={styles.linkRow}>
                     <Ionicons name="link" size={16} color={theme.primary} />

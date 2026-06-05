@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from datetime import timedelta
 
-from core import db, get_current_user, is_admin, _norm_dt
+from core import db, get_current_user, is_admin, _norm_dt, require_account_age, MIN_ACCOUNT_AGE_DAYS
 
 router = APIRouter()
 
@@ -45,8 +45,8 @@ async def _credit(to_user_id: str, amount: float, kind: str, from_name: str):
 # Ad earnings are easy to fake (spin up an alt, click your own ad). To make
 # earning genuinely hard we require established accounts on BOTH sides, block
 # collusion (friends), and cap daily ad income.
-EARN_MIN_AGE_DAYS = 14        # account must be this old to earn from ads
-EARN_MIN_FOLLOWERS = 25       # …or be verified
+EARN_MIN_AGE_DAYS = MIN_ACCOUNT_AGE_DAYS   # account must be this old to earn from ads
+EARN_MIN_FOLLOWERS = 25       # …and have a real audience
 EARN_DAILY_CAP = 2.00         # max ad $ a single account can earn per day
 
 
@@ -426,6 +426,7 @@ async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_i
 @router.post("/ads/links")
 async def create_link_ad(body: LinkAdCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
+    require_account_age(me, "advertise a link")
     url = (body.url or "").strip()
     if not _valid_url(url):
         raise HTTPException(status_code=400, detail="Enter a valid http(s) link")

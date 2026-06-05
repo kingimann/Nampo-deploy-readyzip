@@ -525,6 +525,7 @@ export default function MarketplaceScreen() {
                 testID="listing-desc-input"
               />
               {!!postErr && <Text style={styles.postErr}>{postErr}</Text>}
+              <Text style={styles.ageNote}>Your account must be at least 30 days old to sell.</Text>
               <TouchableOpacity
                 style={[styles.postBtn, (!draft.title.trim() || posting) && { opacity: 0.5 }]}
                 onPress={submit}
@@ -795,6 +796,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.primary, alignItems: "center",
   },
   postBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  ageNote: { color: theme.textMuted, fontSize: 12, textAlign: "center", marginTop: 16 },
   postErr: { color: theme.error, fontSize: 13, fontWeight: "600", marginBottom: 8, textAlign: "center" },
 
   // Location + radius bar (browse)
