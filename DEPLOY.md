@@ -28,18 +28,36 @@ provisions a Postgres database **and** the API service together.
 
 1. Go to https://render.com and sign up with your GitHub account.
 2. **New + → Blueprint**.
-3. Pick your repo. Render reads `render.yaml` and shows two resources:
+3. Pick your repo. Render reads `render.yaml` and shows three resources:
    - `nampo-db` — a free Postgres database
-   - `nampo-backend` — the Docker web service
-4. It will prompt for the optional secret:
-   - `FSQ_API_KEY` → leave blank (only needed for Foursquare place matching).
+   - `nampo-backend` — the Docker web service (the API)
+   - `nampo-web` — a static site (the Expo app exported for the web)
+4. It will prompt for a few values:
+   - `FSQ_API_KEY` (backend) → leave blank (only needed for Foursquare matching).
+   - `EXPO_PUBLIC_BACKEND_URL` (web) → the API's URL. If you don't know it yet,
+     it's `https://nampo-backend.onrender.com` (Render names it after the
+     service). You can also leave it blank now and set it after the first
+     deploy, then re-deploy the static site — see the note in Step 2b.
+   - `EXPO_PUBLIC_MAPBOX_TOKEN` (web) → a Mapbox **public** token (for maps).
 
    You do **not** need to enter a database URL — Render creates the Postgres
    instance and injects its connection string into the API as `DATABASE_URL`
    automatically (that's the `fromDatabase` block in `render.yaml`).
-5. Click **Apply**. Render creates the database, builds the Docker image, and
-   deploys. Watch the logs; when you see `Uvicorn running`, it's live.
-6. Render gives you a URL like `https://nampo-backend.onrender.com`.
+5. Click **Apply**. Render creates the database, builds the Docker image and the
+   web bundle, and deploys. Watch the API logs for `Uvicorn running`.
+6. Render gives you a backend URL like `https://nampo-backend.onrender.com` and a
+   web URL like `https://nampo-web.onrender.com`.
+
+### Step 2b — fix the web's backend URL (if you left it blank)
+
+The web bundle bakes `EXPO_PUBLIC_BACKEND_URL` in at build time. If you didn't
+know the API URL during the first apply, open the **nampo-web** service →
+**Environment**, set `EXPO_PUBLIC_BACKEND_URL` to the real backend URL (no
+trailing slash, no `/api`), and trigger a **Manual Deploy → Clear build cache &
+deploy**. The web app will then talk to your API.
+
+> Don't want the web site? Delete the `nampo-web` block from `render.yaml` —
+> the API and database deploy fine on their own, and you ship mobile via EAS.
 
 **Test it:** open `https://nampo-backend.onrender.com/health` — you should see
 `{"status":"ok"}`. The tables are created automatically on first use, so there
@@ -54,22 +72,34 @@ is no migration step.
 
 ---
 
-## Step 3 — Point the app at your backend, ~2 min
+## Step 3 — Run / ship the app
 
-In the `frontend/` folder, create a `.env` file:
+**Hosted web:** nothing more to do — `nampo-web` is your web app. Open its
+Render URL.
+
+**Local development:** create `frontend/.env`:
 ```
 EXPO_PUBLIC_BACKEND_URL=https://nampo-backend.onrender.com
+EXPO_PUBLIC_MAPBOX_TOKEN=pk.your_mapbox_public_token
 ```
-No trailing slash, no `/api` — the client adds that itself. (On the web build
-the app talks to the same origin via `/api`, so this var is only needed for the
-native/Expo builds.)
-
-Then run the app:
+No trailing slash, no `/api` — the client adds that itself. (For local web dev
+you can omit `EXPO_PUBLIC_BACKEND_URL` and let the Metro proxy serve `/api` on
+the same origin; on a device, point it at a URL the device can reach.) Then:
 ```bash
 cd frontend
 npm install
 npx expo start
 ```
+
+**Mobile app (iOS/Android):** build with EAS — Render only hosts the API and the
+web site, not native binaries:
+```bash
+cd frontend
+npm install -g eas-cli
+eas build -p android   # or ios
+```
+Set `EXPO_PUBLIC_BACKEND_URL` / `EXPO_PUBLIC_MAPBOX_TOKEN` as EAS env vars so the
+build points at your Render backend.
 
 ---
 

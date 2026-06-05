@@ -32,3 +32,29 @@ services:
       # you to paste it (sync:false keeps it out of git); leave blank to skip.
       - key: FSQ_API_KEY
         sync: false
+
+  # Web frontend — the Expo app exported to a static site. Optional: mobile is
+  # built separately with EAS. The web client calls the API cross-origin using
+  # EXPO_PUBLIC_BACKEND_URL (the backend allows CORS), so no proxy is needed.
+  - type: web
+    runtime: static
+    name: nampo-web
+    plan: free
+    buildCommand: cd frontend && npm ci && npx expo export -p web
+    staticPublishPath: frontend/dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_VERSION
+        value: "20.18.0"
+      # Baked into the web build. Paste your backend's URL once it's live
+      # (e.g. https://nampo-backend.onrender.com — no trailing slash, no /api)
+      # and a Mapbox PUBLIC token. Both are bundled, so use a public token.
+      - key: EXPO_PUBLIC_BACKEND_URL
+        sync: false
+      - key: EXPO_PUBLIC_MAPBOX_TOKEN
+        sync: false
+    routes:
+      # SPA fallback — the app exports a single index.html (web.output: single).
+      - type: rewrite
+        source: /*
+        destination: /index.html
