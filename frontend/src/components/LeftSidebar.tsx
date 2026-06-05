@@ -104,7 +104,7 @@ export default function LeftSidebar() {
               )}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.profileName} numberOfLines={1}>{user?.name || "Atlas"}</Text>
+              <Text style={styles.profileName} numberOfLines={1}>{user?.name || "Nami App"}</Text>
               <Text style={styles.profileEmail} numberOfLines={1}>{user?.email || "View profile"}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
@@ -160,7 +160,7 @@ export default function LeftSidebar() {
           </ScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
-            <Text style={styles.footerText}>Atlas · v1.0</Text>
+            <Text style={styles.footerText}>Nami App · v1.0</Text>
           </View>
         </Animated.View>
       </View>

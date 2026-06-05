@@ -4,8 +4,6 @@ import {
   Platform, TextInput, ScrollView, KeyboardAvoidingView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import * as WebBrowser from "expo-web-browser";
-import * as Linking from "expo-linking";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
@@ -18,7 +16,7 @@ type Mode = "signin" | "signup";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { user, applySessionToken, loginLocal, registerLocal } = useAuth();
+  const { user, loginLocal, registerLocal } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [busy, setBusy] = useState(false);
   const [identifier, setIdentifier] = useState("");
@@ -29,66 +27,6 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { if (user) router.replace("/(tabs)"); }, [user, router]);
-
-  const extractToken = (url: string): string | null => {
-    const m = url.match(/[?#&]session_token=([^&]+)/);
-    return m ? decodeURIComponent(m[1]) : null;
-  };
-
-  const hasAuthError = (url: string): boolean => /[?#&]auth_error=/.test(url);
-
-  const onGoogle = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      // Hit the API (not the static web origin). Falls back to same-origin only
-      // for local web dev where the Metro proxy serves /api.
-      const backendUrl = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
-      const apiBase =
-        backendUrl || (Platform.OS === "web" ? window.location.origin : "");
-      const redirectUrl =
-        Platform.OS === "web" ? window.location.origin + "/" : Linking.createURL("/");
-      const authUrl =
-        `${apiBase}/api/auth/google/login?redirect=${encodeURIComponent(redirectUrl)}`;
-
-      if (Platform.OS === "web") {
-        const popup = window.open(authUrl, "_blank", "width=500,height=640,left=200,top=80");
-        if (!popup) { window.location.href = authUrl; return; }
-        const timer = setInterval(async () => {
-          if (popup.closed) { clearInterval(timer); setBusy(false); return; }
-          try {
-            const url = popup.location.href;
-            if (url && hasAuthError(url)) {
-              popup.close();
-              clearInterval(timer);
-              setBusy(false);
-              setError("Google sign-in was cancelled or could not be completed.");
-              return;
-            }
-            const tok = url ? extractToken(url) : null;
-            if (tok) {
-              popup.close();
-              clearInterval(timer);
-              await applySessionToken(tok);
-              setBusy(false);
-            }
-          } catch {} // cross-origin — ignore until redirect lands back on our origin
-        }, 400);
-        return;
-      }
-
-      const res = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-      if (res.type === "success") {
-        if (hasAuthError(res.url)) {
-          setError("Google sign-in was cancelled or could not be completed.");
-        } else {
-          const tok = extractToken(res.url);
-          if (tok) await applySessionToken(tok);
-        }
-      }
-    } catch (e) { setError(String(e)); }
-    finally { setBusy(false); }
-  };
 
   const submit = async () => {
     setBusy(true);
@@ -116,7 +54,7 @@ export default function LoginScreen() {
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
             <View style={styles.logoBox}>
               <Ionicons name="map" size={32} color="#fff" />
-              <Text style={styles.brand}>Atlas</Text>
+              <Text style={styles.brand}>Nami App</Text>
             </View>
             <Text style={styles.tagline}>Sign in to your account</Text>
 
@@ -151,17 +89,6 @@ export default function LoginScreen() {
 
               <TouchableOpacity style={[styles.submitBtn, busy && { opacity: 0.7 }]} onPress={submit} disabled={busy} testID="submit-btn">
                 {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{mode === "signin" ? "Sign in" : "Create account"}</Text>}
-              </TouchableOpacity>
-
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <TouchableOpacity style={styles.googleBtn} onPress={onGoogle} disabled={busy} testID="google-btn">
-                <Ionicons name="logo-google" size={18} color="#fff" />
-                <Text style={styles.googleText}>Continue with Google</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -200,9 +127,4 @@ const styles = StyleSheet.create({
   },
   submitBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, alignItems: "center", marginTop: 4 },
   submitText: { color: "#fff", fontWeight: "800", fontSize: 14 },
-  divider: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 4 },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: theme.border },
-  dividerText: { color: theme.textMuted, fontSize: 11 },
-  googleBtn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
-  googleText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

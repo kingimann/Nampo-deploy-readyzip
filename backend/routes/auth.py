@@ -1,23 +1,17 @@
-"""Auth endpoints (Google OAuth + custom email/password) and user profile updates."""
-import os
+"""Auth endpoints (email/password) and user profile updates."""
 import re
 import secrets
-import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from urllib.parse import urlencode, urlparse
 import uuid
 
 import bcrypt
-import httpx
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from db import DuplicateKeyError
 
 from core import (
-    _norm_dt,
     _user_doc_to_model,
     db,
     get_current_user,
@@ -30,117 +24,8 @@ USERNAME_RE = re.compile(r"^[a-z0-9_]{3,20}$")
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 
-# ---------------------------------------------------------------------------
-# Google OAuth 2.0 / OpenID Connect
-# ---------------------------------------------------------------------------
-GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
-
-_google_cfg_cache: dict = {"data": None, "exp": 0.0}
 
 
-def _public_base_url() -> str:
-    """The externally reachable https origin for this deployment (dev or prod)."""
-    # Explicit override first, then Render's auto-provided URL, then Replit (legacy).
-    explicit = (os.environ.get("PUBLIC_BASE_URL") or "").strip()
-    if explicit:
-        return explicit.rstrip("/")
-    render_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip()
-    if render_url:
-        return render_url.rstrip("/")
-    domains = os.environ.get("REPLIT_DOMAINS") or os.environ.get("REPLIT_DEV_DOMAIN") or ""
-    host = domains.split(",")[0].strip()
-    return f"https://{host}" if host else ""
-
-
-def _google_redirect_uri() -> str:
-    return f"{_public_base_url()}/api/auth/google/callback"
-
-
-async def _google_config() -> dict:
-    now = time.time()
-    if _google_cfg_cache["data"] and _google_cfg_cache["exp"] > now:
-        return _google_cfg_cache["data"]
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(GOOGLE_DISCOVERY_URL)
-        resp.raise_for_status()
-        data = resp.json()
-    _google_cfg_cache["data"] = data
-    _google_cfg_cache["exp"] = now + 3600
-    return data
-
-
-# Native app deep-link schemes we trust for post-auth redirects. "atlas" is the
-# standalone app scheme (app.json); "exp"/"exps" cover Expo Go dev clients.
-_ALLOWED_NATIVE_SCHEMES = {"atlas", "exp", "exps"}
-
-
-def _allowed_redirect_hosts() -> set:
-    """Hosts we will redirect back to after OAuth: our own origin plus any
-    configured frontend origins. In a split deploy the web app is served from a
-    different host than the API (e.g. nampo-web vs nampo-backend), so the web
-    origin must be whitelisted via OAUTH_REDIRECT_ORIGINS."""
-    hosts = set()
-    our = urlparse(_public_base_url()).netloc
-    if our:
-        hosts.add(our)
-    for o in (os.environ.get("OAUTH_REDIRECT_ORIGINS") or "").split(","):
-        o = o.strip()
-        if o:
-            hosts.add(urlparse(o).netloc or o)
-    return hosts
-
-
-def _validate_redirect(target: str) -> str:
-    """Return a safe post-auth redirect target. Prevents open-redirect/token
-    exfiltration by allowing only whitelisted https origins or known native
-    schemes; anything else falls back to our default origin."""
-    default = _public_base_url() + "/"
-    if not target:
-        return default
-    try:
-        parsed = urlparse(target)
-    except Exception:
-        return default
-    scheme = (parsed.scheme or "").lower()
-    if scheme == "https":
-        if parsed.netloc and parsed.netloc in _allowed_redirect_hosts():
-            return target
-        return default
-    if scheme in _ALLOWED_NATIVE_SCHEMES or scheme.startswith("exp+"):
-        return target
-    return default
-
-
-async def _store_oauth_state(redirect: str) -> str:
-    """Persist a one-time, random CSRF state (shared DB so it survives across
-    autoscale instances between /login and /callback)."""
-    state = secrets.token_urlsafe(24)
-    await db.oauth_states.insert_one({
-        "state": state,
-        "redirect": redirect,
-        "expires_at": datetime.now(timezone.utc) + timedelta(minutes=10),
-        "created_at": datetime.now(timezone.utc),
-    })
-    return state
-
-
-async def _consume_oauth_state(state: str) -> Optional[str]:
-    """Validate and single-use-consume a state. Returns the stored (already
-    validated) redirect target, or None if the state is missing/expired/forged."""
-    if not state:
-        return None
-    doc = await db.oauth_states.find_one({"state": state})
-    if not doc:
-        return None
-    await db.oauth_states.delete_one({"state": state})  # one-time use
-    try:
-        if _norm_dt(doc["expires_at"]) < datetime.now(timezone.utc):
-            return None
-    except Exception:
-        return None
-    return doc.get("redirect") or (_public_base_url() + "/")
 
 
 class RegisterRequest(BaseModel):
@@ -196,113 +81,6 @@ async def root():
     return {"message": "Map App API"}
 
 
-async def _upsert_google_user(email: str, name: str, picture: Optional[str]) -> dict:
-    user_doc = await db.users.find_one({"email": email})
-    if not user_doc:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        try:
-            await db.users.insert_one({
-                "user_id": user_id, "email": email, "name": name,
-                "username": None, "picture": picture, "bio": "",
-                "hashed_password": None,
-                "auth_providers": ["google"],
-                "failed_login_attempts": 0, "locked_until": None,
-                "created_at": datetime.now(timezone.utc),
-            })
-        except DuplicateKeyError:
-            user_doc = await db.users.find_one({"email": email})
-        else:
-            user_doc = await db.users.find_one({"user_id": user_id})
-    else:
-        upd = {}
-        if picture and not user_doc.get("picture"):
-            upd["picture"] = picture
-        providers = user_doc.get("auth_providers") or []
-        if "google" not in providers:
-            upd["auth_providers"] = providers + ["google"]
-        if upd:
-            await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": upd})
-            user_doc = await db.users.find_one({"user_id": user_doc["user_id"]})
-    return user_doc
-
-
-@router.get("/auth/google/login")
-async def google_login(redirect: str = ""):
-    """Start the Google OAuth flow. Redirects the browser to Google's consent screen."""
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
-    cfg = await _google_config()
-    safe_redirect = _validate_redirect(redirect)
-    state = await _store_oauth_state(safe_redirect)
-    params = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": _google_redirect_uri(),
-        "response_type": "code",
-        "scope": "openid email profile",
-        "state": state,
-        "access_type": "online",
-        "prompt": "select_account",
-    }
-    return RedirectResponse(cfg["authorization_endpoint"] + "?" + urlencode(params))
-
-
-def _final_redirect(target: str, fragment: str) -> RedirectResponse:
-    base = target or (_public_base_url() + "/")
-    sep = "&" if "#" in base else "#"
-    return RedirectResponse(f"{base}{sep}{fragment}")
-
-
-@router.get("/auth/google/callback")
-async def google_callback(code: str = "", state: str = "", error: str = ""):
-    """Google redirects here with an auth code. Exchange it, upsert the user, and
-    bounce back to the frontend with a freshly minted session token in the URL fragment."""
-    stored = await _consume_oauth_state(state)
-    if stored is None:
-        # Missing/expired/forged state -> never honor a client-supplied target.
-        return _final_redirect(_public_base_url() + "/", "auth_error=state")
-    target = _validate_redirect(stored)  # defense in depth
-    if error or not code:
-        return _final_redirect(target, "auth_error=1")
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
-        return _final_redirect(target, "auth_error=not_configured")
-
-    try:
-        cfg = await _google_config()
-        async with httpx.AsyncClient(timeout=15) as client:
-            token_resp = await client.post(
-                cfg["token_endpoint"],
-                data={
-                    "code": code,
-                    "client_id": GOOGLE_CLIENT_ID,
-                    "client_secret": GOOGLE_CLIENT_SECRET,
-                    "redirect_uri": _google_redirect_uri(),
-                    "grant_type": "authorization_code",
-                },
-            )
-            token_resp.raise_for_status()
-            access_token = token_resp.json().get("access_token")
-            if not access_token:
-                return _final_redirect(target, "auth_error=token")
-            ui_resp = await client.get(
-                cfg["userinfo_endpoint"],
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            ui_resp.raise_for_status()
-            info = ui_resp.json()
-    except Exception:
-        return _final_redirect(target, "auth_error=exchange")
-
-    if not info.get("email_verified", True):
-        return _final_redirect(target, "auth_error=unverified")
-    email = (info.get("email") or "").strip().lower()
-    if not email:
-        return _final_redirect(target, "auth_error=no_email")
-    name = (info.get("name") or info.get("given_name") or email.split("@")[0]).strip()[:80]
-    picture = info.get("picture")
-
-    user_doc = await _upsert_google_user(email, name, picture)
-    token = await _mint_session(user_doc["user_id"])
-    return _final_redirect(target, f"session_token={token}")
 
 
 @router.get("/auth/me", response_model=User)

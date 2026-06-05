@@ -45,7 +45,7 @@ logging.basicConfig(
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "app": "Atlas Maps API"}
+    return {"status": "ok", "app": "Nami App API"}
 
 @app.get("/health")
 async def health():

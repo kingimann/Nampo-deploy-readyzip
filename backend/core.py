@@ -54,7 +54,6 @@ async def init_pool() -> None:
     # fresh database none of these exist yet, which is why a brand-new deploy
     # would otherwise 500 on register/login.
     _UNIQUE_INDEXES = [
-        ("oauth_states", "idx_oauth_states_state", "((doc ->> 'state'))"),
         ("users", "uniq_users_email", "((doc ->> 'email'))"),
         ("users", "uniq_users_username", "((doc ->> 'username'))"),
         ("user_sessions", "uniq_user_sessions_token", "((doc ->> 'session_token'))"),

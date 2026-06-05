@@ -91,7 +91,7 @@ async def fetch_link_preview(url: str) -> Optional[dict]:
             timeout=TIMEOUT,
             follow_redirects=True,
             max_redirects=5,
-            headers={"User-Agent": "AtlasBot/1.0 (link preview)"},
+            headers={"User-Agent": "NamiBot/1.0 (link preview)"},
         ) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code >= 400:

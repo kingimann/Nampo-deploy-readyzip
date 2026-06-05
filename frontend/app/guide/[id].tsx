@@ -128,7 +128,7 @@ export default function GuideDetail() {
                   ? window.location.origin
                   : (process.env.EXPO_PUBLIC_BACKEND_URL || "");
                 const url = `${origin}/g/${guide.slug}`;
-                const msg = `Check out my guide "${guide.name}" on Atlas:\n${url}`;
+                const msg = `Check out my guide "${guide.name}" on Nami App:\n${url}`;
                 try {
                   if (Platform.OS === "web" && (navigator as any).share) {
                     await (navigator as any).share({ title: guide.name, text: msg, url });

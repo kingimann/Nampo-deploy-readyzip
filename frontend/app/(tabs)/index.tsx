@@ -196,6 +196,9 @@ export default function MapScreen() {
           initial.coords.accuracy ?? undefined,
           (initial.coords.heading != null && initial.coords.heading >= 0) ? initial.coords.heading : undefined,
         );
+        // Center on the user's first fix so the map opens where they are,
+        // instead of the neutral world view.
+        mapRef.current?.flyTo(c0[0], c0[1], 14);
         // Continuous high-accuracy subscription (Google-Maps-grade)
         watcherRef.current?.remove();
         watcherRef.current = await Location.watchPositionAsync(
@@ -446,7 +449,8 @@ export default function MapScreen() {
     return `${Math.round(d)} m`;
   };
 
-  const initialCenter: [number, number] = useMemo(() => [-74.006, 40.7128], []);
+  // Neutral world view until we get the user's location (no hardcoded city).
+  const initialCenter: [number, number] = useMemo(() => [10, 25], []);
   const initialStyleUrl = useMemo(
     () => MAP_STYLES.find((s) => s.key === styleKey)!.url,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -459,7 +463,7 @@ export default function MapScreen() {
       <MapboxWebView
         ref={mapRef}
         initialCenter={initialCenter}
-        initialZoom={11}
+        initialZoom={1.7}
         initialStyle={initialStyleUrl}
         onEvent={onMapEvent}
       />
