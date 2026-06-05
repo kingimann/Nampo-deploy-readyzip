@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList,
-  ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Share,
+  ActivityIndicator, Platform, KeyboardAvoidingView, ScrollView, Share, PanResponder,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -120,6 +120,7 @@ export default function DirectionsScreen() {
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [heading, setHeading] = useState<number>(0);
+  const [locAccuracy, setLocAccuracy] = useState<number | null>(null);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([
     { id: newId(), query: "Your location", feature: null, isUserLocation: true },
     { id: newId(), query: "", feature: null },
@@ -136,6 +137,20 @@ export default function DirectionsScreen() {
   const [showSteps, setShowSteps] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+
+  // Drag-or-tap handle for the foldable bottom panel.
+  // A small move counts as a tap (toggle); a clear vertical drag sets the state directly.
+  const panelHandle = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 4,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 24) setPanelOpen(false);
+        else if (g.dy < -24) setPanelOpen(true);
+        else setPanelOpen((o) => !o);
+      },
+    })
+  ).current;
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [navMode, setNavMode] = useState(false);
@@ -187,16 +202,18 @@ export default function DirectionsScreen() {
       if (status !== "granted") return;
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setUserLocation([pos.coords.longitude, pos.coords.latitude]);
+      if (pos.coords.accuracy != null) setLocAccuracy(pos.coords.accuracy);
       if (pos.coords.heading != null && pos.coords.heading >= 0) setHeading(pos.coords.heading);
       watcherRef.current?.remove();
       watcherRef.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 2000,
-          distanceInterval: 5,
+          timeInterval: 1000,
+          distanceInterval: 3,
         },
         (loc) => {
           setUserLocation([loc.coords.longitude, loc.coords.latitude]);
+          if (loc.coords.accuracy != null) setLocAccuracy(loc.coords.accuracy);
           if (loc.coords.heading != null && loc.coords.heading >= 0) setHeading(loc.coords.heading);
         },
       );
@@ -486,12 +503,12 @@ export default function DirectionsScreen() {
     // Recenter the camera on user position with bearing toward direction of travel.
     // Prefer device compass heading (stable, matches Google Maps' track-up).
     // Fall back to "bearing to next maneuver" only if heading is unavailable.
-    mapRef.current?.setUserLocation(userLocation[0], userLocation[1]);
-    mapRef.current?.flyTo(userLocation[0], userLocation[1], 17);
     const useDeviceHeading = typeof heading === "number" && !isNaN(heading) && heading >= 0;
     const brg = useDeviceHeading
       ? heading
       : (currentEnd ? bearingTo(userLocation, currentEnd) : 0);
+    mapRef.current?.setUserLocation(userLocation[0], userLocation[1], locAccuracy ?? undefined, useDeviceHeading ? heading : undefined);
+    mapRef.current?.flyTo(userLocation[0], userLocation[1], 17);
     mapRef.current?.setBearing(brg);
 
     // ── Speed limit lookup: find nearest route coord, then map to leg/segment ──
@@ -518,9 +535,12 @@ export default function DirectionsScreen() {
       setMaxSpeed(foundSpeed);
     }
 
-    // Off-route detection (throttle to 1 reroute per 8s)
+    // Off-route detection (throttle to 1 reroute per 8s).
+    // Scale the threshold with GPS accuracy so a poor fix (common on web/desktop)
+    // doesn't trigger a reroute storm that fights the follow camera.
     const offBy = distanceToRoute(userLocation, routeCoords);
-    if (offBy > 50 && Date.now() - lastRerouteAt.current > 8000 && !rerouting) {
+    const offThreshold = Math.max(60, (locAccuracy ?? 0) * 1.5);
+    if (offBy > offThreshold && Date.now() - lastRerouteAt.current > 8000 && !rerouting) {
       lastRerouteAt.current = Date.now();
       setRerouting(true);
       try { Speech.speak("Rerouting", { rate: 0.95 }); } catch {}
@@ -544,7 +564,7 @@ export default function DirectionsScreen() {
         try { Speech.stop(); Speech.speak(phrase, { rate: 0.95, pitch: 1.0 }); } catch {}
       }
     }
-  }, [userLocation, navMode, steps, stepIdx, stepEndCoords, routeCoords, voiceOn, rerouting, heading, recomputeRoute, routeLegs]);
+  }, [userLocation, navMode, steps, stepIdx, stepEndCoords, routeCoords, voiceOn, rerouting, heading, recomputeRoute, routeLegs, locAccuracy]);
 
   useEffect(() => () => { Speech.stop(); }, []);
 
@@ -846,18 +866,16 @@ export default function DirectionsScreen() {
         <View
           style={[
             styles.bottomCard,
-            { paddingBottom: insets.bottom + (navMode ? 26 : 90) },
+            { paddingBottom: navMode ? 16 : 18 },
           ]}
         >
-          <TouchableOpacity
-            style={styles.grabberWrap}
-            onPress={() => setPanelOpen((o) => !o)}
-            activeOpacity={0.7}
-            testID="panel-toggle"
-            hitSlop={10}
-          >
+          <View style={styles.grabberWrap} testID="panel-toggle" {...panelHandle.panHandlers}>
             <View style={styles.grabber} />
-          </TouchableOpacity>
+            <View style={styles.grabberHint}>
+              <Ionicons name={panelOpen ? "chevron-down" : "chevron-up"} size={15} color={theme.textSecondary} />
+              <Text style={styles.grabberHintText}>{panelOpen ? "Hide" : "Show details"}</Text>
+            </View>
+          </View>
 
           {!navMode && panelOpen && (
             <ScrollView
@@ -1199,8 +1217,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderColor: theme.border,
     paddingHorizontal: 20, paddingTop: 10, gap: 16,
   },
-  grabberWrap: { alignItems: "center", paddingVertical: 6 },
-  grabber: { width: 42, height: 5, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.55 },
+  grabberWrap: { alignSelf: "stretch", alignItems: "center", paddingTop: 12, paddingBottom: 10, gap: 6, marginHorizontal: -20, marginTop: -10 },
+  grabber: { width: 48, height: 6, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.7 },
+  grabberHint: { flexDirection: "row", alignItems: "center", gap: 4 },
+  grabberHintText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
   navCollapsedLine: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", textAlign: "center", paddingVertical: 2 },
   profileRow: { gap: 10, paddingRight: 16 },
   profileChip: {
