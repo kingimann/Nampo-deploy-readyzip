@@ -35,6 +35,8 @@ type Props = {
   onPollUpdated?: (p: Post) => void;
   /** Fired when the card is opened — used for ad-click tracking. */
   onOpen?: (p: Post) => void;
+  /** Hide the built-in "Sponsored" banner (when an ad slot owns the label). */
+  hideSponsoredLabel?: boolean;
 };
 
 export function fmtTime(iso: string) {
@@ -48,7 +50,7 @@ export function fmtTime(iso: string) {
 }
 
 export default function PostCard({
-  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated, onOpen,
+  post, viewerId, disableOpen, onLike, onDislike, onRepost, onQuote, onReply, onComments, onBookmark, onMore, onPollUpdated, onOpen, hideSponsoredLabel,
 }: Props) {
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
@@ -121,7 +123,7 @@ export default function PostCard({
           </Text>
         </View>
       )}
-      {display.promoted && (
+      {display.promoted && !hideSponsoredLabel && (
         <View style={styles.sponsoredBanner}>
           <Ionicons name="megaphone" size={13} color={theme.primary} />
           <Text style={styles.sponsoredText}>Sponsored</Text>

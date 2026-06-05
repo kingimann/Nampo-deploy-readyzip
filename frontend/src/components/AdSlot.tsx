@@ -8,17 +8,16 @@ import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 
 /**
- * A sponsored-content slot that renders the ad as a normal post (PostCard) with
- * a "Sponsored" label + why/hide/report controls. Falls back to a house ad
- * (the viewer's own post, or an "Advertise here" CTA) so it's never empty.
+ * A sponsored-content slot that renders a *real* promoted post (one that
+ * actually counts — i.e. a billable campaign) as a normal PostCard with a
+ * single "Sponsored" label + why/hide/report controls. House/"suggested"
+ * filler and the advertise CTA are not shown — empty slots render nothing.
  */
 export default function AdSlot({ placement, host, index }: { placement: string; host?: string; index?: number }) {
   const router = useRouter();
   const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
-  const [house, setHouse] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
-  const [cta, setCta] = useState(false);
   const [menu, setMenu] = useState(false);
   const [why, setWhy] = useState(false);
   const [gone, setGone] = useState(false);
@@ -29,17 +28,22 @@ export default function AdSlot({ placement, host, index }: { placement: string; 
       try {
         const res = await api.getNextAd(placement, index);
         if (cancelled) return;
-        setHouse(!!res.house); setReason(res.reason || null); setCta(!!res.cta);
-        setPost(res.post || null);
-        if (res.post && !res.house) api.adEvent(res.post.id, "impression", host).catch(() => {});
+        // Only surface genuine sponsored posts that count — skip house ads/CTA.
+        if (res.post && !res.house) {
+          setReason(res.reason || null);
+          setPost(res.post);
+          api.adEvent(res.post.id, "impression", host).catch(() => {});
+        } else {
+          setPost(null);
+        }
       } catch {}
     })();
     return () => { cancelled = true; };
   }, [placement, host, index]);
 
-  if (gone) return null;
+  if (gone || !post) return null;
 
-  const recordClick = (p: Post) => { if (!house) api.adEvent(p.id, "click", host).catch(() => {}); };
+  const recordClick = (p: Post) => { api.adEvent(p.id, "click", host).catch(() => {}); };
   const hide = async () => { setGone(true); if (post) { try { await api.hideAd(post.id); } catch {} } };
   const report = async () => { setGone(true); if (post) { try { await api.reportAd(post.id); } catch {} } };
 
@@ -49,32 +53,15 @@ export default function AdSlot({ placement, host, index }: { placement: string; 
   const onBookmark = (p: Post) => { api.toggleBookmark(p.id).catch(() => {}); };
   const onReply = (p: Post) => router.push({ pathname: "/post/[id]", params: { id: p.id } });
 
-  // CTA fallback (viewer has no posts to surface).
-  if (!post) {
-    if (!cta) return null;
-    return (
-      <TouchableOpacity style={styles.cta} onPress={() => router.push("/advertise")} testID="ad-cta">
-        <Ionicons name="megaphone" size={18} color={theme.primary} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.ctaTitle}>Advertise on Nami</Text>
-          <Text style={styles.ctaSub}>Promote your posts to reach more people.</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-      </TouchableOpacity>
-    );
-  }
-
   return (
     <View testID="ad-slot">
       <View style={styles.labelRow}>
-        <Ionicons name={house ? "rocket-outline" : "megaphone"} size={12} color={theme.primary} />
-        <Text style={styles.label}>{house ? "Suggested · promote yours" : "Sponsored"}</Text>
+        <Ionicons name="megaphone" size={12} color={theme.primary} />
+        <Text style={styles.label}>Sponsored</Text>
         <View style={{ flex: 1 }} />
-        {!house && (
-          <TouchableOpacity onPress={() => setMenu((m) => !m)} hitSlop={8} testID="ad-menu">
-            <Ionicons name="ellipsis-horizontal" size={16} color={theme.textMuted} />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity onPress={() => setMenu((m) => !m)} hitSlop={8} testID="ad-menu">
+          <Ionicons name="ellipsis-horizontal" size={16} color={theme.textMuted} />
+        </TouchableOpacity>
       </View>
 
       {menu && (
@@ -98,12 +85,13 @@ export default function AdSlot({ placement, host, index }: { placement: string; 
       <PostCard
         post={post}
         viewerId={user?.user_id}
+        hideSponsoredLabel
         onLike={onLike}
         onRepost={onRepost}
         onReply={onReply}
         onBookmark={onBookmark}
         onComments={(p) => onReply(p)}
-        onOpen={house ? undefined : recordClick}
+        onOpen={recordClick}
       />
     </View>
   );
@@ -116,7 +104,4 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11 },
   menuText: { color: theme.textSecondary, fontSize: 14, fontWeight: "600" },
   why: { color: theme.textMuted, fontSize: 12, lineHeight: 17, marginTop: 6, paddingHorizontal: 2 },
-  cta: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 },
-  ctaTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
-  ctaSub: { color: theme.textSecondary, fontSize: 13, marginTop: 1 },
 });
