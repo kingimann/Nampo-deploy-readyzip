@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
-from pymongo.errors import DuplicateKeyError
+from db import DuplicateKeyError
 
 from core import db, get_current_user
 from models import Group, GroupCreate, Post, PostCreate

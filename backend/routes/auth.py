@@ -9,7 +9,7 @@ import bcrypt
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
-from pymongo.errors import DuplicateKeyError
+from db import DuplicateKeyError
 
 from core import (
     _user_doc_to_model,

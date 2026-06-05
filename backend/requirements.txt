@@ -10,12 +10,10 @@ pydantic==2.13.4
 pydantic_core==2.46.4
 email-validator==2.3.0
 
-# MongoDB (async driver)
-motor==3.6.0
-pymongo==4.9.2
-dnspython==2.8.0
+# PostgreSQL async driver
+asyncpg==0.30.0
 
-# Auth / crypto (bcrypt password hashing + E2E key encryption service)
+# Auth / crypto
 bcrypt==4.1.3
 cryptography==48.0.0
 

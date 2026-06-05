@@ -1,8 +1,6 @@
 # Replit configuration — tells Replit how to run the Nampo backend.
 run = "cd backend && pip install -r requirements.txt && uvicorn server:app --host 0.0.0.0 --port $PORT --reload"
-
-# Python module system
-modules = ["python-3.11"]
+modules = ["python-3.11", "postgresql-16"]
 
 [[ports]]
 localPort = 8080

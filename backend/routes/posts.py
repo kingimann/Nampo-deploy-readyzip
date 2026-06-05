@@ -4,7 +4,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
-from pymongo.errors import DuplicateKeyError
+from db import DuplicateKeyError
 
 from core import db, get_current_user
 from models import (

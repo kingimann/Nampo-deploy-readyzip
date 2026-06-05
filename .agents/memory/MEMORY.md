@@ -1,0 +1,1 @@
+- [PostgreSQL migration](pg-migration.md) — MongoDB → asyncpg via JSONB wrapper; lazy db proxy pattern required for FastAPI route imports
