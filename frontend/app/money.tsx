@@ -112,7 +112,14 @@ export default function MoneyScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Money</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ flexDirection: "row" }}>
+          <TouchableOpacity onPress={() => router.push("/pay-scan")} style={styles.iconBtn} testID="money-scan">
+            <Ionicons name="scan-outline" size={22} color={theme.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push("/pay-qr")} style={styles.iconBtn} testID="money-qr">
+            <Ionicons name="qr-code-outline" size={22} color={theme.textPrimary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (
