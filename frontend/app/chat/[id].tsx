@@ -576,7 +576,7 @@ export default function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={(i) => i.id}
-            contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, gap: 6 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 12 }}
             renderItem={({ item }) => {
               const mine = item.sender_id === user?.user_id;
               const encrypted = isE2E(item.text || "");
@@ -1063,8 +1063,8 @@ const styles = StyleSheet.create({
   emptyText: { color: theme.textMuted, fontSize: 13 },
 
   bubbleRow: { flexDirection: "row" },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, paddingHorizontal: 4 },
-  metaTime: { color: theme.textMuted, fontSize: 10.5, fontWeight: "500" },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4, paddingHorizontal: 4 },
+  metaTime: { color: theme.textMuted, fontSize: 11, fontWeight: "500" },
   editedLink: { textDecorationLine: "underline" },
   historyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 10, paddingHorizontal: 4 },
   historyRow: { backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 8 },
@@ -1073,31 +1073,31 @@ const styles = StyleSheet.create({
   bubbleRowMine: { justifyContent: "flex-end" },
   bubbleRowOther: { justifyContent: "flex-start" },
   bubble: {
-    maxWidth: "76%",
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderRadius: 18,
+    maxWidth: "78%",
+    paddingHorizontal: 15, paddingVertical: 11,
+    borderRadius: 20,
   },
-  bubbleMine: { backgroundColor: theme.primary, borderBottomRightRadius: 6 },
+  bubbleMine: { backgroundColor: theme.primary, borderBottomRightRadius: 7 },
   bubbleOther: {
     backgroundColor: theme.surface,
     borderWidth: 1, borderColor: theme.border,
-    borderBottomLeftRadius: 6,
+    borderBottomLeftRadius: 7,
   },
-  bubblePlace: { paddingVertical: 12 },
-  bubbleText: { color: theme.textPrimary, fontSize: 15, lineHeight: 20 },
+  bubblePlace: { paddingVertical: 13 },
+  bubbleText: { color: theme.textPrimary, fontSize: 15, lineHeight: 21 },
   bubbleDeleted: { backgroundColor: "transparent", borderWidth: 1, borderColor: theme.border, borderStyle: "dashed" },
   quoted: {
-    borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 3, marginBottom: 6,
-    borderRadius: 4,
+    borderLeftWidth: 3, paddingLeft: 10, paddingRight: 10, paddingVertical: 7, marginBottom: 8,
+    borderRadius: 8,
   },
   quotedMine: { borderLeftColor: "rgba(255,255,255,0.9)", backgroundColor: "rgba(255,255,255,0.12)" },
   quotedOther: { borderLeftColor: theme.primary, backgroundColor: theme.surfaceAlt },
-  quotedName: { color: theme.primary, fontSize: 12, fontWeight: "800" },
-  quotedText: { color: theme.textSecondary, fontSize: 12.5, marginTop: 1 },
+  quotedName: { color: theme.primary, fontSize: 12.5, fontWeight: "800", marginBottom: 2 },
+  quotedText: { color: theme.textSecondary, fontSize: 12.5, lineHeight: 17 },
   reactionChip: {
-    color: theme.textPrimary, fontSize: 12, fontWeight: "600",
+    color: theme.textPrimary, fontSize: 12.5, fontWeight: "600",
     backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border,
-    borderRadius: 10, overflow: "hidden", paddingHorizontal: 6, paddingVertical: 1,
+    borderRadius: 12, overflow: "hidden", paddingHorizontal: 8, paddingVertical: 3,
   },
   deletedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   deletedText: { color: theme.textMuted, fontSize: 13, fontStyle: "italic" },
