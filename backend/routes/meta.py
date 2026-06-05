@@ -8,10 +8,15 @@ API_VERSION = "1.0.0"
 # High-level catalog of what the API exposes (handy for clients / dashboards).
 CAPABILITIES = [
     {"group": "auth", "base": "/auth", "summary": "Register, login, profile, API keys, policies"},
-    {"group": "users", "base": "/users", "summary": "Search, public profiles, follow/friends, tips, subscriptions"},
-    {"group": "posts", "base": "/posts", "summary": "Posts, feeds, replies, likes, reposts, bookmarks, polls, hashtags"},
+    {"group": "users", "base": "/users", "summary": "Search, public profiles, follow/friends, pokes, tips, subscriptions (tiers)"},
+    {"group": "posts", "base": "/posts", "summary": "Posts, feeds, replies, likes, reposts, polls, hashtags, per-post privacy, viewers"},
     {"group": "stories", "base": "/stories", "summary": "24h stories, tray, views, replies"},
-    {"group": "messaging", "base": "/conversations", "summary": "DMs & groups, media/voice/gif/tip messages, reactions"},
+    {"group": "messaging", "base": "/conversations", "summary": "DMs & groups, media/voice/gif/tip, reactions, presence/typing, read receipts, E2E keys"},
+    {"group": "money", "base": "/money", "summary": "Peer-to-peer send (security question) & request money"},
+    {"group": "ads", "base": "/ads", "summary": "Sponsored serving, impression/click events, campaigns, prepaid ad balance"},
+    {"group": "oauth", "base": "/oauth", "summary": "Login with Nami (OAuth2 provider), apps, connections, revocation"},
+    {"group": "webhooks", "base": "/webhooks", "summary": "Developer event webhooks (Pro+)"},
+    {"group": "payouts", "base": "/payouts", "summary": "Creator payout balance, schedule, history"},
     {"group": "communities", "base": "/communities", "summary": "Reddit-style forums, threads, Hot/New/Top"},
     {"group": "groups", "base": "/groups", "summary": "Public/private groups, posts, members, roles"},
     {"group": "marketplace", "base": "/listings", "summary": "Listings, location/radius search, trade codes, reviews"},
