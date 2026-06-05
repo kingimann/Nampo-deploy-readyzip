@@ -70,6 +70,13 @@ export default function PostCard({
     router.push({ pathname: "/reels", params: { focus: display.id } });
   };
 
+  // Tapping the avatar or author name opens that user's profile.
+  const openAuthorProfile = (e?: any) => {
+    e?.stopPropagation?.();
+    const name = display.author?.name;
+    if (name) router.push({ pathname: "/user/[name]", params: { name } });
+  };
+
   const onCommentPress = () => {
     if (onComments) onComments(display);
     else onReply(display);
@@ -121,7 +128,12 @@ export default function PostCard({
         </View>
       )}
       <View style={styles.cardTop}>
-        <View style={styles.avatar}>
+        <TouchableOpacity
+          style={styles.avatar}
+          onPress={openAuthorProfile}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          testID={`post-author-avatar-${post.id}`}
+        >
           {display.author.picture ? (
             <Image source={{ uri: display.author.picture }} style={styles.avatarImg} />
           ) : (
@@ -129,11 +141,18 @@ export default function PostCard({
               {(display.author.name?.[0] || "?").toUpperCase()}
             </Text>
           )}
-        </View>
+        </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={styles.author} numberOfLines={1}>{display.author.name}</Text>
-            {display.author.verified && <VerifiedBadge size={14} style={{ marginLeft: -2 }} />}
+            <TouchableOpacity
+              onPress={openAuthorProfile}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              style={{ flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 6 }}
+              testID={`post-author-name-${post.id}`}
+            >
+              <Text style={styles.author} numberOfLines={1}>{display.author.name}</Text>
+              {display.author.verified && <VerifiedBadge size={14} style={{ marginLeft: -2 }} />}
+            </TouchableOpacity>
             <Text style={styles.dot}>·</Text>
             <Text style={styles.time}>{fmtTime(display.created_at)}</Text>
             {!!display.edited_at && (
