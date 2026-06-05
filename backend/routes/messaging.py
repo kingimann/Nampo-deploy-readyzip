@@ -22,10 +22,12 @@ import uuid
 
 from fastapi import APIRouter, Header, HTTPException
 
-from core import _conv_key, _public_user, db, get_current_user
+from core import _conv_key, _public_user, db, get_current_user, is_admin
 from models import (
     ConversationCreate,
     ConversationView,
+    CustomEmoji,
+    CustomEmojiCreate,
     GroupConversationCreate,
     GroupConversationPatch,
     Message,
@@ -34,6 +36,7 @@ from models import (
     MessageReact,
     PublicUser,
 )
+import re as _re
 from routes.notifications import emit_notification
 from services.encryption import encrypt_text, decrypt_text
 from services.link_preview import fetch_link_preview, first_url
@@ -614,4 +617,53 @@ async def delete_conversation_for_me(
             "$set": {f"cleared_at.{user['user_id']}": now},
         },
     )
+    return {"ok": True}
+
+
+# ---------- Custom emojis (uploadable, usable as :shortcode: in chat) ----------
+_EMOJI_RE = _re.compile(r"^[a-z0-9_]{2,32}$")
+
+
+@router.get("/emojis", response_model=List[CustomEmoji])
+async def list_emojis(authorization: Optional[str] = Header(None)):
+    """All custom emojis (global registry, so :shortcode: renders for everyone)."""
+    await get_current_user(authorization)
+    rows = await db.custom_emojis.find({}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(500)
+    return [CustomEmoji(**r) for r in rows]
+
+
+@router.post("/emojis", response_model=CustomEmoji)
+async def create_emoji(body: CustomEmojiCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    code = (body.shortcode or "").strip().lower().replace(":", "")
+    if not _EMOJI_RE.match(code):
+        raise HTTPException(status_code=400, detail="Shortcode must be 2-32 chars: a-z, 0-9, underscore")
+    img = body.image_base64 or ""
+    if not (img.startswith("data:") or img.startswith("http")):
+        raise HTTPException(status_code=400, detail="Image required")
+    if len(img) > 1_500_000:
+        raise HTTPException(status_code=413, detail="Emoji image too large (keep it small)")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "shortcode": code,
+        "image_base64": img,
+        "owner_id": user["user_id"],
+        "created_at": datetime.now(timezone.utc),
+    }
+    try:
+        await db.custom_emojis.insert_one(doc.copy())
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail=f":{code}: already exists")
+    return CustomEmoji(**doc)
+
+
+@router.delete("/emojis/{emoji_id}")
+async def delete_emoji(emoji_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.custom_emojis.find_one({"id": emoji_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Emoji not found")
+    if doc["owner_id"] != user["user_id"] and not is_admin(user):
+        raise HTTPException(status_code=403, detail="Not allowed")
+    await db.custom_emojis.delete_one({"id": emoji_id})
     return {"ok": True}

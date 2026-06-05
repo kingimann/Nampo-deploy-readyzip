@@ -63,6 +63,7 @@ async def init_pool() -> None:
         ("post_views", "uniq_post_views", "((doc ->> 'post_id'), (doc ->> 'user_id'))"),
         ("follows", "uniq_follows", "((doc ->> 'follower_id'), (doc ->> 'followee_id'))"),
         ("group_members", "uniq_group_members", "((doc ->> 'group_id'), (doc ->> 'user_id'))"),
+        ("custom_emojis", "uniq_custom_emoji_code", "((doc ->> 'shortcode'))"),
     ]
     async with _real_db._pool.acquire() as conn:
         for table, idx, cols in _UNIQUE_INDEXES:
