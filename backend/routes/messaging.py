@@ -48,6 +48,10 @@ def _decrypt_msg(doc: dict) -> dict:
         return doc
     out = dict(doc)
     out["text"] = decrypt_text(doc.get("text") or "")
+    out["edit_history"] = [
+        {"text": decrypt_text(h.get("text") or ""), "edited_at": h.get("edited_at")}
+        for h in (doc.get("edit_history") or [])
+    ]
     return out
 
 router = APIRouter()
@@ -523,9 +527,13 @@ async def edit_message(
             link_prev = await fetch_link_preview(url)
         except Exception:
             link_prev = None
+    # Keep prior versions so the edit history can be shown.
+    history = list(m.get("edit_history") or [])
+    history.append({"text": m.get("text", ""), "edited_at": m.get("edited_at") or m.get("created_at")})
+    history = history[-20:]
     await db.messages.update_one(
         {"id": msg_id, "conversation_id": conv_id, "sender_id": user["user_id"]},
-        {"$set": {"text": encrypt_text(new_text[:2000]), "edited_at": now, "link_preview": link_prev}},
+        {"$set": {"text": encrypt_text(new_text[:2000]), "edited_at": now, "link_preview": link_prev, "edit_history": history}},
     )
     m2 = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
     return Message(**_decrypt_msg(m2))

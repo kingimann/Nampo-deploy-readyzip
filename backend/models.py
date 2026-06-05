@@ -271,6 +271,7 @@ class Message(BaseModel):
     deleted: bool = False                    # soft-deleted tombstone
     reactions: dict = {}              # {user_id: emoji}
     reply_to_id: Optional[str] = None        # id of the message this replies to
+    edit_history: list = []                  # [{text, edited_at}] prior versions
     edited_at: Optional[datetime] = None
     read_at: Optional[datetime] = None  # last_read[peer] >= created_at
     created_at: datetime

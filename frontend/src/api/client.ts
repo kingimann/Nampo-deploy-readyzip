@@ -534,6 +534,7 @@ export type Message = {
   deleted?: boolean;
   reactions?: Record<string, string> | null;  // { user_id: emoji }
   reply_to_id?: string | null;
+  edit_history?: { text: string; edited_at?: string | null }[];
   edited_at?: string | null;
   read_at?: string | null;
   created_at: string;

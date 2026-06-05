@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, Linking, Alert, ScrollView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -57,6 +57,17 @@ export default function ChatScreen() {
     () => Object.fromEntries(emojis.map((e) => [e.shortcode, e.image_base64])),
     [emojis],
   );
+  const [historyItems, setHistoryItems] = useState<{ text: string; edited_at?: string | null }[] | null>(null);
+
+  const openHistory = async (m: Message) => {
+    const raw = [...(m.edit_history || []), { text: m.text || "", edited_at: m.edited_at }];
+    const items = await Promise.all(raw.map(async (h) => {
+      let t = h.text || "";
+      if (isE2E(t)) { const d = await tryDecrypt(t, peerKey); t = d ?? "🔒 Encrypted"; }
+      return { text: t, edited_at: h.edited_at };
+    }));
+    setHistoryItems(items);
+  };
   const loadEmojis = useCallback(() => {
     api.listCustomEmojis().then(setEmojis).catch(() => {});
   }, []);
@@ -676,7 +687,11 @@ export default function ChatScreen() {
                     <Text style={styles.metaTime}>
                       {new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </Text>
-                    {!!item.edited_at && !item.deleted && <Text style={styles.metaTime}>· edited</Text>}
+                    {!!item.edited_at && !item.deleted && (
+                      <TouchableOpacity onPress={() => openHistory(item)} testID={`edited-${item.id}`} hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}>
+                        <Text style={[styles.metaTime, styles.editedLink]}>· edited</Text>
+                      </TouchableOpacity>
+                    )}
                     {encrypted && !item.deleted && (
                       <Ionicons name="lock-closed" size={10} color={theme.textMuted} />
                     )}
@@ -939,6 +954,31 @@ export default function ChatScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <Modal visible={!!historyItems} transparent animationType="fade" onRequestClose={() => setHistoryItems(null)}>
+        <TouchableOpacity style={styles.actionBackdrop} activeOpacity={1} onPress={() => setHistoryItems(null)}>
+          <View style={[styles.actionSheet, { paddingBottom: insets.bottom + 16, maxHeight: "70%" }]}>
+            <Text style={styles.historyTitle}>Edit history</Text>
+            <ScrollView>
+              {(historyItems || []).map((h, i, arr) => {
+                const current = i === arr.length - 1;
+                return (
+                  <View key={i} style={styles.historyRow}>
+                    <Text style={styles.historyMeta}>
+                      {current ? "Current" : `Version ${i + 1}`}
+                      {h.edited_at ? ` · ${new Date(h.edited_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+                    </Text>
+                    <Text style={styles.historyText}>{h.text}</Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={[styles.actionRow, { justifyContent: "center", marginTop: 6 }]} onPress={() => setHistoryItems(null)}>
+              <Text style={[styles.actionRowText, { color: theme.textMuted }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -959,6 +999,11 @@ const styles = StyleSheet.create({
   bubbleRow: { flexDirection: "row" },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, paddingHorizontal: 4 },
   metaTime: { color: theme.textMuted, fontSize: 10.5, fontWeight: "500" },
+  editedLink: { textDecorationLine: "underline" },
+  historyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 10, paddingHorizontal: 4 },
+  historyRow: { backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 8 },
+  historyMeta: { color: theme.textMuted, fontSize: 11, fontWeight: "700", marginBottom: 4 },
+  historyText: { color: theme.textPrimary, fontSize: 14, lineHeight: 19 },
   bubbleRowMine: { justifyContent: "flex-end" },
   bubbleRowOther: { justifyContent: "flex-start" },
   bubble: {
