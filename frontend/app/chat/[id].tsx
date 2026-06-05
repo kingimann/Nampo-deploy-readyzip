@@ -29,7 +29,7 @@ import ContactPickerSheet from "@/src/components/ContactPickerSheet";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
-import { ensureKeyPair, getPeerPublicKey, encryptForPeer, isE2E, tryDecrypt } from "@/src/utils/e2e";
+import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, isE2E, tryDecrypt } from "@/src/utils/e2e";
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -42,6 +42,11 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<Message>>(null);
   const [peerKey, setPeerKey] = useState<Uint8Array | null>(null);
+  const [isGroup, setIsGroup] = useState(false);
+  // Group E2E: public key per member id, and whether every other member has one.
+  const [keyByUser, setKeyByUser] = useState<Record<string, Uint8Array>>({});
+  const [groupRecipients, setGroupRecipients] = useState<Uint8Array[]>([]);
+  const groupE2E = isGroup && groupRecipients.length > 0;
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
@@ -88,13 +93,27 @@ export default function ChatScreen() {
     (async () => {
       try {
         await ensureKeyPair();
-        // Resolve peer user id via conversation list (1:1 only).
         const convs = await api.listConversations();
         const conv = convs.find((c) => c.id === id);
         if (conv?.kind === "dm" && conv.other_user && conv.other_user.user_id !== user?.user_id) {
           if (!cancelled) setPeer({ id: conv.other_user.user_id, name: conv.other_user.name || name || "this user" });
           const k = await getPeerPublicKey(conv.other_user.user_id);
           if (!cancelled) setPeerKey(k);
+        } else if (conv?.kind === "group") {
+          if (!cancelled) setIsGroup(true);
+          const others = (conv.members || []).filter((m) => m.user_id !== user?.user_id);
+          const map: Record<string, Uint8Array> = {};
+          const recips: Uint8Array[] = [];
+          for (const m of others) {
+            const k = await getPeerPublicKey(m.user_id);
+            if (k) { map[m.user_id] = k; recips.push(k); }
+          }
+          // Only enable group E2E when EVERY other member has published a key,
+          // otherwise someone couldn't read the message.
+          if (!cancelled) {
+            setKeyByUser(map);
+            setGroupRecipients(recips.length === others.length ? recips : []);
+          }
         }
       } catch {}
     })();
@@ -109,7 +128,11 @@ export default function ChatScreen() {
       let changed = false;
       for (const m of messages) {
         if (m.type === "text" && m.text && isE2E(m.text) && next[m.id] === undefined) {
-          const plain = await tryDecrypt(m.text, peerKey);
+          // Decrypt with the sender's public key (group: per-member; DM: peer).
+          const senderPub = m.sender_id === user?.user_id
+            ? null                                   // self-box is tried automatically
+            : (isGroup ? keyByUser[m.sender_id] || null : peerKey);
+          const plain = await tryDecrypt(m.text, senderPub);
           if (plain !== null) { next[m.id] = plain; changed = true; }
         }
       }
@@ -117,7 +140,7 @@ export default function ChatScreen() {
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, peerKey]);
+  }, [messages, peerKey, keyByUser, isGroup]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -274,9 +297,10 @@ export default function ChatScreen() {
     setEditingMsg(null);
     setText("");
     try {
-      const payload = peerKey ? await encryptForPeer(draft, peerKey) : draft;
+      const payload = groupE2E ? await encryptForRecipients(draft, groupRecipients)
+        : peerKey ? await encryptForPeer(draft, peerKey) : draft;
       const updated = await api.editMessage(id, target.id, payload);
-      if (peerKey) setDecrypted((d) => ({ ...d, [updated.id]: draft }));
+      if (groupE2E || peerKey) setDecrypted((d) => ({ ...d, [updated.id]: draft }));
       setMessages((m) => m.map((x) => x.id === updated.id ? updated : x));
     } catch {
       setEditingMsg(target);
@@ -395,11 +419,12 @@ export default function ChatScreen() {
     setText("");
     setReplyTo(null);
     try {
-      // If we know the peer's E2E public key, encrypt the body before sending.
-      const payload = peerKey ? await encryptForPeer(draft, peerKey) : draft;
+      // Encrypt the body to the recipient(s) before sending when E2E is available.
+      const payload = groupE2E ? await encryptForRecipients(draft, groupRecipients)
+        : peerKey ? await encryptForPeer(draft, peerKey) : draft;
       const msg = await api.sendMessage(id, { type: "text", text: payload, reply_to: replyId });
       // Pre-populate decrypted cache so the bubble shows plaintext immediately.
-      if (peerKey) setDecrypted((d) => ({ ...d, [msg.id]: draft }));
+      if (groupE2E || peerKey) setDecrypted((d) => ({ ...d, [msg.id]: draft }));
       setMessages((m) => [...m, msg]);
     } catch {
       setText(draft);
@@ -555,9 +580,9 @@ export default function ChatScreen() {
         <View style={{ flex: 1, alignItems: "center" }}>
           <Text style={styles.title} numberOfLines={1}>{name || "Chat"}</Text>
           <View style={styles.encRow}>
-            <Ionicons name={peerKey ? "lock-closed" : "lock-closed-outline"} size={10} color={peerKey ? theme.primary : theme.textMuted} />
-            <Text style={[styles.encText, peerKey && { color: theme.primary }]}>
-              {peerKey ? "End-to-end encrypted" : "Encrypted"}
+            <Ionicons name={(peerKey || groupE2E) ? "lock-closed" : "lock-closed-outline"} size={10} color={(peerKey || groupE2E) ? theme.primary : theme.textMuted} />
+            <Text style={[styles.encText, (peerKey || groupE2E) && { color: theme.primary }]}>
+              {(peerKey || groupE2E) ? "End-to-end encrypted" : "Encrypted"}
             </Text>
           </View>
         </View>
