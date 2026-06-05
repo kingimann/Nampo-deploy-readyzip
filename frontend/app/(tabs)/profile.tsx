@@ -21,6 +21,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, signOut, refresh } = useAuth();
   const [stats, setStats] = useState({ places: 0, guides: 0, reviews: 0 });
+  const [social, setSocial] = useState({ followers: 0, following: 0, friends: 0 });
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
@@ -90,6 +91,11 @@ export default function ProfileScreen() {
         places: u.stats?.places || 0,
         guides: u.stats?.guides || 0,
         reviews: u.stats?.reviews || 0,
+      });
+      setSocial({
+        followers: u.stats?.followers || 0,
+        following: u.stats?.following || 0,
+        friends: u.stats?.friends || 0,
       });
     } catch {}
   }, [user]);
@@ -201,6 +207,43 @@ export default function ProfileScreen() {
             <Text style={styles.statLabel}>Reviews</Text>
           </View>
         </View>
+
+        <View style={styles.statsRow}>
+          <TouchableOpacity
+            style={styles.statBox}
+            onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })}
+            testID="stat-followers"
+          >
+            <Text style={styles.statNum}>{social.followers}</Text>
+            <Text style={styles.statLabel}>Followers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.statBox}
+            onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "following" } })}
+            testID="stat-following"
+          >
+            <Text style={styles.statNum}>{social.following}</Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.statBox}
+            onPress={() => router.push("/people")}
+            testID="stat-friends"
+          >
+            <Text style={styles.statNum}>{social.friends}</Text>
+            <Text style={styles.statLabel}>Friends</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={styles.findFriendsBtn}
+          onPress={() => router.push("/people")}
+          activeOpacity={0.85}
+          testID="find-friends-btn"
+        >
+          <Ionicons name="person-add" size={18} color="#fff" />
+          <Text style={styles.findFriendsText}>Find friends</Text>
+        </TouchableOpacity>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About Atlas</Text>
@@ -347,6 +390,14 @@ const styles = StyleSheet.create({
   },
   statNum: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
   statLabel: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
+
+  findFriendsBtn: {
+    marginTop: 12,
+    flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center",
+    paddingVertical: 12, borderRadius: 14,
+    backgroundColor: theme.primary,
+  },
+  findFriendsText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 
   section: {
     marginTop: 16,

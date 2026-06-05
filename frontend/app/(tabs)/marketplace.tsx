@@ -70,7 +70,7 @@ export default function MarketplaceScreen() {
   const contact = async (l: Listing) => {
     try {
       const conv = await api.contactSeller(l.id);
-      router.push({ pathname: "/chat/[id]", params: { id: conv.id, name: conv.other_user.name } });
+      router.push({ pathname: "/chat/[id]", params: { id: conv.id, name: conv.other_user?.name || "Seller" } });
     } catch {}
   };
 
@@ -79,10 +79,7 @@ export default function MarketplaceScreen() {
       <View style={styles.header}>
         <SidebarMenuButton />
         <Text style={styles.title}>Marketplace</Text>
-        <TouchableOpacity onPress={() => setComposeOpen(true)} style={styles.sellBtn} testID="open-compose">
-          <Ionicons name="add" size={16} color="#fff" />
-          <Text style={styles.sellBtnText}>Sell</Text>
-        </TouchableOpacity>
+        <View style={{ width: 36 }} />
       </View>
       <View style={styles.searchPill}>
         <Ionicons name="search" size={16} color={theme.textSecondary} />
@@ -125,7 +122,7 @@ export default function MarketplaceScreen() {
           keyExtractor={(i) => i.id}
           numColumns={2}
           columnWrapperStyle={{ gap: 10 }}
-          contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 100, gap: 10 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100, gap: 10 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
           }
@@ -138,7 +135,7 @@ export default function MarketplaceScreen() {
             <View style={styles.empty}>
               <Ionicons name="storefront-outline" size={40} color={theme.textMuted} />
               <Text style={styles.emptyTitle}>No listings yet</Text>
-              <Text style={styles.emptySub}>Tap “Sell” to post the first one.</Text>
+              <Text style={styles.emptySub}>Tap the + button to post the first one.</Text>
             </View>
           }
           renderItem={({ item }) => {
@@ -259,14 +256,9 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 14, paddingTop: 12, paddingBottom: 8, gap: 10,
+    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, gap: 10,
   },
-  title: { color: theme.textPrimary, fontSize: 24, fontWeight: "800", letterSpacing: -0.4, flex: 1 },
-  sellBtn: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: theme.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
-  },
-  sellBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  title: { color: theme.textPrimary, fontSize: 24, fontWeight: "800", letterSpacing: -0.4, flex: 1, textAlign: "center" },
   sectionLabel: {
     color: theme.textMuted, fontSize: 11, fontWeight: "800",
     textTransform: "uppercase", letterSpacing: 0.6,
@@ -283,7 +275,7 @@ const styles = StyleSheet.create({
   tileTitle: { color: theme.textSecondary, fontSize: 13, lineHeight: 17 },
   tileLoc: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   searchPill: {
-    marginHorizontal: 20, marginVertical: 8,
+    marginHorizontal: 16, marginVertical: 8,
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: theme.surface, borderRadius: 14,
     paddingHorizontal: 14, paddingVertical: 10,
@@ -293,7 +285,7 @@ const styles = StyleSheet.create({
     flex: 1, color: theme.textPrimary, fontSize: 14,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
   },
-  chipRow: { gap: 8, paddingHorizontal: 20, paddingVertical: 4 },
+  chipRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 4 },
   chip: {
     flexShrink: 0, height: 36, paddingHorizontal: 14,
     borderRadius: 18, backgroundColor: theme.surface,
@@ -306,31 +298,6 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 80, alignItems: "center", gap: 10 },
   emptyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "700" },
   emptySub: { color: theme.textSecondary, fontSize: 13 },
-  card: {
-    backgroundColor: theme.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: theme.border,
-    padding: 14, gap: 10,
-  },
-  cardTop: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  cardTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "700" },
-  cardPrice: { color: theme.primary, fontSize: 15, fontWeight: "800", marginTop: 4 },
-  cardDesc: { color: theme.textSecondary, fontSize: 13, lineHeight: 18 },
-  cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
-  sellerRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  sellerAvatar: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: theme.primary,
-    alignItems: "center", justifyContent: "center",
-  },
-  sellerInit: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  sellerName: { color: theme.textSecondary, fontSize: 12 },
-  contactBtn: {
-    flexDirection: "row", gap: 6, alignItems: "center",
-    backgroundColor: theme.primary,
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 10,
-  },
-  contactText: { color: "#fff", fontWeight: "700", fontSize: 12 },
   fab: {
     position: "absolute", right: 20,
     width: 60, height: 60, borderRadius: 30,

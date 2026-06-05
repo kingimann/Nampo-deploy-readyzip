@@ -16,6 +16,7 @@ import {
   Platform,
   Linking,
   KeyboardAvoidingView,
+  Keyboard,
   Share,
   Image as RNImage,
 } from "react-native";
@@ -298,6 +299,7 @@ export default function MapScreen() {
   const onPickResult = async (r: GeocodeFeature) => {
     setQuery(r.name);
     setShowResults(false);
+    Keyboard.dismiss();
     mapRef.current?.flyTo(r.longitude, r.latitude, 14);
     setSelected({
       name: r.name,
@@ -319,6 +321,7 @@ export default function MapScreen() {
   const onPickRecent = (r: Recent) => {
     setQuery(r.name);
     setShowResults(false);
+    Keyboard.dismiss();
     mapRef.current?.flyTo(r.longitude, r.latitude, 14);
     setSelected({
       name: r.name,
