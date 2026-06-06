@@ -10,7 +10,7 @@ import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-rou
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeOnboarding, stripeAddDebitCard, stripeAddBankAccount, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
+import { stripeAddDebitCard, stripeAddBankAccount, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
 import { useConfirm } from "@/src/context/ConfirmContext";
 
 function fmtWhen(iso: string) {
@@ -201,19 +201,11 @@ export default function WalletScreen() {
     return null;
   }, []);
 
-  const setupPayouts = async () => {
-    setConnecting(true);
-    try {
-      await stripeOnboarding();
-      await load();
-      await pollPayoutStatus();
-    } catch (e: any) {
-      Alert.alert("Couldn't start payout setup", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
-    } finally { setConnecting(false); }
-  };
+  // Identity verification is now a fully in-app form (no Stripe screen).
+  const setupPayouts = async () => { router.push("/verify-payouts"); };
 
   const addPayoutMethod = async () => {
-    if (!payout?.account_id) { await setupPayouts(); return; }
+    if (!payout?.account_id) { router.push("/verify-payouts"); return; }
     setConnecting(true);
     try {
       const added = await stripeAddDebitCard(payout.account_id, payout.account_currency);

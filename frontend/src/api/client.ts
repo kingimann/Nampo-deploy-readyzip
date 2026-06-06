@@ -231,6 +231,16 @@ export const api = {
     request<{ ok: boolean; has_debit_card: boolean; brand?: string; last4?: string }>("/payments/payouts/debit-card", { method: "POST", body: JSON.stringify({ token }) }),
   addBankAccount: (token: string) =>
     request<{ ok: boolean; has_bank_account: boolean; bank?: string; last4?: string }>("/payments/payouts/bank-account", { method: "POST", body: JSON.stringify({ token }) }),
+  getPayoutRequirements: () =>
+    request<{
+      country?: string; default_currency?: string; payouts_enabled: boolean; details_submitted: boolean;
+      currently_due: string[]; needs_document: boolean; tos_accepted: boolean;
+      prefill: { first_name?: string; last_name?: string; email?: string; phone?: string; line1?: string; line2?: string; city?: string; state?: string; postal_code?: string; dob_day?: number; dob_month?: number; dob_year?: number };
+    }>("/payments/payouts/requirements"),
+  submitVerification: (body: Record<string, any>) =>
+    request<{ ok: boolean; payouts_enabled: boolean; details_submitted: boolean; currently_due: string[]; needs_document: boolean }>("/payments/payouts/verification", { method: "POST", body: JSON.stringify(body) }),
+  uploadVerificationDocument: (front: string, back?: string) =>
+    request<{ ok: boolean; payouts_enabled: boolean; needs_document: boolean }>("/payments/payouts/verification-document", { method: "POST", body: JSON.stringify({ front, back }) }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),

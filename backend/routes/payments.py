@@ -461,6 +461,150 @@ async def add_bank_account(body: DebitCardBody, authorization: Optional[str] = H
     return {"ok": True, "has_bank_account": True, "bank": ext.get("bank_name"), "last4": ext.get("last4")}
 
 
+# ── Inline identity verification (KYC collected in-app, submitted via API) ─────
+def _doc_needed(reqs: dict) -> bool:
+    pool = list(reqs.get("currently_due") or []) + list(reqs.get("eventually_due") or []) + list(reqs.get("past_due") or [])
+    return any("verification.document" in r for r in pool)
+
+
+@router.get("/payments/payouts/requirements")
+async def payout_requirements(authorization: Optional[str] = Header(None)):
+    """What Stripe still needs to enable payouts, plus any details already on file
+    so the in-app verification form can prefill. No Stripe-hosted screen involved."""
+    _require_stripe()
+    user = await get_current_user(authorization)
+    acct_id = await _ensure_connect_account(user)
+    acct = stripe.Account.retrieve(acct_id)
+    reqs = acct.get("requirements") or {}
+    ind = acct.get("individual") or {}
+    addr = ind.get("address") or {}
+    dob = ind.get("dob") or {}
+    due = list(reqs.get("currently_due") or []) + list(reqs.get("past_due") or [])
+    return {
+        "country": acct.get("country"),
+        "default_currency": (acct.get("default_currency") or "").lower(),
+        "payouts_enabled": bool(acct.get("payouts_enabled")),
+        "details_submitted": bool(acct.get("details_submitted")),
+        "currently_due": due,
+        "needs_document": _doc_needed(reqs),
+        "tos_accepted": bool((acct.get("tos_acceptance") or {}).get("date")),
+        "prefill": {
+            "first_name": ind.get("first_name"), "last_name": ind.get("last_name"),
+            "email": ind.get("email") or user.get("email"), "phone": ind.get("phone"),
+            "line1": addr.get("line1"), "line2": addr.get("line2"), "city": addr.get("city"),
+            "state": addr.get("state"), "postal_code": addr.get("postal_code"),
+            "dob_day": dob.get("day"), "dob_month": dob.get("month"), "dob_year": dob.get("year"),
+        },
+    }
+
+
+class VerificationBody(BaseModel):
+    first_name: str
+    last_name: str
+    dob_day: int
+    dob_month: int
+    dob_year: int
+    line1: str
+    line2: Optional[str] = None
+    city: str
+    state: Optional[str] = None
+    postal_code: str
+    country: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    id_number: Optional[str] = None     # full SSN/SIN when required
+    ssn_last_4: Optional[str] = None    # US: last 4 only
+    accept_tos: bool = False
+
+
+@router.post("/payments/payouts/verification")
+async def submit_verification(body: VerificationBody, request: Request, authorization: Optional[str] = Header(None)):
+    """Submit identity details collected by our own in-app form to Stripe via the
+    API. Replaces Stripe's hosted/embedded onboarding — nothing opens externally."""
+    _require_stripe()
+    user = await get_current_user(authorization)
+    acct_id = await _ensure_connect_account(user)
+    acct = stripe.Account.retrieve(acct_id)
+    country = (body.country or acct.get("country") or "US").upper()
+
+    individual: dict = {
+        "first_name": body.first_name.strip(),
+        "last_name": body.last_name.strip(),
+        "dob": {"day": int(body.dob_day), "month": int(body.dob_month), "year": int(body.dob_year)},
+        "address": {"line1": body.line1.strip(), "city": body.city.strip(),
+                    "postal_code": body.postal_code.strip(), "country": country},
+    }
+    if body.line2:
+        individual["address"]["line2"] = body.line2.strip()
+    if body.state:
+        individual["address"]["state"] = body.state.strip()
+    if body.email:
+        individual["email"] = body.email.strip()
+    if body.phone:
+        individual["phone"] = body.phone.strip()
+    if body.id_number:
+        individual["id_number"] = body.id_number.replace(" ", "").replace("-", "")
+    if body.ssn_last_4:
+        individual["ssn_last_4"] = body.ssn_last_4.strip()[-4:]
+
+    update: dict = {
+        "business_type": "individual",
+        "individual": individual,
+        "business_profile": {"product_description": "Creator tips, subscriptions and payouts on Nami", "mcc": "5815"},
+    }
+    if body.accept_tos:
+        ip = (request.client.host if request.client else None) or "0.0.0.0"
+        update["tos_acceptance"] = {"date": int(datetime.now(timezone.utc).timestamp()), "ip": ip}
+    try:
+        acct = stripe.Account.update(acct_id, **update)
+    except Exception as e:
+        msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
+        raise HTTPException(status_code=400, detail={"code": "verification_failed", "message": f"Couldn't submit your details: {msg}"})
+    reqs = acct.get("requirements") or {}
+    return {
+        "ok": True,
+        "payouts_enabled": bool(acct.get("payouts_enabled")),
+        "details_submitted": bool(acct.get("details_submitted")),
+        "currently_due": list(reqs.get("currently_due") or []) + list(reqs.get("past_due") or []),
+        "needs_document": _doc_needed(reqs),
+    }
+
+
+class DocBody(BaseModel):
+    front: str            # base64 (data URL or raw)
+    back: Optional[str] = None
+
+
+@router.post("/payments/payouts/verification-document")
+async def upload_verification_document(body: DocBody, authorization: Optional[str] = Header(None)):
+    """Upload an ID photo (captured in-app) to Stripe and attach it for verification."""
+    _require_stripe()
+    import base64
+    import io
+    user = await get_current_user(authorization)
+    acct_id = await _ensure_connect_account(user)
+
+    def _upload(b64: str) -> str:
+        raw = b64.split(",", 1)[1] if "," in b64 else b64
+        data = base64.b64decode(raw)
+        bio = io.BytesIO(data)
+        bio.name = "id.jpg"
+        f = stripe.File.create(purpose="identity_document", file=bio, stripe_account=acct_id)
+        return f["id"]
+
+    try:
+        doc: dict = {"front": _upload(body.front)}
+        if body.back:
+            doc["back"] = _upload(body.back)
+        stripe.Account.update(acct_id, individual={"verification": {"document": doc}})
+    except Exception as e:
+        msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
+        raise HTTPException(status_code=400, detail={"code": "document_failed", "message": f"Couldn't upload that photo: {msg}"})
+    acct = stripe.Account.retrieve(acct_id)
+    reqs = acct.get("requirements") or {}
+    return {"ok": True, "payouts_enabled": bool(acct.get("payouts_enabled")), "needs_document": _doc_needed(reqs)}
+
+
 @router.post("/payments/checkout")
 async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = Header(None)):
     """Create a Stripe Checkout session and return a hosted checkout URL.
