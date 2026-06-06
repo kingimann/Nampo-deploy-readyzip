@@ -4,6 +4,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel
 from db import DuplicateKeyError
 
 from core import db, get_current_user, is_mod, is_admin
@@ -16,6 +17,8 @@ from services.link_preview import fetch_link_preview, first_url
 import re
 import math
 import asyncio
+import httpx
+from urllib.parse import urlparse
 from datetime import timedelta
 
 router = APIRouter()
@@ -83,6 +86,82 @@ def _trusted_video_url(url: str) -> bool:
         return True
     path = u.split("?", 1)[0]
     return path.endswith((".mp4", ".webm", ".mov", ".m4v", ".ogg"))
+
+
+_VIDEO_EXT_RE = re.compile(r"\.(mp4|webm|mov|m4v|ogg)(\?|$)", re.I)
+
+
+async def _resolve_video_url(url: str) -> Optional[dict]:
+    """Turn a video page link (imgur, streamable, or any page with an og:video)
+    into a direct, playable video URL so it can be embedded like an upload."""
+    u = (url or "").strip()
+    if not u.lower().startswith(("http://", "https://")):
+        return None
+    if _VIDEO_EXT_RE.search(u.split("?")[0]) or "cloudinary.com" in u.lower():
+        return {"url": u}
+    try:
+        parsed = urlparse(u)
+    except Exception:
+        return None
+    host, path = parsed.netloc.lower(), parsed.path
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; NamiBot/1.0)"}
+    async with httpx.AsyncClient(timeout=10, follow_redirects=True, headers=headers) as client:
+        if "imgur.com" in host:
+            m = re.search(r"/([a-zA-Z0-9]{5,8})(?:\.|/|$)", path)
+            if m:
+                cand = f"https://i.imgur.com/{m.group(1)}.mp4"
+                try:
+                    r = await client.head(cand)
+                    if r.status_code == 200 and "video" in r.headers.get("content-type", ""):
+                        return {"url": cand}
+                except Exception:
+                    pass
+        if "streamable.com" in host:
+            m = re.search(r"/([a-zA-Z0-9]+)", path)
+            if m:
+                try:
+                    r = await client.get(f"https://api.streamable.com/videos/{m.group(1)}")
+                    if r.status_code == 200:
+                        j = r.json()
+                        murl = (((j.get("files") or {}).get("mp4") or {}).get("url"))
+                        if murl:
+                            murl = ("https:" + murl) if murl.startswith("//") else murl
+                            thumb = j.get("thumbnail_url")
+                            thumb = ("https:" + thumb) if (thumb and thumb.startswith("//")) else thumb
+                            return {"url": murl, "thumbnail": thumb}
+                except Exception:
+                    pass
+        # Generic: look for an og:video meta tag or a <source>.mp4 on the page.
+        try:
+            r = await client.get(u)
+            html = (r.text or "")[:200000]
+            for pat in (
+                r'(?:property|name)=["\']og:video(?::secure_url|:url)?["\']\s+content=["\']([^"\']+)["\']',
+                r'<source[^>]+src=["\']([^"\']+\.(?:mp4|webm)[^"\']*)["\']',
+            ):
+                mm = re.search(pat, html, re.I)
+                if mm:
+                    vurl = mm.group(1)
+                    vurl = ("https:" + vurl) if vurl.startswith("//") else vurl
+                    if _VIDEO_EXT_RE.search(vurl.split("?")[0]):
+                        return {"url": vurl}
+        except Exception:
+            pass
+    return None
+
+
+class ResolveVideo(BaseModel):
+    url: str
+
+
+@router.post("/media/resolve-video")
+async def resolve_video(body: ResolveVideo, authorization: Optional[str] = Header(None)):
+    """Resolve an imgur/streamable/page link to a direct, playable video URL."""
+    await get_current_user(authorization)
+    res = await _resolve_video_url(body.url)
+    if not res or not res.get("url"):
+        raise HTTPException(status_code=400, detail="Couldn't find a playable video at that link. Try the direct .mp4 link.")
+    return res
 
 
 def _normalize_media(items: Optional[list]) -> list:
