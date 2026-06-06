@@ -657,7 +657,8 @@ async def explore_feed(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     # Pull a broad recent candidate set, then rank it for this viewer.
     cursor = db.posts.find(
-        {"parent_id": None, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]}},
+        {"parent_id": None, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]},
+         "repost_is_video": {"$ne": True}},  # reposted reels live in the Reels feed
         {"_id": 0},
     ).sort("created_at", -1).limit(300)
     docs = await cursor.to_list(300)
@@ -676,7 +677,8 @@ async def home_feed(authorization: Optional[str] = Header(None)):
     ids = [f["followee_id"] for f in followees] + [user["user_id"]]
     cursor = (
         db.posts.find(
-            {"parent_id": None, "user_id": {"$in": ids}, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]}},
+            {"parent_id": None, "user_id": {"$in": ids}, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]},
+             "repost_is_video": {"$ne": True}},  # reposted reels live in the Reels feed
             {"_id": 0},
         ).sort("created_at", -1).limit(200)
     )
@@ -838,6 +840,9 @@ async def toggle_repost(post_id: str, authorization: Optional[str] = Header(None
             "text": "",
             "parent_id": None,
             "repost_of": post_id,
+            # Reposts of reels (video posts) belong in the Reels feed, not the
+            # newsfeed — the feeds filter on this flag.
+            "repost_is_video": _has_playable_video(orig),
             "place_name": None, "place_longitude": None, "place_latitude": None,
             "likes_count": 0, "replies_count": 0, "reposts_count": 0,
             "created_at": datetime.now(timezone.utc),
@@ -1216,7 +1221,8 @@ async def reels_feed(
     uid = user["user_id"]
     cursor = (
         db.posts.find(
-            {"parent_id": None, "media": {"$elemMatch": {"type": "video"}}},
+            {"parent_id": None,
+             "$or": [{"media": {"$elemMatch": {"type": "video"}}}, {"repost_is_video": True}]},
             {"_id": 0},
         ).sort("created_at", -1).limit(250)
     )
@@ -1229,6 +1235,11 @@ async def reels_feed(
         seen.add(d["id"])
         if _has_playable_video(d):
             playable.append(d)
+        elif d.get("repost_of"):
+            # A repost of a reel: include it if the original video is playable.
+            orig = await db.posts.find_one({"id": d["repost_of"]}, {"_id": 0})
+            if orig and _has_playable_video(orig):
+                playable.append(d)
     ranked = await _rank_docs(playable, uid, 60)
     if focus:
         ranked.sort(key=lambda d: 0 if d["id"] == focus else 1)
