@@ -750,18 +750,20 @@ async def admin_set_fees(body: FeesBody, authorization: Optional[str] = Header(N
 @router.get("/admin/revenue")
 async def admin_revenue(authorization: Optional[str] = Header(None)):
     """Platform revenue from in-app transaction fees (the flat per-payment fee).
-    Note: the percentage cut on tips/subscriptions is collected by Stripe and
-    shows in your Stripe Dashboard."""
+    Computed from the actual settled payments (source of truth), so it always
+    reflects every completed transfer. Note: the percentage cut on
+    tips/subscriptions is collected by Stripe and shows in your Stripe Dashboard."""
     me = await get_current_user(authorization)
     _admin_only(me)
-    rows = await db.platform_revenue.find({}, {"_id": 0}).sort("created_at", -1).limit(5000).to_list(5000)
-    total = round(sum(float(r.get("amount", 0) or 0) for r in rows), 2)
-    by_source: dict = {}
-    for r in rows:
-        s = r.get("source", "other")
-        by_source[s] = round(by_source.get(s, 0) + float(r.get("amount", 0) or 0), 2)
+    transfers = await db.money_transfers.find({"status": "accepted"}, {"_id": 0, "fee": 1}).limit(20000).to_list(20000)
+    reqs = await db.money_requests.find({"status": "paid"}, {"_id": 0, "fee": 1}).limit(20000).to_list(20000)
+    transfer_fees = round(sum(float(t.get("fee", 0) or 0) for t in transfers), 2)
+    request_fees = round(sum(float(r.get("fee", 0) or 0) for r in reqs), 2)
+    total = round(transfer_fees + request_fees, 2)
     return {
-        "total": total, "count": len(rows), "by_source": by_source,
+        "total": total,
+        "count": len(transfers) + len(reqs),
+        "by_source": {"transfer_fee": transfer_fees, "request_fee": request_fees},
         "platform_fee_percent": await platform_fee_percent(),
         "transaction_fee_cents": await transaction_fee_cents(),
     }

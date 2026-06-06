@@ -464,7 +464,7 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
     await _record_platform_fee(fee, "transfer_fee", me["user_id"], rid)
     await db.money_requests.update_one(
-        {"id": rid}, {"$set": {"status": "paid", "resolved_at": datetime.now(timezone.utc)}}
+        {"id": rid}, {"$set": {"status": "paid", "fee": fee, "resolved_at": datetime.now(timezone.utc)}}
     )
     await _notify_money(req["from_user_id"], me["user_id"], "money_request_paid",
                         f"paid your ${amount:.2f} request")
