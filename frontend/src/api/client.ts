@@ -151,6 +151,9 @@ export const api = {
     request<{ test_payments: boolean }>("/admin/test-payments", { method: "POST", body: JSON.stringify({ enabled }) }),
   adminResetMoney: () => request<{ ok: boolean }>("/admin/reset/money", { method: "POST" }),
   adminResetAnalytics: () => request<{ ok: boolean }>("/admin/reset/analytics", { method: "POST" }),
+  adminGetFees: () => request<{ platform_fee_percent: number; creator_share_percent: number; transaction_fee_cents: number }>("/admin/fees"),
+  adminSetFees: (body: { platform_fee_percent?: number; transaction_fee_cents?: number }) =>
+    request<{ platform_fee_percent: number; creator_share_percent: number; transaction_fee_cents: number }>("/admin/fees", { method: "POST", body: JSON.stringify(body) }),
   tipUser: (userId: string, amount: number, message?: string) =>
     request<{ id: string }>(`/users/${userId}/tip`, { method: "POST", body: JSON.stringify({ amount, message: message || "" }) }),
   getSubscriptionTiers: () => request<{ tiers: SubTier[] }>("/subscription-tiers"),
@@ -180,7 +183,7 @@ export const api = {
   recordProfileView: (userId: string) =>
     request<{ ok: boolean; views?: number }>(`/users/${userId}/view`, { method: "POST" }),
   // Payments (Stripe Connect) — inert until the server has STRIPE_SECRET_KEY set.
-  getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number }>("/payments/config"),
+  getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number; transaction_fee_cents?: number }>("/payments/config"),
   setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
   getPayoutStatus: () =>
     request<{

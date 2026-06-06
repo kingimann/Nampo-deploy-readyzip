@@ -280,7 +280,13 @@ preview, and `read`. (Developer webhooks receive the same events — see Webhook
 configured and no admin has forced test mode. The app only simulates payments when Stripe
 isn't configured (down / not set up) or an admin turns test mode on.
 
+**Fees & revenue split:** the platform keeps an admin-set percent of each subscription/tip
+(e.g. `platform_fee_percent=30` → a 70/30 split) plus a flat per-payment `transaction_fee_cents`
+(default 10¢) charged to the payer on tips and peer-to-peer sends. `GET /payments/config`
+returns both values.
+
 **Admin (payments):** `GET/POST /admin/test-payments` (toggle simulated mode),
+`GET/POST /admin/fees` (`{platform_fee_percent, transaction_fee_cents}` — revenue split + flat fee),
 `POST /admin/reset/money` (wipe earnings/tips/subs/payouts/transfers/requests/wallet top-ups
 and zero ad + wallet balances), `POST /admin/reset/analytics`.
 

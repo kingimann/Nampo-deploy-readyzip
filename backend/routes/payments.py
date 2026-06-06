@@ -54,6 +54,32 @@ async def test_payments_on() -> bool:
     return bool(doc and doc.get("value"))
 
 
+# Default flat per-transaction fee (cents) the platform keeps when a user pays.
+DEFAULT_TRANSACTION_FEE_CENTS = 10
+
+
+async def _setting(key: str, default):
+    doc = await db.app_settings.find_one({"key": key}, {"_id": 0, "value": 1})
+    return doc.get("value") if doc and doc.get("value") is not None else default
+
+
+async def platform_fee_percent() -> float:
+    """The platform's cut of creator payments (subscriptions/tips), e.g. 30 means
+    a 70/30 split. Admin-controlled; falls back to the PLATFORM_FEE_PERCENT env."""
+    try:
+        return max(0.0, min(100.0, float(await _setting("platform_fee_percent", PLATFORM_FEE_PERCENT))))
+    except Exception:
+        return PLATFORM_FEE_PERCENT
+
+
+async def transaction_fee_cents() -> int:
+    """Flat fee (in cents) charged when a user pays. Admin-controlled."""
+    try:
+        return max(0, int(round(float(await _setting("transaction_fee_cents", DEFAULT_TRANSACTION_FEE_CENTS)))))
+    except Exception:
+        return DEFAULT_TRANSACTION_FEE_CENTS
+
+
 async def payments_live() -> bool:
     """Real Stripe payments are in effect: Stripe is configured AND an admin
     hasn't forced test mode."""
@@ -107,7 +133,8 @@ async def payments_config():
     live = configured and not test_override
     return {
         "enabled": live,
-        "platform_fee_percent": PLATFORM_FEE_PERCENT,
+        "platform_fee_percent": await platform_fee_percent(),
+        "transaction_fee_cents": await transaction_fee_cents(),
         "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
         # Why payments may be simulated, so the admin can tell the difference
         # between "Stripe isn't configured/down" and "an admin forced test mode".
@@ -277,7 +304,7 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
                 "quantity": 1,
             }],
             subscription_data={
-                "application_fee_percent": PLATFORM_FEE_PERCENT,
+                "application_fee_percent": await platform_fee_percent(),
                 "transfer_data": {"destination": dest},
             },
             **_ui_kwargs(bool(body.embedded), "/wallet"),
@@ -299,7 +326,10 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
             if body.note:
                 meta["note"] = body.note[:200]
     gross_cents = int(round(net * 100))
-    fee_cents = int(round(gross_cents * PLATFORM_FEE_PERCENT / 100.0))
+    # Platform's cut: the admin-set percent plus the flat per-transaction fee,
+    # capped just under the gross so the creator still receives something.
+    fee_cents = int(round(gross_cents * (await platform_fee_percent()) / 100.0)) + (await transaction_fee_cents())
+    fee_cents = max(0, min(fee_cents, gross_cents - 1))
     session = stripe.checkout.Session.create(
         mode="payment",
         line_items=[{
@@ -606,17 +636,54 @@ async def admin_get_test_payments(authorization: Optional[str] = Header(None)):
     return {"test_payments": await test_payments_on(), "stripe_configured": stripe_enabled()}
 
 
+async def _set_setting(key: str, value):
+    existing = await db.app_settings.find_one({"key": key}, {"_id": 0, "key": 1})
+    if existing:
+        await db.app_settings.update_one({"key": key}, {"$set": {"value": value}})
+    else:
+        await db.app_settings.insert_one({"key": key, "value": value})
+
+
 @router.post("/admin/test-payments")
 async def admin_set_test_payments(body: TestPaymentsBody, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     _admin_only(me)
     val = bool(body.enabled)
-    existing = await db.app_settings.find_one({"key": "test_payments"}, {"_id": 0, "key": 1})
-    if existing:
-        await db.app_settings.update_one({"key": "test_payments"}, {"$set": {"value": val}})
-    else:
-        await db.app_settings.insert_one({"key": "test_payments", "value": val})
+    await _set_setting("test_payments", val)
     return {"test_payments": val}
+
+
+class FeesBody(BaseModel):
+    platform_fee_percent: Optional[float] = None   # platform's cut of subscriptions/tips
+    transaction_fee_cents: Optional[int] = None    # flat per-payment fee
+
+
+@router.get("/admin/fees")
+async def admin_get_fees(authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    pct = await platform_fee_percent()
+    return {
+        "platform_fee_percent": pct,
+        "creator_share_percent": round(100 - pct, 2),
+        "transaction_fee_cents": await transaction_fee_cents(),
+    }
+
+
+@router.post("/admin/fees")
+async def admin_set_fees(body: FeesBody, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    if body.platform_fee_percent is not None:
+        await _set_setting("platform_fee_percent", max(0.0, min(100.0, float(body.platform_fee_percent))))
+    if body.transaction_fee_cents is not None:
+        await _set_setting("transaction_fee_cents", max(0, int(round(float(body.transaction_fee_cents)))))
+    pct = await platform_fee_percent()
+    return {
+        "platform_fee_percent": pct,
+        "creator_share_percent": round(100 - pct, 2),
+        "transaction_fee_cents": await transaction_fee_cents(),
+    }
 
 
 @router.post("/admin/reset/money")
