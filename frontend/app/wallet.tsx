@@ -10,7 +10,7 @@ import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-rou
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeOnboarding, stripeManagePayouts, stripeAddDebitCard, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
+import { stripeOnboarding, stripeAddDebitCard, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
@@ -94,6 +94,7 @@ export default function WalletScreen() {
   const [cashoutOpen, setCashoutOpen] = useState(false);
   const [cashoutAmt, setCashoutAmt] = useState("");
   const [cashingOut, setCashingOut] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -202,17 +203,6 @@ export default function WalletScreen() {
       await pollPayoutStatus();
     } catch (e: any) {
       Alert.alert("Couldn't start payout setup", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
-    } finally { setConnecting(false); }
-  };
-
-  const managePayouts = async () => {
-    setConnecting(true);
-    try {
-      await stripeManagePayouts();
-      await load();
-      await pollPayoutStatus(1);
-    } catch (e: any) {
-      Alert.alert("Couldn't open payouts", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setConnecting(false); }
   };
 
@@ -505,7 +495,7 @@ export default function WalletScreen() {
                   Stripe status: {payout?.disabled_reason || "—"}{transfers ? ` · transfers: ${transfers}` : ""}{platformNotReady ? " · platform: setup needed" : ""}
                 </Text>
               ) : null}
-              <TouchableOpacity style={styles.payoutBtn} onPress={payout?.payouts_enabled ? managePayouts : setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
+              <TouchableOpacity style={styles.payoutBtn} onPress={payout?.payouts_enabled ? () => setManageOpen(true) : setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
                 {connecting ? <ActivityIndicator color="#fff" size="small" /> : (
                   <>
                     <Ionicons name="card-outline" size={16} color="#fff" />
@@ -828,6 +818,74 @@ export default function WalletScreen() {
         </View>
       </Modal>
 
+      {/* ── Manage payouts (inline) ──────────────────────────────────── */}
+      <Modal visible={manageOpen} transparent animationType="fade" onRequestClose={() => setManageOpen(false)}>
+        <View style={styles.detailBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setManageOpen(false)} />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Manage payouts</Text>
+            <Text style={styles.sheetSub}>Cash out instantly to your debit card. Everything stays in the app.</Text>
+
+            {/* Payout method */}
+            <Text style={styles.mpLabel}>Payout method</Text>
+            <View style={styles.mpRow}>
+              <Ionicons name="card" size={20} color={theme.primary} />
+              <View style={{ flex: 1 }}>
+                {payout?.debit_card?.last4 ? (
+                  <>
+                    <Text style={styles.mpRowTitle}>{(payout.debit_card.brand || "Debit card")} •••• {payout.debit_card.last4}</Text>
+                    <Text style={styles.mpRowSub}>Instant cash-out destination</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.mpRowTitle}>No debit card yet</Text>
+                    <Text style={styles.mpRowSub}>Add one to cash out instantly</Text>
+                  </>
+                )}
+              </View>
+              <TouchableOpacity onPress={async () => { setManageOpen(false); await addPayoutMethod(); }} disabled={connecting} testID="mp-change-card">
+                <Text style={styles.mpAction}>{payout?.debit_card?.last4 ? "Change" : "Add card"}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Available balance + cash out */}
+            <Text style={styles.mpLabel}>Available to cash out</Text>
+            <View style={styles.mpRow}>
+              <Ionicons name="wallet" size={20} color={theme.primary} />
+              <Text style={[styles.mpRowTitle, { flex: 1 }]}>${(bal?.balance ?? w?.balance ?? 0).toFixed(2)}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!payout?.has_debit_card) { setManageOpen(false); addPayoutMethod(); return; }
+                  setCashoutAmt(String(bal?.balance ?? w?.balance ?? "")); setManageOpen(false); setCashoutOpen(true);
+                }}
+                disabled={(bal?.balance ?? w?.balance ?? 0) <= 0}
+                testID="mp-cashout"
+              >
+                <Text style={[styles.mpAction, (bal?.balance ?? w?.balance ?? 0) <= 0 ? { color: theme.textMuted } : null]}>Cash out</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Recent payouts */}
+            {(payoutInfo?.history || []).length > 0 ? (
+              <>
+                <Text style={styles.mpLabel}>Recent payouts</Text>
+                {(payoutInfo?.history || []).slice(0, 4).map((p) => (
+                  <View key={p.id} style={styles.mpHistRow}>
+                    <Ionicons name="flash" size={14} color="#0EA5E9" />
+                    <Text style={styles.mpHistText}>${(p.amount ?? 0).toFixed(2)}</Text>
+                    <Text style={styles.mpHistStatus}>{p.status || "paid"}</Text>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            <TouchableOpacity style={styles.detailClose} onPress={() => setManageOpen(false)}>
+              <Text style={styles.detailCloseText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Top up ───────────────────────────────────────────────────── */}
       <Modal visible={topupOpen} transparent animationType="fade" onRequestClose={() => setTopupOpen(false)}>
         <View style={styles.detailBackdrop}>
@@ -927,6 +985,14 @@ const styles = StyleSheet.create({
   sheet: { width: "100%", maxWidth: 420, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 22, alignItems: "center" },
   sheetTitle: { color: theme.textPrimary, fontSize: 19, fontWeight: "900" },
   sheetSub: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },
+  mpLabel: { alignSelf: "flex-start", color: theme.textMuted, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 18, marginBottom: 8 },
+  mpRow: { flexDirection: "row", alignItems: "center", gap: 12, alignSelf: "stretch", backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 },
+  mpRowTitle: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "700" },
+  mpRowSub: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
+  mpAction: { color: theme.primary, fontSize: 14, fontWeight: "800" },
+  mpHistRow: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "stretch", paddingVertical: 7 },
+  mpHistText: { color: theme.textPrimary, fontSize: 13.5, fontWeight: "700", flex: 1 },
+  mpHistStatus: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700", textTransform: "uppercase" },
   amountWrap: { flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "stretch", marginTop: 18, gap: 4 },
   amountDollar: { color: theme.textPrimary, fontSize: 30, fontWeight: "800" },
   amountInput: { color: theme.textPrimary, fontSize: 40, fontWeight: "900", minWidth: 120, textAlign: "center", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },

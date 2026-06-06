@@ -240,7 +240,11 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
     # whether an eligible debit *card* is on file (required for instant cash-out).
     ext_accounts = (acct.get("external_accounts", {}) or {})
     has_external = bool(ext_accounts.get("total_count", 0))
-    has_debit_card = any((e.get("object") == "card") for e in (ext_accounts.get("data") or []))
+    cards = [e for e in (ext_accounts.get("data") or []) if e.get("object") == "card"]
+    banks = [e for e in (ext_accounts.get("data") or []) if e.get("object") == "bank_account"]
+    has_debit_card = bool(cards)
+    debit_card = {"brand": cards[0].get("brand"), "last4": cards[0].get("last4")} if cards else None
+    bank_account = {"bank": banks[0].get("bank_name"), "last4": banks[0].get("last4")} if banks else None
     caps = acct.get("capabilities", {}) or {}
     payouts_enabled = bool(acct.get("payouts_enabled"))
 
@@ -271,6 +275,8 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
         "details_submitted": bool(acct.get("details_submitted")),
         "has_external_account": has_external,
         "has_debit_card": has_debit_card,
+        "debit_card": debit_card,
+        "bank_account": bank_account,
         "account_id": acct_id,
         "account_currency": (acct.get("default_currency") or "").lower(),
         "country": acct.get("country"),
