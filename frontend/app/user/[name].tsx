@@ -14,6 +14,7 @@ import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
 import { withAppleFee } from "@/src/lib/pricing";
+import { stripeCheckout } from "@/src/lib/stripeEmbed";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -78,8 +79,7 @@ export default function UserProfileScreen() {
     // Real payments: route through Stripe Checkout; else fall back to the test sheet.
     if (payEnabled) {
       try {
-        const { url } = await api.createCheckout("subscription", user.user_id, 0, { tier: tier.id });
-        await Linking.openURL(url);
+        await stripeCheckout({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: tier.id } });
         return;
       } catch {}
     }

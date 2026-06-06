@@ -7,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { api, Post, AdCampaign, AdAccount, LinkAd, mediaUri } from "@/src/api/client";
+import { stripeCheckout } from "@/src/lib/stripeEmbed";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -134,11 +135,10 @@ export default function AdvertiseScreen() {
       // post once payment confirms. Falls back to the test flow when off.
       if (payEnabled) {
         try {
-          const { url } = await api.createCheckout("promote", "", chargeAmount, {
-            post_id: picking.id, days: selDays,
-            ...(ppc ? { budget: campaignBudget, cpc: campaignCpc } : {}),
+          await stripeCheckout({
+            kind: "promote", creator_id: "", amount: chargeAmount,
+            extra: { post_id: picking.id, days: selDays, ...(ppc ? { budget: campaignBudget, cpc: campaignCpc } : {}) },
           });
-          await Linking.openURL(url);
           setBusy(false);
           return;
         } catch {}

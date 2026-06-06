@@ -188,11 +188,13 @@ export const api = {
     kind: "tip" | "subscription" | "promote",
     creator_id: string,
     amount: number,
-    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string; tier?: string; budget?: number; cpc?: number },
+    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string; tier?: string; budget?: number; cpc?: number; embedded?: boolean },
   ) =>
-    request<{ url: string; id: string }>("/payments/checkout", {
+    request<{ url?: string; id: string; client_secret?: string; embedded?: boolean }>("/payments/checkout", {
       method: "POST", body: JSON.stringify({ kind, creator_id, amount, ...(extra || {}) }),
     }),
+  payoutAccountSession: () =>
+    request<{ client_secret: string; publishable_key: string }>("/payments/payouts/account-session", { method: "POST" }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),

@@ -10,6 +10,7 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { api, WalletSummary, WalletTxn } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { stripeOnboarding } from "@/src/lib/stripeEmbed";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
@@ -97,8 +98,7 @@ export default function WalletScreen() {
   const setupPayouts = async () => {
     setConnecting(true);
     try {
-      const { url } = await api.setupPayouts();
-      await Linking.openURL(url);
+      await stripeOnboarding();
     } catch (e: any) {
       Alert.alert("Couldn't start payout setup", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setConnecting(false); }
