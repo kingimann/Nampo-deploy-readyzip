@@ -38,6 +38,7 @@ export type MapboxWebViewHandle = {
   resetNorth: () => void;
   setTraffic: (on: boolean) => void;
   set3DBuildings: (on: boolean) => void;
+  setLightPreset: (preset: "dawn" | "day" | "dusk" | "night") => void;
   fitBounds: (coordinates: [number, number][], padding?: number) => void;
 };
 
@@ -111,9 +112,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
 
   // Apply our basemap config + hide business/POI labels (they can look outdated).
   function hidePoiLayers() {
-    // New Standard style: config-driven. Use a dark night preset to match the
-    // app's dark UI, and hide POIs via the config flag (not a layer).
-    try { map.setConfigProperty('basemap', 'lightPreset', 'night'); } catch (e) {}
+    // New Standard style: config-driven. Apply the chosen day/night light preset
+    // (defaults to night to match the dark UI) and hide POIs via the config flag.
+    try { map.setConfigProperty('basemap', 'lightPreset', window.__lightPreset || 'night'); } catch (e) {}
     try { map.setConfigProperty('basemap', 'showPointOfInterestLabels', false); } catch (e) {}
     // Classic styles (streets/satellite/dark/outdoors): hide 'poi' layers.
     try {
@@ -416,6 +417,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
         case 'resetNorth': resetNorth(); break;
         case 'setTraffic': setTraffic(msg.on); break;
         case 'set3DBuildings': set3DBuildings(msg.on); break;
+        case 'setLightPreset': window.__lightPreset = msg.preset; try { map.setConfigProperty('basemap', 'lightPreset', msg.preset); } catch (e) {} break;
         case 'fitBounds': fitBounds(msg.coords, msg.padding); break;
       }
     } catch (e) {}
@@ -461,6 +463,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewHandle, Props>(
       resetNorth: () => send({ cmd: "resetNorth" }),
       setTraffic: (on) => send({ cmd: "setTraffic", on }),
       set3DBuildings: (on) => send({ cmd: "set3DBuildings", on }),
+      setLightPreset: (preset) => send({ cmd: "setLightPreset", preset }),
       fitBounds: (coords, padding) => send({ cmd: "fitBounds", coords, padding }),
     }));
 

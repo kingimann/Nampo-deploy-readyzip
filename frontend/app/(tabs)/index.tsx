@@ -54,6 +54,23 @@ export default function MapScreen() {
 
   const [styleKey, setStyleKey] = useState<MapStyleKey>("standard");
   const [styleSheetOpen, setStyleSheetOpen] = useState(false);
+  const [lightMode, setLightMode] = useState<"auto" | "dawn" | "day" | "dusk" | "night">("auto");
+  const [mapReady, setMapReady] = useState(false);
+
+  const effectivePreset = useCallback((): "dawn" | "day" | "dusk" | "night" => {
+    if (lightMode !== "auto") return lightMode;
+    const h = new Date().getHours();
+    if (h >= 5 && h < 8) return "dawn";
+    if (h >= 8 && h < 17) return "day";
+    if (h >= 17 && h < 20) return "dusk";
+    return "night";
+  }, [lightMode]);
+
+  // Apply the day/night light preset to the Standard basemap once ready / on change.
+  useEffect(() => {
+    if (!mapReady) return;
+    mapRef.current?.setLightPreset(effectivePreset());
+  }, [mapReady, lightMode, effectivePreset]);
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [bearing, setBearing] = useState(0);
@@ -258,6 +275,7 @@ export default function MapScreen() {
     (e: MapboxEvent) => {
       if (e.type === "ready") {
         mapRef.current?.setStyle(MAP_STYLES.find((s) => s.key === styleKey)!.url);
+        setMapReady(true);
         requestLocation();
       } else if (e.type === "moveEnd") {
         setBearing(e.bearing);
@@ -654,6 +672,19 @@ export default function MapScreen() {
                 );
               })}
             </View>
+
+            {styleKey === "standard" && (
+              <>
+                <Text style={[styles.sheetTitle, { marginTop: 20 }]}>Lighting</Text>
+                <View style={styles.lightRow}>
+                  {(["auto", "dawn", "day", "dusk", "night"] as const).map((m) => (
+                    <TouchableOpacity key={m} style={[styles.lightChip, lightMode === m && styles.lightChipOn]} onPress={() => setLightMode(m)} testID={`light-${m}`}>
+                      <Text style={[styles.lightChipText, lightMode === m && { color: "#fff" }]}>{m === "auto" ? "Auto" : m[0].toUpperCase() + m.slice(1)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
 
             <Text style={[styles.sheetTitle, { marginTop: 20 }]}>Overlays</Text>
             <View style={styles.overlayRow}>
@@ -1126,6 +1157,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   styleLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
+  lightRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  lightChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface },
+  lightChipOn: { backgroundColor: theme.primary, borderColor: theme.primary },
+  lightChipText: { color: theme.textSecondary, fontSize: 13, fontWeight: "700" },
   overlayRow: { flexDirection: "row", gap: 12, marginTop: 4 },
   overlayTile: {
     flex: 1, flexDirection: "row", alignItems: "center", gap: 12,
