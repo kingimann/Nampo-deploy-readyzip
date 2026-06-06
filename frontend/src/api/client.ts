@@ -344,6 +344,12 @@ export const api = {
       method: "POST", body: JSON.stringify({ recipient_user_id }),
     }),
   listConversations: () => request<ConversationView[]>("/conversations"),
+  // Voice calls (LiveKit). token → join the room; ring → notify the other side.
+  callToken: (conversationId: string) =>
+    request<{ token: string; url: string; room: string; identity: string }>(
+      `/calls/${conversationId}/token`, { method: "POST" }),
+  ringCall: (conversationId: string) =>
+    request<{ ok: boolean; room: string }>(`/calls/${conversationId}/ring`, { method: "POST" }),
   listMessages: (conv_id: string) =>
     request<Message[]>(`/conversations/${conv_id}/messages`),
   sendMessage: (conv_id: string, body: MessageCreate) =>

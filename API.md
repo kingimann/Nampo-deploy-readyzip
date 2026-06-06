@@ -6,6 +6,41 @@ OpenAPI schema: `https://nampo-backend.onrender.com/openapi.json`
 
 All requests and responses are JSON over HTTPS.
 
+## Contents
+
+**Getting started**
+[Authentication](#authentication) ·
+[Plans & access](#plans--access-paid) ·
+[Webhooks](#webhooks-pro) ·
+[Login with Nami (OAuth2)](#login-with-nami-oauth2) ·
+[Conventions](#conventions) ·
+[Quick examples](#quick-examples)
+
+**Endpoint groups**
+[Meta](#meta-public) ·
+[Auth](#auth) ·
+[Users & social](#users--social) ·
+[Posts & feed](#posts--feed) ·
+[Stories](#stories) ·
+[Messaging](#messaging) ·
+[Calls](#calls-livekit-voice) ·
+[Communities](#communities-forum) ·
+[Groups](#groups-chat-communities) ·
+[Marketplace](#marketplace) ·
+[Places, guides, reviews](#places-guides-reviews) ·
+[ETA sharing](#eta-sharing-live-location) ·
+[Maps extras](#maps-extras-foursquare--transit) ·
+[Notifications](#notifications) ·
+[Payments](#payments-when-stripe-is-configured) ·
+[Money & wallet](#money-peer-to-peer--wallet) ·
+[Ads](#ads--advertising) ·
+[Publisher network](#publisher-network-display-nami-ads-on-your-site--earn) ·
+[Payouts](#payouts) ·
+[OAuth / connected apps](#login-with-nami-oauth2--connected-apps) ·
+[Admin & moderation](#admin--moderation-adminmod-only) ·
+[Developer & E2E keys](#developer-api-keys--e2e-keys) ·
+[Webhooks endpoints](#webhooks-pro-1)
+
 ## Authentication
 
 Every endpoint (except a few public ones) requires a bearer token:
@@ -167,13 +202,16 @@ Developer API key (Settings → Developer API).
 ## Endpoint groups
 
 > The interactive `/docs` page (Swagger UI) is the always-current source of truth and
-> lists **every** route with request/response schemas. Highlights below:
+> lists **every** route with request/response schemas. This reference documents the
+> full surface (~300 endpoints) grouped by area. Path params are `{in_braces}`; query
+> params follow `?`. Unless noted, every endpoint needs `Authorization: Bearer`.
 
 ### Meta (public)
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/version` | API name + version |
-| GET | `/v1/info` | Machine-readable overview & capabilities |
+| GET | `/public/app-config` | Public client config (feature flags, public keys) — no auth |
+| GET | `/version` | API name + version — no auth |
+| GET | `/v1/info` | Machine-readable overview & capabilities (plans, scopes, limits) — no auth |
 
 ### Auth
 | Method | Path | Description |
@@ -198,85 +236,178 @@ Developer API key (Settings → Developer API).
 ### Users & social
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/users/search?q=` | Search users |
-| GET | `/users/{id}/public` | Public profile (+ relationship state) |
+| POST | `/presence/ping` | Heartbeat to mark yourself online (called ~every 50s) |
+| GET | `/users/search?q=&limit=` | Search users by name/username |
+| GET | `/users/by-username/{username}` | Resolve a username → `{user_id, name, username}` |
+| GET | `/users/{id}/public` | Public profile + relationship state (online, badges, `is_following`, `friend_status`, `poked_me`, counts) |
 | POST | `/users/{id}/follow` | Toggle follow |
-| GET | `/users/{id}/followers` · `/following` | Connection lists |
-| POST | `/friends/request/{id}` · `/accept/{id}` · `/reject/{id}` | Friend requests |
-| POST | `/users/{id}/tip` | Tip a creator |
 | POST | `/users/{id}/poke` | Poke (Facebook-style); they can poke back |
+| GET | `/users/{id}/followers` · `/users/{id}/following` | Connection lists |
+| POST | `/friends/request/{id}` | Send a friend request |
+| POST | `/friends/accept/{id}` · `/friends/reject/{id}` | Accept / reject a request |
+| DELETE | `/friends/request/{id}` | Cancel a request you sent |
+| DELETE | `/friends/{id}` | Unfriend |
+| GET | `/friends` · `/friends/requests` | Your friends · incoming/outgoing requests |
+| POST | `/users/{id}/tip` | Tip a creator — `{amount, message?}` |
 | GET | `/subscription-tiers` | The three fixed subscription tiers |
-| POST/DELETE | `/users/{id}/subscribe` | Subscribe (body `{tier}`) / unsubscribe |
-| GET | `/wallet` · `/wallet/export` | Earnings + money sent (incl. `balance`, `currency`) · CSV export |
-| GET | `/wallet/balance` | Spendable wallet balance → `{balance, display, currency, symbol, rate, currencies}` |
-| POST | `/wallet/topup` | Add funds — `{amount, embedded?}`. Stripe Checkout when live, instant in test mode |
-| GET | `/wallet/topups` | Top-up history with `status` (processing \| completed \| failed), amount, time |
-| POST | `/wallet/topup/confirm` | Confirm a checkout on return — `{session_id}`; credits if paid (idempotent) |
-| POST | `/wallet/topup/sync` | Reconcile recent Stripe payments; credits any paid top-up a missed webhook dropped |
-| POST | `/wallet/currency` | Set preferred display currency — `{currency}` |
-| GET | `/currencies` | Supported display currencies + fixed USD conversion rates |
+| POST | `/users/{id}/subscribe` | Subscribe — `{tier}` |
+| DELETE | `/users/{id}/subscribe` | Unsubscribe |
+| GET | `/wallet` | Earnings summary (`balance`, `currency`, recent received/sent) |
+| GET | `/wallet/export` | CSV export of wallet activity |
+
+> Profile fields (`name`, `bio`, `picture`, home/work, `sub_price`, payout prefs,
+> privacy defaults, `currency`, `sms_notifications`) are read via `GET /auth/me` and
+> updated via `PATCH /auth/me` (see **Auth**).
 
 ### Posts & feed
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/posts/feed` | Home feed |
-| POST | `/posts` | Create post (text, media[], poll, parent_id, quote_of, community_id) |
-| GET/DELETE | `/posts/{id}` | Fetch / delete |
-| POST | `/posts/{id}/like\|dislike\|repost\|bookmark\|pin\|promote\|report` | Engagement |
-| POST | `/posts/{id}/view` · GET `/posts/{id}/viewers` | Record a view · who viewed (author only) |
-| PATCH | `/posts/{id}/privacy` | Per-post `likes_disabled` + `comment_policy` (everyone\|followers\|friends\|nobody) |
-| GET | `/posts/{id}/thread` | Threaded replies |
-| GET | `/posts/{id}/replies` | Direct replies |
-| GET | `/hashtags/{tag}` | Posts by tag |
-| GET | `/hashtags/trending` | Most-used hashtags (last 30 days) → `{hashtags:[{tag,count}]}` |
-| GET | `/feed/home` · `/feed/explore` | Following feed · discovery feed |
-| GET | `/posts/user/{id}` | A user's posts |
+| POST | `/posts` | Create — `{text?, media[]?, poll?, parent_id?, quote_of?, place_*?, community_id?, title?, likes_disabled?, comment_policy?}` |
+| GET | `/posts/{id}` | Fetch one (hydrated for the viewer) |
+| PATCH | `/posts/{id}` | Edit — `{text?, media?}` |
+| DELETE | `/posts/{id}` | Delete your post |
+| PATCH | `/posts/{id}/privacy` | Per-post `{likes_disabled?, comment_policy?}` (everyone\|followers\|friends\|nobody) |
+| GET | `/feed/home` · `/feed/explore` · `/feed/reels` | Following feed · ranked discovery · video reels (all skip "not interested") |
+| GET | `/posts/user/{id}` · `/posts/user/{id}/all` | A user's top-level posts · incl. replies |
+| GET | `/posts/{id}/replies` · `/posts/{id}/thread` | Direct replies · full threaded view |
+| POST | `/posts/{id}/react` | React with any emoji — `{emoji}` (toggles/switches) |
+| POST | `/posts/{id}/like` · `/posts/{id}/dislike` | 👍 / 👎 shims over the reaction system |
+| POST | `/posts/{id}/repost` | Toggle repost |
+| POST | `/posts/{id}/bookmark` | Toggle bookmark |
+| GET | `/bookmarks` | Your bookmarked posts |
+| POST | `/posts/{id}/pin` | Pin/unpin (author, or parent author for replies) |
+| POST | `/posts/{id}/promote` | Promote — `{days?, budget?, cpc?}` (boost / pay-per-click) |
+| POST | `/posts/{id}/vote` | Vote on the attached poll — `{option_id}` |
+| POST | `/posts/{id}/view` | Record a unique view (idempotent per user) |
+| GET | `/posts/{id}/viewers` | Who viewed (author/mod/admin only) |
+| GET | `/posts/{id}/analytics` | Detailed performance (author/mod/admin) — impressions, unique viewers, clicks, reactions+breakdown, comments, reposts, quotes, bookmarks, interactions, engagement rate, ad stats |
+| GET | `/posts/{id}/likers` · `/posts/{id}/reposters` | Who reacted / reposted |
+| POST | `/posts/{id}/report` | Report — `{reason}` (one per user) |
+| POST | `/posts/{id}/not-interested` | Hide + feed fewer like it (home/explore skip it) |
+| GET | `/hashtags/{tag}` · `/hashtags/{tag}/count` | Posts by tag · count |
+| GET | `/hashtags/trending` | Most-used tags (last 30 days) → `{hashtags:[{tag,count}]}` |
+| POST | `/media/resolve-video` | Resolve a pasted video link (imgur/streamable/…) to a playable URL |
 
-Posts carry `likes_disabled`, `comment_policy` and a per-viewer `can_comment`.
-New posts default to the author's `default_comment_policy` / `default_likes_disabled`.
+Posts carry `reactions[]`, `reactions_total`, `my_reaction`, `likes_count` (= total
+reactions), `likes_disabled`, `comment_policy`, and a per-viewer `can_comment`. New
+posts default to the author's `default_comment_policy` / `default_likes_disabled`.
 
 ### Stories
-`GET /stories/tray` · `POST /stories` · `POST /stories/{id}/view|reply` · `GET /stories/{id}/viewers`
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/stories` | Post a 24h story — `{media}` (image/video) |
+| GET | `/stories/tray` | Story tray (you + people you follow, unviewed flags) |
+| GET | `/stories/user/{id}` | A user's active stories |
+| POST | `/stories/{id}/view` | Mark viewed |
+| GET | `/stories/{id}/viewers` | Viewer list (author only) |
+| POST | `/stories/{id}/reply` | Reply to a story (opens a DM) |
+| DELETE | `/stories/{id}` | Delete your story |
 
 ### Messaging
-`GET/POST /conversations` · `POST /conversations/groups` · `GET/POST /conversations/{id}/messages`
-(text, media, voice, place, post, gif, file, contact, **tip**) ·
-`PATCH|DELETE /conversations/{id}/messages/{mid}` · `POST .../{mid}/react` ·
-`POST /conversations/{id}/read` (read receipts) ·
-`POST /conversations/{id}/clear` (clear my copy of the history; conversation stays) ·
-`DELETE /conversations/{id}` (hide the conversation from my inbox).
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/conversations` | Your inbox (DMs + groups; DMs from a listing carry `listing_id`/`listing_title`) |
+| POST | `/conversations` | Start/get a DM — `{user_id}` |
+| POST | `/conversations/groups` | Create a group — `{name, member_ids[]}` |
+| PATCH | `/conversations/{id}` | Rename / set avatar (group) |
+| POST | `/conversations/{id}/leave` | Leave a group |
+| GET | `/conversations/{id}/messages` | Message history |
+| POST | `/conversations/{id}/messages` | Send — `{type, text?/media?/place_*?/post_id?/amount?…}` (text, media, voice, place, post, gif, file, contact, **tip**) |
+| PATCH | `/conversations/{id}/messages/{mid}` | Edit a message |
+| DELETE | `/conversations/{id}/messages/{mid}` | Delete (tombstone) |
+| POST | `/conversations/{id}/messages/{mid}/react` | React to a message — `{emoji}` |
+| POST | `/conversations/{id}/read` | Mark read (read receipts) |
+| POST | `/conversations/{id}/presence` · GET | Typing heartbeat `{typing}` · `{typing, active}` |
+| POST | `/conversations/{id}/clear` | Clear my copy of the history (conversation stays) |
+| DELETE | `/conversations/{id}` | Hide the conversation from my inbox |
+| GET/POST | `/emojis` · DELETE `/emojis/{id}` | Custom emoji registry |
 
-**Presence & status (Snapchat-style):** `POST /conversations/{id}/presence` `{typing}`
-heartbeat · `GET /conversations/{id}/presence` → `{typing, active}`. Messages return
-`delivered_at` and `read_at` so clients can show Sent → Delivered → Read.
+Messages return `delivered_at` / `read_at` so clients can show Sent → Delivered → Read.
 
 **End-to-end encryption (optional, client-side):** `POST /auth/keys` publish your X25519
 public key · `GET /users/{id}/key` fetch a peer's · `POST|GET|DELETE /auth/keys/backup`
-store/fetch a passphrase-encrypted private-key backup (opaque blob). Text/media bodies are
-sealed client-side with NaCl `box`; the server only ever stores ciphertext for E2E messages.
-Messages also support server-side encryption at rest regardless.
+store/fetch a passphrase-encrypted private-key backup (opaque blob). Bodies are sealed
+client-side with NaCl `box`; the server only stores ciphertext for E2E messages (and
+supports server-side encryption at rest regardless).
+
+### Calls (LiveKit voice)
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/calls/{conversation_id}/token` | Mint a LiveKit room token (members only) → `{token, url, room, identity}` |
+| POST | `/calls/{conversation_id}/ring` | Ring the other participant(s) (`call` notification) → `{ok, room}` |
+
+Needs `LIVEKIT_*`; returns `503 calls_not_configured` otherwise. Room = `call_{conversation_id}`.
 
 ### Communities (forum)
-`GET/POST /communities` · `GET /communities/{name}` · `POST /communities/{name}/join`
-· `GET /communities/{name}/posts?sort=hot|new|top`
+| Method | Path | Description |
+| --- | --- | --- |
+| GET/POST | `/communities` | Discover / create (`{name, title, description?}`) |
+| GET | `/communities/{name}` | Community details |
+| POST/DELETE | `/communities/{name}/join` | Join / leave |
+| GET | `/communities/{name}/posts?sort=hot\|new\|top` | Threads with sorting |
+
+### Groups (chat communities)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET/POST | `/groups` | Your groups / create |
+| GET | `/groups/{id}` | Group details |
+| PATCH | `/groups/{id}` · DELETE | Edit / delete (owner) |
+| POST | `/groups/{id}/join` · `/groups/{id}/leave` | Join (or request) / leave |
+| GET | `/groups/{id}/members` | Member list with roles |
+| POST | `/groups/{id}/members/{uid}/promote` · `/demote` · DELETE `/groups/{id}/members/{uid}` | Manage members |
+| GET | `/groups/{id}/requests` · POST `…/{uid}/approve` · `…/{uid}/reject` | Join-request moderation |
+| GET/POST | `/groups/{id}/posts` | Group feed |
+| GET | `/groups/{id}/pins` · POST/DELETE `/groups/{id}/pins/{post_id}` | Pinned posts |
 
 ### Marketplace
-`GET/POST /listings` (filters: `?lat&lng&radius_km&category&sort`) · `GET /listings/{id}`
-· `POST /listings/{id}/contact` · `POST /listings/{id}/trade/start` · `POST /trades/confirm`
-· `GET/POST /marketplace/users/{id}` (seller profile + reviews — reviews require a verified trade)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/listings?lat&lng&radius_km&category&condition&sort&q` | Browse (location + radius, nearby sort) |
+| POST | `/listings` | Create a listing (needs account ≥ 30 days) |
+| GET | `/listings/saved` | Your saved listings |
+| GET | `/listings/user/{id}` | A seller's listings |
+| GET | `/listings/{id}` | Listing detail (counts a view) |
+| PATCH | `/listings/{id}` · DELETE | Edit / delete (owner) |
+| POST/DELETE | `/listings/{id}/save` | Save / unsave |
+| POST | `/listings/{id}/contact` | Message the seller (tags the DM with the listing) |
+| POST | `/listings/{id}/trade/start` · `/trades/confirm` | Start a trade · both confirm (unlocks reviews) |
+| GET | `/marketplace/users/{id}` · `/marketplace/users/{id}/reviews` | Seller profile · reviews |
+| POST | `/marketplace/users/{id}/reviews` | Leave a seller review (verified trade required) |
 
-### Places, guides, reviews, ETA
-`/places` · `/guides` (+ `/public/guides/{slug}`) · `/reviews` · `/eta`
-(+ WebSocket `wss://…/ws/eta/{share_id}`)
+### Places, guides, reviews
+| Method | Path | Description |
+| --- | --- | --- |
+| GET/POST | `/places` | Saved map places (create/list) |
+| GET/DELETE | `/places/{id}` | Fetch / delete a saved place |
+| GET/POST | `/recents` · DELETE `/recents/{id}` · DELETE `/recents` | Recent searches (list/add/remove/clear) |
+| GET/POST | `/guides` | Curated place collections |
+| PATCH/DELETE | `/guides/{id}` | Edit / delete a guide |
+| POST/DELETE | `/guides/{id}/places/{place_id}` | Add / remove a place |
+| GET | `/public/guides/{slug}` | View a published guide (public) |
+| POST | `/public/guides/{slug}/clone` | Clone a public guide to your account |
+| GET/POST | `/reviews` · DELETE `/reviews/{id}` | 1–5★ place reviews |
 
-### Maps extras
-`GET /foursquare/match?name&lng&lat` — business profile for a place (needs `FSQ_API_KEY`).
-`GET /transit/nearby?lat&lon&radius&dest_lat&dest_lon` — nearby public-transit stops and
-the next departures (real-time where the agency publishes it; needs `TRANSITLAND_API_KEY`).
-Each departure includes `route`, `kind`, `headsign`, `stop_name`, `stop_distance`,
-`minutes`, `time_label`, `realtime`, and `delay` (seconds, +late/−early). Pass
-`dest_lat`/`dest_lon` to keep only routes heading toward the destination
-(`filtered:true` in the response). Returns `{configured:false}` when no key is set.
+### ETA sharing (live location)
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/eta` | Create a live ETA share → `{share_id, …}` |
+| POST | `/eta/{share_id}/update` | Push a position/ETA update |
+| POST | `/eta/{share_id}/stop` | End the share |
+| GET | `/public/eta/{share_id}` | Public read of a share (no auth) |
+| WS | `wss://…/ws/eta/{share_id}` | Real-time location stream |
+
+### Maps extras (Foursquare + transit)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/foursquare/match?name&lng&lat` | Business profile for one place (rating, hours, photo, phone, website) |
+| GET | `/foursquare/search?query&lng&lat&radius&limit` | **Nearby places matching a query** (e.g. all "McDonald's"), nearest first → `{configured, results:[{fsq_id,name,address,category,latitude,longitude,distance,rating,price}]}` |
+| GET | `/transit/nearby?lat&lon&radius&dest_lat&dest_lon` | Nearby stops + next departures (real-time where published). `dest_*` keeps only routes toward the destination (`filtered:true`) |
+| GET | `/transit/plan?route_id&board_lat&board_lon&dest_lat&dest_lon` | Where to get off a given route for a destination → `{found, alight:{name,lat,lon,walk_to_dest_m}, ride_meters}` |
+
+Foursquare needs `FSQ_API_KEY`; transit needs `TRANSITLAND_API_KEY`; both return
+`{configured:false}` when unset. Each transit departure includes `route`, `kind`,
+`headsign`, `stop_name`, `stop_distance`, `board_lat/lon`, `minutes`, `time_label`,
+`realtime`, and `delay` (seconds, +late/−early).
 
 ### Notifications
 `GET /notifications` · `GET /notifications/unread` (count) ·
@@ -292,16 +423,25 @@ preview, and `read`. (Developer webhooks receive the same events — see Webhook
 ### Payments (when Stripe is configured)
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/payments/config` | Whether real payments are live + fee config (see below) |
+| GET | `/payments/config` | Real-payments live? + fee config (see below) |
 | POST | `/payments/checkout` | Create Checkout — `{kind: tip\|subscription\|promote, creator_id?, amount?, tier?, post_id?, days?, budget?, cpc?, conversation_id?, note?, embedded?}` → `{url?}` or `{client_secret, id, embedded}` |
-| POST | `/payments/payouts/setup` | Create/reuse the creator's Connect Express account → hosted onboarding `{url}` |
-| GET | `/payments/payouts/status` | Payout state incl. `payouts_enabled`, `requirements_due/eventually/pending`, `capabilities`, `disabled_reason`, `platform` |
+| POST | `/payments/pay-intent` · `/payments/pay-intent/confirm` | Inline (in-app) PaymentIntent flow → `{client_secret, intent_id, publishable_key}` then confirm |
+| POST | `/payments/pay-wallet` | Pay a creator from your wallet balance — `{kind, creator_id, amount?/tier?, note?, conversation_id?}` |
+| POST | `/payments/payouts/setup` | Create/reuse the creator's Connect account → onboarding `{url}` |
+| GET | `/payments/payouts/status` | `payouts_enabled`, `requirements_due/eventually/pending`, `capabilities`, `disabled_reason`, `platform` |
+| GET | `/payments/payouts/requirements` | Outstanding KYC requirements detail |
 | POST | `/payments/payouts/account-session` | Embedded Connect onboarding → `{client_secret, publishable_key}` |
-| POST | `/payments/payouts/cashout` | **Instant debit-card cash-out** of the wallet balance — `{amount?}` (omit = whole balance). Stripe Instant Payout; refunded on failure |
-| POST | `/payments/webhook` | Stripe `checkout.session.completed` / `checkout.session.expired` (signature-enforced) |
-| GET/POST | `/payments/api-plan*` · `/payments/api-usage*` | Paid Developer-API plans + pay-as-you-go |
+| POST | `/payments/payouts/debit-card` | Attach a debit card (inline) for instant cash-out |
+| POST | `/payments/payouts/bank-account` | Attach a bank account for direct deposit |
+| POST | `/payments/payouts/verification` · `/payments/payouts/verification-document` | Submit identity info / upload an ID document (KYC) |
+| POST | `/payments/payouts/cashout` | **Instant debit-card cash-out** — `{amount?}` (omit = whole balance); refunded on failure |
+| GET | `/payments/api-plan` | Developer-API plan catalog + your current plan |
+| POST | `/payments/api-plan/checkout` · `/payments/api-plan/activate` | Subscribe to a plan (Stripe) / activate (test) |
+| GET | `/payments/api-usage` | Your metered usage `{used, limit, resets_at, packs}` |
+| POST | `/payments/api-usage/buy` · `/payments/api-usage/activate` | Buy an overage pack (Stripe) / activate (test) |
+| POST | `/payments/webhook` | Stripe webhook (signature-enforced) — no auth |
 
-`GET /payments/config` → `{enabled, platform_fee_percent, publishable_key, stripe_configured, test_mode, test_override}`.
+`GET /payments/config` → `{enabled, platform_fee_percent, transaction_fee_cents, publishable_key, stripe_configured, test_mode, test_override}`.
 **Test/simulated payments are off by default** — real Stripe is used whenever Stripe is
 configured and no admin has forced test mode. The app only simulates payments when Stripe
 isn't configured (down / not set up) or an admin turns test mode on.
@@ -353,9 +493,12 @@ payouts to cash out (`payout_setup` notification).
 | GET | `/wallet` | Earnings summary (incl. `balance`, `currency`, recent received/sent, each with `message`) |
 | GET | `/wallet/balance` | `{balance, display, currency, symbol, rate, currencies}` (USD balance + chosen-currency view) |
 | POST | `/wallet/topup` | Add funds — `{amount, embedded?}`. Stripe Checkout when live (`{url}`/`{client_secret}`), instant credit in test mode |
-| POST | `/wallet/topup/confirm` | Confirm a top-up on return from Checkout — `{session_id}` (idempotent) |
+| POST | `/wallet/topup/intent` · `/wallet/topup/confirm-intent` | Inline PaymentIntent top-up → `{client_secret}` then confirm |
+| POST | `/wallet/topup/confirm` | Confirm a Checkout top-up on return — `{session_id}` (idempotent) |
 | POST | `/wallet/topup/sync` | Reconcile recent Stripe payments; credit any paid top-up a missed webhook dropped |
+| POST | `/wallet/topup/{tid}/cancel` | Cancel a pending top-up |
 | GET | `/wallet/topups` | Top-up history with `status` (processing\|completed\|failed) |
+| GET | `/wallet/activity` | Unified wallet ledger (top-ups, sends, receives, cash-outs) |
 | POST | `/wallet/currency` | Set preferred display currency — `{currency}` |
 | GET | `/currencies` | Supported display currencies + fixed USD rates |
 
@@ -365,50 +508,109 @@ payouts to cash out (`payout_setup` notification).
 ### Ads & advertising
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/ads/next?placement=&slot=` | Next sponsored post for a slot |
-| POST | `/ads/{id}/event` | Record `impression` / `click` (host attribution + billing) |
-| POST | `/ads/{id}/hide\|report` | Hide / report an ad |
+| GET | `/ads/next?placement=&slot=` | Next sponsored post for a feed slot |
+| POST | `/ads/{id}/event` | Record `impression` / `click` — `{type}` (attribution + billing) |
+| POST | `/ads/{id}/hide` · `/ads/{id}/report` | Hide / report a sponsored post |
 | GET | `/ads/campaigns` | Your promoted-post analytics |
-| GET/POST | `/ads/account` · `/ads/account/topup` | Prepaid ad balance + top-up |
-| POST/GET/DELETE | `/ads/links` · `POST /ads/links/{id}/event` | Link ads — advertise your website |
+| GET | `/ads/account` · POST `/ads/account/topup` | Prepaid ad balance + top-up |
+| POST/GET/DELETE | `/ads/links` · POST `/ads/links/{id}/event` | **Link ads** — advertise your website (create/list/delete, track events) |
+| POST/GET/DELETE | `/ads/reels` · GET `/ads/reels/serve` · POST `/ads/reels/{id}/event` | **Reel (video) ads** — manage, serve into the reels feed, track |
 | POST | `/users/{id}/view` | Profile-view revenue tracking |
 
 > **Account-age gates** (env-tunable, admins exempt) — `403 account_too_new`:
 > selling on the marketplace needs **≥ 30 days**; monetizing (link ads, publisher
 > sites, ad earnings) needs **≥ 60 days**.
 
-**Publisher network** (display Nami ads on your own site & earn): `POST/GET/DELETE
-/pub/sites` (manage sites, get a `site_key`) · public `GET /pub/ad?site=` (JSON ad) ·
-`GET /pub/click?site=&ad=` (tracked redirect) · `GET /pub/unit?site=` (iframe ad unit) ·
-`GET /pub/embed.js?site=` (drop-in `<script>`). Earnings require **valid traffic**:
-established accounts on both sides, no self/related clicks, and a daily earning cap.
+### Publisher network (display Nami ads on your site & earn)
+| Method | Path | Description |
+| --- | --- | --- |
+| POST/GET | `/pub/sites` · DELETE `/pub/sites/{id}` | Manage your sites; each gets a `site_key` |
+| GET | `/pub/ad?site=` | Fetch a JSON ad to render — public |
+| GET | `/pub/click?site=&ad=` | Tracked click redirect — public |
+| GET | `/pub/unit?site=` | Ready-made iframe ad unit — public |
+| GET | `/pub/embed.js?site=` | Drop-in `<script>` embed — public |
+
+Earnings require **valid traffic**: established accounts on both sides, no self/related
+clicks, and a daily earning cap.
+
+### Payouts
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/payouts` | Balance, schedule, and payout history |
+| POST | `/payouts/run` | Trigger a payout run (admin, or `X-Cron-Key` header for cron) |
+
+Per-creator `payout_frequency` (weekly\|biweekly\|monthly, changeable once a month) and
+`payout_threshold` are set via `PATCH /auth/me`.
+
+### Login with Nami (OAuth2) & connected apps
+| Method | Path | Description |
+| --- | --- | --- |
+| POST/GET | `/oauth/apps` · DELETE `/oauth/apps/{client_id}` | Manage your OAuth apps (you get `client_id`/`client_secret`) |
+| GET | `/oauth/app/{client_id}` | Public app metadata (name, logo) for the consent screen |
+| POST | `/oauth/authorize` | Approve a consent request → authorization `code` |
+| POST | `/oauth/token` | Exchange `code` → `{access_token, token_type, expires_in, scope}` — no bearer (uses `client_secret`) |
+| GET | `/oauth/userinfo` | Profile for the access token → `{sub, name, preferred_username, picture, verified, email?}` |
+| GET | `/oauth/connections` · DELETE `/oauth/connections/{client_id}` | Apps you've authorized · revoke one |
+| POST | `/oauth/revoke` | Revoke a token |
+
+See **Login with Nami (OAuth2)** above for the full flow and scopes.
 
 ### Admin & moderation (admin/mod only)
+**Users & moderation**
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/admin/users?q=&limit=&offset=` | List / search every user |
 | PATCH | `/admin/users/{id}` | Set `verified` and/or `role` (user\|mod\|admin) |
-| POST | `/admin/users/{id}/ban` · `/unban` | Ban (`{reason}`) / lift |
-| POST | `/admin/users/{id}/suspend` | Suspend `{days, reason}` |
-| DELETE | `/admin/users/{id}` | Remove (delete) an account |
+| POST | `/admin/users/{id}/ban` · `/admin/users/{id}/unban` | Ban (`{reason}`) / lift |
+| POST | `/admin/users/{id}/suspend` | Suspend — `{days, reason}` |
+| DELETE | `/admin/users/{id}` | Delete an account |
 | GET | `/admin/audit` | Audit log of admin actions |
+
+**Wallet & transactions (admin)**
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/admin/users/{id}/wallet` | Adjust a user's wallet balance |
+| POST | `/admin/users/{id}/transaction` | Add a ledger transaction — `{kind: topup\|received\|sent\|cashout, amount, note?, counterparty?, adjust_balance?, created_at?}` |
+| GET | `/admin/users/{id}/transactions` | List a user's transactions |
+| PATCH/DELETE | `/admin/users/{id}/transaction` | Edit / delete a transaction (re-add lost ones, fix dates) |
+
+**Badges, revenue & config (admin)**
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/badges` | All site-wide custom badges (public) |
+| POST | `/admin/badges` · DELETE `/admin/badges/{id}` | Create / remove a custom badge |
+| POST | `/admin/users/{id}/badge` | Grant/revoke a badge — `{badge_id, action: add\|remove}` |
+| GET/POST | `/admin/fees` | Revenue split + flat fee — `{platform_fee_percent, transaction_fee_cents}` |
+| GET | `/admin/revenue` | Platform revenue from the ledger → `{total, count, by_source, …}` |
 | GET | `/admin/ad-revenue` | Platform ad dashboard |
+| GET/POST | `/admin/test-payments` | Toggle simulated-payments mode |
+| GET/POST | `/admin/mobile-only` | Toggle mobile-only payment restriction |
+| POST | `/admin/reset/money` · `/admin/reset/analytics` | Wipe money/analytics data (destructive) |
 | GET/POST | `/admin/bot/posts` · `/admin/bot/run` | Test bot (wallet/analytics) |
-| GET | `/admin/badges` · POST/DELETE | Manage site-wide custom badges |
-| GET | `/admin/integrations?live=1` | Integration/SDK status board — each service's `configured`, `status`, the `env` vars it needs, a `fix` string, and (with `?live=1`) a real health-check `detail` |
+| GET | `/admin/integrations?live=1` | Integration/SDK status board — each service's `configured`, `status`, `env` vars, a `fix` string, and (with `?live=1`) a real health-check `detail` |
 
 Banned/currently-suspended users are blocked at login and on every request
 (`403 banned` / `403 suspended`, with the moderator's reason). Admins are exempt;
 you can't moderate yourself or another admin.
 
-### Payouts
-`GET /payouts` (balance, schedule, history) · `POST /payouts/run` (admin or `X-Cron-Key`).
-Per-creator `payout_frequency` and `payout_threshold` via `PATCH /auth/me`.
+### Developer API keys & E2E keys
+| Method | Path | Description |
+| --- | --- | --- |
+| POST | `/auth/api-keys` | Create a key — `{label?, scopes?}` → full token shown **once** |
+| GET | `/auth/api-keys` | List your keys (masked prefixes) |
+| DELETE | `/auth/api-keys/{id}` | Revoke a key |
+| POST | `/auth/keys` | Publish your X25519 public key (E2E) |
+| GET | `/users/{id}/key` | Fetch a peer's public key |
+| POST/GET/DELETE | `/auth/keys/backup` | Store / fetch / delete a passphrase-encrypted private-key backup |
 
-### Login with Nami (OAuth2) & connected apps
-`GET/POST /oauth/apps` (manage your apps) · `/oauth/authorize` · `POST /oauth/token` ·
-`GET /oauth/userinfo` · `GET /oauth/connections` · `DELETE /oauth/connections/{client_id}` ·
-`POST /oauth/revoke`. See **Login with Nami** above for the full flow.
+### Webhooks (Pro+)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/webhooks/events` | Available event types |
+| GET/POST | `/webhooks` | List / register `{url, events?}` (secret returned once) |
+| DELETE | `/webhooks/{id}` | Remove a webhook |
+
+See **Webhooks** above for the signature scheme and event list.
 
 ---
 
