@@ -204,55 +204,92 @@ const COMPONENT_NAME: Record<string, string> = {
  * Render an embedded Stripe Connect component inside the site. `preferred` is the
  * component we'd like (e.g. "payouts" for Manage payouts); if the account doesn't
  * support it we fall back to whatever the server enabled (always at least
- * onboarding/account-update) — so the panel still renders **in-app**. The hosted
- * Stripe redirect is only used on native, without a publishable key, or if the
- * embedded SDK genuinely can't load. Resolves when the user closes the panel.
+ * onboarding/account-update). The in-app overlay opens immediately with a loading
+ * state, and on failure it shows an in-app message — it never auto-redirects to an
+ * external Stripe page (a tappable "secure page" link is offered only as a manual
+ * last resort). Resolves when the user closes the panel.
  */
 function embeddedConnectFlow(preferred: "account_onboarding" | "payouts" | "account_management"): Promise<void> {
   return new Promise<void>((resolve) => {
-    const hosted = async () => {
-      try { const { url } = await api.setupPayouts(); if (url) await Linking.openURL(url); } catch {}
-      resolve();
+    // Native (no DOM) → there's no in-app web overlay, so use the hosted link.
+    if (!isWeb) {
+      (async () => { try { const { url } = await api.setupPayouts(); if (url) await Linking.openURL(url); } catch {} resolve(); })();
+      return;
+    }
+
+    // Open the in-app panel right away so the user always sees something.
+    const { container, close } = makeOverlay(() => resolve());
+    const setMessage = (title: string, body: string, showLink: boolean) => {
+      container.innerHTML = "";
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "padding:22px 18px;text-align:center;";
+      const h = document.createElement("div");
+      h.textContent = title;
+      h.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin-bottom:8px;";
+      const p = document.createElement("div");
+      p.textContent = body;
+      p.style.cssText = "font-size:13.5px;color:#55636b;line-height:1.5;";
+      wrap.appendChild(h); wrap.appendChild(p);
+      if (showLink) {
+        const a = document.createElement("button");
+        a.textContent = "Continue on Stripe’s secure page";
+        a.style.cssText = "margin-top:16px;padding:12px 16px;border:0;border-radius:10px;background:#00A884;color:#fff;font-size:14px;font-weight:800;cursor:pointer;";
+        a.onclick = async () => { try { const { url } = await api.setupPayouts(); if (url) await Linking.openURL(url); } catch {} close(); };
+        wrap.appendChild(a);
+      }
+      container.appendChild(wrap);
     };
-    if (!isWeb || !PK) return void hosted();
+
+    // Loading spinner while we set up the embedded component.
+    const spinner = document.createElement("div");
+    spinner.style.cssText = "padding:34px;display:flex;align-items:center;justify-content:center;";
+    spinner.innerHTML = '<div style="width:26px;height:26px;border:3px solid #e3e8e6;border-top-color:#00A884;border-radius:50%;animation:nami-spin 0.8s linear infinite"></div>';
+    if (!document.getElementById("nami-spin-style")) {
+      const st = document.createElement("style");
+      st.id = "nami-spin-style";
+      st.textContent = "@keyframes nami-spin{to{transform:rotate(360deg)}}";
+      document.head.appendChild(st);
+    }
+    container.appendChild(spinner);
+
     (async () => {
       try {
+        if (!PK) { setMessage("Payouts unavailable", "Card payouts aren’t set up on this device build. Please try again from the website.", true); return; }
         const res = await api.payoutAccountSession();
         const cs = res.client_secret;
-        if (!cs) return void hosted();
+        if (!cs) { setMessage("Couldn’t start payouts", "We couldn’t reach Stripe just now. Please try again in a moment.", true); return; }
         const enabled = res.components && res.components.length ? res.components : ["account_onboarding"];
-        // Use the preferred component if the account supports it, else the richest
-        // one available (payouts > account_management > onboarding) — never hosted.
         const pick = enabled.includes(preferred)
           ? preferred
           : (["payouts", "account_management", "account_onboarding"].find((c) => enabled.includes(c)) || "account_onboarding");
         await loadScript("https://connect-js.stripe.com/v1.0/connect.js");
         // The CDN connect.js exposes `window.StripeConnect.init(...)`; the
-        // `loadConnectAndInitialize` name is the npm package's API (not on the
-        // CDN global). Support both, and wait briefly in case `init` is defined
-        // just after onload, so we don't wrongly fall back to the hosted redirect.
+        // `loadConnectAndInitialize` name is the npm package's API. Support both,
+        // waiting briefly in case the global is defined just after onload.
         const getLoader = () => {
           const SC = (window as any).StripeConnect;
           return { SC, fn: SC?.init || SC?.loadConnectAndInitialize || (window as any).loadConnectAndInitialize };
         };
         let { SC, fn: loader } = getLoader();
-        for (let i = 0; !loader && i < 20; i++) {
+        for (let i = 0; !loader && i < 30; i++) {
           await new Promise((r) => setTimeout(r, 100));
           ({ SC, fn: loader } = getLoader());
         }
-        if (!loader) return void hosted();
+        if (!loader) { setMessage("Couldn’t load Stripe", "The secure payout panel didn’t load. Please try again.", true); return; }
         const instance = loader.call(SC, {
           publishableKey: PK,
           fetchClientSecret: async () => cs,
           appearance: { variables: { colorPrimary: "#00A884" } },
         });
-        // resolve() runs once, whether the user exits the component or closes the overlay.
-        const { container, close } = makeOverlay(() => resolve());
-        const comp = instance.create(COMPONENT_NAME[pick] || "account-onboarding");
+        const comp = instance && instance.create ? instance.create(COMPONENT_NAME[pick] || "account-onboarding") : null;
+        if (!comp) { setMessage("Couldn’t open payouts", "The payout panel couldn’t start. Please try again.", true); return; }
+        comp.style && (comp.style.display = "block");
         if (comp.setOnExit) comp.setOnExit(() => close());
+        // Swap the spinner for the live component.
+        container.innerHTML = "";
         container.appendChild(comp);
       } catch {
-        void hosted();
+        setMessage("Something went wrong", "We couldn’t open the payout panel. Please try again.", true);
       }
     })();
   });
@@ -275,4 +312,13 @@ export function stripeOnboarding(): Promise<void> {
  */
 export function stripeManagePayouts(): Promise<void> {
   return embeddedConnectFlow("payouts");
+}
+
+/**
+ * Add / update a payout method (e.g. a debit card for instant cash-out). Opens
+ * the embedded account-management component (which collects external accounts)
+ * in the in-site overlay — no external page.
+ */
+export function stripeAddPayoutMethod(): Promise<void> {
+  return embeddedConnectFlow("account_management");
 }

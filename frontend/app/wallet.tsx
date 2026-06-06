@@ -10,7 +10,7 @@ import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-rou
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeOnboarding, stripeManagePayouts, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
+import { stripeOnboarding, stripeManagePayouts, stripeAddPayoutMethod, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
@@ -216,6 +216,17 @@ export default function WalletScreen() {
     } finally { setConnecting(false); }
   };
 
+  const addPayoutMethod = async () => {
+    setConnecting(true);
+    try {
+      await stripeAddPayoutMethod();
+      await load();
+      await pollPayoutStatus(1);
+    } catch (e: any) {
+      Alert.alert("Couldn't open payouts", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setConnecting(false); }
+  };
+
   const [checkingPayout, setCheckingPayout] = useState(false);
   const checkPayoutAgain = async () => {
     setCheckingPayout(true);
@@ -343,7 +354,7 @@ export default function WalletScreen() {
                   <Text style={styles.cashoutBtnText}>Cash out to debit card</Text>
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity style={styles.cashoutBtn} onPress={managePayouts} disabled={connecting} testID="wallet-add-card">
+                <TouchableOpacity style={styles.cashoutBtn} onPress={addPayoutMethod} disabled={connecting} testID="wallet-add-card">
                   {connecting ? <ActivityIndicator color={theme.primary} size="small" /> : (
                     <>
                       <Ionicons name="card-outline" size={16} color={theme.primary} />
