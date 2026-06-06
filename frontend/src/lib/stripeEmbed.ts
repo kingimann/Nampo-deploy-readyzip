@@ -28,15 +28,23 @@ function makeOverlay(onClose?: () => void): { container: HTMLDivElement; close: 
     "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;";
   const card = document.createElement("div");
   card.style.cssText =
-    "background:#fff;border-radius:16px;max-width:480px;width:100%;max-height:92vh;overflow:auto;position:relative;box-shadow:0 10px 40px rgba(0,0,0,.3);";
+    "background:#fff;border-radius:18px;max-width:480px;width:100%;max-height:92vh;overflow:auto;position:relative;box-shadow:0 16px 50px rgba(0,0,0,.4);";
+  // Branded header so the embedded Stripe panel feels part of the site.
+  const header = document.createElement("div");
+  header.style.cssText =
+    "display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:3;";
+  const title = document.createElement("div");
+  title.textContent = "🔒 Secure payment · Stripe";
+  title.style.cssText = "font-size:13px;font-weight:800;color:#0b141a;letter-spacing:.2px;";
   const x = document.createElement("button");
   x.textContent = "✕";
   x.setAttribute("aria-label", "Close");
   x.style.cssText =
-    "position:absolute;top:8px;right:12px;border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#666;z-index:2;";
+    "border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#666;padding:2px 4px;";
+  header.appendChild(title); header.appendChild(x);
   const container = document.createElement("div");
-  container.style.cssText = "padding:10px;min-height:60px;";
-  card.appendChild(x); card.appendChild(container); overlay.appendChild(card);
+  container.style.cssText = "padding:12px;min-height:60px;";
+  card.appendChild(header); card.appendChild(container); overlay.appendChild(card);
   document.body.appendChild(overlay);
   let closed = false;
   const close = () => {

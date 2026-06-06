@@ -771,6 +771,38 @@ def _topup_view(t: dict) -> dict:
     }
 
 
+@router.post("/wallet/topup/{tid}/cancel")
+async def cancel_topup(tid: str, authorization: Optional[str] = Header(None)):
+    """Cancel a top-up that's still processing (e.g. the user left the Stripe
+    page). If the payment actually went through, it's credited instead."""
+    me = await get_current_user(authorization)
+    t = await db.wallet_topups.find_one({"id": tid, "user_id": me["user_id"]}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Top-up not found")
+    if t.get("status") != "processing":
+        return {"ok": True, "status": t.get("status", "completed")}
+    sid = t.get("session_id")
+    if sid:
+        try:
+            from routes.payments import stripe, stripe_enabled
+            if stripe_enabled():
+                sess = stripe.checkout.Session.retrieve(sid)
+                if sess.get("payment_status") == "paid":
+                    amt = round(float((sess.get("metadata") or {}).get("amount") or t.get("amount") or 0), 2)
+                    await _apply_wallet_topup(me["user_id"], amt, "stripe", sid)
+                    return {"ok": True, "status": "completed", "credited": True}
+                try:
+                    stripe.checkout.Session.expire(sid)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    await db.wallet_topups.update_one(
+        {"id": tid}, {"$set": {"status": "cancelled", "completed_at": datetime.now(timezone.utc)}},
+    )
+    return {"ok": True, "status": "cancelled"}
+
+
 @router.get("/wallet/topups")
 async def list_topups(authorization: Optional[str] = Header(None)):
     """The user's wallet top-up history with status (processing/completed/failed)."""

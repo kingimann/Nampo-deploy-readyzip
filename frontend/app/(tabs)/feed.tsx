@@ -17,6 +17,7 @@ import PostComposer from "@/src/components/PostComposer";
 import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
+import ConfirmModal from "@/src/components/ConfirmModal";
 
 type Tab = "home" | "explore";
 
@@ -35,6 +36,7 @@ export default function FeedScreen() {
   const [editing, setEditing] = useState<Post | null>(null);
   const [quoting, setQuoting] = useState<Post | null>(null);
   const [actionPost, setActionPost] = useState<Post | null>(null);
+  const [confirmDel, setConfirmDel] = useState<Post | null>(null);
   const [privacyPost, setPrivacyPost] = useState<Post | null>(null);
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const viewedRef = useRef<Set<string>>(new Set());
@@ -385,19 +387,7 @@ export default function FeedScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionBtn, { marginTop: 6 }]}
-              onPress={() => {
-                const p = actionPost!; setActionPost(null);
-                const confirm = () => doDelete(p);
-                if (Platform.OS === "web") {
-                  // eslint-disable-next-line no-alert
-                  if (window.confirm("Delete this post?")) confirm();
-                } else {
-                  Alert.alert("Delete post?", "This cannot be undone.", [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: confirm },
-                  ]);
-                }
-              }}
+              onPress={() => { const p = actionPost!; setActionPost(null); setConfirmDel(p); }}
               testID="post-action-delete"
             >
               <Ionicons name="trash-outline" size={18} color={theme.error} />
@@ -418,6 +408,16 @@ export default function FeedScreen() {
         visible={!!privacyPost}
         onClose={() => setPrivacyPost(null)}
         onUpdated={(u) => setPosts((arr) => arr.map((x) => (x.id === u.id ? { ...x, ...u } : x)))}
+      />
+
+      <ConfirmModal
+        visible={!!confirmDel}
+        title="Delete post?"
+        message="This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setConfirmDel(null)}
+        onConfirm={() => { const p = confirmDel; setConfirmDel(null); if (p) doDelete(p); }}
       />
     </SafeAreaView>
   );

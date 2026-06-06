@@ -65,6 +65,7 @@ const TOPUP_STATUS: Record<string, { label: string; icon: string; color: string;
   completed: { label: "Completed", icon: "checkmark-circle", color: "#16A34A", bg: "rgba(22,163,74,0.12)" },
   processing: { label: "Processing", icon: "time-outline", color: "#D97706", bg: "rgba(217,119,6,0.12)" },
   failed: { label: "Failed", icon: "close-circle", color: "#DC2626", bg: "rgba(220,38,38,0.12)" },
+  cancelled: { label: "Cancelled", icon: "ban-outline", color: "#9CA3AF", bg: "rgba(156,163,175,0.12)" },
 };
 
 export default function WalletScreen() {
@@ -238,6 +239,24 @@ export default function WalletScreen() {
       setBal(r); setCurOpen(false);
       if (typeof refresh === "function") await refresh();
     } catch {}
+  };
+
+  const [cancelingTopup, setCancelingTopup] = useState(false);
+  const cancelTopup = async (t: Topup) => {
+    setCancelingTopup(true);
+    try { await api.cancelTopup(t.id); setTopupDetail(null); await load(); }
+    catch (e: any) { Alert.alert("Couldn't cancel", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setCancelingTopup(false); }
+  };
+  const resumeTopup = async (t: Topup) => {
+    setTopupDetail(null);
+    try {
+      await api.cancelTopup(t.id);           // close the stale session first
+      const credited = await stripeTopup(t.amount);  // start a fresh checkout for the same amount
+      if (credited) await load();
+    } catch (e: any) {
+      Alert.alert("Couldn't resume", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    }
   };
 
   const doCashout = async () => {
@@ -704,7 +723,15 @@ export default function WalletScreen() {
                 </View>
 
                 {topupDetail.status === "processing" ? (
-                  <Text style={styles.topupHint}>This payment is still processing. It'll show as Completed once Stripe confirms it.</Text>
+                  <>
+                    <Text style={styles.topupHint}>You left checkout before finishing. Resume to pay, or cancel this payment.</Text>
+                    <TouchableOpacity style={styles.sheetBtn} onPress={() => resumeTopup(topupDetail)} testID="topup-resume">
+                      <Text style={styles.sheetBtnText}>Resume payment</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.cancelTopupBtn} onPress={() => cancelTopup(topupDetail)} disabled={cancelingTopup} testID="topup-cancel">
+                      {cancelingTopup ? <ActivityIndicator color={theme.error} size="small" /> : <Text style={styles.cancelTopupText}>Cancel payment</Text>}
+                    </TouchableOpacity>
+                  </>
                 ) : null}
 
                 <TouchableOpacity
@@ -904,6 +931,8 @@ const styles = StyleSheet.create({
   statusPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
   topupHint: { color: theme.textMuted, fontSize: 12.5, textAlign: "center", marginTop: 14, lineHeight: 18 },
+  cancelTopupBtn: { alignSelf: "stretch", alignItems: "center", paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.error, marginTop: 8 },
+  cancelTopupText: { color: theme.error, fontWeight: "800", fontSize: 14 },
   freqRow: { flexDirection: "row", gap: 10 },
   freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
   freqChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
