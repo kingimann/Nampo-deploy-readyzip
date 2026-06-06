@@ -266,6 +266,31 @@ Nampo-deploy-readyzip/
 
 > **Admin → Integrations & SDKs:** signed in as an admin, open **Settings → Integrations & SDKs (admin)** for a live status board of every service above — what's configured, a one-tap "Run live tests" to confirm credentials actually work, and the exact env var(s) to set for anything that isn't. (Endpoint: `GET /api/admin/integrations?live=1`.)
 
+### Voice/video calls & background ringing
+
+Calls use **LiveKit** (WebRTC). The web app works out of the box once `LIVEKIT_*`
+is set. On **native** (iOS/Android) calling needs an **EAS dev/production build**
+(WebRTC isn't in Expo Go):
+
+```
+cd frontend
+eas login && eas init
+eas build --profile development --platform ios   # or android
+```
+
+**Background ringing** is layered:
+
+1. **Push notification (built in).** The native app registers a device push
+   token (`POST /api/push/register`) and `/calls/{id}/ring` sends a high-priority
+   **Expo push**; tapping it opens the call. Works once you have a dev build and
+   notification permission — no extra credentials beyond your EAS project.
+2. **Full-screen CallKit/ConnectionService ring (manual next step).** For the
+   native "phone ringing" UI when the app is killed, add `react-native-callkeep`
+   + a **VoIP (PushKit) push** path: an APNs **VoIP key** (iOS) / FCM
+   high-priority data message (Android), CallKeep `displayIncomingCall` on the
+   VoIP push, and `UIBackgroundModes: ["voip","audio"]`. The token-registration
+   and ring endpoints above are already in place to drive it.
+
 > Auth is email/password only — Google sign-in was removed. `RENDER_EXTERNAL_URL` / `PUBLIC_BASE_URL` are read automatically for building absolute URLs.
 
 > **Note:** the database connection is configured **only** through `DATABASE_URL`; `DB_NAME` is unused. The Render Blueprint (`render.yaml`) provisions a Postgres instance and wires `DATABASE_URL` into the service automatically.

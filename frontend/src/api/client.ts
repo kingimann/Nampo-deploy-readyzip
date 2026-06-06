@@ -350,6 +350,11 @@ export const api = {
       `/calls/${conversationId}/token`, { method: "POST" }),
   ringCall: (conversationId: string) =>
     request<{ ok: boolean; room: string }>(`/calls/${conversationId}/ring`, { method: "POST" }),
+  // Device push tokens (used to ring calls in the background).
+  registerPush: (token: string, platform: string, kind = "expo") =>
+    request<{ ok: boolean }>("/push/register", { method: "POST", body: JSON.stringify({ token, platform, kind }) }),
+  unregisterPush: (token: string) =>
+    request<{ ok: boolean }>("/push/register", { method: "DELETE", body: JSON.stringify({ token }) }),
   listMessages: (conv_id: string) =>
     request<Message[]>(`/conversations/${conv_id}/messages`),
   sendMessage: (conv_id: string, body: MessageCreate) =>

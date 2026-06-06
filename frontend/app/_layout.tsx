@@ -18,6 +18,7 @@ import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
 import UsernameGate from "@/src/components/UsernameGate";
 import PolicyGate from "@/src/components/PolicyGate";
+import PushManager from "@/src/components/PushManager";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -112,6 +113,7 @@ export default function RootLayout() {
                     <AuthedSidebar />
                     <UsernameGate />
                     <PolicyGate />
+                    <PushManager />
                   </MobileOnlyGate>
                 </ConfirmProvider>
               </SidebarMenuProvider>
