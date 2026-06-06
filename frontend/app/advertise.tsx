@@ -5,9 +5,11 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, Post, AdCampaign, AdAccount, LinkAd, mediaUri } from "@/src/api/client";
+import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { api, Post, AdCampaign, AdAccount, LinkAd, ReelAd, mediaUri } from "@/src/api/client";
 import { stripeCheckout } from "@/src/lib/stripeEmbed";
+import { uploadToCloudinary, cloudinaryEnabled } from "@/src/api/cloudinary";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -63,6 +65,19 @@ export default function AdvertiseScreen() {
   const [ppc, setPpc] = useState(false);
   const [budget, setBudget] = useState("20");
   const [cpc, setCpc] = useState("0.25");
+  // Reel video ads.
+  const [reelAds, setReelAds] = useState<ReelAd[]>([]);
+  const [reelOpen, setReelOpen] = useState(false);
+  const [rVideo, setRVideo] = useState<string>("");
+  const [rThumb, setRThumb] = useState<string | null>(null);
+  const [rHeadline, setRHeadline] = useState("");
+  const [rUrl, setRUrl] = useState("");
+  const [rCta, setRCta] = useState("Learn more");
+  const [rDuration, setRDuration] = useState(15);
+  const [rDays, setRDays] = useState(7);
+  const [rUploading, setRUploading] = useState(false);
+  const [reelBusy, setReelBusy] = useState(false);
+  const [reelMsg, setReelMsg] = useState<string | null>(null);
 
   // Prefilled demo card — this is a prototype, so we ship a working test card.
   const [card, setCard] = useState("4242 4242 4242 4242");
@@ -82,7 +97,52 @@ export default function AdvertiseScreen() {
     } catch {}
     try { setAccount(await api.getAdAccount()); } catch {}
     try { setLinkAds((await api.getLinkAds()).ads); } catch {}
+    try { setReelAds((await api.getReelAds()).ads); } catch {}
   }, [user]);
+
+  // Promote a reel passed via ?post= (from the reels screen).
+  const { post: promotePostId } = useLocalSearchParams<{ post?: string }>();
+  useEffect(() => {
+    if (promotePostId && posts.length) {
+      const p = posts.find((x) => x.id === promotePostId);
+      if (p) openCheckout(p);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promotePostId, posts.length]);
+
+  const pickReelVideo = async () => {
+    if (rUploading) return;
+    if (!cloudinaryEnabled()) { setReelMsg("Video uploads aren't configured on this server yet."); return; }
+    if (Platform.OS !== "web") {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["videos"] as any, quality: 0.7, videoMaxDuration: 60 });
+    if (res.canceled || !res.assets?.[0]) return;
+    setRUploading(true); setReelMsg(null);
+    try {
+      const up = await uploadToCloudinary(res.assets[0].uri, "video");
+      setRVideo(up.url); setRThumb(up.thumbnail || null);
+    } catch (e: any) { setReelMsg(String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setRUploading(false); }
+  };
+
+  const submitReelAd = async () => {
+    if (!rVideo) { setReelMsg("Add a video for your ad."); return; }
+    if (!rHeadline.trim()) { setReelMsg("Add a headline."); return; }
+    if (rUrl.trim() && !/^https?:\/\//i.test(rUrl.trim())) { setReelMsg("Link must start with http(s)."); return; }
+    setReelBusy(true); setReelMsg(null);
+    try {
+      await api.createReelAd({ video_url: rVideo, thumbnail: rThumb, headline: rHeadline.trim(), url: rUrl.trim() || undefined, cta: rCta, duration: rDuration, days: rDays });
+      setReelOpen(false); setRVideo(""); setRThumb(null); setRHeadline(""); setRUrl("");
+      await load();
+    } catch (e: any) { setReelMsg(String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setReelBusy(false); }
+  };
+  const removeReelAd = async (id: string) => {
+    setReelAds((arr) => arr.filter((a) => a.id !== id));
+    try { await api.deleteReelAd(id); } catch { load(); }
+  };
 
   const submitLinkAd = async () => {
     const url = lUrl.trim();
@@ -245,6 +305,32 @@ export default function AdvertiseScreen() {
                       </Text>
                     </View>
                     <TouchableOpacity onPress={() => removeLinkAd(a.id)} testID={`del-link-${a.id}`}>
+                      <Ionicons name="trash-outline" size={16} color={theme.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+
+              {/* Reel video ads: sponsored full-screen videos in the reels feed. */}
+              <View style={styles.linkSection}>
+                <View style={styles.linkHead}>
+                  <Text style={styles.linkSectionTitle}>Video reel ad</Text>
+                  <TouchableOpacity style={styles.linkNewBtn} onPress={() => { setReelMsg(null); setReelOpen(true); }} testID="new-reel-ad">
+                    <Ionicons name="add" size={15} color="#fff" />
+                    <Text style={styles.linkNewText}>New</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.linkSectionSub}>A 5–60s video that plays full-screen in Reels with a "Sponsored" overlay and a call-to-action. Charged per view/click from your ad balance.</Text>
+                {reelAds.map((a) => (
+                  <View key={a.id} style={styles.linkRow}>
+                    <Ionicons name="videocam" size={16} color={theme.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.linkRowTitle} numberOfLines={1}>{a.headline}</Text>
+                      <Text style={styles.linkRowMeta} numberOfLines={1}>
+                        {a.active ? "● Active" : "Ended"} · {a.duration}s · {a.impressions} views · {a.clicks} clicks · ${a.spent.toFixed(2)}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => removeReelAd(a.id)} testID={`del-reel-${a.id}`}>
                       <Ionicons name="trash-outline" size={16} color={theme.textMuted} />
                     </TouchableOpacity>
                   </View>
@@ -577,6 +663,57 @@ export default function AdvertiseScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={reelOpen} transparent animationType="slide" onRequestClose={() => !reelBusy && setReelOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.backdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !reelBusy && setReelOpen(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.handle} />
+            <Text style={styles.sheetTitle}>Video reel ad</Text>
+            <Text style={styles.sheetSub}>Plays full-screen in Reels with a Sponsored overlay and your call-to-action.</Text>
+
+            <TouchableOpacity style={styles.reelVideoPick} onPress={pickReelVideo} disabled={rUploading} testID="reel-pick-video">
+              {rUploading ? <ActivityIndicator color={theme.primary} /> : rVideo ? (
+                <><Ionicons name="checkmark-circle" size={20} color={theme.primary} /><Text style={styles.reelVideoText}>Video added — tap to change</Text></>
+              ) : (
+                <><Ionicons name="cloud-upload-outline" size={20} color={theme.primary} /><Text style={styles.reelVideoText}>Upload a video (5–60s)</Text></>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.fieldLabel}>Headline</Text>
+            <View style={styles.inputWrap}>
+              <TextInput style={styles.input} value={rHeadline} onChangeText={setRHeadline} placeholder="Check out my new release" placeholderTextColor={theme.textMuted} maxLength={120} testID="reel-headline" />
+            </View>
+            <Text style={styles.fieldLabel}>Call-to-action link (optional)</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="link" size={16} color={theme.textMuted} />
+              <TextInput style={styles.input} value={rUrl} onChangeText={setRUrl} placeholder="https://example.com" placeholderTextColor={theme.textMuted} autoCapitalize="none" keyboardType="url" testID="reel-url" />
+            </View>
+
+            <Text style={styles.fieldLabel}>Ad length</Text>
+            <View style={styles.ppcRow}>
+              {[5, 15, 30, 60].map((d) => (
+                <TouchableOpacity key={d} style={[styles.ppcTab, rDuration === d && styles.ppcTabOn]} onPress={() => setRDuration(d)} testID={`reel-dur-${d}`}>
+                  <Text style={[styles.ppcText, rDuration === d && { color: theme.primary }]}>{d}s</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.fieldLabel}>Run for</Text>
+            <View style={styles.ppcRow}>
+              {[7, 14, 30].map((d) => (
+                <TouchableOpacity key={d} style={[styles.ppcTab, rDays === d && styles.ppcTabOn]} onPress={() => setRDays(d)} testID={`reel-days-${d}`}>
+                  <Text style={[styles.ppcText, rDays === d && { color: theme.primary }]}>{d} days</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {reelMsg && <Text style={styles.topupMsg}>{reelMsg}</Text>}
+            <TouchableOpacity style={[styles.payBtn, reelBusy && { opacity: 0.7 }]} onPress={submitReelAd} disabled={reelBusy} testID="reel-submit">
+              {reelBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>Launch reel ad</Text>}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -698,6 +835,8 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, color: theme.textPrimary, fontSize: 15, height: "100%" },
   fieldRow: { flexDirection: "row", gap: 12 },
+  reelVideoPick: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderStyle: "dashed", borderRadius: 12, height: 56, marginTop: 6, marginBottom: 4 },
+  reelVideoText: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   payBtn: {
     backgroundColor: theme.primary, borderRadius: 14, height: 52,
     alignItems: "center", justifyContent: "center", marginTop: 10,

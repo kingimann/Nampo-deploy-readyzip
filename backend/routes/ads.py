@@ -499,6 +499,127 @@ async def link_ad_event(ad_id: str, body: AdEvent, authorization: Optional[str] 
     return {"ok": True, "charged": charge}
 
 
+# ── Reel video ads (sponsored full-screen videos in the reels feed) ──────────
+class ReelAdCreate(BaseModel):
+    video_url: str               # Cloudinary (or http) video URL
+    thumbnail: Optional[str] = None
+    headline: str
+    url: Optional[str] = None    # optional CTA link
+    cta: Optional[str] = "Learn more"
+    duration: int = 15           # 5..60 seconds
+    days: int = 7
+    cpc: Optional[float] = None
+
+
+async def bill_reel_ad(ad: dict, actor_id: Optional[str], kind: str) -> float:
+    advertiser = ad.get("owner_id")
+    if not advertiser or advertiser == actor_id:
+        return 0.0
+    rate = (float(ad.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC) if kind == "click" else AD_RATE_VIEW
+    field = "ad_clicks" if kind == "click" else "ad_impressions"
+    bal = await _ad_balance(advertiser)
+    charge = 0.0
+    if bal is not None and bal > 0:
+        charge = round(min(rate, bal), 2)
+        if charge > 0:
+            await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+    await db.reel_ads.update_one({"id": ad["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
+    return charge
+
+
+def _reel_ad_view(d: dict) -> dict:
+    return {
+        "id": d["id"], "owner_id": d.get("owner_id"), "owner_name": d.get("owner_name", "Advertiser"),
+        "video_url": d.get("video_url"), "thumbnail": d.get("thumbnail"),
+        "headline": d.get("headline"), "url": d.get("url"), "cta": d.get("cta") or "Learn more",
+        "duration": int(d.get("duration", 15) or 15),
+        "cpc": round(float(d.get("ad_cpc", 0) or 0), 2),
+        "impressions": int(d.get("ad_impressions", 0) or 0), "clicks": int(d.get("ad_clicks", 0) or 0),
+        "spent": round(float(d.get("ad_spent", 0) or 0), 2),
+        "promoted_until": d.get("promoted_until"),
+        "active": bool(d.get("promoted_until") and _norm_dt(d["promoted_until"]) > datetime.now(timezone.utc)),
+    }
+
+
+@router.post("/ads/reels")
+async def create_reel_ad(body: ReelAdCreate, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    require_account_age(me, "advertise a reel", MONETIZE_MIN_AGE_DAYS)
+    if not _valid_url(body.video_url):
+        raise HTTPException(status_code=400, detail="Upload a video for the ad")
+    headline = (body.headline or "").strip()[:120]
+    if not headline:
+        raise HTTPException(status_code=400, detail="Headline is required")
+    if body.url and not _valid_url(body.url):
+        raise HTTPException(status_code=400, detail="Enter a valid http(s) link (or leave it blank)")
+    duration = max(5, min(60, int(body.duration or 15)))
+    days = max(1, min(60, int(body.days or 7)))
+    cpc = round(float(body.cpc or 0) or AD_DEFAULT_CPC, 2)
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()), "owner_id": me["user_id"], "owner_name": me.get("name", "Advertiser"),
+        "video_url": body.video_url, "thumbnail": body.thumbnail,
+        "headline": headline, "url": (body.url or None), "cta": (body.cta or "Learn more")[:40],
+        "duration": duration, "ad_cpc": cpc,
+        "promoted_until": now + timedelta(days=days),
+        "ad_impressions": 0, "ad_clicks": 0, "ad_spent": 0.0, "created_at": now,
+    }
+    await db.reel_ads.insert_one(doc.copy())
+    return _reel_ad_view(doc)
+
+
+@router.get("/ads/reels")
+async def my_reel_ads(authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    rows = await db.reel_ads.find({"owner_id": me["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
+    return {"ads": [_reel_ad_view(r) for r in rows]}
+
+
+@router.delete("/ads/reels/{ad_id}")
+async def delete_reel_ad(ad_id: str, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    res = await db.reel_ads.delete_one({"id": ad_id, "owner_id": me["user_id"]})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    return {"ok": True}
+
+
+@router.get("/ads/reels/serve")
+async def serve_reel_ad(authorization: Optional[str] = Header(None)):
+    """Pick one active sponsored reel to inject into the feed (budget-weighted)."""
+    me = await get_current_user(authorization)
+    now = datetime.now(timezone.utc)
+    rows = await db.reel_ads.find(
+        {"promoted_until": {"$gt": now}, "owner_id": {"$ne": me["user_id"]}}, {"_id": 0}
+    ).sort("created_at", -1).limit(60).to_list(60)
+    # Only advertisers who still have ad balance.
+    funded = []
+    for r in rows:
+        bal = await _ad_balance(r.get("owner_id"))
+        if bal is not None and bal > 0:
+            funded.append(r)
+    if not funded:
+        return {"ad": None}
+    import random as _r
+    return {"ad": _reel_ad_view(_r.choice(funded))}
+
+
+@router.post("/ads/reels/{ad_id}/event")
+async def reel_ad_event(ad_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    ad = await db.reel_ads.find_one({"id": ad_id}, {"_id": 0})
+    if not ad:
+        return {"ok": True}
+    viewer = me["user_id"]
+    if viewer == ad.get("owner_id"):
+        return {"ok": True, "self": True}
+    kind = "click" if body.type == "click" else "impression"
+    if await _seen_recently(ad_id, viewer, kind, 24):
+        return {"ok": True, "duplicate": True}
+    charge = await bill_reel_ad(ad, viewer, kind)
+    return {"ok": True, "charged": charge}
+
+
 @router.post("/admin/bot/run")
 async def bot_run(body: BotRun, authorization: Optional[str] = Header(None)):
     """Simulate views/clicks/likes/comments on a sponsored post to test wallet

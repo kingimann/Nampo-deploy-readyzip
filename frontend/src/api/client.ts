@@ -178,6 +178,14 @@ export const api = {
     request<{ id: string }>("/ads/links", { method: "POST", body: JSON.stringify(body) }),
   getLinkAds: () => request<{ ads: LinkAd[] }>("/ads/links"),
   deleteLinkAd: (id: string) => request<{ ok: boolean }>(`/ads/links/${id}`, { method: "DELETE" }),
+  // Reel video ads (sponsored full-screen videos in the reels feed)
+  createReelAd: (body: { video_url: string; thumbnail?: string | null; headline: string; url?: string; cta?: string; duration?: number; days?: number; cpc?: number }) =>
+    request<ReelAd>("/ads/reels", { method: "POST", body: JSON.stringify(body) }),
+  getReelAds: () => request<{ ads: ReelAd[] }>("/ads/reels"),
+  deleteReelAd: (id: string) => request<{ ok: boolean }>(`/ads/reels/${id}`, { method: "DELETE" }),
+  serveReelAd: () => request<{ ad: ReelAd | null }>("/ads/reels/serve"),
+  reelAdEvent: (id: string, type: "impression" | "click") =>
+    request<{ ok: boolean }>(`/ads/reels/${id}/event`, { method: "POST", body: JSON.stringify({ type }) }),
   // Publisher network — embed Nami ads on your own site and earn.
   createPubSite: (body: { name: string; domain?: string }) =>
     request<PublisherSite>("/pub/sites", { method: "POST", body: JSON.stringify(body) }),
@@ -686,6 +694,7 @@ export type Ad = { post_id: string | null; text: string; image?: string | null; 
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
 export type LinkAdServe = { id: string; url: string; headline: string; description?: string | null; image?: string | null; owner_id?: string };
 export type LinkAd = { id: string; url: string; headline: string; description?: string | null; image?: string | null; cpc: number; impressions: number; clicks: number; ctr: number; spent: number; promoted_until?: string | null; active: boolean };
+export type ReelAd = { id: string; owner_id?: string; owner_name: string; video_url: string; thumbnail?: string | null; headline: string; url?: string | null; cta: string; duration: number; cpc: number; impressions: number; clicks: number; spent: number; promoted_until?: string | null; active: boolean };
 export type PublisherSite = { id: string; name: string; domain?: string | null; site_key: string; impressions: number; clicks: number; ctr: number; earned: number; created_at?: string };
 export type BotPost = { post_id: string; text: string; owner_name: string; views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number };
 export type BotResult = { ok: boolean; earned: number; earner_id: string; spend: number; debited_from_advertiser: number; totals: { views: number; likes: number; comments: number; impressions: number; clicks: number; spent: number } };

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert,
+  Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,10 +11,11 @@ import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import ReelVideo from "@/src/components/ReelVideo";
+import { useAuth } from "@/src/context/AuthContext";
 
-function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH }: {
+function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH, myId }: {
   post: Post; active: boolean; muted: boolean; onToggleMute: () => void;
-  onOpenComments: (p: Post) => void; screenW: number; screenH: number;
+  onOpenComments: (p: Post) => void; screenW: number; screenH: number; myId?: string;
 }) {
   const video = post.media?.find((m) => m.type === "video");
   const image = post.media?.find((m) => m.type === "image");
@@ -148,9 +149,16 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           <Ionicons name="eye-outline" size={26} color="#fff" />
           <Text style={styles.metric}>{post.views_count || 0}</Text>
         </View>
-        <TouchableOpacity style={styles.iconBtn} onPress={onReport} testID={`reel-report-${post.id}`}>
-          <Ionicons name="flag-outline" size={24} color="#fff" />
-        </TouchableOpacity>
+        {myId && post.user_id === myId ? (
+          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: "/advertise", params: { post: post.id } })} testID={`reel-promote-${post.id}`}>
+            <Ionicons name="megaphone" size={23} color="#fff" />
+            <Text style={styles.metric}>Promote</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.iconBtn} onPress={onReport} testID={`reel-report-${post.id}`}>
+            <Ionicons name="flag-outline" size={24} color="#fff" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={styles.bottom}>
@@ -163,12 +171,68 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   );
 }
 
+function AdReel({ ad, active, muted, screenW, screenH }: {
+  ad: any; active: boolean; muted: boolean; screenW: number; screenH: number;
+}) {
+  const [paused, setPaused] = useState(false);
+  const [progress, setProgress] = useState(0);
+  React.useEffect(() => { if (active) setPaused(false); }, [active]);
+  React.useEffect(() => {
+    if (!active || paused) return;
+    const dur = Math.max(5, Math.min(60, ad.duration || 15));
+    const start = Date.now() - progress * dur * 1000;
+    const iv = setInterval(() => {
+      const p = Math.min(1, (Date.now() - start) / (dur * 1000));
+      setProgress(p);
+      if (p >= 1) clearInterval(iv);
+    }, 200);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, paused, ad.duration]);
+
+  const onCta = () => {
+    api.reelAdEvent(ad.id, "click").catch(() => {});
+    if (ad.url) Linking.openURL(ad.url).catch(() => {});
+  };
+
+  return (
+    <View style={{ width: screenW, height: screenH, backgroundColor: "#000" }}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)}>
+        <ReelVideo uri={ad.video_url} active={active} paused={paused} muted={muted} />
+        {paused && (
+          <View style={styles.centerPlay} pointerEvents="none">
+            <Ionicons name="play" size={66} color="rgba(255,255,255,0.92)" />
+          </View>
+        )}
+      </Pressable>
+      <View style={styles.adProgressTrack} pointerEvents="none">
+        <View style={[styles.adProgressFill, { width: `${Math.round(progress * 100)}%` }]} />
+      </View>
+      <View style={styles.adBadge} pointerEvents="none">
+        <Ionicons name="megaphone" size={11} color="#fff" />
+        <Text style={styles.adBadgeText}>Sponsored · {Math.max(5, Math.min(60, ad.duration || 15))}s</Text>
+      </View>
+      <View style={styles.adBottom} pointerEvents="box-none">
+        <Text style={styles.adAdvertiser}>{ad.owner_name}</Text>
+        <Text style={styles.adHeadline} numberOfLines={2}>{ad.headline}</Text>
+        {ad.url ? (
+          <TouchableOpacity style={styles.adCta} onPress={onCta} testID={`reel-ad-cta-${ad.id}`}>
+            <Text style={styles.adCtaText}>{ad.cta || "Learn more"}</Text>
+            <Ionicons name="open-outline" size={15} color="#000" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export default function ReelsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const [items, setItems] = useState<Post[]>([]);
+  const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -188,9 +252,18 @@ export default function ReelsScreen() {
         seen.add(p.id);
         return true;
       });
+      // Inject a sponsored reel ad a couple of reels in.
+      let merged: any[] = valid;
+      try {
+        const { ad } = await api.serveReelAd();
+        if (ad && valid.length >= 1) {
+          merged = [...valid];
+          merged.splice(Math.min(2, merged.length), 0, { ...ad, __ad: true });
+        }
+      } catch {}
       // Show whatever's playable. When there's nothing, fall through to the
       // in-screen empty state below — never yank the user off to another tab.
-      setItems(valid);
+      setItems(merged);
     } catch {} finally { setLoading(false); setRefreshing(false); }
   }, [focus]);
   // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
@@ -210,8 +283,9 @@ export default function ReelsScreen() {
     if (viewableItems?.length) {
       const idx = viewableItems[0].index ?? 0;
       setActiveIdx(idx);
-      const p = viewableItems[0].item as Post;
-      if (p?.id) api.recordPostView(p.id).catch(() => {});
+      const it = viewableItems[0].item as any;
+      if (it?.__ad) api.reelAdEvent(it.id, "impression").catch(() => {});
+      else if (it?.id) api.recordPostView(it.id).catch(() => {});
     }
   }).current;
 
@@ -255,15 +329,20 @@ export default function ReelsScreen() {
           getItemLayout={(_, index) => ({ length: screenH, offset: screenH * index, index })}
           initialScrollIndex={focusIndex > 0 ? focusIndex : undefined}
           renderItem={({ item, index }) => (
-            <Reel
-              post={item}
-              active={index === activeIdx && focused && !commentsPost}
-              muted={muted}
-              onToggleMute={() => setMuted((m) => !m)}
-              onOpenComments={(p) => setCommentsPost(p)}
-              screenW={screenW}
-              screenH={screenH}
-            />
+            item.__ad ? (
+              <AdReel ad={item} active={index === activeIdx && focused && !commentsPost} muted={muted} screenW={screenW} screenH={screenH} />
+            ) : (
+              <Reel
+                post={item}
+                active={index === activeIdx && focused && !commentsPost}
+                muted={muted}
+                onToggleMute={() => setMuted((m) => !m)}
+                onOpenComments={(p) => setCommentsPost(p)}
+                screenW={screenW}
+                screenH={screenH}
+                myId={user?.user_id}
+              />
+            )
           )}
         />
       )}
@@ -293,6 +372,15 @@ const styles = StyleSheet.create({
   empty: { color: theme.textMuted, fontSize: 15, textAlign: "center", paddingHorizontal: 40 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.15)" },
   centerPlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  adProgressTrack: { position: "absolute", top: 56, left: 12, right: 12, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.25)" },
+  adProgressFill: { height: 3, borderRadius: 2, backgroundColor: "#fff" },
+  adBadge: { position: "absolute", top: 66, left: 12, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  adBadgeText: { color: "#fff", fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
+  adBottom: { position: "absolute", left: 14, right: 80, bottom: 90 },
+  adAdvertiser: { color: "#fff", fontSize: 14, fontWeight: "800", marginBottom: 4, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
+  adHeadline: { color: "#fff", fontSize: 15, fontWeight: "600", lineHeight: 20, marginBottom: 10, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
+  adCta: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6, backgroundColor: "#fff", borderRadius: 22, paddingHorizontal: 16, paddingVertical: 9 },
+  adCtaText: { color: "#000", fontSize: 14, fontWeight: "800" },
   muteBtn: {
     position: "absolute", right: 16, top: 104,
     width: 38, height: 38, borderRadius: 19,
