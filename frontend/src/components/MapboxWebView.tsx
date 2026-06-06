@@ -100,7 +100,13 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     bearing: 0,
     attributionControl: false,
     logoPosition: 'bottom-left',
+    // ── Performance: make zooming/panning smoother in the WebView. ──
+    fadeDuration: 0,          // no label cross-fade work on every zoom frame
+    renderWorldCopies: false, // don't render duplicate worlds (fewer tiles)
+    antialias: false,         // cheaper rasterization
   });
+  // Cap zoom-in so the camera never grinds past street level (heavy + pointless).
+  map.setMaxZoom(18);
 
   var markers = {};
   var userMarker = null;
@@ -251,7 +257,27 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   }
 
   function flyTo(lng, lat, zoom) {
-    map.flyTo({ center:[lng,lat], zoom: zoom != null ? zoom : map.getZoom(), essential: true });
+    var z = zoom != null ? zoom : map.getZoom();
+    var curZoom = map.getZoom();
+    var from = map.getCenter();
+    var degDist = Math.abs(from.lng - lng) + Math.abs(from.lat - lat);
+    // Opening from the far-out world view (or a huge geographic jump): snap
+    // instantly. A long flyTo from z1.7 -> z16 grinds through every zoom level
+    // and renders hundreds of intermediate tiles — that's the "auto zoom is
+    // laggy" feeling. jumpTo is instant and renders only the destination.
+    if (curZoom < 6 || degDist > 12) {
+      map.jumpTo({ center:[lng,lat], zoom: z });
+      return;
+    }
+    if (degDist > 0.5) {
+      // Far-ish jump (e.g. a search result a city away): real flyTo, but capped
+      // so it can't turn into a multi-second tile-rendering slog.
+      map.flyTo({ center:[lng,lat], zoom: z, essential: true, speed: 2.0, maxDuration: 1600 });
+    } else {
+      // Nearby recenter / zoom change: a short ease is far snappier than flyTo's
+      // zoom-out-then-in arc.
+      map.easeTo({ center:[lng,lat], zoom: z, duration: 600, essential: true });
+    }
   }
   // Lightweight linear glide used for continuous "follow" tracking. Much cheaper
   // and smoother than flyTo when fired on every GPS fix.

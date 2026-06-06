@@ -186,7 +186,7 @@ export default function MapScreen() {
         }
       }
       const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation,
+        accuracy: Location.Accuracy.High,
       });
       const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
       setUserLoc(coords);
@@ -215,7 +215,7 @@ export default function MapScreen() {
         if (status !== "granted") return;
         // Initial fix at the best available accuracy
         const initial = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.BestForNavigation,
+          accuracy: Location.Accuracy.High,
         });
         if (cancelled) return;
         const c0: [number, number] = [initial.coords.longitude, initial.coords.latitude];
@@ -293,8 +293,10 @@ export default function MapScreen() {
         setMapReady(true);
         requestLocation();
       } else if (e.type === "moveEnd") {
-        setBearing(e.bearing);
-        setPitch(e.pitch);
+        // Only update state when the compass-relevant values actually changed,
+        // so routine pan/zoom-end events don't re-render the whole screen.
+        setBearing((b) => (Math.abs(b - e.bearing) > 0.5 ? e.bearing : b));
+        setPitch((p) => (Math.abs(p - e.pitch) > 0.5 ? e.pitch : p));
       } else if (e.type === "userPan") {
         // User panned/zoomed/rotated → leave follow mode (Google-Maps parity)
         setFollowMode(false);
