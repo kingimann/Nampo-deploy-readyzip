@@ -986,6 +986,7 @@ export type TransitDeparture = {
   time_label?: string; // "HH:MM"
   minutes: number | null;
   realtime: boolean;
+  delay?: number | null; // real-time delay vs schedule, seconds (+late / -early)
   iso?: string | null;
 };
 export type TransitStop = {

@@ -128,6 +128,20 @@ const transitWhen = (d: { minutes: number | null; time_label?: string }): string
   }
   return d.time_label || "—";
 };
+// Real-time punctuality from the GTFS-RT delay (seconds). null when the row is
+// schedule-only (no live feed for that trip).
+const transitStatus = (
+  d: { realtime: boolean; delay?: number | null },
+): { text: string; color: string } | null => {
+  if (!d.realtime) return null;
+  const delay = d.delay;
+  if (delay == null) return { text: "Live", color: theme.success };
+  if (Math.abs(delay) < 60) return { text: "On time", color: theme.success };
+  const mins = Math.round(Math.abs(delay) / 60);
+  return delay > 0
+    ? { text: `${mins} min late`, color: theme.warning }
+    : { text: `${mins} min early`, color: theme.textSecondary };
+};
 
 export default function DirectionsScreen() {
   const insets = useSafeAreaInsets();
@@ -1211,12 +1225,16 @@ export default function DirectionsScreen() {
                     </View>
                     <View style={styles.transitWhenWrap}>
                       <Text style={styles.transitWhen}>{transitWhen(item)}</Text>
-                      {item.realtime && (
-                        <View style={styles.transitLiveRow}>
-                          <View style={styles.transitLiveDot} />
-                          <Text style={styles.transitLiveText}>live</Text>
-                        </View>
-                      )}
+                      {(() => {
+                        const st = transitStatus(item);
+                        if (!st) return null;
+                        return (
+                          <View style={styles.transitLiveRow}>
+                            <View style={[styles.transitLiveDot, { backgroundColor: st.color }]} />
+                            <Text style={[styles.transitLiveText, { color: st.color }]}>{st.text}</Text>
+                          </View>
+                        );
+                      })()}
                     </View>
                   </View>
                 )}
@@ -1534,7 +1552,7 @@ const styles = StyleSheet.create({
   transitBadgeText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   transitHeadsign: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   transitStop: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
-  transitWhenWrap: { alignItems: "flex-end", minWidth: 56 },
+  transitWhenWrap: { alignItems: "flex-end", minWidth: 72 },
   transitWhen: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
   transitLiveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
   transitLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.success },

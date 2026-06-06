@@ -71,6 +71,25 @@ def _minutes_until(iso: Optional[str]) -> Optional[int]:
         return None
 
 
+def _delay_seconds(dep: dict) -> Optional[int]:
+    """Real-time delay vs schedule, in seconds (+late / -early). None if no RT."""
+    d = dep.get("departure") or {}
+    for key in ("estimated_delay", "delay"):
+        v = d.get(key)
+        if isinstance(v, (int, float)):
+            return int(v)
+    # Fall back to estimated_utc - scheduled_utc when both timestamps exist.
+    est, sched = d.get("estimated_utc"), d.get("scheduled_utc")
+    if est and sched:
+        try:
+            de = datetime.fromisoformat(est.replace("Z", "+00:00"))
+            ds = datetime.fromisoformat(sched.replace("Z", "+00:00"))
+            return int(round((de - ds).total_seconds()))
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 async def _departures_for_stop(client: httpx.AsyncClient, onestop_id: str) -> list:
     try:
         resp = await client.get(
@@ -105,6 +124,7 @@ async def _departures_for_stop(client: httpx.AsyncClient, onestop_id: str) -> li
                 "time_label": (dep.get("departure_time") or "")[:5],
                 "minutes": mins,
                 "realtime": bool(d.get("estimated") or d.get("estimated_utc")),
+                "delay": _delay_seconds(dep),
                 "iso": iso,
             })
     return out
