@@ -41,7 +41,6 @@ export default function CustomizeSidebarScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle}>{s.label}</Text>
-                <Text style={styles.rowSub} numberOfLines={1}>{s.route}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => move(s.id, -1)}
@@ -98,7 +97,6 @@ export default function CustomizeSidebarScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.rowTitle}>{s.label}</Text>
-                    <Text style={styles.rowSub} numberOfLines={1}>{s.route}</Text>
                   </View>
                   <View style={styles.addBtn}>
                     <Ionicons name="add" size={18} color={theme.primary} />
