@@ -452,6 +452,9 @@ async def _credit(to_user_id: str, amount: float, kind: str, frm: dict):
 @router.post("/users/{user_id}/tip", response_model=Tip)
 async def tip_user(user_id: str, body: TipCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
+    from routes.payments import stripe_enabled
+    if stripe_enabled():
+        raise HTTPException(status_code=409, detail={"code": "use_stripe", "message": "Real payments are on — tips go through Stripe checkout."})
     if user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't tip yourself")
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
@@ -501,6 +504,9 @@ class SubscribeBody(BaseModel):
 @router.post("/users/{user_id}/subscribe")
 async def subscribe_user(user_id: str, body: SubscribeBody = SubscribeBody(), authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
+    from routes.payments import stripe_enabled
+    if stripe_enabled():
+        raise HTTPException(status_code=409, detail={"code": "use_stripe", "message": "Real payments are on — subscribe through Stripe checkout."})
     if user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't subscribe to yourself")
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
