@@ -105,7 +105,8 @@ class WalletTxn(BaseModel):
     amount: float
     from_user_id: str         # counterparty: payer (received) or recipient (sent)
     from_name: str
-    source: str = "test"      # how it was paid: stripe | test
+    source: str = "test"      # how it was paid: stripe | test | transfer
+    message: Optional[str] = ""   # note the payer attached
     created_at: datetime
 
 

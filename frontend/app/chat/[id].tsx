@@ -86,6 +86,7 @@ export default function ChatScreen() {
   const [gifOpen, setGifOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [peer, setPeer] = useState<{ id: string; name: string } | null>(null);
   const [payEnabled, setPayEnabled] = useState(false);
   useEffect(() => { api.getPaymentsConfig().then((c) => setPayEnabled(c.enabled)).catch(() => {}); }, []);
@@ -423,6 +424,17 @@ export default function ChatScreen() {
     setMessages((m) => [...m, msg]);
   };
 
+  const clearConvo = () => {
+    setOptionsOpen(false);
+    const run = async () => {
+      try { await api.clearConversation(id); setMessages([]); }
+      catch (e: any) { Alert.alert("Couldn't clear", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    };
+    const msg = "Clear this conversation? This hides all messages for you. The other person keeps their copy.";
+    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(msg)) run(); }
+    else Alert.alert("Clear conversation?", msg, [{ text: "Cancel", style: "cancel" }, { text: "Clear", style: "destructive", onPress: run }]);
+  };
+
   const pickFile = async () => {
     if (!id) return;
     if (Platform.OS === "web") {
@@ -711,8 +723,21 @@ export default function ChatScreen() {
             </View>
           )}
         </View>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={() => setOptionsOpen(true)} style={styles.iconBtn} testID="chat-options">
+          <Ionicons name="ellipsis-horizontal" size={22} color={theme.textPrimary} />
+        </TouchableOpacity>
       </View>
+
+      <Modal visible={optionsOpen} transparent animationType="fade" onRequestClose={() => setOptionsOpen(false)}>
+        <TouchableOpacity style={styles.optBackdrop} activeOpacity={1} onPress={() => setOptionsOpen(false)}>
+          <View style={styles.optSheet}>
+            <TouchableOpacity style={styles.optRow} onPress={clearConvo} testID="chat-clear">
+              <Ionicons name="trash-outline" size={20} color={theme.error} />
+              <Text style={[styles.optText, { color: theme.error }]}>Clear conversation</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -1129,6 +1154,8 @@ export default function ChatScreen() {
         live={payEnabled}
         onCheckout={payEnabled && peer ? (amt, note) =>
           stripeCheckout({ kind: "tip", creator_id: peer.id, amount: amt, extra: { conversation_id: id, note } }) : undefined}
+        onWalletFallback={peer ? (amt, note) =>
+          router.push(`/pay/${peer.id}?amount=${amt}&note=${encodeURIComponent(note || "")}`) : undefined}
         cta="Send tip"
         successText={`Your tip was sent to ${peer?.name || "them"}.`}
         onClose={() => setTipOpen(false)}
@@ -1251,6 +1278,10 @@ function TypingBubble() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  optBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
+  optSheet: { position: "absolute", top: 56, right: 10, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingVertical: 6, minWidth: 210, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  optRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  optText: { fontSize: 15, fontWeight: "700" },
   header: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 12, paddingVertical: 8,

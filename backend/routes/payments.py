@@ -552,6 +552,7 @@ async def stripe_webhook(request: Request):
                 "id": str(uuid.uuid4()), "user_id": creator_id, "amount": net,
                 "kind": "subscription" if kind == "subscription" else "tip",
                 "from_user_id": buyer_id or "", "from_name": meta.get("buyer_name", "Someone"),
+                "message": meta.get("note", "") if kind != "subscription" else "",
                 "source": "stripe", "created_at": now,
             })
             if kind == "subscription" and buyer_id:

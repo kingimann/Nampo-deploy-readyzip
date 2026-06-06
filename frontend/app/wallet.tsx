@@ -287,6 +287,17 @@ export default function WalletScreen() {
             </View>
           </View>
 
+          {payEnabled && !payout?.payouts_enabled && ((bal?.balance ?? w?.balance ?? 0) > 0 || (w?.total_earned ?? 0) > 0) ? (
+            <TouchableOpacity style={styles.cashoutBanner} onPress={setupPayouts} disabled={connecting} testID="wallet-cashout-nudge">
+              <Ionicons name="alert-circle" size={20} color="#D97706" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cashoutTitle}>Set up Stripe to cash out</Text>
+                <Text style={styles.cashoutSub}>You have a balance to withdraw. Connect Stripe payouts to transfer it to your bank.</Text>
+              </View>
+              {connecting ? <ActivityIndicator color="#D97706" size="small" /> : <Ionicons name="chevron-forward" size={18} color="#D97706" />}
+            </TouchableOpacity>
+          ) : null}
+
           {topups.length > 0 && (
             <>
               <Text style={styles.section}>Top-ups</Text>
@@ -579,6 +590,12 @@ export default function WalletScreen() {
                 <Text style={styles.detailLabel}>Amount</Text>
                 <Text style={styles.detailValue}>${detail.txn.amount.toFixed(2)} USD</Text>
               </View>
+              {detail.txn.message ? (
+                <View style={[styles.detailRow, { alignItems: "flex-start" }]}>
+                  <Text style={styles.detailLabel}>Message</Text>
+                  <Text style={styles.detailValue}>{detail.txn.message}</Text>
+                </View>
+              ) : null}
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>When</Text>
                 <Text style={styles.detailValue}>{fmtFull(detail.txn.created_at)}</Text>
@@ -813,6 +830,9 @@ const styles = StyleSheet.create({
   checkAgainText: { color: theme.primary, fontWeight: "800", fontSize: 14 },
   reqText: { color: "#F59E0B", fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
   reasonCode: { color: theme.textMuted, fontSize: 11, fontWeight: "600" },
+  cashoutBanner: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(217,119,6,0.12)", borderWidth: 1, borderColor: "rgba(217,119,6,0.4)", borderRadius: 14, padding: 14, marginTop: 14 },
+  cashoutTitle: { color: "#D97706", fontSize: 14.5, fontWeight: "800" },
+  cashoutSub: { color: theme.textSecondary, fontSize: 12.5, marginTop: 2, lineHeight: 17 },
   topupsCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 16 },
   topupRow: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   topupRowLast: { borderBottomWidth: 0 },

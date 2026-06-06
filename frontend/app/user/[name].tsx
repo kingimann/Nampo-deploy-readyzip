@@ -353,6 +353,8 @@ export default function UserProfileScreen() {
             live={payEnabled}
             onCheckout={payEnabled ? (amt, note) =>
               stripeCheckout({ kind: "tip", creator_id: user.user_id, amount: amt, extra: { note } }) : undefined}
+            onWalletFallback={(amt, note) =>
+              router.push(`/pay/${user.user_id}?amount=${amt}&note=${encodeURIComponent(note || "")}`)}
             onClose={() => setTipOpen(false)}
             onPaid={async (amount, note) => { await api.tipUser(user.user_id, amount, note); }}
           />

@@ -29,6 +29,8 @@ type Props = {
   live?: boolean;
   /** When live: launches Stripe Checkout (embedded). Return false if it couldn't start. */
   onCheckout?: (amount: number, note: string) => Promise<boolean | string | null | void>;
+  /** Offered when a card payment can't start (recipient has no payouts): send from wallet balance. */
+  onWalletFallback?: (amount: number, note: string) => void;
   onClose: () => void;
   onPaid: (amount: number, note: string) => Promise<void> | void;
 };
@@ -36,7 +38,7 @@ type Props = {
 const PRESETS = [1, 3, 5, 10, 20, 50];
 
 export default function FakePaymentSheet({
-  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, live, onCheckout, onClose, onPaid,
+  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, live, onCheckout, onWalletFallback, onClose, onPaid,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [amt, setAmt] = useState(String(amount || 0));
@@ -66,7 +68,14 @@ export default function FakePaymentSheet({
         if (typeof r === "string" && r) await Linking.openURL(r);
         if (r === false) {
           setBusy(false);
-          Alert.alert("Couldn't start checkout", "This person may not have set up payouts yet, so they can't receive payments right now.");
+          if (onWalletFallback) {
+            const msg = "This person hasn't set up card payouts. Send it from your wallet balance instead?";
+            const go = () => { onClose(); onWalletFallback(value, note.trim()); };
+            if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(msg)) go(); }
+            else Alert.alert("Send from wallet?", msg, [{ text: "Cancel", style: "cancel" }, { text: "Send from wallet", onPress: go }]);
+          } else {
+            Alert.alert("Couldn't start checkout", "This person may not have set up payouts yet, so they can't receive card payments right now.");
+          }
           return;
         }
         onClose();

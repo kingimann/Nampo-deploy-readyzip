@@ -5,14 +5,17 @@ Transfers are recorded the same way tips are (db.tips + db.earnings) so they
 appear in the Wallet's Sent/Received lists automatically.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 import bcrypt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency
+from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
+
+# How long the sender can reverse a money transfer before the recipient can claim it.
+REVERSAL_WINDOW_MIN = 5
 from routes.notifications import emit_notification
 
 router = APIRouter()
@@ -134,9 +137,32 @@ async def _do_transfer(sender: dict, to_id: str, amount: float, note: str):
     await db.earnings.insert_one({
         "id": str(uuid.uuid4()), "user_id": to_id, "amount": amount, "kind": "tip",
         "from_user_id": sender["user_id"], "from_name": name,
-        "source": "transfer", "created_at": now,
+        "message": (note or "")[:200], "source": "transfer", "created_at": now,
     })
+    # Nudge the recipient to connect Stripe so they can cash this balance out.
+    await _maybe_payout_nudge(to_id)
     return now
+
+
+async def _maybe_payout_nudge(user_id: str):
+    """If the user has money to cash out but hasn't started Stripe payout setup,
+    remind them (at most once a week) to connect Stripe."""
+    from routes.payments import stripe_enabled
+    if not stripe_enabled():
+        return
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "stripe_account_id": 1, "payout_nudge_at": 1})
+    if not u or u.get("stripe_account_id"):
+        return   # already connected / started payout setup
+    last = u.get("payout_nudge_at")
+    now = datetime.now(timezone.utc)
+    try:
+        if last and (now - _norm_dt(last)).days < 7:
+            return
+    except Exception:
+        pass
+    await db.users.update_one({"user_id": user_id}, {"$set": {"payout_nudge_at": now}})
+    await _notify_money(user_id, user_id, "payout_setup",
+                        "Set up Stripe payouts to cash out your wallet balance")
 
 
 async def _notify_money(to_id: str, actor_id: str, ntype: str, message: str):
@@ -201,18 +227,22 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
     # credited to the recipient on accept; the full amount+fee is refunded on decline.
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
         raise _insufficient()
-    # Money isn't credited until the recipient accepts it (Cash App-style).
+    # Money isn't credited until the recipient accepts it (Cash App-style), and
+    # for the first few minutes the sender can still reverse it (in case of a
+    # mistake) — the recipient can't claim it until claimable_at.
     now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
         "from_user_id": me["user_id"], "from_name": me.get("name", "Someone"),
         "to_user_id": body.to_user_id, "amount": amount, "fee": fee, "note": (body.note or "")[:200],
         "status": "pending", "created_at": now,
+        "claimable_at": now + timedelta(minutes=REVERSAL_WINDOW_MIN),
     }
     await db.money_transfers.insert_one(doc.copy())
     await _notify_money(body.to_user_id, me["user_id"], "money_received",
                         f"sent you ${amount:.2f} — accept it")
-    return {"ok": True, "amount": amount, "fee": fee, "status": "pending"}
+    return {"ok": True, "amount": amount, "fee": fee, "status": "pending",
+            "claimable_at": doc["claimable_at"], "reversal_window_min": REVERSAL_WINDOW_MIN}
 
 
 async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
@@ -228,6 +258,7 @@ async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
             "username": other.username, "picture": other.picture, "verified": other.verified,
         },
         "created_at": t.get("created_at"),
+        "claimable_at": t.get("claimable_at"),
     }
 
 
@@ -255,6 +286,20 @@ async def accept_transfer(tid: str, authorization: Optional[str] = Header(None))
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
+    # Honour the sender's reversal window — can't be claimed until claimable_at.
+    claimable = t.get("claimable_at")
+    if claimable:
+        try:
+            mins = (_norm_dt(claimable) - datetime.now(timezone.utc)).total_seconds() / 60.0
+            if mins > 0:
+                raise HTTPException(status_code=409, detail={
+                    "code": "not_yet_claimable",
+                    "message": f"Available to accept in about {max(1, round(mins))} min — the sender can still reverse it until then.",
+                })
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     amount = round(float(t.get("amount", 0) or 0), 2)
     sender = await db.users.find_one({"user_id": t["from_user_id"]}, {"_id": 0, "user_id": 1, "name": 1}) \
         or {"user_id": t["from_user_id"], "name": t.get("from_name", "Someone")}
@@ -282,6 +327,25 @@ async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)
     )
     await _notify_money(t["from_user_id"], me["user_id"], "money_declined",
                         "declined your money")
+    return {"ok": True}
+
+
+@router.post("/money/transfers/{tid}/reverse")
+async def reverse_transfer(tid: str, authorization: Optional[str] = Header(None)):
+    """The sender reverses a transfer they sent (e.g. a mistake) while it's still
+    pending — they get refunded and the recipient is notified."""
+    me = await get_current_user(authorization)
+    t = await db.money_transfers.find_one(
+        {"id": tid, "from_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="Transfer not found or already settled")
+    await _credit_wallet(me["user_id"], round(float(t.get("amount", 0) or 0) + float(t.get("fee", 0) or 0), 2))
+    await db.money_transfers.update_one(
+        {"id": tid}, {"$set": {"status": "reversed", "resolved_at": datetime.now(timezone.utc)}}
+    )
+    await _notify_money(t["to_user_id"], me["user_id"], "money_reversed",
+                        f"reversed the ${round(float(t.get('amount', 0) or 0), 2):.2f} they sent")
     return {"ok": True}
 
 

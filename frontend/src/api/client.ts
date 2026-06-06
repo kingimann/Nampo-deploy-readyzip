@@ -284,6 +284,8 @@ export const api = {
     request<{ ok: boolean }>(`/emojis/${id}`, { method: "DELETE" }),
   deleteConversation: (conv_id: string) =>
     request<{ ok: boolean }>(`/conversations/${conv_id}`, { method: "DELETE" }),
+  clearConversation: (conv_id: string) =>
+    request<{ ok: boolean }>(`/conversations/${conv_id}/clear`, { method: "POST" }),
 
   // Group chats
   createGroupChat: (body: { name: string; member_ids: string[]; avatar?: string }) =>
@@ -399,6 +401,8 @@ export const api = {
     request<{ ok: boolean; amount: number }>(`/money/transfers/${id}/accept`, { method: "POST" }),
   declineMoneyTransfer: (id: string) =>
     request<{ ok: boolean }>(`/money/transfers/${id}/decline`, { method: "POST" }),
+  reverseMoneyTransfer: (id: string) =>
+    request<{ ok: boolean }>(`/money/transfers/${id}/reverse`, { method: "POST" }),
   requestMoney: (body: { to_user_id: string; amount: number; note?: string }) =>
     request<MoneyRequest>("/money/request", { method: "POST", body: JSON.stringify(body) }),
   listMoneyRequests: () => request<{ incoming: MoneyRequest[]; outgoing: MoneyRequest[] }>("/money/requests"),
@@ -642,7 +646,7 @@ export type ProfilePatch = {
   default_likes_disabled?: boolean;
 };
 export type SubTier = { id: string; name: string; price: number };
-export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; created_at: string };
+export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; message?: string; created_at: string };
 export type WalletSummary = {
   currency: string; balance?: number; total_earned: number; tips_total: number; subs_total: number;
   tips_count: number; active_subscribers: number; sub_price: number; recent: WalletTxn[];
@@ -700,9 +704,9 @@ export type AdminAuditEntry = {
 };
 export type MoneyRequest = {
   id: string; from_user_id: string; to_user_id: string; amount: number; note: string;
-  status: "pending" | "paid" | "declined" | "cancelled"; direction: "incoming" | "outgoing";
+  status: "pending" | "paid" | "declined" | "cancelled" | "reversed"; direction: "incoming" | "outgoing";
   other_user: { user_id: string; name: string; username?: string | null; picture?: string | null; verified?: boolean };
-  created_at?: string;
+  created_at?: string; claimable_at?: string | null;
 };
 export type PublicUser = {
   user_id: string;

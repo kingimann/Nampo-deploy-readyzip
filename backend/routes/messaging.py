@@ -703,6 +703,24 @@ async def delete_message(
 
 
 # ---------- Soft delete a chat (per user) ----------
+@router.post("/conversations/{conv_id}/clear")
+async def clear_conversation(
+    conv_id: str, authorization: Optional[str] = Header(None)
+):
+    """Clear the messages in this conversation from MY view (hides everything up
+    to now). The conversation stays in my inbox and the other person keeps their
+    copy — only my history is cleared."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0, "participant_ids": 1})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    now = datetime.now(timezone.utc)
+    await db.conversations.update_one(
+        {"id": conv_id}, {"$set": {f"cleared_at.{user['user_id']}": now}},
+    )
+    return {"ok": True, "cleared_at": now}
+
+
 @router.delete("/conversations/{conv_id}")
 async def delete_conversation_for_me(
     conv_id: str, authorization: Optional[str] = Header(None)

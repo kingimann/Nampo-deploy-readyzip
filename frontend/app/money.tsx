@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal,
-  ActivityIndicator, Image, FlatList, Pressable, Platform,
+  ActivityIndicator, Image, FlatList, Pressable, Platform, Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -53,8 +53,20 @@ export default function MoneyScreen() {
     try { setBal(await api.getWalletBalance()); } catch {}
     try { setFeeCents((await api.getPaymentsConfig()).transaction_fee_cents || 0); } catch {}
   }, []);
-  const acceptTransfer = async (t: MoneyRequest) => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch {} };
+  const acceptTransfer = async (t: MoneyRequest) => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Not yet", String(e?.message || e).replace(/^\d{3}:\s*/, "")); } };
   const declineTransfer = async (t: MoneyRequest) => { try { await api.declineMoneyTransfer(t.id); await load(); } catch {} };
+  const reverseTransfer = async (t: MoneyRequest) => {
+    const run = async () => { try { await api.reverseMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Couldn't reverse", String(e?.message || e).replace(/^\d{3}:\s*/, "")); } };
+    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(`Reverse the $${t.amount.toFixed(2)} you sent ${t.other_user.name}? You'll be refunded.`)) run(); }
+    else Alert.alert("Reverse transfer?", `Reverse the $${t.amount.toFixed(2)} you sent ${t.other_user.name}? You'll be refunded.`, [{ text: "Cancel", style: "cancel" }, { text: "Reverse", style: "destructive", onPress: run }]);
+  };
+  // Re-render periodically so the reversal countdown stays current.
+  const [, setTick] = useState(0);
+  useEffect(() => { const i = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(i); }, []);
+  const minsLeft = (iso?: string | null) => {
+    if (!iso) return 0;
+    try { return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 60000)); } catch { return 0; }
+  };
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const openFlow = (f: "send" | "request") => {
@@ -153,21 +165,52 @@ export default function MoneyScreen() {
           {transfers.incoming.length > 0 && (
             <>
               <Text style={styles.section}>Money sent to you</Text>
-              {transfers.incoming.map((t) => (
-                <View key={t.id} style={styles.reqRow}>
-                  <Avatar u={t.other_user} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.reqName} numberOfLines={1}>{t.other_user.name}</Text>
-                    <Text style={styles.reqMeta}>sent ${t.amount.toFixed(2)}{t.note ? ` · ${t.note}` : ""}</Text>
+              {transfers.incoming.map((t) => {
+                const wait = minsLeft(t.claimable_at);
+                return (
+                  <View key={t.id} style={styles.reqRow}>
+                    <Avatar u={t.other_user} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reqName} numberOfLines={1}>{t.other_user.name}</Text>
+                      <Text style={styles.reqMeta}>sent ${t.amount.toFixed(2)}{t.note ? ` · ${t.note}` : ""}</Text>
+                      {wait > 0 ? <Text style={styles.holdMeta}>Available in {wait} min</Text> : null}
+                    </View>
+                    {wait > 0 ? (
+                      <View style={[styles.payBtn, { opacity: 0.5 }]}><Ionicons name="time-outline" size={16} color="#fff" /></View>
+                    ) : (
+                      <TouchableOpacity style={styles.payBtn} onPress={() => acceptTransfer(t)} testID={`accept-${t.id}`}>
+                        <Text style={styles.payBtnText}>Accept</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={styles.declineBtn} onPress={() => declineTransfer(t)} testID={`decline-tx-${t.id}`}>
+                      <Ionicons name="close" size={16} color={theme.textMuted} />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity style={styles.payBtn} onPress={() => acceptTransfer(t)} testID={`accept-${t.id}`}>
-                    <Text style={styles.payBtnText}>Accept</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.declineBtn} onPress={() => declineTransfer(t)} testID={`decline-tx-${t.id}`}>
-                    <Ionicons name="close" size={16} color={theme.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              ))}
+                );
+              })}
+            </>
+          )}
+
+          {transfers.outgoing.filter((t) => t.status === "pending").length > 0 && (
+            <>
+              <Text style={styles.section}>Money you sent (reversible)</Text>
+              {transfers.outgoing.filter((t) => t.status === "pending").map((t) => {
+                const wait = minsLeft(t.claimable_at);
+                return (
+                  <View key={t.id} style={styles.reqRow}>
+                    <Avatar u={t.other_user} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reqName} numberOfLines={1}>To {t.other_user.name}</Text>
+                      <Text style={styles.reqMeta}>${t.amount.toFixed(2)}{t.note ? ` · ${t.note}` : ""}</Text>
+                      <Text style={styles.holdMeta}>{wait > 0 ? `Reversible for ${wait} more min` : "Awaiting them to accept"}</Text>
+                    </View>
+                    <TouchableOpacity style={styles.reverseBtn} onPress={() => reverseTransfer(t)} testID={`reverse-${t.id}`}>
+                      <Ionicons name="arrow-undo" size={14} color={theme.error} />
+                      <Text style={styles.reverseText}>Reverse</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
             </>
           )}
 
@@ -395,6 +438,9 @@ const styles = StyleSheet.create({
   reqRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, marginBottom: 8 },
   reqName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   reqMeta: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
+  holdMeta: { color: "#D97706", fontSize: 11.5, fontWeight: "700", marginTop: 2 },
+  reverseBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: theme.error, borderRadius: 10, paddingHorizontal: 12, height: 36 },
+  reverseText: { color: theme.error, fontSize: 13, fontWeight: "800" },
   payBtn: { backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 16, height: 36, alignItems: "center", justifyContent: "center" },
   payBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   declineBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.surfaceAlt },

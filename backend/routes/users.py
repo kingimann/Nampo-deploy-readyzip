@@ -436,7 +436,7 @@ async def list_friend_requests(authorization: Optional[str] = Header(None)):
 
 
 # ───────── Monetization: tips, subscriptions, wallet (fake payments) ─────────
-async def _credit(to_user_id: str, amount: float, kind: str, frm: dict):
+async def _credit(to_user_id: str, amount: float, kind: str, frm: dict, message: str = ""):
     """Record an earning for the recipient (all money goes to the creator)."""
     await db.earnings.insert_one({
         "id": str(uuid.uuid4()),
@@ -445,6 +445,7 @@ async def _credit(to_user_id: str, amount: float, kind: str, frm: dict):
         "kind": kind,
         "from_user_id": frm["user_id"],
         "from_name": frm.get("name", "Someone"),
+        "message": (message or "")[:200],
         "created_at": datetime.now(timezone.utc),
     })
 
@@ -475,7 +476,7 @@ async def tip_user(user_id: str, body: TipCreate, authorization: Optional[str] =
         "created_at": now,
     }
     await db.tips.insert_one(tip.copy())
-    await _credit(user_id, amount, "tip", me)
+    await _credit(user_id, amount, "tip", me, message=(body.message or ""))
     if emit_notification:
         try:
             await emit_notification(user_id=user_id, actor_id=me["user_id"], ntype="tip",
@@ -574,7 +575,7 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
     recent = [
         WalletTxn(id=r["id"], kind=r.get("kind", "tip"), amount=r["amount"],
                   from_user_id=r.get("from_user_id", ""), from_name=r.get("from_name", "Someone"),
-                  source=r.get("source", "test"), created_at=r["created_at"])
+                  source=r.get("source", "test"), message=r.get("message", ""), created_at=r["created_at"])
         for r in rows[:30]
     ]
 
@@ -596,19 +597,20 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
 
     sent_items = [
         {"id": t["id"], "kind": "tip", "amount": float(t.get("amount", 0) or 0),
-         "to_user_id": t.get("to_user_id", ""), "source": t.get("source", "test"), "created_at": t["created_at"]}
+         "to_user_id": t.get("to_user_id", ""), "source": t.get("source", "test"),
+         "message": t.get("message", ""), "created_at": t["created_at"]}
         for t in sent_tips
     ] + [
         {"id": s["id"], "kind": "subscription", "amount": float(s.get("amount", 0) or 0),
          "to_user_id": s.get("creator_id", ""), "source": s.get("source", "test"),
-         "created_at": s.get("created_at") or s.get("started_at")}
+         "message": "", "created_at": s.get("created_at") or s.get("started_at")}
         for s in paid_subs
     ]
     sent_items.sort(key=lambda x: x["created_at"], reverse=True)
     sent = [
         WalletTxn(id=i["id"], kind=i["kind"], amount=i["amount"],
                   from_user_id=i["to_user_id"], from_name=name_by_id.get(i["to_user_id"], "Someone"),
-                  source=i["source"], created_at=i["created_at"])
+                  source=i["source"], message=i.get("message", ""), created_at=i["created_at"])
         for i in sent_items[:30]
     ]
 

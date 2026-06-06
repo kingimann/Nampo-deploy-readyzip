@@ -234,7 +234,9 @@ New posts default to the author's `default_comment_policy` / `default_likes_disa
 `GET/POST /conversations` · `POST /conversations/groups` · `GET/POST /conversations/{id}/messages`
 (text, media, voice, place, post, gif, file, contact, **tip**) ·
 `PATCH|DELETE /conversations/{id}/messages/{mid}` · `POST .../{mid}/react` ·
-`POST /conversations/{id}/read` (read receipts).
+`POST /conversations/{id}/read` (read receipts) ·
+`POST /conversations/{id}/clear` (clear my copy of the history; conversation stays) ·
+`DELETE /conversations/{id}` (hide the conversation from my inbox).
 
 **Presence & status (Snapchat-style):** `POST /conversations/{id}/presence` `{typing}`
 heartbeat · `GET /conversations/{id}/presence` → `{typing, active}`. Messages return
@@ -298,7 +300,11 @@ display currency (`/wallet/currency`, `/currencies`).
 
 Sending requires the **sender's transfer security question** (bcrypt-hashed answer).
 Sent money is a **pending transfer the recipient accepts** before it's credited.
-Insufficient funds → `400 insufficient_balance`.
+Insufficient funds → `400 insufficient_balance`. For the first **5 minutes** the sender can
+**reverse** a transfer (mistake undo) and the recipient can't accept it yet (`claimable_at`;
+accepting early → `409 not_yet_claimable`). Receiving money records the sender, time and
+message, notifies the recipient, and (if they haven't set up Stripe) nudges them to connect
+payouts to cash out (`payout_setup` notification).
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -306,6 +312,7 @@ Insufficient funds → `400 insufficient_balance`.
 | POST | `/money/send` | Send money — `{to_user_id, amount, note, answer}` → pending transfer |
 | GET | `/money/transfers` | Incoming (to accept) + outgoing transfers |
 | POST | `/money/transfers/{id}/accept\|decline` | Recipient accepts (credited) / declines |
+| POST | `/money/transfers/{id}/reverse` | Sender reverses a transfer while pending (mistake undo); refunded |
 | POST | `/money/request` | Request money — `{to_user_id, amount, note}` |
 | GET | `/money/requests` | Incoming + outgoing requests |
 | POST | `/money/requests/{id}/pay\|decline\|cancel` | Pay (needs `answer`) / decline / cancel |
