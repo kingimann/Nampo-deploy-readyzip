@@ -49,6 +49,23 @@ export default function PostComposer({
   const [submitting, setSubmitting] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [showPoll, setShowPoll] = useState(false);
+  const [linkVidOpen, setLinkVidOpen] = useState(false);
+  const [linkVidUrl, setLinkVidUrl] = useState("");
+
+  const addVideoLink = () => {
+    let u = linkVidUrl.trim();
+    if (!/^https?:\/\//i.test(u)) { Alert.alert("Invalid link", "Paste a direct video link starting with https://"); return; }
+    u = u.replace(/\.gifv(\?|$)/i, ".mp4$1");                  // imgur .gifv → playable .mp4
+    const base = u.split("?")[0].toLowerCase();
+    const ok = /\.(mp4|webm|mov|m4v|ogg)$/.test(base) || u.toLowerCase().includes("cloudinary.com");
+    if (!ok) {
+      Alert.alert("Use a direct video link", "It must be a direct video file (ending in .mp4, .webm, …) — e.g. an i.imgur.com/abc.mp4 link.");
+      return;
+    }
+    if (media.length >= MAX_MEDIA) { Alert.alert("Limit reached", `You can attach up to ${MAX_MEDIA} files.`); return; }
+    setMedia((arr) => [...arr, { type: "video", url: u } as any].slice(0, MAX_MEDIA));
+    setLinkVidUrl(""); setLinkVidOpen(false);
+  };
   const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
   const [pollHours, setPollHours] = useState(24);
   const [likesOff, setLikesOff] = useState(false);
@@ -421,6 +438,14 @@ export default function PostComposer({
               >
                 <Ionicons name="camera-outline" size={22} color={theme.primary} />
               </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setLinkVidOpen(true)}
+                disabled={media.length >= MAX_MEDIA}
+                style={[styles.toolBtn, media.length >= MAX_MEDIA && { opacity: 0.3 }]}
+                testID="composer-video-link"
+              >
+                <Ionicons name="link" size={22} color={theme.primary} />
+              </TouchableOpacity>
               {!editing && !replyTo && !quoting && (
                 <TouchableOpacity
                   onPress={() => setShowPoll((v) => !v)}
@@ -487,6 +512,36 @@ export default function PostComposer({
               })}
               <TouchableOpacity style={styles.pDone} onPress={() => setPrivacyOpen(false)} testID="composer-privacy-done">
                 <Text style={styles.pDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={linkVidOpen} transparent animationType="fade" onRequestClose={() => setLinkVidOpen(false)}>
+          <View style={styles.vlBackdrop}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setLinkVidOpen(false)} />
+            <View style={styles.vlCard}>
+              <Text style={styles.vlTitle}>Add a video by link</Text>
+              <Text style={styles.vlSub}>Paste a direct video link (e.g. an i.imgur.com/…mp4 link). It plays inline like an upload — great for reels.</Text>
+              <View style={styles.vlInputWrap}>
+                <Ionicons name="link" size={16} color={theme.textMuted} />
+                <TextInput
+                  style={styles.vlInput}
+                  value={linkVidUrl}
+                  onChangeText={setLinkVidUrl}
+                  placeholder="https://i.imgur.com/abc.mp4"
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                  autoFocus
+                  testID="composer-video-link-input"
+                />
+              </View>
+              <TouchableOpacity style={styles.vlBtn} onPress={addVideoLink} testID="composer-video-link-add">
+                <Text style={styles.vlBtnText}>Add video</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.vlCancel} onPress={() => setLinkVidOpen(false)}>
+                <Text style={styles.vlCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -559,6 +614,16 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
   },
   counter: { color: theme.textMuted, fontSize: 13, fontWeight: "700" },
+  vlBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 26 },
+  vlCard: { width: "100%", maxWidth: 400, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 22 },
+  vlTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "900" },
+  vlSub: { color: theme.textMuted, fontSize: 13, lineHeight: 18, marginTop: 6, marginBottom: 14 },
+  vlInputWrap: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.bg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, height: 48 },
+  vlInput: { flex: 1, color: theme.textPrimary, fontSize: 15, height: "100%", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  vlBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, alignItems: "center", marginTop: 14 },
+  vlBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  vlCancel: { alignItems: "center", paddingVertical: 10, marginTop: 2 },
+  vlCancelText: { color: theme.textMuted, fontWeight: "700", fontSize: 14 },
   pollBuilder: {
     marginTop: 10, padding: 12, borderRadius: 14,
     borderWidth: 1, borderColor: theme.border,

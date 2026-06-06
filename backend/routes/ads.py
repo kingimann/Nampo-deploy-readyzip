@@ -123,6 +123,15 @@ async def _ad_balance(user_id: str):
     return float(u.get("ad_balance") or 0)
 
 
+async def _advertiser_free(user_id: str) -> bool:
+    """Admins (the platform owner) advertise for free — their ads serve without a
+    funded balance and they're never debited."""
+    if not user_id:
+        return False
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "role": 1, "email": 1})
+    return bool(u and is_admin(u))
+
+
 async def bill_ad_interaction(post: dict, viewer_id: str, kind: str, host_user_id: Optional[str] = None) -> float:
     """Debit the advertiser's prepaid ad balance for a billable interaction
     (view | click | comment) and credit the host where it happened. No-op for
@@ -130,8 +139,9 @@ async def bill_ad_interaction(post: dict, viewer_id: str, kind: str, host_user_i
     advertiser = post.get("user_id")
     if not advertiser or advertiser == viewer_id:
         return 0.0
+    free = await _advertiser_free(advertiser)
     bal = await _ad_balance(advertiser)
-    if bal is None or bal <= 0:
+    if not free and (bal is None or bal <= 0):
         return 0.0
     if kind == "click":
         rate, field = (float(post.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC), "ad_clicks"
@@ -139,10 +149,11 @@ async def bill_ad_interaction(post: dict, viewer_id: str, kind: str, host_user_i
         rate, field = AD_RATE_COMMENT, "ad_comments"
     else:
         rate, field = AD_RATE_VIEW, "ad_impressions"
-    charge = round(min(rate, bal), 2)
+    charge = rate if free else round(min(rate, bal), 2)
     if charge <= 0:
         return 0.0
-    await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+    if not free:
+        await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
     await db.posts.update_one({"id": post["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
     if host_user_id and host_user_id != viewer_id and host_user_id != advertiser:
         await _maybe_credit_host(host_user_id, viewer_id, round(charge * HOST_REVENUE_SHARE, 2))
@@ -410,9 +421,12 @@ async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_i
         return 0.0
     rate = (float(ad.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC) if kind == "click" else AD_RATE_VIEW
     field = "ad_clicks" if kind == "click" else "ad_impressions"
+    free = await _advertiser_free(advertiser)
     bal = await _ad_balance(advertiser)
     charge = 0.0
-    if bal is not None and bal > 0:
+    if free:
+        charge = rate
+    elif bal is not None and bal > 0:
         charge = round(min(rate, bal), 2)
         if charge > 0:
             await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
@@ -517,9 +531,12 @@ async def bill_reel_ad(ad: dict, actor_id: Optional[str], kind: str) -> float:
         return 0.0
     rate = (float(ad.get("ad_cpc", 0) or 0) or AD_DEFAULT_CPC) if kind == "click" else AD_RATE_VIEW
     field = "ad_clicks" if kind == "click" else "ad_impressions"
+    free = await _advertiser_free(advertiser)
     bal = await _ad_balance(advertiser)
     charge = 0.0
-    if bal is not None and bal > 0:
+    if free:
+        charge = rate
+    elif bal is not None and bal > 0:
         charge = round(min(rate, bal), 2)
         if charge > 0:
             await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
@@ -595,9 +612,11 @@ async def serve_reel_ad(authorization: Optional[str] = Header(None)):
     rows = await db.reel_ads.find(
         {"promoted_until": {"$gt": now}, "owner_id": {"$ne": me["user_id"]}}, {"_id": 0}
     ).sort("created_at", -1).limit(60).to_list(60)
-    # Only advertisers who still have ad balance.
+    # Advertisers who still have ad balance (admins advertise for free).
     funded = []
     for r in rows:
+        if await _advertiser_free(r.get("owner_id")):
+            funded.append(r); continue
         bal = await _ad_balance(r.get("owner_id"))
         if bal is not None and bal > 0:
             funded.append(r)

@@ -73,6 +73,18 @@ MAX_MEDIA_PER_POST = 4
 MAX_MEDIA_BYTES_EACH = 25 * 1024 * 1024  # ~25MB encoded (base64 ≈ +33%, so ~18MB of real video)
 
 
+def _trusted_video_url(url: str) -> bool:
+    """A video URL is allowed if it's our CDN or a **direct** https video file
+    (so pasted reel links from imgur/streamable/etc. play inline like an upload)."""
+    u = (url or "").strip().lower()
+    if not u.startswith("https://"):
+        return False
+    if "cloudinary.com" in u:
+        return True
+    path = u.split("?", 1)[0]
+    return path.endswith((".mp4", ".webm", ".mov", ".m4v", ".ogg"))
+
+
 def _normalize_media(items: Optional[list]) -> list:
     if not items:
         return []
@@ -91,6 +103,9 @@ def _normalize_media(items: Optional[list]) -> list:
         if not url and len(b) > MAX_MEDIA_BYTES_EACH:
             raise HTTPException(status_code=413, detail="Media too large (25MB limit)")
         d["type"] = d.get("type") or "image"
+        # Pasted video links must be a direct, playable https video file.
+        if d["type"] == "video" and url and not b and not _trusted_video_url(url):
+            raise HTTPException(status_code=400, detail="Video links must be a direct https video file (.mp4, .webm, …), e.g. an i.imgur.com/…mp4 link.")
         out.append(d)
     return out
 
