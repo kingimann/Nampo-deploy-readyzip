@@ -52,18 +52,30 @@ export default function PostComposer({
   const [linkVidOpen, setLinkVidOpen] = useState(false);
   const [linkVidUrl, setLinkVidUrl] = useState("");
 
-  const addVideoLink = () => {
+  const [resolvingLink, setResolvingLink] = useState(false);
+  const addVideoLink = async () => {
     let u = linkVidUrl.trim();
-    if (!/^https?:\/\//i.test(u)) { Alert.alert("Invalid link", "Paste a direct video link starting with https://"); return; }
-    u = u.replace(/\.gifv(\?|$)/i, ".mp4$1");                  // imgur .gifv → playable .mp4
-    const base = u.split("?")[0].toLowerCase();
-    const ok = /\.(mp4|webm|mov|m4v|ogg)$/.test(base) || u.toLowerCase().includes("cloudinary.com");
-    if (!ok) {
-      Alert.alert("Use a direct video link", "It must be a direct video file (ending in .mp4, .webm, …) — e.g. an i.imgur.com/abc.mp4 link.");
-      return;
-    }
+    if (!/^https?:\/\//i.test(u)) { Alert.alert("Invalid link", "Paste a video link starting with https://"); return; }
     if (media.length >= MAX_MEDIA) { Alert.alert("Limit reached", `You can attach up to ${MAX_MEDIA} files.`); return; }
-    setMedia((arr) => [...arr, { type: "video", url: u } as any].slice(0, MAX_MEDIA));
+    u = u.replace(/\.gifv(\?|$)/i, ".mp4$1");                  // imgur .gifv → playable .mp4
+    let direct = u;
+    let thumb: string | null = null;
+    const base = u.split("?")[0].toLowerCase();
+    const alreadyDirect = /\.(mp4|webm|mov|m4v|ogg)$/.test(base) || u.toLowerCase().includes("cloudinary.com");
+    if (!alreadyDirect) {
+      // Resolve page links (imgur/streamable/etc.) to a direct video URL.
+      setResolvingLink(true);
+      try {
+        const r = await api.resolveVideoLink(u);
+        direct = r.url; thumb = r.thumbnail || null;
+      } catch (e: any) {
+        setResolvingLink(false);
+        Alert.alert("Couldn't load that video", String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Try a direct .mp4 link.");
+        return;
+      }
+      setResolvingLink(false);
+    }
+    setMedia((arr) => [...arr, { type: "video", url: direct, thumbnail: thumb } as any].slice(0, MAX_MEDIA));
     setLinkVidUrl(""); setLinkVidOpen(false);
   };
   const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
@@ -537,8 +549,8 @@ export default function PostComposer({
                   testID="composer-video-link-input"
                 />
               </View>
-              <TouchableOpacity style={styles.vlBtn} onPress={addVideoLink} testID="composer-video-link-add">
-                <Text style={styles.vlBtnText}>Add video</Text>
+              <TouchableOpacity style={[styles.vlBtn, resolvingLink && { opacity: 0.7 }]} onPress={addVideoLink} disabled={resolvingLink} testID="composer-video-link-add">
+                {resolvingLink ? <ActivityIndicator color="#fff" /> : <Text style={styles.vlBtnText}>Add video</Text>}
               </TouchableOpacity>
               <TouchableOpacity style={styles.vlCancel} onPress={() => setLinkVidOpen(false)}>
                 <Text style={styles.vlCancelText}>Cancel</Text>
