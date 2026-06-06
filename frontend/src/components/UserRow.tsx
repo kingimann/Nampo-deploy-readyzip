@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { api, PublicUser, FriendStatus } from "@/src/api/client";
 import { theme } from "@/src/theme";
+import PresenceDot from "./PresenceDot";
 
 const friendLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -82,12 +83,15 @@ export default function UserRow({
       onPress={() => router.push({ pathname: "/user/[name]", params: { name: u.name } })}
       testID={`user-row-${u.user_id}`}
     >
-      <View style={styles.avatar}>
-        {u.picture ? (
-          <Image source={{ uri: u.picture }} style={{ width: "100%", height: "100%" }} />
-        ) : (
-          <Text style={styles.avatarInit}>{(u.name?.[0] || "?").toUpperCase()}</Text>
-        )}
+      <View style={styles.avatarWrap}>
+        <View style={styles.avatar}>
+          {u.picture ? (
+            <Image source={{ uri: u.picture }} style={{ width: "100%", height: "100%" }} />
+          ) : (
+            <Text style={styles.avatarInit}>{(u.name?.[0] || "?").toUpperCase()}</Text>
+          )}
+        </View>
+        <PresenceDot online={u.online} size={13} borderColor={theme.surface} style={{ right: 0, bottom: 0 }} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.name} numberOfLines={1}>{u.name}</Text>
@@ -127,6 +131,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface, borderRadius: 14,
     borderWidth: 1, borderColor: theme.border,
   },
+  avatarWrap: { width: 46, height: 46 },
   avatar: {
     width: 46, height: 46, borderRadius: 23, overflow: "hidden",
     backgroundColor: theme.primary, alignItems: "center", justifyContent: "center",

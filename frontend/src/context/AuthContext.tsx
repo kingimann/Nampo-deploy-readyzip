@@ -36,6 +36,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (user?.user_id) { ensureKeyPair().catch(() => {}); }
   }, [user?.user_id]);
 
+  // Presence heartbeat: mark ourselves active now, then every 50s while signed in.
+  useEffect(() => {
+    if (!user?.user_id) return;
+    let alive = true;
+    const ping = () => { if (alive) api.presencePing().catch(() => {}); };
+    ping();
+    const id = setInterval(ping, 50000);
+    return () => { alive = false; clearInterval(id); };
+  }, [user?.user_id]);
+
   const checkSession = useCallback(async () => {
     try {
       const token = await storage.secureGet<string>(SESSION_TOKEN_KEY, "");

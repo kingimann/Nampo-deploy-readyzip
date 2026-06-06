@@ -384,6 +384,14 @@ async def admin_remove_user(user_id: str, authorization: Optional[str] = Header(
     return {"ok": True}
 
 
+@router.post("/presence/ping")
+async def presence_ping(authorization: Optional[str] = Header(None)):
+    """Heartbeat: mark the caller active now (drives online/offline status)."""
+    me = await get_current_user(authorization)
+    await db.users.update_one({"user_id": me["user_id"]}, {"$set": {"last_seen": datetime.now(timezone.utc)}})
+    return {"ok": True}
+
+
 @router.get("/users/search", response_model=List[PublicUser])
 async def search_users(
     q: str = Query(..., min_length=1),

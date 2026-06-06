@@ -45,6 +45,8 @@ class PublicUser(BaseModel):
     bio: Optional[str] = ""
     verified: bool = False
     role: str = "user"
+    online: bool = False             # active within the presence window
+    last_seen: Optional[str] = None  # ISO timestamp of last activity
     sub_price: float = 4.99
     is_subscribed: bool = False    # is the viewer subscribed to this user?
     subscriber_count: int = 0

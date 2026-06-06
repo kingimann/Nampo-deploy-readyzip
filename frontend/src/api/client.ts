@@ -57,6 +57,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => request<User>("/auth/me"),
+  presencePing: () => request<{ ok: boolean }>("/presence/ping", { method: "POST" }),
   updateMe: (p: ProfilePatch) =>
     request<User>("/auth/me", { method: "PATCH", body: JSON.stringify(p) }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
@@ -802,6 +803,8 @@ export type PublicUser = {
   bio?: string;
   verified?: boolean;
   role?: string;
+  online?: boolean;
+  last_seen?: string | null;
   sub_price?: number;
   is_subscribed?: boolean;
   subscriber_count?: number;

@@ -10,6 +10,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
+import PresenceDot, { presenceLabel } from "@/src/components/PresenceDot";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
@@ -178,17 +179,21 @@ export default function UserProfileScreen() {
           }
           ListHeaderComponent={
             <View style={styles.profileBlock}>
-              <View style={styles.avatar}>
-                {user.picture ? (
-                  <Image source={{ uri: user.picture }} style={{ width: "100%", height: "100%" }} />
-                ) : (
-                  <Text style={styles.avatarInit}>{(user.name?.[0] || "?").toUpperCase()}</Text>
-                )}
+              <View style={styles.avatarWrap}>
+                <View style={styles.avatar}>
+                  {user.picture ? (
+                    <Image source={{ uri: user.picture }} style={{ width: "100%", height: "100%" }} />
+                  ) : (
+                    <Text style={styles.avatarInit}>{(user.name?.[0] || "?").toUpperCase()}</Text>
+                  )}
+                </View>
+                <PresenceDot online={user.online} size={18} borderColor={theme.bg} style={{ right: 3, bottom: 3 }} />
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
                 <Text style={styles.name}>{user.name}</Text>
                 {user.verified && <VerifiedBadge size={18} />}
               </View>
+              <Text style={[styles.presence, user.online && { color: "#22C55E" }]}>{presenceLabel(user.online, user.last_seen)}</Text>
               {!!user.role && user.role !== "user" && (
                 <Text style={styles.roleTag}>{user.role === "admin" ? "ADMIN" : "MODERATOR"}</Text>
               )}
@@ -430,11 +435,13 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border, marginBottom: 6,
   },
+  avatarWrap: { width: 80, height: 80 },
   avatar: {
     width: 80, height: 80, borderRadius: 40, overflow: "hidden",
     backgroundColor: theme.primary, alignItems: "center", justifyContent: "center",
   },
   avatarInit: { color: "#fff", fontSize: 32, fontWeight: "800" },
+  presence: { color: theme.textMuted, fontSize: 12.5, fontWeight: "600", marginTop: 3 },
   name: { color: theme.textPrimary, fontSize: 20, fontWeight: "800", marginTop: 6 },
   roleTag: {
     color: theme.primary, fontSize: 10.5, fontWeight: "900", letterSpacing: 1,

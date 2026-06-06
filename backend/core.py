@@ -83,6 +83,19 @@ def _norm_dt(dt: datetime) -> datetime:
     return dt
 
 
+# A user counts as "online" if they pinged presence within this window.
+ONLINE_WINDOW_SECONDS = 120
+
+
+def _is_online(last_seen) -> bool:
+    if not last_seen:
+        return False
+    try:
+        return (datetime.now(timezone.utc) - _norm_dt(last_seen)).total_seconds() <= ONLINE_WINDOW_SECONDS
+    except Exception:
+        return False
+
+
 def _enforce_moderation(user: dict):
     """Raise 403 (with the moderator's reason) if the user is banned or
     currently suspended. No-op otherwise."""
@@ -458,6 +471,8 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         bio=u.get("bio", ""),
         verified=bool(u.get("verified", False)),
         role=_effective_role(u),
+        online=_is_online(u.get("last_seen")),
+        last_seen=(_norm_dt(u["last_seen"]).isoformat() if u.get("last_seen") else None),
         sub_price=float(u.get("sub_price", 4.99) or 0),
         is_subscribed=is_subscribed,
         subscriber_count=subscriber_count,
