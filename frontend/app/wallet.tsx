@@ -26,6 +26,11 @@ function sourceLabel(src?: string) {
   if (src === "stripe") return "Card · Stripe";
   return "Test mode";
 }
+function fmtTopup(iso: string) {
+  try {
+    return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch { return ""; }
+}
 const REQ_LABELS: Record<string, string> = {
   external_account: "a bank account or debit card",
   "individual.verification.document": "a photo ID",
@@ -269,19 +274,19 @@ export default function WalletScreen() {
             <>
               <Text style={styles.section}>Top-ups</Text>
               <View style={styles.topupsCard}>
-                {topups.slice(0, 8).map((t) => {
+                {topups.slice(0, 8).map((t, i, arr) => {
                   const st = TOPUP_STATUS[t.status] || TOPUP_STATUS.completed;
                   return (
-                    <View key={t.id} style={styles.topupRow}>
-                      <View style={[styles.topupIcon, { backgroundColor: theme.surfaceAlt }]}>
-                        <Ionicons name={st.icon as any} size={16} color={st.color} />
+                    <View key={t.id} style={[styles.topupRow, i === arr.length - 1 && styles.topupRowLast]}>
+                      <View style={[styles.topupIcon, { backgroundColor: st.bg }]}>
+                        <Ionicons name={st.icon as any} size={18} color={st.color} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.topupTitle}>Wallet top-up</Text>
-                        <Text style={styles.topupMeta}>{fmtFull(t.created_at)}{t.source === "test" ? " · test" : ""}</Text>
+                        <Text style={styles.topupMeta}>{fmtTopup(t.created_at)}{t.source === "test" ? " · test" : ""}</Text>
                       </View>
-                      <View style={{ alignItems: "flex-end" }}>
-                        <Text style={[styles.topupAmt, t.status === "failed" && { color: theme.textMuted, textDecorationLine: "line-through" }]}>+${t.amount.toFixed(2)}</Text>
+                      <View style={styles.topupRight}>
+                        <Text style={[styles.topupAmt, t.status === "failed" && styles.topupAmtFailed]}>+${t.amount.toFixed(2)}</Text>
                         <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
                           <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
                         </View>
@@ -642,14 +647,14 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  balanceCard: { backgroundColor: theme.primary, borderRadius: 18, padding: 20, marginBottom: 14 },
+  balanceCard: { backgroundColor: theme.primary, borderRadius: 20, padding: 22 },
   balanceTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   balLabel: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   curChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
   curChipText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  balValue: { color: "#fff", fontSize: 40, fontWeight: "900", letterSpacing: -1, marginTop: 8 },
+  balValue: { color: "#fff", fontSize: 42, fontWeight: "900", letterSpacing: -1, marginTop: 10 },
   balUsd: { color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 2 },
-  balActions: { flexDirection: "row", gap: 10, marginTop: 16 },
+  balActions: { flexDirection: "row", gap: 10, marginTop: 20 },
   topupBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#fff", borderRadius: 12, paddingVertical: 12 },
   topupBtnText: { color: theme.primary, fontWeight: "800", fontSize: 15 },
   sendMoneyBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 12, paddingVertical: 12 },
@@ -670,15 +675,15 @@ const styles = StyleSheet.create({
   curSym: { color: theme.textPrimary, fontSize: 18, fontWeight: "800", width: 34, textAlign: "center" },
   curCode: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
   curName: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
-  totalCard: { backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 20, alignItems: "center", gap: 4 },
+  totalCard: { backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 22, alignItems: "center", gap: 4, marginTop: 20 },
   totalLabel: { color: theme.textMuted, fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   totalValue: { color: theme.textPrimary, fontSize: 40, fontWeight: "900", letterSpacing: -1 },
   totalSub: { color: theme.textMuted, fontSize: 12, textAlign: "center", marginTop: 4 },
-  statsRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  statCard: { flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, alignItems: "center", gap: 4 },
-  statNum: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
-  statLabel: { color: theme.textMuted, fontSize: 11 },
-  section: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 24, marginBottom: 10 },
+  statsRow: { flexDirection: "row", gap: 10, marginTop: 16 },
+  statCard: { flex: 1, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingVertical: 16, paddingHorizontal: 10, alignItems: "center", gap: 5 },
+  statNum: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  statLabel: { color: theme.textMuted, fontSize: 11, textAlign: "center" },
+  section: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 26, marginBottom: 12 },
   payoutCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 10 },
   payoutHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   payoutDot: { width: 9, height: 9, borderRadius: 5 },
@@ -689,13 +694,16 @@ const styles = StyleSheet.create({
   checkAgainBtn: { alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginTop: 2 },
   checkAgainText: { color: theme.primary, fontWeight: "800", fontSize: 14 },
   reqText: { color: "#F59E0B", fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
-  topupsCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14 },
-  topupRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
-  topupIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  topupTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
-  topupMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
-  topupAmt: { color: "#16A34A", fontSize: 15, fontWeight: "800" },
-  statusPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, marginTop: 3 },
+  topupsCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 16 },
+  topupRow: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  topupRowLast: { borderBottomWidth: 0 },
+  topupIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  topupTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
+  topupMeta: { color: theme.textMuted, fontSize: 12.5, marginTop: 2 },
+  topupRight: { alignItems: "flex-end", gap: 5 },
+  topupAmt: { color: "#16A34A", fontSize: 15.5, fontWeight: "800" },
+  topupAmtFailed: { color: theme.textMuted, textDecorationLine: "line-through" },
+  statusPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
   freqRow: { flexDirection: "row", gap: 10 },
   freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
