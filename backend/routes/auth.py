@@ -17,6 +17,7 @@ from core import (
     _active_plan,
     db,
     get_current_user,
+    _norm_dt,
     TOS_VERSION,
     PRIVACY_VERSION,
 )
@@ -367,6 +368,93 @@ async def change_phone(body: PhoneUpdate, authorization: Optional[str] = Header(
         await db.users.update_one(
             {"user_id": user["user_id"]}, {"$set": {"phone": raw, "phone_verified": False}}
         )
+    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return User(**_user_doc_to_model(updated))
+
+
+# ── Phone verification (SMS code) ───────────────────────────────────────────
+PHONE_CODE_TTL_MIN = 10
+PHONE_SEND_COOLDOWN_SEC = 30
+PHONE_MAX_ATTEMPTS = 5
+
+
+class PhoneSend(BaseModel):
+    phone: str
+
+
+class PhoneVerify(BaseModel):
+    code: str
+
+
+@router.post("/auth/phone/send-code")
+async def phone_send_code(body: PhoneSend, authorization: Optional[str] = Header(None)):
+    """Start phone verification: text a 6-digit code to the number. If no SMS
+    provider is configured, the code is returned in `dev_code` so it can still be
+    used (useful before Twilio is set up)."""
+    user = await get_current_user(authorization)
+    raw = (body.phone or "").strip()
+    if not PHONE_RE.match(raw):
+        raise HTTPException(status_code=400, detail="Enter a valid phone number (e.g. +14155551234)")
+    now = datetime.now(timezone.utc)
+    last = user.get("phone_code_sent_at")
+    if last:
+        try:
+            if (now - _norm_dt(last)).total_seconds() < PHONE_SEND_COOLDOWN_SEC:
+                raise HTTPException(status_code=429, detail="Please wait a moment before requesting another code")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+    code = f"{secrets.randbelow(1000000):06d}"
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+        "phone_pending": raw,
+        "phone_code_hash": bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8"),
+        "phone_code_expires": now + timedelta(minutes=PHONE_CODE_TTL_MIN),
+        "phone_code_attempts": 0,
+        "phone_code_sent_at": now,
+    }})
+    from services.sms import send_sms, sms_enabled
+    sent = await send_sms(raw, f"Your Nami verification code is {code}. It expires in {PHONE_CODE_TTL_MIN} minutes.")
+    out = {"ok": True, "sent": sent}
+    if not sms_enabled():
+        out["dev_code"] = code
+        out["note"] = "SMS isn't configured on this server; use dev_code to verify."
+    return out
+
+
+@router.post("/auth/phone/verify", response_model=User)
+async def phone_verify(body: PhoneVerify, authorization: Optional[str] = Header(None)):
+    """Finish phone verification with the texted code."""
+    user = await get_current_user(authorization)
+    h = user.get("phone_code_hash")
+    pending = user.get("phone_pending")
+    if not h or not pending:
+        raise HTTPException(status_code=400, detail="Request a code first")
+    now = datetime.now(timezone.utc)
+    exp = user.get("phone_code_expires")
+    try:
+        if exp and _norm_dt(exp) < now:
+            raise HTTPException(status_code=400, detail="That code expired — request a new one")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    if int(user.get("phone_code_attempts", 0) or 0) >= PHONE_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many attempts — request a new code")
+    code = (body.code or "").strip()
+    ok = False
+    try:
+        ok = bcrypt.checkpw(code.encode("utf-8"), h.encode("utf-8"))
+    except Exception:
+        ok = False
+    if not ok:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"phone_code_attempts": 1}})
+        raise HTTPException(status_code=400, detail="Incorrect code")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+        "phone": pending, "phone_verified": True,
+        "phone_pending": None, "phone_code_hash": None,
+        "phone_code_expires": None, "phone_code_attempts": 0,
+    }})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return User(**_user_doc_to_model(updated))
 

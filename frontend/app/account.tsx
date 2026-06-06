@@ -34,6 +34,8 @@ export default function AccountScreen() {
   const [phone, setPhone] = useState(user?.phone || "");
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneMsg, setPhoneMsg] = useState<Status>(null);
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
 
   const saveEmail = async () => {
     setEmailMsg(null);
@@ -64,17 +66,40 @@ export default function AccountScreen() {
     } finally { setPwBusy(false); }
   };
 
-  const savePhone = async () => {
-    setPhoneMsg(null);
-    setPhoneBusy(true);
+  const sendCode = async () => {
+    setPhoneMsg(null); setPhoneBusy(true);
     try {
-      await api.setPhone(phone.trim());
-      await refresh();
-      setPhoneMsg({ kind: "ok", text: phone.trim() ? "Phone number saved. We'll add verification soon." : "Phone number removed." });
+      const r = await api.sendPhoneCode(phone.trim());
+      setCodeSent(true);
+      if (r.dev_code) { setCode(r.dev_code); setPhoneMsg({ kind: "ok", text: `SMS isn't set up on the server yet — your code is ${r.dev_code}.` }); }
+      else setPhoneMsg({ kind: "ok", text: "We texted you a 6-digit code. Enter it below." });
     } catch (e: any) {
       setPhoneMsg({ kind: "err", text: cleanErr(e) });
     } finally { setPhoneBusy(false); }
   };
+  const verifyPhone = async () => {
+    setPhoneMsg(null); setPhoneBusy(true);
+    try {
+      await api.verifyPhoneCode(code.trim());
+      await refresh();
+      setCodeSent(false); setCode("");
+      setPhoneMsg({ kind: "ok", text: "Phone number verified ✓" });
+    } catch (e: any) {
+      setPhoneMsg({ kind: "err", text: cleanErr(e) });
+    } finally { setPhoneBusy(false); }
+  };
+  const removePhone = async () => {
+    setPhoneMsg(null); setPhoneBusy(true);
+    try {
+      await api.setPhone("");
+      await refresh();
+      setCodeSent(false); setCode(""); setPhone("");
+      setPhoneMsg({ kind: "ok", text: "Phone number removed." });
+    } catch (e: any) {
+      setPhoneMsg({ kind: "err", text: cleanErr(e) });
+    } finally { setPhoneBusy(false); }
+  };
+  const phoneVerified = !!user?.phone_verified && phone.trim() === (user?.phone || "");
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="account-screen">
@@ -134,22 +159,49 @@ export default function AccountScreen() {
           <Text style={styles.groupTitle}>Phone number</Text>
           {!!user?.phone && (
             <View style={styles.badge}>
-              <Ionicons name="alert-circle" size={12} color={theme.textMuted} />
-              <Text style={styles.badgeText}>{user.phone_verified ? "Verified" : "Unverified"}</Text>
+              <Ionicons name={user.phone_verified ? "checkmark-circle" : "alert-circle"} size={12} color={user.phone_verified ? "#22C55E" : theme.textMuted} />
+              <Text style={[styles.badgeText, user.phone_verified && { color: "#22C55E" }]}>{user.phone_verified ? "Verified" : "Unverified"}</Text>
             </View>
           )}
         </View>
         <View style={styles.group}>
           <TextInput
             style={styles.input} placeholder="+1 555 123 4567" placeholderTextColor={theme.textMuted}
-            value={phone} onChangeText={setPhone} keyboardType="phone-pad" autoComplete="tel"
+            value={phone} onChangeText={(t) => { setPhone(t); setCodeSent(false); }} keyboardType="phone-pad" autoComplete="tel"
+            editable={!codeSent}
             testID="account-phone"
           />
-          <Text style={styles.hint}>We'll add SMS verification soon. For now this is saved to your profile.</Text>
+
+          {codeSent && (
+            <TextInput
+              style={[styles.input, { marginTop: 10, letterSpacing: 6, textAlign: "center", fontSize: 20, fontWeight: "800" }]}
+              placeholder="••••••" placeholderTextColor={theme.textMuted}
+              value={code} onChangeText={(t) => setCode(t.replace(/[^0-9]/g, "").slice(0, 6))}
+              keyboardType="number-pad" maxLength={6} testID="account-phone-code"
+            />
+          )}
+
+          <Text style={styles.hint}>{phoneVerified ? "Your number is verified." : "Verify your number with a texted code."}</Text>
           {phoneMsg && <Text style={phoneMsg.kind === "ok" ? styles.ok : styles.err}>{phoneMsg.text}</Text>}
-          <TouchableOpacity style={[styles.btn, phoneBusy && styles.btnDim]} onPress={savePhone} disabled={phoneBusy} testID="account-save-phone">
-            {phoneBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{phone.trim() ? "Save phone number" : "Remove phone number"}</Text>}
-          </TouchableOpacity>
+
+          {phoneVerified ? (
+            <TouchableOpacity style={[styles.btn, styles.btnGhost, phoneBusy && styles.btnDim]} onPress={removePhone} disabled={phoneBusy} testID="account-remove-phone">
+              {phoneBusy ? <ActivityIndicator color={theme.primary} /> : <Text style={[styles.btnText, { color: theme.primary }]}>Remove phone number</Text>}
+            </TouchableOpacity>
+          ) : codeSent ? (
+            <>
+              <TouchableOpacity style={[styles.btn, phoneBusy && styles.btnDim]} onPress={verifyPhone} disabled={phoneBusy || code.length < 6} testID="account-verify-phone">
+                {phoneBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Verify</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.linkBtn} onPress={sendCode} disabled={phoneBusy} testID="account-resend-code">
+                <Text style={styles.linkText}>Resend code</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <TouchableOpacity style={[styles.btn, phoneBusy && styles.btnDim]} onPress={phone.trim() ? sendCode : removePhone} disabled={phoneBusy} testID="account-save-phone">
+              {phoneBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>{phone.trim() ? "Send verification code" : "Remove phone number"}</Text>}
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -203,4 +255,7 @@ const styles = StyleSheet.create({
   },
   btnDim: { opacity: 0.6 },
   btnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  btnGhost: { backgroundColor: "transparent", borderWidth: 1, borderColor: theme.primary },
+  linkBtn: { alignItems: "center", paddingVertical: 10, marginTop: 2 },
+  linkText: { color: theme.primary, fontWeight: "700", fontSize: 14 },
 });

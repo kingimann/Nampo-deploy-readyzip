@@ -62,6 +62,14 @@ services:
         sync: false
       - key: PLATFORM_FEE_PERCENT
         value: "0"
+      # SMS phone verification (Twilio). Without these, verification still works
+      # via a dev code returned to the client; set them to send real texts.
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
       - key: WEB_APP_URL
         value: https://nampo-web.onrender.com
       # Automated payouts: minimum balance to pay, and a secret a Render Cron Job

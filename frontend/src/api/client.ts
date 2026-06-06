@@ -74,6 +74,10 @@ export const api = {
     request<{ ok: boolean }>("/auth/me/password", { method: "PATCH", body: JSON.stringify({ current_password, new_password }) }),
   setPhone: (phone: string) =>
     request<User>("/auth/me/phone", { method: "PATCH", body: JSON.stringify({ phone }) }),
+  sendPhoneCode: (phone: string) =>
+    request<{ ok: boolean; sent: boolean; dev_code?: string; note?: string }>("/auth/phone/send-code", { method: "POST", body: JSON.stringify({ phone }) }),
+  verifyPhoneCode: (code: string) =>
+    request<User>("/auth/phone/verify", { method: "POST", body: JSON.stringify({ code }) }),
   listApiKeys: () => request<{ keys: ApiKey[] }>("/auth/api-keys"),
   createApiKey: (label: string, scopes?: string[]) =>
     request<{ id: string; label: string; scopes: string[]; token: string; created_at: string }>(
