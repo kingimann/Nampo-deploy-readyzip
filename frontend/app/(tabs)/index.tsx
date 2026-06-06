@@ -163,6 +163,7 @@ export default function MapScreen() {
 
   // Render markers on map: saved places
   useEffect(() => {
+    if (!mapReady) return;
     const markers = places.map((p) => ({
       id: `place_${p.id}`,
       longitude: p.longitude,
@@ -170,8 +171,10 @@ export default function MapScreen() {
       title: p.title,
       color: p.category === "favorite" ? "#EAB308" : "#3B82F6",
     }));
-    mapRef.current?.setMarkers(markers);
-  }, [places]);
+    // GPU circle layer (not DOM markers) so pan/zoom stays smooth regardless
+    // of how many saved places there are.
+    mapRef.current?.setPlaceMarkers(markers);
+  }, [places, mapReady]);
 
   const requestLocation = useCallback(async () => {
     setLocating(true);

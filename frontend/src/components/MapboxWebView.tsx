@@ -28,6 +28,7 @@ export type MapboxEvent =
 export type MapboxWebViewHandle = {
   setStyle: (styleUrl: string) => void;
   setMarkers: (markers: MarkerInput[]) => void;
+  setPlaceMarkers: (markers: MarkerInput[]) => void;
   setRoute: (geometry: RouteGeometry | null) => void;
   setAltRoutes: (geometries: RouteGeometry[]) => void;
   flyTo: (lng: number, lat: number, zoom?: number) => void;
@@ -145,6 +146,14 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   // re-fires styledata, creating a feedback loop that thrashes the map.)
   map.on('style.load', hidePoiLayers);
   map.on('click', function (e) {
+    // If the click landed on a place dot, the layer handler deals with it —
+    // don't also emit a generic map click (which would drop a pin).
+    try {
+      if (map.getLayer('places-circle')) {
+        var hits = map.queryRenderedFeatures(e.point, { layers: ['places-circle'] });
+        if (hits && hits.length) return;
+      }
+    } catch (err) {}
     post({ type: 'click', lng: e.lngLat.lng, lat: e.lngLat.lat });
   });
   // Long-press (touch) / right-click (web) → emit a longpress event.
@@ -206,6 +215,8 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     map.once('styledata', function () {
       ensureRouteLayer();
       hidePoiLayers();
+      // Re-add the GPU place layer (a style switch drops all custom sources).
+      if (window.__placesData) { ensurePlacesLayer(); var s = map.getSource('places-src'); if (s) s.setData(window.__placesData); }
       // Re-apply traffic / 3d if needed
       if (window.__trafficOn) addTraffic();
       if (window.__buildingsOn) add3D();
@@ -217,6 +228,48 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
       markers[id].remove();
       delete markers[id];
     });
+  }
+
+  // ── GPU-rendered place dots ──────────────────────────────────────────────
+  // Saved places can number in the dozens/hundreds. DOM markers reposition via
+  // JS on EVERY render frame during pan/zoom (the classic Mapbox perf killer),
+  // so render them as a single GPU circle layer instead. Constant cost no
+  // matter how many places there are.
+  function ensurePlacesLayer() {
+    if (map.getSource('places-src')) return;
+    try {
+      map.addSource('places-src', { type:'geojson', data: emptyFC() });
+      map.addLayer({
+        id:'places-circle', type:'circle', source:'places-src',
+        paint:{
+          'circle-radius':['interpolate',['linear'],['zoom'],8,5,16,9],
+          'circle-color':['get','color'],
+          'circle-stroke-color':'#ffffff',
+          'circle-stroke-width':2.5,
+          'circle-stroke-opacity':1,
+        }
+      });
+      map.on('click', 'places-circle', function (e) {
+        var f = e.features && e.features[0];
+        if (f && f.properties) post({ type:'markerClick', id: f.properties.id });
+      });
+      map.on('mouseenter', 'places-circle', function () { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'places-circle', function () { map.getCanvas().style.cursor = ''; });
+    } catch (e) {}
+  }
+  function setPlaceMarkers(list) {
+    ensurePlacesLayer();
+    var feats = (list || []).map(function (m) {
+      return {
+        type:'Feature',
+        geometry:{ type:'Point', coordinates:[m.longitude, m.latitude] },
+        properties:{ id: m.id, color: m.color || '#3B82F6', title: m.title || '' },
+      };
+    });
+    var fc = { type:'FeatureCollection', features: feats };
+    window.__placesData = fc; // remembered so it survives a style switch
+    var src = map.getSource('places-src');
+    if (src) src.setData(fc);
   }
 
   function setMarkers(list) {
@@ -446,6 +499,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
       switch (msg.cmd) {
         case 'setStyle': setStyle(msg.url); break;
         case 'setMarkers': setMarkers(msg.markers); break;
+        case 'setPlaceMarkers': setPlaceMarkers(msg.markers); break;
         case 'setRoute': setRoute(msg.geometry); break;
         case 'setAltRoutes': setAltRoutes(msg.geometries); break;
         case 'flyTo': flyTo(msg.lng, msg.lat, msg.zoom); break;
@@ -493,6 +547,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewHandle, Props>(
     useImperativeHandle(ref, () => ({
       setStyle: (url) => send({ cmd: "setStyle", url }),
       setMarkers: (markers) => send({ cmd: "setMarkers", markers }),
+      setPlaceMarkers: (markers) => send({ cmd: "setPlaceMarkers", markers }),
       setRoute: (geometry) => send({ cmd: "setRoute", geometry }),
       setAltRoutes: (geometries) => send({ cmd: "setAltRoutes", geometries }),
       flyTo: (lng, lat, zoom) => send({ cmd: "flyTo", lng, lat, zoom }),
