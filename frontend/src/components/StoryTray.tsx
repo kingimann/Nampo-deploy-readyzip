@@ -9,7 +9,7 @@ import { api, StoryTrayItem } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
-export default function StoryTray() {
+export default function StoryTray({ onHide }: { onHide?: () => void }) {
   const { user } = useAuth();
   const router = useRouter();
   const [items, setItems] = useState<StoryTrayItem[]>([]);
@@ -72,6 +72,15 @@ export default function StoryTray() {
 
   return (
     <View style={styles.wrap}>
+      {!!onHide && (
+        <View style={styles.headerRow}>
+          <Text style={styles.headerTitle}>Stories</Text>
+          <TouchableOpacity onPress={onHide} hitSlop={10} testID="stories-hide" style={styles.hideBtn}>
+            <Ionicons name="eye-off-outline" size={15} color={theme.textMuted} />
+            <Text style={styles.hideText}>Hide</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
         {/* Your story (create / view) */}
         <TouchableOpacity
@@ -128,6 +137,10 @@ export default function StoryTray() {
 const RING = 64;
 const styles = StyleSheet.create({
   wrap: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, marginBottom: 6 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingBottom: 6 },
+  headerTitle: { color: theme.textSecondary, fontSize: 13, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  hideBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
+  hideText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
   row: { gap: 14, paddingHorizontal: 12 },
   item: { alignItems: "center", width: 70 },
   avatarRing: {

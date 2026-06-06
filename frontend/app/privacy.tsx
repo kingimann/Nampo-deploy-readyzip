@@ -8,6 +8,9 @@ import { Stack, useRouter } from "expo-router";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { storage } from "@/src/utils/storage";
+
+const HIDE_STORIES_KEY = "hide_stories"; // keep in sync with the feed screen
 
 const POLICIES = [
   { k: "everyone", label: "Everyone", icon: "earth-outline" },
@@ -24,6 +27,15 @@ export default function PrivacyScreen() {
   const [likesOff, setLikesOff] = useState<boolean>(!!user?.default_likes_disabled);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingLikes, setSavingLikes] = useState(false);
+  const [showStories, setShowStories] = useState(true);
+
+  React.useEffect(() => {
+    storage.getItem(HIDE_STORIES_KEY, false).then((h) => setShowStories(!h));
+  }, []);
+  const toggleStories = async () => {
+    const next = !showStories; setShowStories(next);
+    await storage.setItem(HIDE_STORIES_KEY, !next); // stored value is "hidden"
+  };
 
   const savePolicy = async (k: string) => {
     setPolicy(k); setSavingPolicy(true);
@@ -84,6 +96,20 @@ export default function PrivacyScreen() {
                 <View style={[styles.knob, likesOff && styles.knobOn]} />
               </View>
             )}
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.section}>Stories</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.optRow} onPress={toggleStories} testID="privacy-stories">
+            <Ionicons name="albums-outline" size={18} color={theme.textMuted} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>Show stories in feed</Text>
+              <Text style={styles.optSub}>Hide the stories row at the top of your feed entirely.</Text>
+            </View>
+            <View style={[styles.switch, showStories && styles.switchOn]}>
+              <View style={[styles.knob, showStories && styles.knobOn]} />
+            </View>
           </TouchableOpacity>
         </View>
 

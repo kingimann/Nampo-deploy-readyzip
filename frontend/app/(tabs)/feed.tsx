@@ -18,6 +18,9 @@ import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 import ConfirmModal from "@/src/components/ConfirmModal";
+import { storage } from "@/src/utils/storage";
+
+export const HIDE_STORIES_KEY = "hide_stories";
 
 type Tab = "home" | "explore";
 
@@ -39,7 +42,21 @@ export default function FeedScreen() {
   const [confirmDel, setConfirmDel] = useState<Post | null>(null);
   const [privacyPost, setPrivacyPost] = useState<Post | null>(null);
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
+  const [showStories, setShowStories] = useState(true);
   const viewedRef = useRef<Set<string>>(new Set());
+
+  // Honor the "hide stories" preference (re-checked on focus so a change in
+  // Settings takes effect when returning to the feed).
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    storage.getItem(HIDE_STORIES_KEY, false).then((h) => { if (alive) setShowStories(!h); });
+    return () => { alive = false; };
+  }, []));
+
+  const hideStories = useCallback(async () => {
+    setShowStories(false);
+    await storage.setItem(HIDE_STORIES_KEY, true);
+  }, []);
 
   const onViewable = useRef(({ viewableItems }: any) => {
     for (const v of viewableItems || []) {
@@ -256,7 +273,7 @@ export default function FeedScreen() {
           }
           ListHeaderComponent={
             <View>
-              <StoryTray />
+              {showStories && <StoryTray onHide={hideStories} />}
               <TouchableOpacity
                 style={styles.composeStub}
                 onPress={() => { setEditing(null); setReplyTo(null); setComposeOpen(true); }}
