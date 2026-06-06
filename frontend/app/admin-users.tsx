@@ -34,6 +34,17 @@ export default function AdminUsersScreen() {
   const [modReason, setModReason] = useState("");
   const [modDays, setModDays] = useState("7");
   const [modBusy, setModBusy] = useState(false);
+  const [walletUser, setWalletUser] = useState<AdminUser | null>(null);
+  const [walletVal, setWalletVal] = useState("");
+  const [walletBusy, setWalletBusy] = useState(false);
+
+  const saveWallet = async () => {
+    if (!walletUser) return;
+    setWalletBusy(true);
+    try { await api.adminSetWallet(walletUser.user_id, Math.max(0, Number(walletVal) || 0)); setWalletUser(null); }
+    catch (e: any) { Alert.alert("Couldn't set balance", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setWalletBusy(false); }
+  };
 
   const openMod = (u: AdminUser, kind: "ban" | "suspend") => { setSel(null); setModReason(""); setModDays("7"); setMod({ user: u, kind }); };
   const submitMod = async () => {
@@ -156,6 +167,7 @@ export default function AdminUsersScreen() {
                 <Action icon="time-outline" label="Suspend…" onPress={() => openMod(sel, "suspend")} />
               )}
               {!sel.banned && <Action icon="ban-outline" label="Ban…" danger onPress={() => openMod(sel, "ban")} />}
+              <Action icon="wallet-outline" label="Set wallet balance (USD)…" onPress={() => { const u = sel; setSel(null); setWalletVal(""); setWalletUser(u); }} />
               <Action icon="trash-outline" label="Remove account" danger onPress={() => confirmRemove(sel)} />
               <TouchableOpacity onPress={() => setSel(null)}><Text style={styles.cancel}>Close</Text></TouchableOpacity>
             </View>
@@ -212,6 +224,35 @@ export default function AdminUsersScreen() {
           )}
         </View>
       </Modal>
+
+      <Modal visible={!!walletUser} transparent animationType="fade" onRequestClose={() => !walletBusy && setWalletUser(null)}>
+        <View style={styles.centerBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => !walletBusy && setWalletUser(null)} />
+          {walletUser && (
+            <View style={styles.suspendCard}>
+              <Text style={styles.suspendTitle}>Set wallet balance</Text>
+              <Text style={styles.fieldLabel}>{walletUser.name}'s spendable wallet balance (USD)</Text>
+              <View style={styles.walletInputWrap}>
+                <Text style={styles.walletDollar}>$</Text>
+                <TextInput
+                  style={styles.walletInput}
+                  value={walletVal}
+                  onChangeText={(t) => setWalletVal(t.replace(/[^0-9.]/g, ""))}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={theme.textMuted}
+                  autoFocus
+                  testID="admin-wallet-input"
+                />
+              </View>
+              <TouchableOpacity style={[styles.modBtn, walletBusy && { opacity: 0.6 }]} onPress={saveWallet} disabled={walletBusy} testID="admin-wallet-save">
+                {walletBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.modBtnText}>Set balance</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setWalletUser(null)}><Text style={styles.cancel}>Cancel</Text></TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -258,6 +299,9 @@ const styles = StyleSheet.create({
   action: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   actionText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
   cancel: { color: theme.textMuted, fontSize: 14, fontWeight: "700", textAlign: "center", paddingVertical: 14 },
+  walletInputWrap: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.bg, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, height: 52, marginTop: 8 },
+  walletDollar: { color: theme.textPrimary, fontSize: 20, fontWeight: "900" },
+  walletInput: { flex: 1, color: theme.textPrimary, fontSize: 20, fontWeight: "800", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
   suspendCard: { width: "100%", maxWidth: 380, backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 18 },
   suspendTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 8 },
   fieldLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "700", marginTop: 12, marginBottom: 6 },

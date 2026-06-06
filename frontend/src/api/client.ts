@@ -151,6 +151,8 @@ export const api = {
     request<{ ok: boolean; until: string }>(`/admin/users/${userId}/suspend`, { method: "POST", body: JSON.stringify({ days, reason }) }),
   adminRemoveUser: (userId: string) =>
     request<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
+  adminSetWallet: (userId: string, balance: number) =>
+    request<{ ok: boolean; balance: number }>(`/admin/users/${userId}/wallet`, { method: "POST", body: JSON.stringify({ balance }) }),
   adminAuditLog: () => request<{ entries: AdminAuditEntry[] }>("/admin/audit"),
   adminGetTestPayments: () => request<{ test_payments: boolean; stripe_configured: boolean }>("/admin/test-payments"),
   adminSetTestPayments: (enabled: boolean) =>

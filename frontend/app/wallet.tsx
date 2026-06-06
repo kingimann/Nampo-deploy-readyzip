@@ -308,10 +308,10 @@ export default function WalletScreen() {
               </TouchableOpacity>
             </View>
             <Text style={styles.balValue}>
-              {bal ? `${bal.symbol}${bal.display.toFixed(2)}` : `$${(w?.balance ?? 0).toFixed(2)}`}
+              ${(bal?.balance ?? w?.balance ?? 0).toFixed(2)}
             </Text>
             {bal && bal.currency !== "USD" ? (
-              <Text style={styles.balUsd}>≈ ${bal.balance.toFixed(2)} USD</Text>
+              <Text style={styles.balUsd}>≈ {bal.symbol}{bal.display.toFixed(2)} {bal.currency} · spend &amp; tips are in USD</Text>
             ) : null}
             <View style={styles.balActions}>
               <TouchableOpacity style={styles.topupBtn} onPress={() => { setTopupAmt(""); setTopupOpen(true); }} testID="wallet-topup">

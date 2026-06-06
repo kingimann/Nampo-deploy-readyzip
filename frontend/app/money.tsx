@@ -324,7 +324,7 @@ export default function MoneyScreen() {
             {flow === "send" && bal ? (
               <TouchableOpacity onPress={() => { setFlow(null); router.push("/wallet"); }} testID="money-balance">
                 <Text style={styles.balHint}>
-                  Wallet balance: {bal.symbol}{bal.display.toFixed(2)}{bal.currency !== "USD" ? ` (${bal.currency})` : ""} · Top up
+                  Wallet balance: ${bal.balance.toFixed(2)}{bal.currency !== "USD" ? ` (≈ ${bal.symbol}${bal.display.toFixed(2)} ${bal.currency})` : ""} · Top up
                 </Text>
               </TouchableOpacity>
             ) : null}

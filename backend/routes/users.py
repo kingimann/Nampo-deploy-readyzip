@@ -174,6 +174,25 @@ async def admin_suspend_user(user_id: str, body: ModerationBody, authorization: 
     return {"ok": True, "until": until}
 
 
+class WalletSet(BaseModel):
+    balance: float
+
+
+@router.post("/admin/users/{user_id}/wallet")
+async def admin_set_wallet(user_id: str, body: WalletSet, authorization: Optional[str] = Header(None)):
+    """Admin-only: set a user's wallet balance (USD) to an exact amount."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    bal = round(max(0.0, float(body.balance or 0)), 2)
+    await db.users.update_one({"user_id": user_id}, {"$set": {"wallet_balance": bal}})
+    await _audit(me, f"set wallet ${bal:.2f}", target)
+    return {"ok": True, "balance": bal}
+
+
 @router.delete("/admin/users/{user_id}")
 async def admin_remove_user(user_id: str, authorization: Optional[str] = Header(None)):
     """Remove (delete) a user account and their sessions."""
