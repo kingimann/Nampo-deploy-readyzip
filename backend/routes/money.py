@@ -92,6 +92,19 @@ async def _fee_dollars() -> float:
     return round((await transaction_fee_cents()) / 100.0, 2)
 
 
+async def _record_platform_fee(fee: float, source: str, from_user_id: str, ref_id: str):
+    """Book the flat transaction fee as platform revenue (only once a payment
+    actually settles — reversed/declined transfers refund the fee instead)."""
+    fee = round(float(fee or 0), 2)
+    if fee <= 0:
+        return
+    await db.platform_revenue.insert_one({
+        "id": str(uuid.uuid4()), "amount": fee, "source": source,
+        "from_user_id": from_user_id, "ref_id": ref_id,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+
 def _hash(s: str) -> str:
     return bcrypt.hashpw(s.encode("utf-8")[:72], bcrypt.gensalt(rounds=12)).decode("utf-8")
 
@@ -316,6 +329,7 @@ async def accept_transfer(tid: str, authorization: Optional[str] = Header(None))
     sender = await db.users.find_one({"user_id": t["from_user_id"]}, {"_id": 0, "user_id": 1, "name": 1}) \
         or {"user_id": t["from_user_id"], "name": t.get("from_name", "Someone")}
     await _do_transfer(sender, me["user_id"], amount, t.get("note") or "")
+    await _record_platform_fee(t.get("fee", 0), "transfer_fee", t["from_user_id"], tid)
     await db.money_transfers.update_one(
         {"id": tid}, {"$set": {"status": "accepted", "resolved_at": datetime.now(timezone.utc)}}
     )
@@ -448,6 +462,7 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
         raise _insufficient()
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
+    await _record_platform_fee(fee, "transfer_fee", me["user_id"], rid)
     await db.money_requests.update_one(
         {"id": rid}, {"$set": {"status": "paid", "resolved_at": datetime.now(timezone.utc)}}
     )

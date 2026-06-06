@@ -20,12 +20,14 @@ export default function AdminPaymentsScreen() {
   const [feePct, setFeePct] = useState("");      // platform's cut % of subscriptions/tips
   const [feeCents, setFeeCents] = useState("");  // flat per-payment fee, in cents
   const [savingFees, setSavingFees] = useState(false);
+  const [revenue, setRevenue] = useState<{ total: number; by_source: Record<string, number> } | null>(null);
 
   const load = useCallback(async () => {
     try { const r = await api.adminGetTestPayments(); setTestPayments(r.test_payments); setStripeConfigured(r.stripe_configured); }
     catch {} finally { setLoading(false); }
     try { const f = await api.adminGetFees(); setFeePct(String(f.platform_fee_percent)); setFeeCents(String(f.transaction_fee_cents)); }
     catch {}
+    try { setRevenue(await api.adminGetRevenue()); } catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -102,6 +104,19 @@ export default function AdminPaymentsScreen() {
               ? "🧪 Test mode — no real charges. Tips/subscriptions/promotes run as simulated."
               : stripeConfigured ? "💳 Live — real Stripe charges." : "Simulated (Stripe not set up)."}
           </Text>
+
+          {revenue ? (
+            <>
+              <Text style={styles.section}>Platform revenue</Text>
+              <View style={styles.card}>
+                <View style={styles.revRow}>
+                  <Text style={styles.revLabel}>Transaction fees collected</Text>
+                  <Text style={styles.revValue}>${revenue.total.toFixed(2)}</Text>
+                </View>
+                <Text style={styles.revNote}>From in-app flat fees. The % cut on tips/subscriptions is collected by Stripe — see your Stripe Dashboard.</Text>
+              </View>
+            </>
+          ) : null}
 
           <Text style={styles.section}>Fees & revenue split</Text>
           <View style={styles.card}>
@@ -183,6 +198,10 @@ const styles = StyleSheet.create({
   feeDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginVertical: 6, marginHorizontal: 16 },
   saveBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, alignItems: "center", margin: 16, marginTop: 10 },
   saveText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+  revRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, paddingBottom: 6 },
+  revLabel: { color: theme.textSecondary, fontSize: 14, fontWeight: "600" },
+  revValue: { color: theme.primary, fontSize: 22, fontWeight: "900" },
+  revNote: { color: theme.textMuted, fontSize: 12, lineHeight: 17, paddingHorizontal: 16, paddingBottom: 14 },
   resetBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.error, borderRadius: 12, paddingVertical: 14, marginBottom: 10 },
   resetText: { color: theme.error, fontSize: 13.5, fontWeight: "700" },
   msg: { color: theme.primary, fontSize: 13, fontWeight: "600", marginTop: 8, textAlign: "center" },

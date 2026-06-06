@@ -235,6 +235,66 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
     }
 
 
+class CashoutBody(BaseModel):
+    amount: Optional[float] = None   # None = cash out the whole balance
+
+
+@router.post("/payments/payouts/cashout")
+async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Header(None)):
+    """Instant cash-out of the in-app wallet balance to the user's debit card
+    (Stripe Instant Payouts, DoorDash-style). Moves platform funds to the user's
+    connected account and instantly pays out to their debit card."""
+    _require_stripe()
+    if await test_payments_on():
+        raise HTTPException(status_code=400, detail={"code": "test_mode", "message": "Cash out isn't available in test mode."})
+    user = await get_current_user(authorization)
+    acct_id = user.get("stripe_account_id")
+    if not acct_id:
+        raise HTTPException(status_code=400, detail={"code": "no_payout_account", "message": "Set up payouts first to cash out."})
+    try:
+        acct = stripe.Account.retrieve(acct_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail={"code": "account_error", "message": "Couldn't reach your payout account."})
+    if not acct.get("payouts_enabled"):
+        raise HTTPException(status_code=400, detail={"code": "payouts_not_ready", "message": "Finish payout setup before cashing out."})
+
+    bal = round(float(user.get("wallet_balance", 0) or 0), 2)
+    amount = round(float(body.amount if body.amount is not None else bal), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Enter an amount to cash out")
+    if amount > bal + 1e-9:
+        raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance."})
+    cents = int(round(amount * 100))
+
+    # Debit first, refund on any failure so balances can't be lost.
+    await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"wallet_balance": -amount}})
+    try:
+        stripe.Transfer.create(
+            amount=cents, currency="usd", destination=acct_id,
+            metadata={"kind": "cashout", "user_id": user["user_id"]},
+        )
+        payout = stripe.Payout.create(
+            amount=cents, currency="usd", method="instant",
+            stripe_account=acct_id,
+            metadata={"kind": "cashout", "user_id": user["user_id"]},
+        )
+    except Exception as e:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"wallet_balance": amount}})
+        msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
+        raise HTTPException(status_code=400, detail={
+            "code": "cashout_failed",
+            "message": f"Instant cash out failed: {msg}. Make sure a debit card is added to your payout account (Instant Payouts need an eligible debit card).",
+        })
+
+    await db.payouts.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user["user_id"], "amount": amount,
+        "status": "instant", "method": "instant_card",
+        "stripe_payout_id": (payout or {}).get("id"), "created_at": datetime.now(timezone.utc),
+    })
+    fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "wallet_balance": 1})
+    return {"ok": True, "amount": amount, "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2)}
+
+
 @router.post("/payments/checkout")
 async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = Header(None)):
     """Create a Stripe Checkout session and return a hosted checkout URL.
@@ -687,6 +747,26 @@ async def admin_set_fees(body: FeesBody, authorization: Optional[str] = Header(N
     }
 
 
+@router.get("/admin/revenue")
+async def admin_revenue(authorization: Optional[str] = Header(None)):
+    """Platform revenue from in-app transaction fees (the flat per-payment fee).
+    Note: the percentage cut on tips/subscriptions is collected by Stripe and
+    shows in your Stripe Dashboard."""
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    rows = await db.platform_revenue.find({}, {"_id": 0}).sort("created_at", -1).limit(5000).to_list(5000)
+    total = round(sum(float(r.get("amount", 0) or 0) for r in rows), 2)
+    by_source: dict = {}
+    for r in rows:
+        s = r.get("source", "other")
+        by_source[s] = round(by_source.get(s, 0) + float(r.get("amount", 0) or 0), 2)
+    return {
+        "total": total, "count": len(rows), "by_source": by_source,
+        "platform_fee_percent": await platform_fee_percent(),
+        "transaction_fee_cents": await transaction_fee_cents(),
+    }
+
+
 @router.post("/admin/reset/money")
 async def admin_reset_money(authorization: Optional[str] = Header(None)):
     """Wipe wallet/money data (earnings, tips, subs, payouts, transfers, requests)
@@ -694,7 +774,7 @@ async def admin_reset_money(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     _admin_only(me)
     for coll in ("earnings", "tips", "subscriptions", "payouts", "money_transfers",
-                 "money_requests", "wallet_topups", "ad_topups"):
+                 "money_requests", "wallet_topups", "ad_topups", "platform_revenue"):
         await getattr(db, coll).delete_many({})
     await db.users.update_many({}, {"$set": {"ad_balance": 0, "wallet_balance": 0}})
     return {"ok": True}

@@ -89,6 +89,9 @@ export default function WalletScreen() {
   const [curOpen, setCurOpen] = useState(false);
   const [topups, setTopups] = useState<Topup[]>([]);
   const [topupDetail, setTopupDetail] = useState<Topup | null>(null);
+  const [cashoutOpen, setCashoutOpen] = useState(false);
+  const [cashoutAmt, setCashoutAmt] = useState("");
+  const [cashingOut, setCashingOut] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -236,6 +239,20 @@ export default function WalletScreen() {
     } catch {}
   };
 
+  const doCashout = async () => {
+    const amt = Math.round((Number(cashoutAmt) || 0) * 100) / 100;
+    if (amt <= 0) { Alert.alert("Enter an amount", "How much would you like to cash out?"); return; }
+    setCashingOut(true);
+    try {
+      const r = await api.cashoutToCard(amt);
+      setCashoutOpen(false); setCashoutAmt("");
+      await load();
+      Alert.alert("On its way", `$${r.amount.toFixed(2)} is being sent to your debit card. Instant payouts usually arrive within minutes.`);
+    } catch (e: any) {
+      Alert.alert("Cash out failed", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setCashingOut(false); }
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="wallet-screen">
       <Stack.Screen options={{ headerShown: false }} />
@@ -285,6 +302,12 @@ export default function WalletScreen() {
                 <Text style={styles.sendMoneyText}>Send</Text>
               </TouchableOpacity>
             </View>
+            {payout?.payouts_enabled && (bal?.balance ?? w?.balance ?? 0) > 0 ? (
+              <TouchableOpacity style={styles.cashoutBtn} onPress={() => { setCashoutAmt(String(bal?.balance ?? w?.balance ?? "")); setCashoutOpen(true); }} testID="wallet-cashout">
+                <Ionicons name="flash" size={16} color={theme.primary} />
+                <Text style={styles.cashoutBtnText}>Cash out to debit card</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {payEnabled && !payout?.payouts_enabled && ((bal?.balance ?? w?.balance ?? 0) > 0 || (w?.total_earned ?? 0) > 0) ? (
@@ -700,6 +723,39 @@ export default function WalletScreen() {
         </View>
       </Modal>
 
+      {/* ── Cash out to debit card ───────────────────────────────────── */}
+      <Modal visible={cashoutOpen} transparent animationType="fade" onRequestClose={() => setCashoutOpen(false)}>
+        <View style={styles.detailBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setCashoutOpen(false)} />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Cash out</Text>
+            <Text style={styles.sheetSub}>Instantly sent to the debit card on your Stripe payout account — usually arrives within minutes.</Text>
+            <View style={styles.amountWrap}>
+              <Text style={styles.amountDollar}>$</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={cashoutAmt}
+                onChangeText={(t) => setCashoutAmt(t.replace(/[^0-9.]/g, ""))}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={theme.textMuted}
+                autoFocus
+                testID="cashout-amount"
+              />
+            </View>
+            <TouchableOpacity style={styles.quickChip} onPress={() => setCashoutAmt(String(bal?.balance ?? w?.balance ?? ""))} testID="cashout-all">
+              <Text style={styles.quickText}>All · ${(bal?.balance ?? w?.balance ?? 0).toFixed(2)}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sheetBtn} onPress={doCashout} disabled={cashingOut} testID="cashout-confirm">
+              {cashingOut ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.sheetBtnText}>Cash out to debit card</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.detailClose} onPress={() => setCashoutOpen(false)}>
+              <Text style={styles.detailCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Top up ───────────────────────────────────────────────────── */}
       <Modal visible={topupOpen} transparent animationType="fade" onRequestClose={() => setTopupOpen(false)}>
         <View style={styles.detailBackdrop}>
@@ -794,6 +850,8 @@ const styles = StyleSheet.create({
   topupBtnText: { color: theme.primary, fontWeight: "800", fontSize: 15 },
   sendMoneyBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 12, paddingVertical: 12 },
   sendMoneyText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  cashoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#fff", borderRadius: 12, paddingVertical: 11, marginTop: 10 },
+  cashoutBtnText: { color: theme.primary, fontWeight: "800", fontSize: 14.5 },
   sheet: { width: "100%", maxWidth: 420, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 22, alignItems: "center" },
   sheetTitle: { color: theme.textPrimary, fontSize: 19, fontWeight: "900" },
   sheetSub: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },

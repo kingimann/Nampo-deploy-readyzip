@@ -151,6 +151,7 @@ export const api = {
     request<{ test_payments: boolean }>("/admin/test-payments", { method: "POST", body: JSON.stringify({ enabled }) }),
   adminResetMoney: () => request<{ ok: boolean }>("/admin/reset/money", { method: "POST" }),
   adminResetAnalytics: () => request<{ ok: boolean }>("/admin/reset/analytics", { method: "POST" }),
+  adminGetRevenue: () => request<{ total: number; count: number; by_source: Record<string, number>; platform_fee_percent: number; transaction_fee_cents: number }>("/admin/revenue"),
   adminGetFees: () => request<{ platform_fee_percent: number; creator_share_percent: number; transaction_fee_cents: number }>("/admin/fees"),
   adminSetFees: (body: { platform_fee_percent?: number; transaction_fee_cents?: number }) =>
     request<{ platform_fee_percent: number; creator_share_percent: number; transaction_fee_cents: number }>("/admin/fees", { method: "POST", body: JSON.stringify(body) }),
@@ -204,6 +205,8 @@ export const api = {
     }),
   payoutAccountSession: () =>
     request<{ client_secret: string; publishable_key: string }>("/payments/payouts/account-session", { method: "POST" }),
+  cashoutToCard: (amount?: number) =>
+    request<{ ok: boolean; amount: number; balance: number }>("/payments/payouts/cashout", { method: "POST", body: JSON.stringify(amount != null ? { amount } : {}) }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),
