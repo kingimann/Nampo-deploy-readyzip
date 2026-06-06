@@ -19,8 +19,11 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   post: Post; active: boolean; muted: boolean; onToggleMute: () => void;
   onOpenComments: (p: Post) => void; screenW: number; screenH: number; myId?: string;
 }) {
-  const video = post.media?.find((m) => m.type === "video");
-  const image = post.media?.find((m) => m.type === "image");
+  // A repost of a reel carries its media/author/text on reposted_post.
+  const isRepost = !!post.repost_of && !!post.reposted_post;
+  const content = isRepost ? post.reposted_post! : post;
+  const video = content.media?.find((m) => m.type === "video");
+  const image = content.media?.find((m) => m.type === "image");
   const videoUri = mediaUri(video);
   const router = useRouter();
   const [paused, setPaused] = useState(false);
@@ -32,11 +35,11 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   // Resume from paused whenever the reel becomes active again.
   React.useEffect(() => { if (active) { setPaused(false); setRate(1); setFastFwd(false); } }, [active]);
 
-  // Unified emoji reactions (replaces like/dislike).
-  const [myReaction, setMyReaction] = useState<string | null>(post.my_reaction ?? null);
-  const [reactionTotal, setReactionTotal] = useState(post.reactions_total ?? post.likes_count ?? 0);
-  const [reposted, setReposted] = useState(!!post.reposted_by_me);
-  const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
+  // Unified emoji reactions (replaces like/dislike) — on the original content.
+  const [myReaction, setMyReaction] = useState<string | null>(content.my_reaction ?? null);
+  const [reactionTotal, setReactionTotal] = useState(content.reactions_total ?? content.likes_count ?? 0);
+  const [reposted, setReposted] = useState(!!content.reposted_by_me);
+  const [repostCount, setRepostCount] = useState(content.reposts_count || 0);
 
   // Animated center indicators (Instagram-style): heart burst + mute flash.
   const heartBurst = useRef(new Animated.Value(0)).current;
@@ -45,10 +48,10 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
 
   // Re-sync from props when the FlatList recycles this row for a new reel.
   React.useEffect(() => {
-    setMyReaction(post.my_reaction ?? null);
-    setReactionTotal(post.reactions_total ?? post.likes_count ?? 0);
-    setReposted(!!post.reposted_by_me);
-    setRepostCount(post.reposts_count || 0);
+    setMyReaction(content.my_reaction ?? null);
+    setReactionTotal(content.reactions_total ?? content.likes_count ?? 0);
+    setReposted(!!content.reposted_by_me);
+    setRepostCount(content.reposts_count || 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id]);
 
@@ -59,7 +62,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
     setMyReaction(cur === emoji ? null : emoji);
     setReactionTotal((n) => Math.max(0, n + delta));
     try {
-      const u = await api.reactToPost(post.id, emoji);
+      const u = await api.reactToPost(content.id, emoji);
       setMyReaction(u.my_reaction ?? null);
       setReactionTotal(u.reactions_total ?? u.likes_count ?? 0);
     } catch {}
@@ -109,8 +112,8 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
     setRepostCount((n) => n + (reposted ? -1 : 1));
     try { await api.toggleRepost(post.repost_of || post.id); } catch {}
   };
-  const onComment = () => onOpenComments(post);
-  const onUser = () => router.push({ pathname: "/user/[name]", params: { name: post.author.name } });
+  const onComment = () => onOpenComments(content);
+  const onUser = () => router.push({ pathname: "/user/[name]", params: { name: content.author.name } });
   const onReport = () => {
     const doReport = () => { api.reportPost(post.id, "inappropriate").catch(() => {}); };
     if (Platform.OS === "web") {
@@ -203,7 +206,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
       <View style={styles.rightCol}>
         <TouchableOpacity style={styles.iconBtn} onPress={onUser}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarLetter}>{(post.author.name?.[0] || "?").toUpperCase()}</Text>
+            <Text style={styles.avatarLetter}>{(content.author.name?.[0] || "?").toUpperCase()}</Text>
           </View>
         </TouchableOpacity>
         <View>
@@ -233,7 +236,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         </View>
         <TouchableOpacity style={styles.iconBtn} onPress={onComment}>
           <Ionicons name="chatbubble-outline" size={28} color="#fff" />
-          <Text style={styles.metric}>{post.replies_count || 0}</Text>
+          <Text style={styles.metric}>{content.replies_count || 0}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.iconBtn} onPress={onRepost} testID={`reel-repost-${post.id}`}>
           <Ionicons name="repeat" size={28} color={reposted ? "#22C55E" : "#fff"} />
@@ -241,10 +244,10 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         </TouchableOpacity>
         <View style={styles.iconBtn}>
           <Ionicons name="eye-outline" size={26} color="#fff" />
-          <Text style={styles.metric}>{post.views_count || 0}</Text>
+          <Text style={styles.metric}>{content.views_count || 0}</Text>
         </View>
-        {myId && post.user_id === myId ? (
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: "/advertise", params: { post: post.id } })} testID={`reel-promote-${post.id}`}>
+        {myId && content.user_id === myId ? (
+          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: "/advertise", params: { post: content.id } })} testID={`reel-promote-${post.id}`}>
             <Ionicons name="megaphone" size={23} color="#fff" />
             <Text style={styles.metric}>Promote</Text>
           </TouchableOpacity>
@@ -256,15 +259,21 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
       </View>
 
       <View style={styles.bottom}>
+        {isRepost && (
+          <View style={styles.repostHint}>
+            <Ionicons name="repeat" size={13} color="rgba(255,255,255,0.85)" />
+            <Text style={styles.repostHintText}>Reposted by @{post.author.name}</Text>
+          </View>
+        )}
         <TouchableOpacity style={styles.authorRow} onPress={onUser} activeOpacity={0.8}>
-          <Text style={styles.author} numberOfLines={1}>@{post.author.name}</Text>
-          {post.author.verified && <VerifiedBadge size={15} />}
-          <UserBadges badges={post.author.badges} size={15} />
+          <Text style={styles.author} numberOfLines={1}>@{content.author.name}</Text>
+          {content.author.verified && <VerifiedBadge size={15} />}
+          <UserBadges badges={content.author.badges} size={15} />
         </TouchableOpacity>
-        {!!post.text && (videoUri || imageUri) && (
+        {!!content.text && (videoUri || imageUri) && (
           <TouchableOpacity activeOpacity={0.9} onPress={() => setCaptionOpen((o) => !o)}>
-            <Text style={styles.caption} numberOfLines={captionOpen ? undefined : 2}>{post.text}</Text>
-            {!captionOpen && post.text.length > 80 && (
+            <Text style={styles.caption} numberOfLines={captionOpen ? undefined : 2}>{content.text}</Text>
+            {!captionOpen && content.text.length > 80 && (
               <Text style={styles.captionMore}>more</Text>
             )}
           </TouchableOpacity>
@@ -369,7 +378,9 @@ export default function ReelsScreen() {
       const seen = new Set<string>();
       const valid = list.filter((p) => {
         if (seen.has(p.id)) return false;
-        const uri = mediaUri(p.media?.find((m) => m.type === "video"));
+        // Reposts of reels carry the video on reposted_post.
+        const src = (p.repost_of && p.reposted_post) ? p.reposted_post : p;
+        const uri = mediaUri(src.media?.find((m) => m.type === "video"));
         if (!(uri.startsWith("data:") || uri.startsWith("http"))) return false;
         seen.add(p.id);
         return true;
@@ -564,6 +575,8 @@ const styles = StyleSheet.create({
   bottom: {
     position: "absolute", left: 16, right: 90, bottom: 30,
   },
+  repostHint: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 },
+  repostHintText: { color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   authorRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   author: { color: "#fff", fontSize: 16, fontWeight: "800", flexShrink: 1, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   caption: { color: "rgba(255,255,255,0.9)", fontSize: 14, marginTop: 6, lineHeight: 20, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },

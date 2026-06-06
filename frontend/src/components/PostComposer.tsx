@@ -339,7 +339,7 @@ export default function PostComposer({
               style={styles.input}
               value={text}
               onChangeText={(s) => setText(s.slice(0, TEXT_MAX))}
-              placeholder={replyTo ? "Post your reply" : "What's happening?"}
+              placeholder={replyTo ? "Post your reply" : media.some((m) => m.type === "video") ? "Add a description for your reel…" : "What's happening?"}
               placeholderTextColor={theme.textMuted}
               multiline
               autoFocus
