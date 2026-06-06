@@ -133,8 +133,10 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     ensureRouteLayer();
     hidePoiLayers();
   });
-  // Re-apply when the basemap style changes (e.g. switching map styles).
-  map.on('styledata', hidePoiLayers);
+  // Re-apply once each time a NEW style finishes loading. (Do NOT use 'styledata'
+  // here — it fires continuously and hidePoiLayers calls setConfigProperty, which
+  // re-fires styledata, creating a feedback loop that thrashes the map.)
+  map.on('style.load', hidePoiLayers);
   map.on('click', function (e) {
     post({ type: 'click', lng: e.lngLat.lng, lat: e.lngLat.lat });
   });

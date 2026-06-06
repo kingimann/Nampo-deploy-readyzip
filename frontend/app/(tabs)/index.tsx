@@ -52,7 +52,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapboxWebViewHandle>(null);
   const insets = useSafeAreaInsets();
 
-  const [styleKey, setStyleKey] = useState<MapStyleKey>("standard");
+  const [styleKey, setStyleKey] = useState<MapStyleKey>("streets");
   const [styleSheetOpen, setStyleSheetOpen] = useState(false);
   const [lightMode, setLightMode] = useState<"auto" | "dawn" | "day" | "dusk" | "night">("auto");
   const [mapReady, setMapReady] = useState(false);
@@ -274,7 +274,8 @@ export default function MapScreen() {
   const onMapEvent = useCallback(
     (e: MapboxEvent) => {
       if (e.type === "ready") {
-        mapRef.current?.setStyle(MAP_STYLES.find((s) => s.key === styleKey)!.url);
+        // The map already loaded with `initialStyle` (== current styleKey), so
+        // don't re-setStyle here — that forces a full, heavy reload on startup.
         setMapReady(true);
         requestLocation();
       } else if (e.type === "moveEnd") {
