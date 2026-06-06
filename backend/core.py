@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
+import random
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -320,6 +321,17 @@ DEFAULT_CURRENCY = "USD"
 def normalize_currency(code) -> str:
     c = (code or DEFAULT_CURRENCY).upper()
     return c if c in CURRENCIES else DEFAULT_CURRENCY
+
+
+# Fun ready-made avatars (DiceBear public PNG API) so new users start with a
+# personal picture instead of a blank placeholder.
+_AVATAR_STYLES = ["avataaars", "bottts", "fun-emoji", "adventurer", "micah", "lorelei", "personas", "notionists"]
+
+
+def random_default_avatar(seed: Optional[str] = None) -> str:
+    s = (seed or uuid.uuid4().hex[:10]).strip() or uuid.uuid4().hex[:10]
+    style = random.choice(_AVATAR_STYLES)
+    return f"https://api.dicebear.com/7.x/{style}/png?seed={s}"
 
 
 def _needs_policy_agreement(d: dict) -> bool:
