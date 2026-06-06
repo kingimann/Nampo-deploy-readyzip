@@ -223,7 +223,7 @@ export const api = {
       method: "POST", body: JSON.stringify({ kind, creator_id, amount, ...(extra || {}) }),
     }),
   payoutAccountSession: () =>
-    request<{ client_secret: string; publishable_key: string }>("/payments/payouts/account-session", { method: "POST" }),
+    request<{ client_secret: string; publishable_key: string; components?: string[] }>("/payments/payouts/account-session", { method: "POST" }),
   cashoutToCard: (amount?: number) =>
     request<{ ok: boolean; amount: number; balance: number }>("/payments/payouts/cashout", { method: "POST", body: JSON.stringify(amount != null ? { amount } : {}) }),
 

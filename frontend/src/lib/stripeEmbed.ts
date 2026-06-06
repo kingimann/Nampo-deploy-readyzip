@@ -192,12 +192,23 @@ export async function stripeCardTopup(amount: number): Promise<boolean> {
   }
 }
 
+// snake_case component keys the server enables → kebab-case names connect.js expects.
+const COMPONENT_NAME: Record<string, string> = {
+  account_onboarding: "account-onboarding",
+  payouts: "payouts",
+  account_management: "account-management",
+  notification_banner: "notification-banner",
+};
+
 /**
- * Run payout (Connect) onboarding. The returned promise resolves when the user
- * finishes or closes the flow, so the caller can re-check payout status. On
- * native (or without a publishable key) it opens the hosted onboarding link.
+ * Render an embedded Stripe Connect component inside the site. `preferred` is the
+ * component we'd like (e.g. "payouts" for Manage payouts); if the account doesn't
+ * support it we fall back to whatever the server enabled (always at least
+ * onboarding/account-update) — so the panel still renders **in-app**. The hosted
+ * Stripe redirect is only used on native, without a publishable key, or if the
+ * embedded SDK genuinely can't load. Resolves when the user closes the panel.
  */
-function embeddedConnectFlow(component: "account-onboarding" | "payouts" | "account-management"): Promise<void> {
+function embeddedConnectFlow(preferred: "account_onboarding" | "payouts" | "account_management"): Promise<void> {
   return new Promise<void>((resolve) => {
     const hosted = async () => {
       try { const { url } = await api.setupPayouts(); if (url) await Linking.openURL(url); } catch {}
@@ -209,13 +220,19 @@ function embeddedConnectFlow(component: "account-onboarding" | "payouts" | "acco
         const res = await api.payoutAccountSession();
         const cs = res.client_secret;
         if (!cs) return void hosted();
+        const enabled = res.components && res.components.length ? res.components : ["account_onboarding"];
+        // Use the preferred component if the account supports it, else the richest
+        // one available (payouts > account_management > onboarding) — never hosted.
+        const pick = enabled.includes(preferred)
+          ? preferred
+          : (["payouts", "account_management", "account_onboarding"].find((c) => enabled.includes(c)) || "account_onboarding");
         await loadScript("https://connect-js.stripe.com/v1.0/connect.js");
         const loader = (window as any).StripeConnect?.loadConnectAndInitialize || (window as any).loadConnectAndInitialize;
         if (!loader) return void hosted();
         const instance = loader({ publishableKey: PK, fetchClientSecret: async () => cs });
         // resolve() runs once, whether the user exits the component or closes the overlay.
         const { container, close } = makeOverlay(() => resolve());
-        const comp = instance.create(component);
+        const comp = instance.create(COMPONENT_NAME[pick] || "account-onboarding");
         if (comp.setOnExit) comp.setOnExit(() => close());
         container.appendChild(comp);
       } catch {
@@ -231,7 +248,7 @@ function embeddedConnectFlow(component: "account-onboarding" | "payouts" | "acco
  * native (or without a publishable key) it opens the hosted onboarding link.
  */
 export function stripeOnboarding(): Promise<void> {
-  return embeddedConnectFlow("account-onboarding");
+  return embeddedConnectFlow("account_onboarding");
 }
 
 /**
