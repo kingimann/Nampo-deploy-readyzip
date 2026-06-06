@@ -34,6 +34,31 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useConfirm } from "@/src/context/ConfirmContext";
 import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, encryptDataForRecipients, decryptData, isE2EMedia, isE2E, tryDecrypt } from "@/src/utils/e2e";
 
+// Conversation color themes (Messenger-style). `bg` paints the thread,
+// `bubble` recolors the messages you send.
+const CHAT_THEMES: Record<string, { label: string; bg: string; bubble: string }> = {
+  default: { label: "Default", bg: theme.bg, bubble: theme.primary },
+  ocean:   { label: "Ocean",   bg: "#0b2438", bubble: "#1d9bf0" },
+  sunset:  { label: "Sunset",  bg: "#2a1320", bubble: "#f0518b" },
+  forest:  { label: "Forest",  bg: "#0e261b", bubble: "#1f9d57" },
+  grape:   { label: "Grape",   bg: "#1c1430", bubble: "#8e5cf7" },
+  rose:    { label: "Rose",    bg: "#2b1418", bubble: "#e0556a" },
+  midnight:{ label: "Midnight",bg: "#0a0a16", bubble: "#3b5bdb" },
+  mono:    { label: "Mono",    bg: theme.bg,  bubble: "#52525b" },
+};
+const THEME_KEYS = Object.keys(CHAT_THEMES);
+
+// Disappearing-message durations (must mirror the backend's allowed set).
+const DISAPPEAR_OPTIONS: { label: string; seconds: number }[] = [
+  { label: "Off", seconds: 0 },
+  { label: "1 minute", seconds: 60 },
+  { label: "1 hour", seconds: 3600 },
+  { label: "1 day", seconds: 86400 },
+  { label: "1 week", seconds: 604800 },
+];
+const disappearLabel = (s: number) =>
+  DISAPPEAR_OPTIONS.find((o) => o.seconds === s)?.label || "Off";
+
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -93,6 +118,16 @@ export default function ChatScreen() {
   const [contactOpen, setContactOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  // Conversation settings (Messenger-style): color theme, disappearing timer, group name.
+  const [convTheme, setConvTheme] = useState<string>("default");
+  const [disappearSecs, setDisappearSecs] = useState<number>(0);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [convName, setConvName] = useState<string>(typeof name === "string" ? name : "");
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [disappearOpen, setDisappearOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameText, setRenameText] = useState("");
+  const themeColors = CHAT_THEMES[convTheme] || CHAT_THEMES.default;
   const [peer, setPeer] = useState<{ id: string; name: string } | null>(null);
   const [payEnabled, setPayEnabled] = useState(false);
   const [walletBal, setWalletBal] = useState<number | null>(null);
@@ -108,6 +143,12 @@ export default function ChatScreen() {
         await ensureKeyPair();
         const convs = await api.listConversations();
         const conv = convs.find((c) => c.id === id);
+        if (conv && !cancelled) {
+          setConvTheme(conv.theme || "default");
+          setDisappearSecs(conv.disappearing_seconds || 0);
+          setOwnerId(conv.owner_id || null);
+          if (conv.kind === "group" && conv.name) setConvName(conv.name);
+        }
         if (conv?.kind === "dm" && conv.other_user && conv.other_user.user_id !== user?.user_id) {
           if (!cancelled) setPeer({ id: conv.other_user.user_id, name: conv.other_user.name || name || "this user" });
           const k = await getPeerPublicKey(conv.other_user.user_id);
@@ -451,6 +492,31 @@ export default function ChatScreen() {
     catch (e: any) { Alert.alert("Couldn't clear", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
   };
 
+  // ---- Conversation settings: theme, disappearing messages, group name ----
+  const applyTheme = async (key: string) => {
+    if (!id) return;
+    const prev = convTheme;
+    setConvTheme(key); setThemeOpen(false);
+    try { await api.setConversationTheme(id, key); }
+    catch { setConvTheme(prev); }
+  };
+  const applyDisappear = async (secs: number) => {
+    if (!id) return;
+    const prev = disappearSecs;
+    setDisappearSecs(secs); setDisappearOpen(false);
+    try { await api.setDisappearing(id, secs); }
+    catch { setDisappearSecs(prev); }
+  };
+  const saveGroupName = async () => {
+    const n = renameText.trim();
+    if (!id || !n) return;
+    setRenameOpen(false);
+    const prev = convName;
+    setConvName(n);
+    try { await api.patchGroupChat(id, { name: n }); }
+    catch (e: any) { setConvName(prev); Alert.alert("Couldn't rename", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+  };
+
   const pickFile = async () => {
     if (!id) return;
     if (Platform.OS === "web") {
@@ -722,8 +788,13 @@ export default function ChatScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={styles.title} numberOfLines={1}>{name || "Chat"}</Text>
-          {presence.typing ? (
+          <Text style={styles.title} numberOfLines={1}>{convName || name || "Chat"}</Text>
+          {disappearSecs > 0 ? (
+            <View style={styles.encRow}>
+              <Ionicons name="timer-outline" size={11} color={theme.primary} />
+              <Text style={[styles.encText, { color: theme.primary }]}>Disappears after {disappearLabel(disappearSecs)}</Text>
+            </View>
+          ) : presence.typing ? (
             <Text style={[styles.encText, { color: theme.primary }]}>writing…</Text>
           ) : presence.active ? (
             <View style={styles.encRow}>
@@ -761,10 +832,118 @@ export default function ChatScreen() {
       <Modal visible={optionsOpen} transparent animationType="fade" onRequestClose={() => setOptionsOpen(false)}>
         <TouchableOpacity style={styles.optBackdrop} activeOpacity={1} onPress={() => setOptionsOpen(false)}>
           <View style={styles.optSheet}>
+            {isGroup && (
+              <TouchableOpacity
+                style={styles.optRow}
+                onPress={() => { setOptionsOpen(false); setRenameText(convName); setRenameOpen(true); }}
+                testID="chat-rename"
+              >
+                <Ionicons name="pencil-outline" size={20} color={theme.textPrimary} />
+                <Text style={styles.optText}>Change group name</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.optRow}
+              onPress={() => { setOptionsOpen(false); setThemeOpen(true); }}
+              testID="chat-theme"
+            >
+              <Ionicons name="color-palette-outline" size={20} color={theme.textPrimary} />
+              <Text style={styles.optText}>Theme</Text>
+              <View style={[styles.themeDot, { backgroundColor: themeColors.bubble }]} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.optRow}
+              onPress={() => { setOptionsOpen(false); setDisappearOpen(true); }}
+              testID="chat-disappearing"
+            >
+              <Ionicons name="timer-outline" size={20} color={theme.textPrimary} />
+              <Text style={styles.optText}>Disappearing messages</Text>
+              <Text style={styles.optValue}>{disappearLabel(disappearSecs)}</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.optRow} onPress={clearConvo} testID="chat-clear">
               <Ionicons name="trash-outline" size={20} color={theme.error} />
               <Text style={[styles.optText, { color: theme.error }]}>Clear conversation</Text>
             </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Theme picker */}
+      <Modal visible={themeOpen} transparent animationType="fade" onRequestClose={() => setThemeOpen(false)}>
+        <TouchableOpacity style={styles.optBackdrop} activeOpacity={1} onPress={() => setThemeOpen(false)}>
+          <View style={styles.pickSheet}>
+            <Text style={styles.pickTitle}>Conversation theme</Text>
+            <View style={styles.swatchWrap}>
+              {THEME_KEYS.map((key) => {
+                const t = CHAT_THEMES[key];
+                const active = key === convTheme;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={styles.swatchItem}
+                    onPress={() => applyTheme(key)}
+                    testID={`theme-${key}`}
+                  >
+                    <View style={[styles.swatch, { backgroundColor: t.bubble, borderColor: active ? theme.textPrimary : theme.border, borderWidth: active ? 3 : 1 }]}>
+                      {active && <Ionicons name="checkmark" size={18} color="#fff" />}
+                    </View>
+                    <Text style={styles.swatchLabel}>{t.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Disappearing messages picker */}
+      <Modal visible={disappearOpen} transparent animationType="fade" onRequestClose={() => setDisappearOpen(false)}>
+        <TouchableOpacity style={styles.optBackdrop} activeOpacity={1} onPress={() => setDisappearOpen(false)}>
+          <View style={styles.pickSheet}>
+            <Text style={styles.pickTitle}>Disappearing messages</Text>
+            <Text style={styles.pickSub}>New messages vanish for everyone after the chosen time.</Text>
+            {DISAPPEAR_OPTIONS.map((o) => (
+              <TouchableOpacity
+                key={o.seconds}
+                style={styles.optRow}
+                onPress={() => applyDisappear(o.seconds)}
+                testID={`disappear-${o.seconds}`}
+              >
+                <Ionicons
+                  name={o.seconds === disappearSecs ? "radio-button-on" : "radio-button-off"}
+                  size={20}
+                  color={o.seconds === disappearSecs ? theme.primary : theme.textMuted}
+                />
+                <Text style={styles.optText}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Group rename */}
+      <Modal visible={renameOpen} transparent animationType="fade" onRequestClose={() => setRenameOpen(false)}>
+        <TouchableOpacity style={styles.optBackdrop} activeOpacity={1} onPress={() => setRenameOpen(false)}>
+          <View style={styles.pickSheet} onStartShouldSetResponder={() => true}>
+            <Text style={styles.pickTitle}>Group name</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="Group name"
+              placeholderTextColor={theme.textMuted}
+              maxLength={80}
+              autoFocus
+              testID="rename-input"
+            />
+            <View style={styles.renameBtns}>
+              <TouchableOpacity style={styles.renameCancel} onPress={() => setRenameOpen(false)}>
+                <Text style={styles.renameCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.renameSave, !renameText.trim() && { opacity: 0.5 }]} onPress={saveGroupName} disabled={!renameText.trim()} testID="rename-save">
+                <Text style={styles.renameSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -781,6 +960,7 @@ export default function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={(i) => i.id}
+            style={{ backgroundColor: themeColors.bg }}
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 12 }}
             renderItem={({ item }) => {
               const mine = item.sender_id === user?.user_id;
@@ -796,6 +976,7 @@ export default function ChatScreen() {
                     style={[
                       styles.bubble,
                       mine ? styles.bubbleMine : styles.bubbleOther,
+                      mine && !item.deleted && { backgroundColor: themeColors.bubble },
                       item.type === "place" && !item.deleted && styles.bubblePlace,
                       item.deleted && styles.bubbleDeleted,
                     ]}
@@ -1312,7 +1493,22 @@ const styles = StyleSheet.create({
   optBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
   optSheet: { position: "absolute", top: 56, right: 10, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, paddingVertical: 6, minWidth: 210, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
   optRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  optText: { fontSize: 15, fontWeight: "700" },
+  optText: { fontSize: 15, fontWeight: "700", color: theme.textPrimary, flexShrink: 1 },
+  optValue: { marginLeft: "auto", color: theme.textMuted, fontSize: 13, fontWeight: "700" },
+  themeDot: { marginLeft: "auto", width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: theme.border },
+  pickSheet: { position: "absolute", left: 18, right: 18, top: "30%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 18, shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 10 },
+  pickTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", marginBottom: 6 },
+  pickSub: { color: theme.textMuted, fontSize: 13, lineHeight: 18, marginBottom: 10 },
+  swatchWrap: { flexDirection: "row", flexWrap: "wrap", gap: 14, paddingTop: 6 },
+  swatchItem: { alignItems: "center", width: 64, gap: 6 },
+  swatch: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  swatchLabel: { color: theme.textSecondary, fontSize: 12, fontWeight: "600" },
+  renameInput: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, color: theme.textPrimary, fontSize: 15, marginTop: 4 },
+  renameBtns: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 14 },
+  renameCancel: { paddingHorizontal: 16, paddingVertical: 10 },
+  renameCancelText: { color: theme.textMuted, fontSize: 15, fontWeight: "700" },
+  renameSave: { backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  renameSaveText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   header: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 12, paddingVertical: 8,

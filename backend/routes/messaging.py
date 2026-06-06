@@ -67,6 +67,15 @@ async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
         last_q["created_at"] = {"$gt": cleared_at}
     last = await db.messages.find_one(last_q, {"_id": 0}, sort=[("created_at", -1)])
     if last:
+        # A disappearing message that has already expired shouldn't drive the preview.
+        ex = last.get("expires_at")
+        if ex:
+            try:
+                if _norm_dt(ex) <= datetime.now(timezone.utc):
+                    last = None
+            except Exception:
+                pass
+    if last:
         last = _decrypt_msg(last)
     last_read = (conv.get("last_read") or {}).get(viewer_id)
     # Unread = messages from others after last_read (or after cleared_at if never read)
@@ -88,6 +97,8 @@ async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
             id=conv["id"], kind="group",
             name=conv.get("name") or "Group",
             avatar=conv.get("avatar"),
+            theme=conv.get("theme"),
+            disappearing_seconds=int(conv.get("disappearing_seconds") or 0),
             members=members,
             owner_id=conv.get("owner_id"),
             last_message=Message(**last) if last else None,
@@ -108,6 +119,8 @@ async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
         )
     return ConversationView(
         id=conv["id"], kind="dm",
+        theme=conv.get("theme"),
+        disappearing_seconds=int(conv.get("disappearing_seconds") or 0),
         other_user=other,
         listing_id=conv.get("listing_id"),
         listing_title=conv.get("listing_title"),
@@ -220,8 +233,7 @@ async def patch_group_chat(
         raise HTTPException(status_code=403, detail="Not a member")
     patch = {}
     if body.name is not None and body.name.strip():
-        if conv.get("owner_id") != user["user_id"]:
-            raise HTTPException(status_code=403, detail="Only owner can rename")
+        # Any member can set a custom group name (Messenger-style).
         patch["name"] = body.name.strip()[:80]
     if body.avatar is not None:
         if conv.get("owner_id") != user["user_id"]:
@@ -288,6 +300,57 @@ async def leave_group_chat(conv_id: str, authorization: Optional[str] = Header(N
     return {"ok": True}
 
 
+# ---------- Conversation settings (theme, disappearing messages) ----------
+_THEME_KEYS = {"default", "ocean", "sunset", "forest", "grape", "rose", "midnight", "mono"}
+# Allowed disappearing durations (seconds). 0 = off.
+_DISAPPEAR_OPTIONS = {0, 60, 3600, 86400, 604800}
+
+
+class ConvThemeUpdate(BaseModel):
+    theme: Optional[str] = "default"
+
+
+class DisappearingUpdate(BaseModel):
+    seconds: int = 0
+
+
+@router.post("/conversations/{conv_id}/theme", response_model=ConversationView)
+async def set_conversation_theme(
+    conv_id: str, body: ConvThemeUpdate, authorization: Optional[str] = Header(None)
+):
+    """Set the conversation color theme (Messenger-style). Any member can change it."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    theme = (body.theme or "default").strip().lower()[:24]
+    if theme not in _THEME_KEYS:
+        theme = "default"
+    await db.conversations.update_one({"id": conv_id}, {"$set": {"theme": theme}})
+    updated = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    return await _hydrate_conv(updated, user["user_id"])
+
+
+@router.post("/conversations/{conv_id}/disappearing", response_model=ConversationView)
+async def set_disappearing(
+    conv_id: str, body: DisappearingUpdate, authorization: Optional[str] = Header(None)
+):
+    """Turn disappearing messages on/off for a conversation. Any member can change
+    it; the setting applies to messages sent afterwards."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    secs = int(body.seconds or 0)
+    if secs not in _DISAPPEAR_OPTIONS:
+        secs = 0
+    await db.conversations.update_one(
+        {"id": conv_id}, {"$set": {"disappearing_seconds": secs}}
+    )
+    updated = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    return await _hydrate_conv(updated, user["user_id"])
+
+
 # ---------- Listing ----------
 @router.get("/conversations", response_model=List[ConversationView])
 async def list_conversations(authorization: Optional[str] = Header(None)):
@@ -336,9 +399,19 @@ async def list_messages(
         .limit(200)
     )
     docs = await cursor.to_list(200)
+    now = datetime.now(timezone.utc)
+    # Disappearing messages: hide anything past its expiry from the response.
+    def _expired(d: dict) -> bool:
+        ex = d.get("expires_at")
+        if not ex:
+            return False
+        try:
+            return _norm_dt(ex) <= now
+        except Exception:
+            return False
+    docs = [d for d in docs if not _expired(d)]
     # Fetching messages = they're delivered to this viewer. Record it so the
     # sender can show Sent → Delivered → Read (Snapchat-style).
-    now = datetime.now(timezone.utc)
     await db.conversations.update_one(
         {"id": conv_id}, {"$set": {f"last_delivered.{user['user_id']}": now}}
     )
@@ -518,6 +591,8 @@ async def send_message(
             except Exception:
                 link_prev = None
     now = datetime.now(timezone.utc)
+    dsec = int(conv.get("disappearing_seconds") or 0)
+    expires_at = now + timedelta(seconds=dsec) if dsec > 0 else None
     msg = {
         "id": str(uuid.uuid4()),
         "conversation_id": conv_id,
@@ -545,6 +620,7 @@ async def send_message(
         "reactions": {},
         "reply_to_id": reply_to_id,
         "deleted": False,
+        "expires_at": expires_at,
         "created_at": now,
     }
     await db.messages.insert_one(msg.copy())

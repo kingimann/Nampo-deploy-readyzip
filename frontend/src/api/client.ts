@@ -403,6 +403,14 @@ export const api = {
     request<{ ok: boolean }>(`/conversations/${conv_id}`, { method: "DELETE" }),
   clearConversation: (conv_id: string) =>
     request<{ ok: boolean }>(`/conversations/${conv_id}/clear`, { method: "POST" }),
+  setConversationTheme: (conv_id: string, theme: string) =>
+    request<ConversationView>(`/conversations/${conv_id}/theme`, {
+      method: "POST", body: JSON.stringify({ theme }),
+    }),
+  setDisappearing: (conv_id: string, seconds: number) =>
+    request<ConversationView>(`/conversations/${conv_id}/disappearing`, {
+      method: "POST", body: JSON.stringify({ seconds }),
+    }),
 
   // Group chats
   createGroupChat: (body: { name: string; member_ids: string[]; avatar?: string }) =>
@@ -1035,6 +1043,7 @@ export type Message = {
   delivered_at?: string | null;
   read_by?: string[];
   delivered_by?: string[];
+  expires_at?: string | null;
   created_at: string;
 };
 export type CustomEmoji = { id: string; shortcode: string; image_base64: string; owner_id: string; created_at: string };
@@ -1057,6 +1066,8 @@ export type ConversationView = {
   kind: "dm" | "group";
   name?: string | null;
   avatar?: string | null;
+  theme?: string | null;
+  disappearing_seconds?: number;
   other_user?: PublicUser | null;
   members?: PublicUser[];
   owner_id?: string | null;

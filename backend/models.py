@@ -319,6 +319,7 @@ class Message(BaseModel):
     delivered_at: Optional[datetime] = None  # all recipients fetched it
     read_by: List[str] = []        # which recipients have read it (group receipts)
     delivered_by: List[str] = []   # which recipients have received it
+    expires_at: Optional[datetime] = None  # disappearing messages: auto-hidden after this
     created_at: datetime
 
 
@@ -344,6 +345,8 @@ class ConversationView(BaseModel):
     kind: str = "dm"           # "dm" or "group"
     name: Optional[str] = None  # group name (None for DM)
     avatar: Optional[str] = None  # group avatar (None for DM)
+    theme: Optional[str] = None  # conversation color theme key (Messenger-style)
+    disappearing_seconds: int = 0  # 0 = off; otherwise messages auto-vanish after N seconds
     other_user: Optional[PublicUser] = None  # only for DM
     members: List[PublicUser] = []           # group members (empty for DM)
     owner_id: Optional[str] = None           # group owner
