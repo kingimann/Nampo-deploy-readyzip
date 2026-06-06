@@ -119,6 +119,7 @@ export default function DirectionsScreen() {
   const params = useLocalSearchParams<{ destLng?: string; destLat?: string; destName?: string }>();
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const userLocationRef = useRef<[number, number] | null>(null); // fresh loc for search bias (no per-fix effect re-runs)
   const [heading, setHeading] = useState<number>(0);
   const [locAccuracy, setLocAccuracy] = useState<number | null>(null);
   const [waypoints, setWaypoints] = useState<Waypoint[]>([
@@ -201,6 +202,7 @@ export default function DirectionsScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      userLocationRef.current = [pos.coords.longitude, pos.coords.latitude];
       setUserLocation([pos.coords.longitude, pos.coords.latitude]);
       if (pos.coords.accuracy != null) setLocAccuracy(pos.coords.accuracy);
       if (pos.coords.heading != null && pos.coords.heading >= 0) setHeading(pos.coords.heading);
@@ -212,6 +214,7 @@ export default function DirectionsScreen() {
           distanceInterval: 3,
         },
         (loc) => {
+          userLocationRef.current = [loc.coords.longitude, loc.coords.latitude];
           setUserLocation([loc.coords.longitude, loc.coords.latitude]);
           if (loc.coords.accuracy != null) setLocAccuracy(loc.coords.accuracy);
           if (loc.coords.heading != null && loc.coords.heading >= 0) setHeading(loc.coords.heading);
@@ -324,17 +327,17 @@ export default function DirectionsScreen() {
     setSearching(true);
     const t = setTimeout(async () => {
       try {
-        const r = await forwardGeocode(q, userLocation || undefined);
+        const r = await forwardGeocode(q, userLocationRef.current || undefined);
         setResults(r);
       } finally {
         setSearching(false);
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [activeWaypointId, waypoints, userLocation]);
+  }, [activeWaypointId, waypoints]);
 
   const onMapReady = useCallback(() => {
-    mapRef.current?.setStyle(MAP_STYLES.find((s) => s.key === "dark")!.url);
+    // Map already loaded with the initial (Streets) style — no redundant reload.
     setMapReady(true);
   }, []);
 
@@ -624,7 +627,7 @@ export default function DirectionsScreen() {
         ref={mapRef}
         initialCenter={[-74.006, 40.7128]}
         initialZoom={11}
-        initialStyle={MAP_STYLES.find((s) => s.key === "dark")!.url}
+        initialStyle={MAP_STYLES.find((s) => s.key === "streets")!.url}
         onEvent={onEvent}
       />
 
