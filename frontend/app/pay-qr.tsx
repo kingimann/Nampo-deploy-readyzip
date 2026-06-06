@@ -9,6 +9,7 @@ import * as Clipboard from "expo-clipboard";
 import { Stack, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import QrCode from "@/src/components/QrCode";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
 const WEB_ORIGIN =
@@ -31,13 +32,8 @@ export default function PayQRScreen() {
     return `${WEB_ORIGIN}/pay/${user.user_id}${qs ? `?${qs}` : ""}`;
   }, [user, amount, note]);
 
-  // Branded QR: deep-teal modules on white, with the user's avatar in the
-  // centre (only when it's a fetchable URL — data-URI photos are skipped so the
-  // code stays scannable). High error-correction tolerates the centre image.
-  const centerAvatar = user?.picture && /^https?:\/\//.test(user.picture) ? user.picture : "";
-  const qrUrl =
-    `https://quickchart.io/qr?text=${encodeURIComponent(payLink)}&size=300&margin=2&ecLevel=H&dark=075E54&light=ffffff` +
-    (centerAvatar ? `&centerImageUrl=${encodeURIComponent(centerAvatar)}&centerImageSizeRatio=0.22` : "");
+  // Rendered fully on-device (no external service). Any avatar — including an
+  // uploaded photo (data URI) — can sit in the centre since we draw it ourselves.
 
   const copy = async () => { try { await Clipboard.setStringAsync(payLink); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} };
   const share = async () => { try { await Share.share({ message: `Pay me on Nami: ${payLink}` }); } catch {} };
@@ -78,7 +74,7 @@ export default function PayQRScreen() {
           </LinearGradient>
 
           <View style={styles.qrWrap}>
-            <Image source={{ uri: qrUrl }} style={styles.qr} resizeMode="contain" />
+            <QrCode value={payLink} size={232} dark="#075E54" light="#ffffff" logo={user?.picture || undefined} />
           </View>
 
           {Number(amount) > 0 ? (

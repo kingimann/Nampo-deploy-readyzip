@@ -180,8 +180,8 @@ Developer API key (Settings → Developer API).
 | --- | --- | --- |
 | POST | `/auth/register` | Create account → `{session_token, user}` |
 | POST | `/auth/login` | Log in (email or username) |
-| GET | `/auth/me` | Current user |
-| PATCH | `/auth/me` | Update profile |
+| GET | `/auth/me` | Current user (incl. `picture`, `wallet_balance`, `currency`) |
+| PATCH | `/auth/me` | Update profile — `name`, `bio`, `picture`, home/work, `sub_price`, `payout_frequency\|threshold`, `default_comment_policy\|likes_disabled`, `currency` |
 | PATCH | `/auth/me/email\|password\|phone` | Change email / password / phone |
 | POST | `/auth/username` | Claim a username |
 | GET/POST/DELETE | `/auth/api-keys` | Manage developer API keys |
@@ -266,16 +266,23 @@ Messages also support server-side encryption at rest regardless.
 `POST /notifications/{id}/read` · `POST /notifications/read-all` · `DELETE /notifications/{id}`.
 
 **Types:** `like`, `repost`, `reply`, `message`, `group_invite`, `group_message`,
-`follow`, `poke`, `money_request`, `money_received`, `money_request_paid`,
-`money_request_declined`, `money_accepted`, `money_declined`. Each carries
+`follow`, `poke`, `tip`, `subscribe`, `money_request`, `money_received`, `money_request_paid`,
+`money_request_declined`, `money_accepted`, `money_declined`, `money_reversed`,
+`wallet_topup`, `payout_setup`. Each carries
 `actor_id/name/picture`, an optional `post_id`/`conversation_id`, a `message`
 preview, and `read`. (Developer webhooks receive the same events — see Webhooks.)
 
 ### Payments (when Stripe is configured)
-`GET /payments/config` · `POST /payments/payouts/setup` · `GET /payments/payouts/status`
-· `POST /payments/checkout` (`kind`: tip | subscription | promote) · `POST /payments/webhook`
-· `POST /payments/payouts/account-session` (embedded Connect onboarding)
-· `GET/POST /payments/api-plan*` · `GET/POST /payments/api-usage*` (plans + pay-as-you-go)
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/payments/config` | Whether real payments are live + fee config (see below) |
+| POST | `/payments/checkout` | Create Checkout — `{kind: tip\|subscription\|promote, creator_id?, amount?, tier?, post_id?, days?, budget?, cpc?, conversation_id?, note?, embedded?}` → `{url?}` or `{client_secret, id, embedded}` |
+| POST | `/payments/payouts/setup` | Create/reuse the creator's Connect Express account → hosted onboarding `{url}` |
+| GET | `/payments/payouts/status` | Payout state incl. `payouts_enabled`, `requirements_due/eventually/pending`, `capabilities`, `disabled_reason`, `platform` |
+| POST | `/payments/payouts/account-session` | Embedded Connect onboarding → `{client_secret, publishable_key}` |
+| POST | `/payments/payouts/cashout` | **Instant debit-card cash-out** of the wallet balance — `{amount?}` (omit = whole balance). Stripe Instant Payout; refunded on failure |
+| POST | `/payments/webhook` | Stripe `checkout.session.completed` / `checkout.session.expired` (signature-enforced) |
+| GET/POST | `/payments/api-plan*` · `/payments/api-usage*` | Paid Developer-API plans + pay-as-you-go |
 
 `GET /payments/config` → `{enabled, platform_fee_percent, publishable_key, stripe_configured, test_mode, test_override}`.
 **Test/simulated payments are off by default** — real Stripe is used whenever Stripe is
@@ -287,10 +294,15 @@ isn't configured (down / not set up) or an admin turns test mode on.
 (default 10¢) charged to the payer on tips and peer-to-peer sends. `GET /payments/config`
 returns both values.
 
+The flat fee is **charged to the payer** (tips & peer-to-peer sends) and booked to platform
+revenue when the payment settles; **admins are exempt** from the flat fee on their own sends.
+
 **Admin (payments):** `GET/POST /admin/test-payments` (toggle simulated mode),
 `GET/POST /admin/fees` (`{platform_fee_percent, transaction_fee_cents}` — revenue split + flat fee),
-`POST /admin/reset/money` (wipe earnings/tips/subs/payouts/transfers/requests/wallet top-ups
-and zero ad + wallet balances), `POST /admin/reset/analytics`.
+`GET /admin/revenue` → `{total, count, by_source, platform_fee_percent, transaction_fee_cents}`
+(computed from settled payments), `POST /admin/reset/money` (wipe earnings/tips/subs/payouts/
+transfers/requests/wallet top-ups/platform-revenue and zero ad + wallet balances),
+`POST /admin/reset/analytics`.
 
 ### Money (peer-to-peer) & wallet
 The **wallet** is a spendable balance you top up (`/wallet/topup`). Sending money draws from
@@ -310,12 +322,25 @@ payouts to cash out (`payout_setup` notification).
 | --- | --- | --- |
 | GET/POST | `/money/security` | Get / set the transfer security question |
 | POST | `/money/send` | Send money — `{to_user_id, amount, note, answer}` → pending transfer |
-| GET | `/money/transfers` | Incoming (to accept) + outgoing transfers |
-| POST | `/money/transfers/{id}/accept\|decline` | Recipient accepts (credited) / declines |
+| GET | `/money/transfers` | Incoming (to accept) + outgoing transfers (pending-centric) |
+| GET | `/money/transfers/history` | All transfers, both directions, every status (`accepted\|declined\|reversed\|pending`) |
+| POST | `/money/transfers/{id}/accept\|decline` | Recipient accepts (credited; `409 not_yet_claimable` during the hold) / declines (refunds sender) |
 | POST | `/money/transfers/{id}/reverse` | Sender reverses a transfer while pending (mistake undo); refunded |
 | POST | `/money/request` | Request money — `{to_user_id, amount, note}` |
 | GET | `/money/requests` | Incoming + outgoing requests |
 | POST | `/money/requests/{id}/pay\|decline\|cancel` | Pay (needs `answer`) / decline / cancel |
+
+#### Wallet & currency
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/wallet` | Earnings summary (incl. `balance`, `currency`, recent received/sent, each with `message`) |
+| GET | `/wallet/balance` | `{balance, display, currency, symbol, rate, currencies}` (USD balance + chosen-currency view) |
+| POST | `/wallet/topup` | Add funds — `{amount, embedded?}`. Stripe Checkout when live (`{url}`/`{client_secret}`), instant credit in test mode |
+| POST | `/wallet/topup/confirm` | Confirm a top-up on return from Checkout — `{session_id}` (idempotent) |
+| POST | `/wallet/topup/sync` | Reconcile recent Stripe payments; credit any paid top-up a missed webhook dropped |
+| GET | `/wallet/topups` | Top-up history with `status` (processing\|completed\|failed) |
+| POST | `/wallet/currency` | Set preferred display currency — `{currency}` |
+| GET | `/currencies` | Supported display currencies + fixed USD rates |
 
 > **Pay by QR:** the in-app pay code encodes `…/pay/{user_id}?amount=&note=`; scanning it
 > opens the send-money flow pre-filled. (The pay screen is client-side; it calls `/money/send`.)

@@ -20,7 +20,7 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - Hashtags (browse posts by tag, with counts) and rich link previews
 - X-style impression / view-count tracking on posts; likers and reposters lists
 - **Content reporting** (flag a post/reel for moderation, one report per user)
-- **Promote / advertise** a post: boosts ranking and shows a "Sponsored" badge, via a prototype checkout (durations + a test-mode card form)
+- **Promote / advertise** a post: boosts ranking and shows a "Sponsored" badge, paid via Stripe Checkout (durations, optional pay-per-click budget) with a test-mode fallback
 
 ### Reels & Stories
 - Reels: a vertical, full-screen video feed (`/feed/reels`)
@@ -32,6 +32,8 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - **❤️ reactions** (double-tap a bubble or use the long-press menu) and **replies** (quoted preview in the composer and on the sent bubble)
 - **Custom uploadable emojis**: upload an image + `:shortcode:` and use it inline in any message (global registry; long-press your own to delete)
 - Edits, read receipts, unread counts, and message deletion (with a tombstone)
+- **Snapchat-style presence** (delivered/sent/read, "writing…", "active now") and **Clear conversation** (clears your copy of the history while keeping the chat)
+- **Send a tip inside a DM** (embedded Stripe when live), and request/send money via the wallet
 - Group conversation management (rename, avatar, add/remove members, leave)
 - Optional client-side **E2E encryption** (tweetnacl) plus optional at-rest encryption (Fernet) when a key is configured
 - "Contact seller" flow that spins up a DM from a marketplace listing
@@ -46,7 +48,9 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 
 ### Profile & Settings
 - Profiles with avatar, bio, username, and home/work saved locations
+- **Profile pictures**: upload your own, or pick from a gallery of **ready-made default avatars**; new users are auto-assigned a unique default avatar at sign-up
 - **Verified blue checkmark** shown next to verified users (on posts, comments, profiles)
+- **Per-post privacy**: choose who can comment (everyone/followers/friends/nobody), turn likes off, and see who viewed a post
 - Follow / unfollow, followers/following lists
 - Friend requests (send, accept, reject, remove) with friend status
 - A user's posts (originals plus reposts/quotes) shown on their profile, pinned first
@@ -61,11 +65,15 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - A detailed in-app **Developer API** section (Settings → Developer API): base URL, bearer-token auth, a quickstart, and a browsable endpoint reference grouped by area
 - **Personal API keys**: generate labeled keys (shown once), list, and revoke them. Keys are long-lived bearer tokens that work anywhere the REST API is used.
 
-### Creators & monetization (fake payments)
-- **Tip** any creator (choose an amount + a note) and **subscribe** monthly at the creator's price, both through a reusable **test-mode checkout** (no real charge)
-- A creator's earnings are tracked and shown in a **Wallet** screen: total earned, tips vs. subscriptions, active subscribers, recent transactions, and a control to set your own monthly subscription price
-- The Wallet also shows a **Sent** section — the tips you've given and the subscriptions you pay for — plus your total spent and active-subscription count
-- All money is credited as earnings to the recipient. (Designed so a real payment processor can be dropped into the fake-payment step later.)
+### Payments, wallet & money (real Stripe, with a test-mode fallback)
+- **Real payments via Stripe** when configured (`STRIPE_SECRET_KEY`): tips, monthly **subscriptions**, and post **promotion** run through **Stripe Checkout embedded in the site** (stripe.js embedded checkout on web, hosted fallback on native). Creators receive funds on a **Stripe Connect Express** account they set up in-app (embedded onboarding). When Stripe isn't configured — or an admin flips test mode on — the app falls back to a simulated checkout (no real charge). **Test payments are off by default.**
+- **Wallet** with a spendable **balance** you **top up** (Stripe Checkout, credited via webhook + on-return confirm + a per-visit reconcile so a payment can never be missed), shown in a **display currency you choose** (12 currencies; money is stored in USD).
+- **Instant cash-out to a debit card** (Stripe Instant Payouts, DoorDash-style) of your wallet balance; balance is debited first and refunded on any failure.
+- **Peer-to-peer money**: send money (gated by a personal **security question**) and **request money**. Sends are a pending transfer the recipient accepts; the sender has a **5-minute reversal window** (mistake undo) before it can be claimed, and a full **transfer history** (sent/received, every status). Receiving notifies the recipient and records who/when/message.
+- **Pay by QR**: a branded, on-device-rendered **pay QR code** (with your avatar in the centre) others scan to pay you; plus an in-app QR scanner.
+- **Fees**: an admin-controlled **revenue split** on subscriptions/tips (e.g. 70/30 or 90/10) plus a flat **per-payment transaction fee** (default 10¢, admins exempt), booked to a **platform-revenue** tally in the admin panel.
+- **Wallet screen** shows total earned (tips vs. subscriptions vs. ads), top-up history with status (processing/completed/failed), a **Sent** section, payout status with plain-language reasons when Stripe is still verifying, and a cash-out nudge when you have a balance but no payout account.
+- **Ads & advertising**: prepaid ad accounts, promoted posts (budget/CPC), link ads for your own website, and a publisher network to embed Nami ads on your site and earn — with X/Google-style click-fraud guards and account-age gates.
 
 ### Roles & moderation
 - Site **roles**: `user` / `mod` / `admin`. Bootstrap admins with the `ADMIN_EMAILS` env var.
@@ -166,8 +174,12 @@ Nampo-deploy-readyzip/
 │   │   ├── marketplace.py    # listings (location/radius), seller profiles, reviews
 │   │   ├── groups.py         # chat communities, members, pins, requests
 │   │   ├── foursquare.py     # Foursquare place match
-│   │   └── stories.py        # ephemeral stories
-│   │   # users.py also hosts: tips, subscriptions, /wallet, /admin/users (roles/verify)
+│   │   ├── stories.py        # ephemeral stories
+│   │   ├── payments.py       # Stripe Connect, Checkout, payouts, cash-out, webhook, admin fees/revenue
+│   │   ├── money.py          # peer-to-peer send/request, wallet balance/top-up, currency, reversal, history
+│   │   ├── ads.py            # promoted posts, ad accounts, link ads, publisher network
+│   │   └── payouts.py        # scheduled creator payouts
+│   │   # users.py also hosts: tips, subscriptions, /wallet, /admin/users (roles/verify/ban/suspend/audit)
 │   ├── services/
 │   │   ├── encryption.py     # optional Fernet message encryption at rest
 │   │   └── link_preview.py   # OpenGraph/link-preview scraping
@@ -228,6 +240,11 @@ Nampo-deploy-readyzip/
 | `MESSAGE_ENC_KEY` | No       | **Yes**| *(none)*       | Fernet key. If set, messages are encrypted at rest; if absent/invalid, messaging still works in plaintext. |
 | `FSQ_API_KEY`     | No       | **Yes**| `""`           | Foursquare Places API key for `/api/foursquare/match`. Without it, place matching returns nothing. |
 | `ADMIN_EMAILS`    | No       | **Yes**| `""`           | Comma-separated emails auto-granted the **admin** role (verify users, set roles, moderate posts). |
+| `STRIPE_SECRET_KEY` | No     | **Yes**| *(none)*       | Stripe secret key (`sk_live_…`/`sk_test_…`). When set, real payments activate (Connect, Checkout, payouts); otherwise the app uses simulated payments. |
+| `STRIPE_WEBHOOK_SECRET` | No | **Yes**| *(none)*      | Signing secret for the `checkout.session.completed` / `checkout.session.expired` webhook (`/api/payments/webhook`). Enforced when set. |
+| `STRIPE_PUBLISHABLE_KEY` | No| No     | *(none)*       | Stripe publishable key returned to the client for embedded Connect onboarding/checkout. (The web client uses `EXPO_PUBLIC_STRIPE_KEY`.) |
+| `PLATFORM_FEE_PERCENT` | No  | No     | `0`            | Default platform cut of subscriptions/tips (admin-tunable at runtime via `/admin/fees`). |
+| `ANTHROPIC_API_KEY` | No     | **Yes**| *(none)*       | Enables the in-app **@claude** assistant bot. `CLAUDE_BOT_MODEL` / `CLAUDE_BOT_ALLOW` tune the model and the username allowlist. |
 | `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render injects this). |
 
 > Auth is email/password only — Google sign-in was removed. `RENDER_EXTERNAL_URL` / `PUBLIC_BASE_URL` are read automatically for building absolute URLs.
@@ -243,7 +260,8 @@ Create `frontend/.env` (Expo automatically exposes `EXPO_PUBLIC_*` vars to the c
 | `EXPO_PUBLIC_BACKEND_URL`  | **Yes** (native & prod web) | No | Base URL of the backend, no trailing slash and no `/api` (the client appends `/api`). Optional for local web dev (the Metro proxy serves `/api` same-origin); required for a deployed web build so it can reach the API cross-origin. |
 | `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes**  | No*    | Mapbox public access token for maps, geocoding, and directions. |
 | `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` | No | No* | Cloudinary cloud name. When set with the upload preset below, media (esp. video) uploads to the Cloudinary CDN and only a URL is stored — no size cap and a lighter feed. Without it, media falls back to base64 in the DB (≤25 MB/item). |
-| `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | No | No* | An **unsigned** Cloudinary upload preset name. See `frontend/CLOUDINARY_SETUP.md`. |
+| `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | No | No* | An **unsigned** Cloudinary upload preset name. See `frontend/CLOUDINARY_SETUP.md`. **Required for video/reels uploads** — without it, videos fall back to inline base64 (≤25 MB) and most clips are rejected. |
+| `EXPO_PUBLIC_STRIPE_KEY`   | No       | No*    | Stripe **publishable** key (`pk_live_…`/`pk_test_…`). When set, Stripe Checkout & Connect onboarding render **embedded in the web app**; otherwise they fall back to a hosted redirect. |
 
 \* `EXPO_PUBLIC_*` values are bundled into the client and are therefore **not secret at runtime**. Use a Mapbox **public** token (URL/domain-scoped where possible).
 
@@ -329,7 +347,11 @@ All routes are mounted under the **`/api`** prefix and (except auth/registration
 | Route group        | Base paths (examples) | What it does |
 | ------------------ | --------------------- | ------------ |
 | **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username claim; **change email / password**, **set phone**; **developer API keys** (create/list/revoke); ToS/Privacy policy versions + acceptance. |
-| **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip`, `/users/{id}/subscribe`, `/wallet`, `/admin/users/{id}` | User search, public profiles, follow/friends; **tips & subscriptions** + the creator **wallet** (earned **and sent**); **admin** verify/role management. |
+| **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip`, `/users/{id}/subscribe`, `/wallet`, `/admin/users/{id}` | User search, public profiles, follow/friends; **tips & subscriptions** + the creator **wallet** (earned **and sent**); **admin** verify/role/ban/suspend management + audit log. |
+| **Payments**       | `/payments/config`, `/payments/checkout`, `/payments/payouts/setup\|status\|account-session\|cashout`, `/payments/webhook`, `/payments/api-plan*`, `/payments/api-usage*` | Stripe Connect onboarding (hosted + embedded), Checkout for tips/subscriptions/promote, **instant debit-card cash-out**, the completion/expiry webhook, and paid Developer-API plans/usage. |
+| **Money & wallet** | `/money/security`, `/money/send`, `/money/transfers*` (accept/decline/**reverse**/history), `/money/request*`, `/wallet/balance\|topup\|topup/confirm\|topup/sync\|topups\|currency`, `/currencies` | Peer-to-peer send/request (security question, 5-min reversal), wallet **balance/top-up/cash-out**, **display currency**, and top-up history. |
+| **Admin (money)**  | `/admin/test-payments`, `/admin/fees`, `/admin/revenue`, `/admin/reset/money\|analytics` | Toggle simulated payments, set the **revenue split + transaction fee**, view **platform revenue**, and reset fake money/analytics. |
+| **Ads**            | `/ads/next`, `/ads/{id}/event\|hide\|report`, `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*` | Sponsored posts, prepaid ad accounts, link ads, and the publisher network (embed ads + earn). |
 | **Posts / Feed**   | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, feeds, replies + **full comment threads**, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, **pinning**, hashtags. Forum posts carry `community_id` + `title`. |
 | **Stories**        | `/stories`, `/stories/tray`, `/stories/user/{id}`, `/stories/{id}/view\|viewers\|reply` | Create 24h ephemeral stories, story tray, view counts, viewer lists, and replies. |
 | **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/messages/{mid}/react`, `/conversations/{id}/read`, `/emojis` | DMs and group chats; text/place/media/voice/gif/file/contact/post messages; replies, ❤️ reactions, edits, receipts, deletion; **custom emoji** registry (`/emojis` GET/POST/DELETE). |
