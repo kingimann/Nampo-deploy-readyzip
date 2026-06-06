@@ -54,10 +54,15 @@ export async function stripeCheckout(args: {
   creator_id?: string;
   amount?: number;
   extra?: Record<string, any>;
-}): Promise<void> {
-  const hosted = async () => {
-    const r = await api.createCheckout(args.kind, args.creator_id || "", args.amount || 0, args.extra || {});
-    if (r.url) await Linking.openURL(r.url);
+}): Promise<boolean> {
+  // Returns true if a checkout was launched (embedded or hosted), false if it
+  // couldn't be created (e.g. the recipient hasn't set up payouts).
+  const hosted = async (): Promise<boolean> => {
+    try {
+      const r = await api.createCheckout(args.kind, args.creator_id || "", args.amount || 0, args.extra || {});
+      if (r.url) { await Linking.openURL(r.url); return true; }
+      return false;
+    } catch { return false; }
   };
   if (!isWeb || !PK) return hosted();
   try {
@@ -73,8 +78,9 @@ export async function stripeCheckout(args: {
     checkout.mount(container);
     // On completion Stripe navigates the page to the session's return_url,
     // which tears down the overlay automatically.
+    return true;
   } catch {
-    try { await hosted(); } catch {}
+    return hosted();
   }
 }
 

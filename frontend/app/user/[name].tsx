@@ -350,9 +350,9 @@ export default function UserProfileScreen() {
             allowNote
             cta="Send"
             successText={`Your tip was sent to ${user.name}.`}
-            onCheckout={payEnabled ? async (amt) => {
-              try { return (await api.createCheckout("tip", user.user_id, amt)).url; } catch { return null; }
-            } : undefined}
+            live={payEnabled}
+            onCheckout={payEnabled ? (amt, note) =>
+              stripeCheckout({ kind: "tip", creator_id: user.user_id, amount: amt, extra: { note } }) : undefined}
             onClose={() => setTipOpen(false)}
             onPaid={async (amount, note) => { await api.tipUser(user.user_id, amount, note); }}
           />
@@ -364,6 +364,9 @@ export default function UserProfileScreen() {
             appleFee
             cta="Subscribe"
             successText={`You're subscribed to ${user.name}!`}
+            live={payEnabled}
+            onCheckout={payEnabled ? () =>
+              stripeCheckout({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: chosenTier?.id || "plus" } }) : undefined}
             onClose={() => setSubOpen(false)}
             onPaid={async () => {
               await api.subscribeUser(user.user_id, chosenTier?.id || "plus");

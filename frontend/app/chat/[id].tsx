@@ -27,6 +27,7 @@ import QuoteCard from "@/src/components/QuoteCard";
 import GifPickerSheet from "@/src/components/GifPickerSheet";
 import ContactPickerSheet from "@/src/components/ContactPickerSheet";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
+import { stripeCheckout } from "@/src/lib/stripeEmbed";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, encryptDataForRecipients, decryptData, isE2EMedia, isE2E, tryDecrypt } from "@/src/utils/e2e";
@@ -1125,9 +1126,9 @@ export default function ChatScreen() {
         editableAmount
         allowNote
         appleFee
-        onCheckout={payEnabled && peer ? async (amt, note) => {
-          try { return (await api.createCheckout("tip", peer.id, amt, { conversation_id: id, note })).url; } catch { return null; }
-        } : undefined}
+        live={payEnabled}
+        onCheckout={payEnabled && peer ? (amt, note) =>
+          stripeCheckout({ kind: "tip", creator_id: peer.id, amount: amt, extra: { conversation_id: id, note } }) : undefined}
         cta="Send tip"
         successText={`Your tip was sent to ${peer?.name || "them"}.`}
         onClose={() => setTipOpen(false)}

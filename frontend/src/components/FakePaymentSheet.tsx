@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity, TextInput,
-  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Linking,
+  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Linking, Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,8 +25,10 @@ type Props = {
   successText?: string;
   /** Gross the charge up on iOS to cover Apple's fee; `onPaid` still gets the net. */
   appleFee?: boolean;
-  /** When real payments are on: returns a Stripe Checkout URL (or null to fall back to test). */
-  onCheckout?: (amount: number, note: string) => Promise<string | null>;
+  /** Real payments are live: show Stripe checkout instead of the simulated card. */
+  live?: boolean;
+  /** When live: launches Stripe Checkout (embedded). Return false if it couldn't start. */
+  onCheckout?: (amount: number, note: string) => Promise<boolean | string | null | void>;
   onClose: () => void;
   onPaid: (amount: number, note: string) => Promise<void> | void;
 };
@@ -34,7 +36,7 @@ type Props = {
 const PRESETS = [1, 3, 5, 10, 20, 50];
 
 export default function FakePaymentSheet({
-  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, onCheckout, onClose, onPaid,
+  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, live, onCheckout, onClose, onPaid,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [amt, setAmt] = useState(String(amount || 0));
@@ -58,19 +60,26 @@ export default function FakePaymentSheet({
     if (value <= 0) return;
     setBusy(true);
     try {
-      // Real payments: try Stripe Checkout first. A returned URL means we hand
-      // off to Stripe; null means this server/creator isn't set up → test flow.
-      if (onCheckout) {
-        const url = await onCheckout(value, note.trim());
-        if (url) { await Linking.openURL(url); onClose(); return; }
+      // Live: hand off to Stripe Checkout (embedded on web, hosted on native).
+      if (live && onCheckout) {
+        const r = await onCheckout(value, note.trim());
+        if (typeof r === "string" && r) await Linking.openURL(r);
+        if (r === false) {
+          setBusy(false);
+          Alert.alert("Couldn't start checkout", "This person may not have set up payouts yet, so they can't receive payments right now.");
+          return;
+        }
+        onClose();
+        return;
       }
-      await new Promise((r) => setTimeout(r, 1200)); // fake processing
+      await new Promise((r) => setTimeout(r, 1200)); // fake processing (test mode)
       // The recipient is always credited the NET `value`; only the buyer's
       // charge is grossed up to absorb Apple's fee.
       await onPaid(value, note.trim());
       setDone(true);
-    } catch {
+    } catch (e: any) {
       setBusy(false);
+      if (live) Alert.alert("Payment couldn't start", String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Please try again.");
     }
   };
 
@@ -96,9 +105,11 @@ export default function FakePaymentSheet({
               <Text style={styles.title}>{title}</Text>
               {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
 
-              <View style={styles.testBanner}>
-                <Ionicons name="lock-closed" size={13} color={theme.primary} />
-                <Text style={styles.testBannerText}>Test mode · no real charge</Text>
+              <View style={[styles.testBanner, live && styles.liveBanner]}>
+                <Ionicons name="lock-closed" size={13} color={live ? "#16A34A" : theme.primary} />
+                <Text style={[styles.testBannerText, live && { color: "#16A34A" }]}>
+                  {live ? "Secure checkout · powered by Stripe" : "Test mode · no real charge"}
+                </Text>
               </View>
 
               {editableAmount ? (
@@ -149,24 +160,30 @@ export default function FakePaymentSheet({
                 </>
               )}
 
-              <Text style={styles.label}>Card number</Text>
-              <View style={styles.inputWrap}>
-                <Ionicons name="card-outline" size={18} color={theme.textMuted} />
-                <TextInput style={styles.input} value={card} onChangeText={(t) => setCard(formatCard(t))} keyboardType="number-pad" maxLength={19} editable={!busy} testID="pay-card" />
-              </View>
-              <View style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Expiry</Text>
-                  <View style={styles.inputWrap}><TextInput style={styles.input} value={exp} onChangeText={(t) => setExp(formatExp(t))} keyboardType="number-pad" maxLength={5} editable={!busy} /></View>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>CVC</Text>
-                  <View style={styles.inputWrap}><TextInput style={styles.input} value={cvc} onChangeText={(t) => setCvc(t.replace(/\D/g, "").slice(0, 4))} keyboardType="number-pad" maxLength={4} editable={!busy} /></View>
-                </View>
-              </View>
+              {live ? (
+                <Text style={styles.liveNote}>You'll complete payment securely with Stripe — card details are entered on Stripe, never stored here.</Text>
+              ) : (
+                <>
+                  <Text style={styles.label}>Card number</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="card-outline" size={18} color={theme.textMuted} />
+                    <TextInput style={styles.input} value={card} onChangeText={(t) => setCard(formatCard(t))} keyboardType="number-pad" maxLength={19} editable={!busy} testID="pay-card" />
+                  </View>
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Expiry</Text>
+                      <View style={styles.inputWrap}><TextInput style={styles.input} value={exp} onChangeText={(t) => setExp(formatExp(t))} keyboardType="number-pad" maxLength={5} editable={!busy} /></View>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>CVC</Text>
+                      <View style={styles.inputWrap}><TextInput style={styles.input} value={cvc} onChangeText={(t) => setCvc(t.replace(/\D/g, "").slice(0, 4))} keyboardType="number-pad" maxLength={4} editable={!busy} /></View>
+                    </View>
+                  </View>
+                </>
+              )}
 
               <TouchableOpacity style={[styles.payBtn, (busy || value <= 0) && { opacity: 0.6 }]} onPress={pay} disabled={busy || value <= 0} testID="pay-submit">
-                {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>{cta || "Pay"} ${charged.toFixed(2)}</Text>}
+                {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>{live ? `Continue · $${charged.toFixed(2)}` : `${cta || "Pay"} $${charged.toFixed(2)}`}</Text>}
               </TouchableOpacity>
             </ScrollView>
           )}
@@ -184,6 +201,8 @@ const styles = StyleSheet.create({
   subtitle: { color: theme.textMuted, fontSize: 13, marginTop: 2 },
   testBanner: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", backgroundColor: theme.surfaceAlt, borderRadius: 8, borderWidth: 1, borderColor: theme.primary, paddingHorizontal: 10, paddingVertical: 5, marginVertical: 12 },
   testBannerText: { color: theme.primary, fontSize: 12, fontWeight: "700" },
+  liveBanner: { borderColor: "#16A34A" },
+  liveNote: { color: theme.textMuted, fontSize: 12.5, lineHeight: 18, marginVertical: 10 },
   label: { color: theme.textMuted, fontSize: 12, fontWeight: "700", marginBottom: 6, marginTop: 6 },
   presetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   preset: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
