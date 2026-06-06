@@ -241,6 +241,17 @@ export const api = {
     request<{ ok: boolean; payouts_enabled: boolean; details_submitted: boolean; currently_due: string[]; needs_document: boolean }>("/payments/payouts/verification", { method: "POST", body: JSON.stringify(body) }),
   uploadVerificationDocument: (front: string, back?: string) =>
     request<{ ok: boolean; payouts_enabled: boolean; needs_document: boolean }>("/payments/payouts/verification-document", { method: "POST", body: JSON.stringify({ front, back }) }),
+  createPayIntent: (
+    kind: "tip" | "subscription" | "promote",
+    creator_id: string,
+    amount: number,
+    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string; tier?: string; budget?: number; cpc?: number },
+  ) =>
+    request<{ client_secret?: string; intent_id?: string; subscription_id?: string; kind: string; publishable_key?: string }>("/payments/pay-intent", {
+      method: "POST", body: JSON.stringify({ kind, creator_id, amount, ...(extra || {}) }),
+    }),
+  confirmPayIntent: (body: { intent_id?: string; subscription_id?: string }) =>
+    request<{ ok: boolean; paid: boolean; already?: boolean }>("/payments/pay-intent/confirm", { method: "POST", body: JSON.stringify(body) }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),

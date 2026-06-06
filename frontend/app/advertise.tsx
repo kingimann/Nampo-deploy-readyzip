@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { api, Post, AdCampaign, AdAccount, LinkAd, ReelAd, mediaUri } from "@/src/api/client";
-import { stripeCheckout } from "@/src/lib/stripeEmbed";
+import { stripeCardPay } from "@/src/lib/stripeEmbed";
 import { uploadToCloudinary, cloudinaryEnabled } from "@/src/api/cloudinary";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -195,7 +195,7 @@ export default function AdvertiseScreen() {
       // post once payment confirms. Falls back to the test flow when off.
       if (payEnabled) {
         try {
-          await stripeCheckout({
+          await stripeCardPay({
             kind: "promote", creator_id: "", amount: chargeAmount,
             extra: { post_id: picking.id, days: selDays, ...(ppc ? { budget: campaignBudget, cpc: campaignCpc } : {}) },
           });

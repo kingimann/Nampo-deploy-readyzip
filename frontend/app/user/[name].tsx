@@ -14,7 +14,7 @@ import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
 import { withAppleFee } from "@/src/lib/pricing";
-import { stripeCheckout } from "@/src/lib/stripeEmbed";
+import { stripeCardPay } from "@/src/lib/stripeEmbed";
 
 const friendBtnLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -80,7 +80,7 @@ export default function UserProfileScreen() {
     // Real payments: route through Stripe Checkout; else fall back to the test sheet.
     if (payEnabled) {
       try {
-        await stripeCheckout({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: tier.id } });
+        await stripeCardPay({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: tier.id } });
         return;
       } catch {}
     }
@@ -354,7 +354,7 @@ export default function UserProfileScreen() {
             successText={`Your tip was sent to ${user.name}.`}
             live={payEnabled}
             onCheckout={payEnabled ? (amt, note) =>
-              stripeCheckout({ kind: "tip", creator_id: user.user_id, amount: amt, extra: { note } }) : undefined}
+              stripeCardPay({ kind: "tip", creator_id: user.user_id, amount: amt, extra: { note } }) : undefined}
             onWalletFallback={(amt, note) =>
               router.push(`/pay/${user.user_id}?amount=${amt}&note=${encodeURIComponent(note || "")}`)}
             walletBalance={walletBal ?? undefined}
@@ -373,7 +373,7 @@ export default function UserProfileScreen() {
             successText={`You're subscribed to ${user.name}!`}
             live={payEnabled}
             onCheckout={payEnabled ? () =>
-              stripeCheckout({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: chosenTier?.id || "plus" } }) : undefined}
+              stripeCardPay({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: chosenTier?.id || "plus" } }) : undefined}
             walletBalance={walletBal ?? undefined}
             onPayWallet={async () => {
               await api.payFromWallet({ kind: "subscription", creator_id: user.user_id, tier: chosenTier?.id || "plus" });

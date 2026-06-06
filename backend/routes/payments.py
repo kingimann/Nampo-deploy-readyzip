@@ -720,6 +720,193 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
     return _checkout_response(session, bool(body.embedded))
 
 
+# ── Inline card payments (tip / promote / subscription) — no hosted/embedded UI ─
+async def _ensure_customer(user: dict) -> str:
+    cid = user.get("stripe_customer_id")
+    if cid:
+        return cid
+    c = stripe.Customer.create(email=user.get("email"), name=user.get("name"),
+                               metadata={"user_id": user["user_id"]})
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"stripe_customer_id": c["id"]}})
+    return c["id"]
+
+
+async def _already_fulfilled(ref_id: str) -> bool:
+    """Idempotency guard so an inline payment is fulfilled exactly once."""
+    if not ref_id:
+        return False
+    if await db.payments_fulfilled.find_one({"ref_id": ref_id}, {"_id": 0, "ref_id": 1}):
+        return True
+    await db.payments_fulfilled.insert_one({"ref_id": ref_id, "created_at": datetime.now(timezone.utc)})
+    return False
+
+
+@router.post("/payments/pay-intent")
+async def create_pay_intent(body: CheckoutCreate, authorization: Optional[str] = Header(None)):
+    """Create a PaymentIntent (tip/promote) or Subscription (subscription) for an
+    inline, in-app card form. Returns a client_secret the app confirms with the
+    card field — no hosted or embedded Stripe checkout."""
+    _require_stripe()
+    if not await payments_live():
+        raise HTTPException(status_code=400, detail={"code": "not_live", "message": "Card payments aren't enabled right now."})
+    me = await get_current_user(authorization)
+
+    if body.kind == "promote":
+        days = max(1, min(30, int(body.days or 7)))
+        net = round(float(body.amount or 0), 2)
+        if net <= 0 or not body.post_id:
+            raise HTTPException(status_code=400, detail="post_id and amount required")
+        meta = {"kind": "promote", "post_id": body.post_id, "days": str(days), "buyer_id": me["user_id"]}
+        if body.budget:
+            meta["budget"] = str(round(float(body.budget), 2))
+        if body.cpc:
+            meta["cpc"] = str(round(float(body.cpc), 2))
+        pi = stripe.PaymentIntent.create(amount=int(round(net * 100)), currency="usd",
+                                         payment_method_types=["card"], metadata=meta)
+        return {"client_secret": pi["client_secret"], "intent_id": pi["id"], "kind": "promote", "publishable_key": STRIPE_PUBLISHABLE_KEY}
+
+    if not body.creator_id or body.creator_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="Invalid recipient")
+    creator = await db.users.find_one({"user_id": body.creator_id}, {"_id": 0})
+    if not creator:
+        raise HTTPException(status_code=404, detail="Creator not found")
+    dest = creator.get("stripe_account_id")
+    if not dest:
+        raise HTTPException(status_code=400, detail="This creator hasn't set up payouts yet")
+
+    if body.kind == "subscription":
+        from core import SUBSCRIPTION_TIERS_BY_ID
+        tier = SUBSCRIPTION_TIERS_BY_ID.get(body.tier or "plus")
+        if not tier:
+            raise HTTPException(status_code=400, detail="Choose a valid subscription tier")
+        net = round(float(tier["price"]), 2)
+        customer = await _ensure_customer(me)
+        price = stripe.Price.create(
+            unit_amount=int(round(net * 100)), currency="usd",
+            recurring={"interval": "month"},
+            product_data={"name": f"{tier['name']} subscription to {creator.get('name', 'creator')}"},
+        )
+        sub = stripe.Subscription.create(
+            customer=customer,
+            items=[{"price": price["id"]}],
+            payment_behavior="default_incomplete",
+            payment_settings={"save_default_payment_method": "on_subscription", "payment_method_types": ["card"]},
+            application_fee_percent=await platform_fee_percent(),
+            transfer_data={"destination": dest},
+            expand=["latest_invoice.payment_intent"],
+            metadata={"kind": "subscription", "creator_id": body.creator_id, "buyer_id": me["user_id"],
+                      "buyer_name": me.get("name", "Someone"), "tier": tier["id"], "net": str(net)},
+        )
+        pi = (sub.get("latest_invoice") or {}).get("payment_intent") or {}
+        return {"client_secret": pi.get("client_secret"), "subscription_id": sub["id"], "kind": "subscription", "publishable_key": STRIPE_PUBLISHABLE_KEY}
+
+    # tip (one-time)
+    net = round(float(body.amount or 0), 2)
+    if net <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    gross_cents = int(round(net * 100))
+    fee_cents = int(round(gross_cents * (await platform_fee_percent()) / 100.0)) + (await transaction_fee_cents())
+    fee_cents = max(0, min(fee_cents, gross_cents - 1))
+    meta = {"kind": "tip", "creator_id": body.creator_id, "buyer_id": me["user_id"],
+            "buyer_name": me.get("name", "Someone"), "net": str(net)}
+    if body.conversation_id:
+        conv = await db.conversations.find_one({"id": body.conversation_id}, {"_id": 0, "participant_ids": 1})
+        if conv and me["user_id"] in conv.get("participant_ids", []):
+            meta["conversation_id"] = body.conversation_id
+            if body.note:
+                meta["note"] = body.note[:200]
+    pi = stripe.PaymentIntent.create(
+        amount=gross_cents, currency="usd", payment_method_types=["card"],
+        application_fee_amount=fee_cents, transfer_data={"destination": dest}, metadata=meta,
+    )
+    return {"client_secret": pi["client_secret"], "intent_id": pi["id"], "kind": "tip", "publishable_key": STRIPE_PUBLISHABLE_KEY}
+
+
+class PayConfirm(BaseModel):
+    intent_id: Optional[str] = None
+    subscription_id: Optional[str] = None
+
+
+@router.post("/payments/pay-intent/confirm")
+async def confirm_pay_intent(body: PayConfirm, authorization: Optional[str] = Header(None)):
+    """Fulfill an inline card payment after the card field confirms it (idempotent)."""
+    _require_stripe()
+    me = await get_current_user(authorization)
+    now = datetime.now(timezone.utc)
+
+    meta: dict = {}
+    ref_id = ""
+    paid = False
+    if body.subscription_id:
+        sub = stripe.Subscription.retrieve(body.subscription_id, expand=["latest_invoice.payment_intent"])
+        meta = sub.get("metadata") or {}
+        ref_id = sub["id"]
+        paid = sub.get("status") in ("active", "trialing")
+    elif body.intent_id:
+        pi = stripe.PaymentIntent.retrieve(body.intent_id)
+        meta = pi.get("metadata") or {}
+        ref_id = pi["id"]
+        paid = pi.get("status") == "succeeded"
+    else:
+        raise HTTPException(status_code=400, detail="Nothing to confirm")
+
+    if meta.get("buyer_id") and meta.get("buyer_id") != me["user_id"]:
+        raise HTTPException(status_code=403, detail="This payment isn't yours")
+    if not paid:
+        return {"ok": False, "paid": False}
+    if await _already_fulfilled(ref_id):
+        return {"ok": True, "paid": True, "already": True}
+
+    await _fulfill_payment(meta, now)
+    return {"ok": True, "paid": True}
+
+
+async def _fulfill_payment(meta: dict, now):
+    """Credit/record an inline payment — same effects as the Checkout webhook."""
+    kind = meta.get("kind", "tip")
+    creator_id = meta.get("creator_id")
+    buyer_id = meta.get("buyer_id")
+    net = round(float(meta.get("net") or 0), 2)
+    if kind == "promote" and meta.get("post_id"):
+        days = max(1, min(30, int(meta.get("days") or 7)))
+        promo: dict = {"promoted_until": now + timedelta(days=days)}
+        if meta.get("budget"):
+            promo["ad_budget"] = round(float(meta["budget"]), 2)
+        if meta.get("cpc"):
+            promo["ad_cpc"] = round(float(meta["cpc"]), 2)
+        await db.posts.update_one({"id": meta["post_id"]}, {"$set": promo})
+        return
+    if creator_id and net > 0:
+        await db.earnings.insert_one({
+            "id": str(uuid.uuid4()), "user_id": creator_id, "amount": net,
+            "kind": "subscription" if kind == "subscription" else "tip",
+            "from_user_id": buyer_id or "", "from_name": meta.get("buyer_name", "Someone"),
+            "message": meta.get("note", "") if kind != "subscription" else "",
+            "source": "stripe", "created_at": now,
+        })
+        if kind == "subscription" and buyer_id:
+            await db.subscriptions.insert_one({
+                "id": str(uuid.uuid4()), "subscriber_id": buyer_id, "creator_id": creator_id,
+                "amount": net, "tier": meta.get("tier"), "status": "active", "source": "stripe",
+                "started_at": now, "renews_at": now + timedelta(days=30), "created_at": now,
+            })
+        try:
+            from routes.notifications import emit_notification
+            await emit_notification(user_id=creator_id, actor_id=buyer_id,
+                                    ntype="subscribe" if kind == "subscription" else "tip",
+                                    message=f"${net:.2f} {'subscription' if kind == 'subscription' else 'tip'} received")
+        except Exception:
+            pass
+        conv_id = meta.get("conversation_id")
+        if kind == "tip" and conv_id and buyer_id:
+            await db.messages.insert_one({
+                "id": str(uuid.uuid4()), "conversation_id": conv_id, "sender_id": buyer_id,
+                "type": "tip", "text": (meta.get("note") or ""), "amount": net,
+                "media": [], "reactions": {}, "deleted": False, "created_at": now,
+            })
+            await db.conversations.update_one({"id": conv_id}, {"$set": {"last_message_at": now}})
+
+
 # ── Developer API plans (tiered, paid) ───────────────────────────────────────
 class ApiPlanBuy(BaseModel):
     plan: str
