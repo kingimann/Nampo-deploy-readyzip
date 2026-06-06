@@ -44,6 +44,22 @@ const REQ_LABELS: Record<string, string> = {
 function prettyReq(r: string): string {
   return REQ_LABELS[r] || r.replace(/_/g, " ").replace(/\./g, " · ");
 }
+const DISABLED_REASONS: Record<string, string> = {
+  "requirements.pending_verification": "Stripe is reviewing the details you submitted — usually a few minutes, up to a day.",
+  "requirements.past_due": "Stripe needs more information before it can enable payouts.",
+  "requirements.currently_due": "Stripe needs more information before it can enable payouts.",
+  under_review: "Stripe is reviewing your account.",
+  listed: "Your account is under review by Stripe.",
+  "rejected.fraud": "Stripe rejected this account (suspected fraud). Contact Stripe support.",
+  "rejected.terms_of_service": "Stripe rejected this account (terms of service). Contact Stripe support.",
+  "rejected.listed": "Stripe rejected this account. Contact Stripe support.",
+  "rejected.other": "Stripe rejected this account. Contact Stripe support.",
+  platform_paused: "Payouts are paused for this account.",
+  other: "Stripe needs a little more before enabling payouts.",
+};
+function disabledReasonLabel(r: string): string {
+  return DISABLED_REASONS[r] || "Stripe is finishing verification.";
+}
 const TOPUP_STATUS: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   completed: { label: "Completed", icon: "checkmark-circle", color: "#16A34A", bg: "rgba(22,163,74,0.12)" },
   processing: { label: "Processing", icon: "time-outline", color: "#D97706", bg: "rgba(217,119,6,0.12)" },
@@ -72,6 +88,7 @@ export default function WalletScreen() {
   const [toppingUp, setToppingUp] = useState(false);
   const [curOpen, setCurOpen] = useState(false);
   const [topups, setTopups] = useState<Topup[]>([]);
+  const [topupDetail, setTopupDetail] = useState<Topup | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -277,7 +294,7 @@ export default function WalletScreen() {
                 {topups.slice(0, 8).map((t, i, arr) => {
                   const st = TOPUP_STATUS[t.status] || TOPUP_STATUS.completed;
                   return (
-                    <View key={t.id} style={[styles.topupRow, i === arr.length - 1 && styles.topupRowLast]}>
+                    <TouchableOpacity key={t.id} activeOpacity={0.6} style={[styles.topupRow, i === arr.length - 1 && styles.topupRowLast]} onPress={() => { setCopied(false); setTopupDetail(t); }} testID={`topup-${t.id}`}>
                       <View style={[styles.topupIcon, { backgroundColor: st.bg }]}>
                         <Ionicons name={st.icon as any} size={18} color={st.color} />
                       </View>
@@ -291,7 +308,8 @@ export default function WalletScreen() {
                           <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
                         </View>
                       </View>
-                    </View>
+                      <Ionicons name="chevron-forward" size={16} color={theme.textMuted} style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
                   );
                 })}
               </View>
@@ -348,16 +366,30 @@ export default function WalletScreen() {
           <Text style={styles.section}>Getting paid</Text>
           {payEnabled ? (() => {
             const verifying = !!payout?.connected && !!payout?.details_submitted && !payout?.payouts_enabled;
+            const due = payout?.requirements_due || [];
+            const eventually = payout?.requirements_eventually || [];
+            const pending = payout?.requirements_pending || [];
+            const needsBank = verifying && (!payout?.has_external_account || [...due, ...eventually].some((r) => r.includes("external_account")));
+            // The single most useful reason it isn't finishing yet.
+            let reasonLine = "";
+            if (due.length) reasonLine = "Stripe still needs: " + due.slice(0, 4).map(prettyReq).join(", ") + ".";
+            else if (eventually.length) reasonLine = "To turn on payouts, add: " + eventually.slice(0, 4).map(prettyReq).join(", ") + ".";
+            else if (payout?.disabled_reason) reasonLine = disabledReasonLabel(payout.disabled_reason);
+            else if (pending.length) reasonLine = "Stripe is verifying your information — this can take a few minutes to a day.";
             const dotColor = payout?.payouts_enabled ? "#22C55E" : verifying ? "#F59E0B" : theme.textMuted;
             const statusText = payout?.payouts_enabled ? "Payouts active"
+              : needsBank ? "Add a payout method"
               : verifying ? "Verifying with Stripe"
               : payout?.connected ? "Setup incomplete" : "Not set up";
             const subText = payout?.payouts_enabled
               ? "Tips and subscriptions are paid out to your connected account via Stripe."
-              : verifying
-                ? "You've submitted your details — Stripe is verifying them. This can take a few minutes, then payouts turn on automatically."
-                : "Connect a bank account or card with Stripe to receive real payouts. Until then, payments run in test mode.";
+              : needsBank
+                ? "Stripe has your details but needs a bank account or debit card before payouts can turn on."
+                : verifying
+                  ? "You've submitted your details — Stripe is verifying them. This can take a few minutes, then payouts turn on automatically."
+                  : "Connect a bank account or card with Stripe to receive real payouts. Until then, payments run in test mode.";
             const btnText = payout?.payouts_enabled ? "Manage payouts"
+              : needsBank ? "Add bank / debit card"
               : verifying ? "Update details"
               : payout?.connected ? "Finish setup" : "Set up payouts";
             return (
@@ -367,8 +399,11 @@ export default function WalletScreen() {
                 <Text style={styles.payoutStatus}>{statusText}</Text>
               </View>
               <Text style={styles.payoutSub}>{subText}</Text>
-              {!payout?.payouts_enabled && (payout?.requirements_due?.length ?? 0) > 0 ? (
-                <Text style={styles.reqText}>Stripe still needs: {(payout?.requirements_due || []).slice(0, 4).map(prettyReq).join(", ")}.</Text>
+              {!payout?.payouts_enabled && reasonLine ? (
+                <Text style={styles.reqText}>{reasonLine}</Text>
+              ) : null}
+              {!payout?.payouts_enabled && payout?.disabled_reason ? (
+                <Text style={styles.reasonCode}>Stripe status: {payout.disabled_reason}</Text>
               ) : null}
               <TouchableOpacity style={styles.payoutBtn} onPress={setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
                 {connecting ? <ActivityIndicator color="#fff" size="small" /> : (
@@ -565,6 +600,81 @@ export default function WalletScreen() {
         </View>
       </Modal>
 
+      {/* ── Top-up detail ────────────────────────────────────────────── */}
+      <Modal visible={!!topupDetail} transparent animationType="fade" onRequestClose={() => setTopupDetail(null)}>
+        <View style={styles.detailBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setTopupDetail(null)} />
+          {topupDetail && (() => {
+            const st = TOPUP_STATUS[topupDetail.status] || TOPUP_STATUS.completed;
+            return (
+              <View style={styles.detailCard}>
+                <View style={[styles.detailIcon, { backgroundColor: st.bg }]}>
+                  <Ionicons name={st.icon as any} size={26} color={st.color} />
+                </View>
+                <Text style={[styles.detailAmount, { color: topupDetail.status === "failed" ? theme.textMuted : "#16A34A" }]}>
+                  +${topupDetail.amount.toFixed(2)}
+                </Text>
+                <Text style={styles.detailKind}>Wallet top-up</Text>
+                <View style={[styles.statusPill, { backgroundColor: st.bg, marginTop: 8 }]}>
+                  <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
+                </View>
+
+                <View style={styles.detailDivider} />
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Amount</Text>
+                  <Text style={styles.detailValue}>${topupDetail.amount.toFixed(2)} USD</Text>
+                </View>
+                {bal && bal.currency !== "USD" ? (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>In {bal.currency}</Text>
+                    <Text style={styles.detailValue}>{bal.symbol}{(topupDetail.amount * bal.rate).toFixed(2)}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <Text style={[styles.detailValue, { color: st.color }]}>{st.label}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Method</Text>
+                  <Text style={styles.detailValue}>{topupDetail.source === "stripe" ? "Card · Stripe" : "Test mode"}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Started</Text>
+                  <Text style={styles.detailValue}>{fmtFull(topupDetail.created_at)}</Text>
+                </View>
+                {topupDetail.completed_at ? (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{topupDetail.status === "failed" ? "Failed" : "Completed"}</Text>
+                    <Text style={styles.detailValue}>{fmtFull(topupDetail.completed_at)}</Text>
+                  </View>
+                ) : null}
+                <View style={[styles.detailRow, { alignItems: "flex-start" }]}>
+                  <Text style={styles.detailLabel}>Reference</Text>
+                  <Text style={[styles.detailValue, styles.detailMono]} selectable numberOfLines={2}>{topupDetail.id}</Text>
+                </View>
+
+                {topupDetail.status === "processing" ? (
+                  <Text style={styles.topupHint}>This payment is still processing. It'll show as Completed once Stripe confirms it.</Text>
+                ) : null}
+
+                <TouchableOpacity
+                  style={styles.copyBtn}
+                  onPress={async () => { try { await Clipboard.setStringAsync(topupDetail.id); setCopied(true); } catch {} }}
+                  testID="copy-topup-id"
+                >
+                  <Ionicons name={copied ? "checkmark" : "copy-outline"} size={15} color={theme.primary} />
+                  <Text style={styles.copyBtnText}>{copied ? "Copied" : "Copy reference"}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.detailClose} onPress={() => setTopupDetail(null)} testID="topup-close">
+                  <Text style={styles.detailCloseText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+        </View>
+      </Modal>
+
       {/* ── Top up ───────────────────────────────────────────────────── */}
       <Modal visible={topupOpen} transparent animationType="fade" onRequestClose={() => setTopupOpen(false)}>
         <View style={styles.detailBackdrop}>
@@ -694,6 +804,7 @@ const styles = StyleSheet.create({
   checkAgainBtn: { alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginTop: 2 },
   checkAgainText: { color: theme.primary, fontWeight: "800", fontSize: 14 },
   reqText: { color: "#F59E0B", fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+  reasonCode: { color: theme.textMuted, fontSize: 11, fontWeight: "600" },
   topupsCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 16 },
   topupRow: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   topupRowLast: { borderBottomWidth: 0 },
@@ -705,6 +816,7 @@ const styles = StyleSheet.create({
   topupAmtFailed: { color: theme.textMuted, textDecorationLine: "line-through" },
   statusPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   statusText: { fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
+  topupHint: { color: theme.textMuted, fontSize: 12.5, textAlign: "center", marginTop: 14, lineHeight: 18 },
   freqRow: { flexDirection: "row", gap: 10 },
   freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
   freqChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },

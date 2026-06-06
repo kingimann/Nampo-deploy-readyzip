@@ -183,7 +183,7 @@ export const api = {
   getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number }>("/payments/config"),
   setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
   getPayoutStatus: () =>
-    request<{ enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean; requirements_due?: string[]; disabled_reason?: string | null }>("/payments/payouts/status"),
+    request<{ enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean; has_external_account?: boolean; requirements_due?: string[]; requirements_eventually?: string[]; requirements_pending?: string[]; disabled_reason?: string | null }>("/payments/payouts/status"),
   createCheckout: (
     kind: "tip" | "subscription" | "promote",
     creator_id: string,

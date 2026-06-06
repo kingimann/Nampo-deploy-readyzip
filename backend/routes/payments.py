@@ -163,14 +163,22 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
         return {"enabled": True, "connected": False, "payouts_enabled": False, "details_submitted": False}
     reqs = acct.get("requirements", {}) or {}
     due = list(reqs.get("currently_due", []) or []) + list(reqs.get("past_due", []) or [])
+    pending = list(reqs.get("pending_verification", []) or [])
+    # Needed before payouts turn on but not "due" yet (e.g. external_account / bank).
+    eventually = [r for r in (reqs.get("eventually_due", []) or []) if r not in due]
+    # Whether a payout method (bank/debit card) is on file at all.
+    has_external = bool((acct.get("external_accounts", {}) or {}).get("total_count", 0))
     return {
         "enabled": True,
         "connected": True,
         "payouts_enabled": bool(acct.get("payouts_enabled")),
         "charges_enabled": bool(acct.get("charges_enabled")),
         "details_submitted": bool(acct.get("details_submitted")),
+        "has_external_account": has_external,
         # What Stripe still needs (so the UI can explain why setup won't finish).
         "requirements_due": due,
+        "requirements_eventually": eventually,
+        "requirements_pending": pending,
         "disabled_reason": reqs.get("disabled_reason"),
     }
 
