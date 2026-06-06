@@ -403,6 +403,7 @@ export const api = {
     request<{ ok: boolean }>(`/money/transfers/${id}/decline`, { method: "POST" }),
   reverseMoneyTransfer: (id: string) =>
     request<{ ok: boolean }>(`/money/transfers/${id}/reverse`, { method: "POST" }),
+  transferHistory: () => request<{ transfers: MoneyRequest[] }>("/money/transfers/history"),
   requestMoney: (body: { to_user_id: string; amount: number; note?: string }) =>
     request<MoneyRequest>("/money/request", { method: "POST", body: JSON.stringify(body) }),
   listMoneyRequests: () => request<{ incoming: MoneyRequest[]; outgoing: MoneyRequest[] }>("/money/requests"),
@@ -704,9 +705,9 @@ export type AdminAuditEntry = {
 };
 export type MoneyRequest = {
   id: string; from_user_id: string; to_user_id: string; amount: number; note: string;
-  status: "pending" | "paid" | "declined" | "cancelled" | "reversed"; direction: "incoming" | "outgoing";
+  status: "pending" | "paid" | "accepted" | "declined" | "cancelled" | "reversed"; direction: "incoming" | "outgoing";
   other_user: { user_id: string; name: string; username?: string | null; picture?: string | null; verified?: boolean };
-  created_at?: string; claimable_at?: string | null;
+  created_at?: string; claimable_at?: string | null; resolved_at?: string | null;
 };
 export type PublicUser = {
   user_id: string;

@@ -259,7 +259,19 @@ async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
         },
         "created_at": t.get("created_at"),
         "claimable_at": t.get("claimable_at"),
+        "resolved_at": t.get("resolved_at"),
     }
+
+
+@router.get("/money/transfers/history")
+async def transfers_history(authorization: Optional[str] = Header(None)):
+    """All money transfers involving me (both directions, every status)."""
+    me = await get_current_user(authorization)
+    uid = me["user_id"]
+    rows = await db.money_transfers.find(
+        {"$or": [{"from_user_id": uid}, {"to_user_id": uid}]}, {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    return {"transfers": [await _hydrate_transfer(t, uid) for t in rows]}
 
 
 @router.get("/money/transfers")

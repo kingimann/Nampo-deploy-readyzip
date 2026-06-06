@@ -11,6 +11,18 @@ import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
 
+const TRANSFER_STATUS: Record<string, { label: string; color: string }> = {
+  pending: { label: "Pending", color: "#D97706" },
+  accepted: { label: "Completed", color: "#16A34A" },
+  declined: { label: "Declined", color: theme.error },
+  reversed: { label: "Reversed", color: theme.error },
+  cancelled: { label: "Cancelled", color: theme.textMuted },
+};
+const fmtDay = (iso?: string | null) => {
+  if (!iso) return "";
+  try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
+};
+
 export default function MoneyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -45,6 +57,8 @@ export default function MoneyScreen() {
 
   const [bal, setBal] = useState<WalletBalance | null>(null);
   const [feeCents, setFeeCents] = useState(0);
+  const [history, setHistory] = useState<MoneyRequest[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const load = useCallback(async () => {
     try {
       const [s, r, t] = await Promise.all([api.getMoneySecurity(), api.listMoneyRequests(), api.listMoneyTransfers()]);
@@ -52,6 +66,7 @@ export default function MoneyScreen() {
     } catch {} finally { setLoading(false); }
     try { setBal(await api.getWalletBalance()); } catch {}
     try { setFeeCents((await api.getPaymentsConfig()).transaction_fee_cents || 0); } catch {}
+    try { setHistory((await api.transferHistory()).transfers); } catch {}
   }, []);
   const acceptTransfer = async (t: MoneyRequest) => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Not yet", String(e?.message || e).replace(/^\d{3}:\s*/, "")); } };
   const declineTransfer = async (t: MoneyRequest) => { try { await api.declineMoneyTransfer(t.id); await load(); } catch {} };
@@ -250,6 +265,32 @@ export default function MoneyScreen() {
               )}
             </View>
           ))}
+
+          <TouchableOpacity style={styles.historyHead} onPress={() => setShowHistory((v) => !v)} testID="toggle-history">
+            <Text style={[styles.section, { marginBottom: 0 }]}>Transfer history</Text>
+            <Ionicons name={showHistory ? "chevron-up" : "chevron-down"} size={18} color={theme.textMuted} />
+          </TouchableOpacity>
+          {showHistory ? (
+            history.length === 0 ? (
+              <Text style={styles.empty}>No transfers yet.</Text>
+            ) : history.map((t) => {
+              const st = TRANSFER_STATUS[t.status] || { label: t.status, color: theme.textMuted };
+              const out = t.direction === "outgoing";
+              return (
+                <View key={t.id} style={styles.histRow}>
+                  <Avatar u={t.other_user} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.reqName} numberOfLines={1}>{out ? "To" : "From"} {t.other_user.name}</Text>
+                    <Text style={styles.reqMeta}>{fmtDay(t.resolved_at || t.created_at)}{t.note ? ` · ${t.note}` : ""}</Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={[styles.histAmt, { color: out ? theme.textSecondary : "#16A34A" }]}>{out ? "-" : "+"}${t.amount.toFixed(2)}</Text>
+                    <Text style={[styles.histStatus, { color: st.color }]}>{st.label}</Text>
+                  </View>
+                </View>
+              );
+            })
+          ) : null}
         </ScrollView>
       )}
 
@@ -441,6 +482,10 @@ const styles = StyleSheet.create({
   holdMeta: { color: "#D97706", fontSize: 11.5, fontWeight: "700", marginTop: 2 },
   reverseBtn: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: theme.error, borderRadius: 10, paddingHorizontal: 12, height: 36 },
   reverseText: { color: theme.error, fontSize: 13, fontWeight: "800" },
+  historyHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  histRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  histAmt: { fontSize: 15, fontWeight: "800" },
+  histStatus: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3, marginTop: 2 },
   payBtn: { backgroundColor: theme.primary, borderRadius: 10, paddingHorizontal: 16, height: 36, alignItems: "center", justifyContent: "center" },
   payBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   declineBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.surfaceAlt },
