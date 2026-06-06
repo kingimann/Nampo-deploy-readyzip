@@ -29,6 +29,11 @@ FSQ_BASE = "https://places-api.foursquare.com/places"
 TRANSITLAND_API_KEY = os.environ.get("TRANSITLAND_API_KEY", "")
 TRANSITLAND_BASE = "https://transit.land/api/v2/rest"
 
+# LiveKit (in-app voice/video calls over WebRTC). Self-host or use LiveKit Cloud.
+LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
+LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")  # wss://your-livekit-host
+
 logger = logging.getLogger("server")
 
 # ── Lazy proxy so `from core import db` works in all route modules even

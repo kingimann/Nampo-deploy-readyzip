@@ -135,6 +135,14 @@ _INTEGRATIONS = [
         "configured": lambda: _present("SMTP_HOST", "SMTP_FROM"), "live": None,
     },
     {
+        "key": "livekit", "name": "LiveKit (voice/video calls)", "category": "Calls",
+        "required": False, "env": ["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_URL"],
+        "summary": "In-app 1:1 voice calls (WebRTC). Without it, the call button is disabled.",
+        "fix": "Self-host LiveKit or use LiveKit Cloud; set LIVEKIT_API_KEY, LIVEKIT_API_SECRET, and LIVEKIT_URL (wss://…).",
+        "docs": "https://cloud.livekit.io/",
+        "configured": lambda: _present("LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_URL"), "live": None,
+    },
+    {
         "key": "anthropic", "name": "Anthropic (Claude bot)", "category": "AI",
         "required": False, "env": ["ANTHROPIC_API_KEY"],
         "summary": "Powers the in-app Claude assistant/bot features.",

@@ -10,6 +10,7 @@ from routes import (
     adnetwork as adnetwork_routes,
     ads as ads_routes,
     auth as auth_routes,
+    calls as calls_routes,
     communities as communities_routes,
     eta as eta_routes,
     foursquare as fsq_routes,
@@ -132,6 +133,7 @@ api_router.include_router(oauth_routes.router)
 api_router.include_router(money_routes.router)
 api_router.include_router(transit_routes.router)
 api_router.include_router(integrations_routes.router)
+api_router.include_router(calls_routes.router)
 
 app.include_router(api_router)
 
