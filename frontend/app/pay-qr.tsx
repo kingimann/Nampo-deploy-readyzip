@@ -4,6 +4,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
@@ -30,7 +31,13 @@ export default function PayQRScreen() {
     return `${WEB_ORIGIN}/pay/${user.user_id}${qs ? `?${qs}` : ""}`;
   }, [user, amount, note]);
 
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=10&data=${encodeURIComponent(payLink)}`;
+  // Branded QR: deep-teal modules on white, with the user's avatar in the
+  // centre (only when it's a fetchable URL — data-URI photos are skipped so the
+  // code stays scannable). High error-correction tolerates the centre image.
+  const centerAvatar = user?.picture && /^https?:\/\//.test(user.picture) ? user.picture : "";
+  const qrUrl =
+    `https://quickchart.io/qr?text=${encodeURIComponent(payLink)}&size=300&margin=2&ecLevel=H&dark=075E54&light=ffffff` +
+    (centerAvatar ? `&centerImageUrl=${encodeURIComponent(centerAvatar)}&centerImageSizeRatio=0.22` : "");
 
   const copy = async () => { try { await Clipboard.setStringAsync(payLink); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} };
   const share = async () => { try { await Share.share({ message: `Pay me on Nami: ${payLink}` }); } catch {} };
@@ -50,10 +57,34 @@ export default function PayQRScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30, alignItems: "center" }}>
         <View style={styles.card}>
-          <Image source={{ uri: qrUrl }} style={styles.qr} resizeMode="contain" />
-          <Text style={styles.name}>{user?.name}</Text>
-          {!!user?.username && <Text style={styles.handle}>@{user.username}</Text>}
-          {Number(amount) > 0 && <Text style={styles.amountTag}>Requesting ${Number(amount).toFixed(2)}</Text>}
+          <LinearGradient
+            colors={[theme.primaryHover, theme.primary]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={styles.cardHead}
+          >
+            <View style={styles.brandRow}>
+              <Ionicons name="leaf" size={15} color="#fff" />
+              <Text style={styles.brandText}>Nami · Pay</Text>
+            </View>
+            <View style={styles.avatarRing}>
+              {user?.picture ? (
+                <Image source={{ uri: user.picture }} style={styles.headAvatar} />
+              ) : (
+                <Ionicons name="person" size={26} color="#fff" />
+              )}
+            </View>
+            <Text style={styles.name}>{user?.name}</Text>
+            {!!user?.username && <Text style={styles.handle}>@{user.username}</Text>}
+          </LinearGradient>
+
+          <View style={styles.qrWrap}>
+            <Image source={{ uri: qrUrl }} style={styles.qr} resizeMode="contain" />
+          </View>
+
+          {Number(amount) > 0 ? (
+            <View style={styles.amountTag}><Text style={styles.amountTagText}>Requesting ${Number(amount).toFixed(2)}</Text></View>
+          ) : null}
+          <Text style={styles.scanLine}>Scan with any camera to pay</Text>
         </View>
 
         <Text style={styles.hint}>Have someone scan this with their camera to pay you.</Text>
@@ -87,11 +118,19 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center" },
-  card: { backgroundColor: "#fff", borderRadius: 24, padding: 20, alignItems: "center", gap: 4, marginTop: 8, width: 320, maxWidth: "100%" },
-  qr: { width: 240, height: 240 },
-  name: { color: "#0b0b0c", fontSize: 18, fontWeight: "800", marginTop: 8 },
-  handle: { color: "#1f8f6b", fontSize: 13, fontWeight: "700" },
-  amountTag: { color: "#0b0b0c", fontSize: 14, fontWeight: "800", marginTop: 4 },
+  card: { backgroundColor: "#fff", borderRadius: 24, alignItems: "center", marginTop: 8, width: 320, maxWidth: "100%", overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  cardHead: { alignSelf: "stretch", alignItems: "center", paddingTop: 16, paddingBottom: 22, gap: 2 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 8 },
+  brandText: { color: "#fff", fontSize: 12.5, fontWeight: "900", letterSpacing: 0.4, textTransform: "uppercase" },
+  avatarRing: { width: 64, height: 64, borderRadius: 32, backgroundColor: "rgba(255,255,255,0.2)", borderWidth: 3, borderColor: "#fff", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  headAvatar: { width: "100%", height: "100%" },
+  name: { color: "#fff", fontSize: 18, fontWeight: "900", marginTop: 8 },
+  handle: { color: "rgba(255,255,255,0.92)", fontSize: 13, fontWeight: "700" },
+  qrWrap: { backgroundColor: "#fff", padding: 16, borderRadius: 20, marginTop: -10, borderWidth: 1, borderColor: "#eef1f0" },
+  qr: { width: 232, height: 232 },
+  amountTag: { backgroundColor: "#E7F7F1", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, marginTop: 12 },
+  amountTagText: { color: "#075E54", fontSize: 14, fontWeight: "800" },
+  scanLine: { color: "#7a8a85", fontSize: 12.5, fontWeight: "600", marginTop: 10, marginBottom: 18 },
   hint: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 14, paddingHorizontal: 20 },
   fields: { width: "100%", maxWidth: 420, marginTop: 18 },
   label: { color: theme.textMuted, fontSize: 12, fontWeight: "700", marginBottom: 8 },
