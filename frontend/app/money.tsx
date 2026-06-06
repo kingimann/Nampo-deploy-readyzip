@@ -7,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { api, MoneyRequest, PublicUser, WalletBalance } from "@/src/api/client";
+import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
@@ -25,6 +26,8 @@ const fmtDay = (iso?: string | null) => {
 
 export default function MoneyScreen() {
   const router = useRouter();
+  const { user } = useAuth() as any;
+  const isAdmin = user?.role === "admin";
   const insets = useSafeAreaInsets();
   const [security, setSecurity] = useState<{ is_set: boolean; question?: string | null } | null>(null);
   const [reqs, setReqs] = useState<{ incoming: MoneyRequest[]; outgoing: MoneyRequest[] }>({ incoming: [], outgoing: [] });
@@ -312,7 +315,7 @@ export default function MoneyScreen() {
               <Text style={styles.dollar}>$</Text>
               <TextInput style={styles.amtInput} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.textMuted} testID="money-amount" />
             </View>
-            {flow === "send" && feeCents > 0 && Number(amount) > 0 ? (
+            {flow === "send" && !isAdmin && feeCents > 0 && Number(amount) > 0 ? (
               <Text style={styles.feeHint}>
                 ${(Number(amount) || 0).toFixed(2)} to them + ${(feeCents / 100).toFixed(2)} fee = ${((Number(amount) || 0) + feeCents / 100).toFixed(2)} total
               </Text>

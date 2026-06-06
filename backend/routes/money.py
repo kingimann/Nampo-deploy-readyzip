@@ -12,7 +12,7 @@ import bcrypt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
+from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt, is_admin
 
 # How long the sender can reverse a money transfer before the recipient can claim it.
 REVERSAL_WINDOW_MIN = 5
@@ -235,7 +235,8 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     await _require_answer(me, body.answer)
     # The payer covers a flat transaction fee; the recipient gets the full amount.
-    fee = await _fee_dollars()
+    # Admins (the platform owner) are exempt — no fee on their own sends.
+    fee = 0.0 if is_admin(me) else await _fee_dollars()
     # Hold the funds: debit the sender (amount + fee) now (escrow). The amount is
     # credited to the recipient on accept; the full amount+fee is refunded on decline.
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
@@ -458,7 +459,8 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
     amount = round(float(req.get("amount", 0) or 0), 2)
     await _require_answer(me, body.answer)
     # The payer covers the flat transaction fee; the requester gets the full amount.
-    fee = await _fee_dollars()
+    # Admins (the platform owner) are exempt.
+    fee = 0.0 if is_admin(me) else await _fee_dollars()
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
         raise _insufficient()
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
