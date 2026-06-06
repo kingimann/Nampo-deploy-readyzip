@@ -23,7 +23,9 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - **Promote / advertise** a post: boosts ranking and shows a "Sponsored" badge, paid via Stripe Checkout (durations, optional pay-per-click budget) with a test-mode fallback
 
 ### Reels & Stories
-- Reels: a vertical, full-screen video feed (`/feed/reels`)
+- Reels: a vertical, full-screen video feed (`/feed/reels`) with a true cover-fit, controls-free player on web
+- Upload reels from your device (Cloudinary CDN) **or** paste a link from a **verified host** (imgur / streamable / direct `.mp4`); the link is auto-resolved to a playable file so it shows as if uploaded. YouTube/TikTok links are intentionally **not** allowed as reels (they stay regular video posts).
+- **Video ads in reels**: full-screen sponsored overlays (5–60s) with a progress bar, "Sponsored" badge, CTA button, and skip-after-5s; CTR is tracked. Anyone can **promote their own reel**, and admins can advertise **for free**.
 - Stories: 24-hour ephemeral image/video stories with a story tray, view counts, viewer lists, and story replies
 
 ### Messaging
@@ -55,7 +57,7 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - Friend requests (send, accept, reject, remove) with friend status
 - A user's posts (originals plus reposts/quotes) shown on their profile, pinned first
 - Tapping a post author (avatar or name) opens their profile
-- **Account & security** screen: change your **email** (password-confirmed), change your **password** (current + new), and add a **phone number** (stored now, SMS verification planned)
+- **Account & security** screen: change your **email** (password-confirmed), change your **password** (current + new), and **verify a phone number** via an SMS code (Twilio; a dev code is surfaced when Twilio isn't configured) with a green **Verified** badge
 - A customizable navigation bar; after login the app opens on the **first item in your nav bar** (not always the map)
 
 ### Legal & onboarding
@@ -69,8 +71,11 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - **Real payments via Stripe** when configured (`STRIPE_SECRET_KEY`): tips, monthly **subscriptions**, and post **promotion** run through **Stripe Checkout embedded in the site** (stripe.js embedded checkout on web, hosted fallback on native). Creators receive funds on a **Stripe Connect Express** account they set up in-app (embedded onboarding). When Stripe isn't configured — or an admin flips test mode on — the app falls back to a simulated checkout (no real charge). **Test payments are off by default.**
 - **Wallet** with a spendable **balance** you **top up** (Stripe Checkout, credited via webhook + on-return confirm + a per-visit reconcile so a payment can never be missed), shown in a **display currency you choose** (12 currencies; money is stored in USD).
 - **Instant cash-out to a debit card** (Stripe Instant Payouts, DoorDash-style) of your wallet balance; balance is debited first and refunded on any failure.
+- **Embedded payout management** (DoorDash-style): "Manage payouts" renders Stripe's embedded **Connect** components (payouts, account management, notification banner) inside an in-site overlay — see your balance, payout schedule/history, change bank/debit card, and cash out **without leaving the site** (hosted Express dashboard as a native/fallback path).
+- **Unified "All activity" feed** (`/activity`): one chronological list merging top-ups, cash-outs, tips & subscriptions (sent and received, with names/messages), and money transfers (including pending/reversed/declined/cancelled) so users can see exactly where their balance went.
 - **Peer-to-peer money**: send money (gated by a personal **security question**) and **request money**. Sends are a pending transfer the recipient accepts; the sender has a **5-minute reversal window** (mistake undo) before it can be claimed, and a full **transfer history** (sent/received, every status). Receiving notifies the recipient and records who/when/message.
 - **Pay by QR**: a branded, on-device-rendered **pay QR code** (with your avatar in the centre) others scan to pay you; plus an in-app QR scanner.
+- **Pay from balance or card**: anywhere that takes a payment (tips, subscriptions), if you have wallet funds you're asked whether to **pay from your balance**; if it isn't enough you can **cover the rest with a card** and optionally **top up** the difference. Card fields render **inline on the site** (Stripe Elements) when live.
 - **Fees**: an admin-controlled **revenue split** on subscriptions/tips (e.g. 70/30 or 90/10) plus a flat **per-payment transaction fee** (default 10¢, admins exempt), booked to a **platform-revenue** tally in the admin panel.
 - **Wallet screen** shows total earned (tips vs. subscriptions vs. ads), top-up history with status (processing/completed/failed), a **Sent** section, payout status with plain-language reasons when Stripe is still verifying, and a cash-out nudge when you have a balance but no payout account.
 - **Ads & advertising**: prepaid ad accounts, promoted posts (budget/CPC), link ads for your own website, and a publisher network to embed Nami ads on your site and earn — with X/Google-style click-fraud guards and account-age gates.
@@ -79,6 +84,8 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 - Site **roles**: `user` / `mod` / `admin`. Bootstrap admins with the `ADMIN_EMAILS` env var.
 - Admins can **verify** users and assign **mod/admin** roles from any profile
 - Mods/admins can delete any post (owners can always delete their own)
+- **Admin payments panel**: enable/disable simulated **test payments**, set the **revenue split + transaction fee**, view **platform revenue**, reset fake money/analytics, **set a user's wallet balance** exactly (audited), and toggle a **mobile-only** mode that gates desktop web behind a "scan to open on your phone" QR screen.
+- **In-site UX guards (web)**: all confirmations are **in-app dialogs** (no browser `window.confirm`/pop-ups); a keyboard-refresh confirm and disabled right-click / dev-tools shortcuts keep actions inside the app.
 
 ### Discovery
 - User search
@@ -199,8 +206,9 @@ Nampo-deploy-readyzip/
     │   ├── story/[userId].tsx # story viewer
     │   ├── post/[id].tsx, hashtag/[tag].tsx, bookmarks.tsx, notifications.tsx
     │   ├── communities.tsx, c/[name].tsx   # forum: discover + a community page
-    │   ├── wallet.tsx          # creator earnings (tips/subs)
-    │   ├── advertise.tsx       # promote a post (fake-payment checkout)
+    │   ├── wallet.tsx          # wallet: balance/top-up/cash-out, earnings, embedded payout mgmt
+    │   ├── activity.tsx        # unified "All activity" money feed
+    │   ├── advertise.tsx       # promote a post or reel (Stripe / test-mode checkout)
     │   ├── group/[id]/...     # chat group detail + members
     │   ├── guide/[id].tsx, g/[slug].tsx (public guide)
     │   ├── eta/[shareId].tsx  # public ETA viewer
@@ -245,6 +253,7 @@ Nampo-deploy-readyzip/
 | `STRIPE_PUBLISHABLE_KEY` | No| No     | *(none)*       | Stripe publishable key returned to the client for embedded Connect onboarding/checkout. (The web client uses `EXPO_PUBLIC_STRIPE_KEY`.) |
 | `PLATFORM_FEE_PERCENT` | No  | No     | `0`            | Default platform cut of subscriptions/tips (admin-tunable at runtime via `/admin/fees`). |
 | `ANTHROPIC_API_KEY` | No     | **Yes**| *(none)*       | Enables the in-app **@claude** assistant bot. `CLAUDE_BOT_MODEL` / `CLAUDE_BOT_ALLOW` tune the model and the username allowlist. |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` | No | **Yes** | *(none)* | Twilio credentials for **phone-number SMS verification**. When unset, the verification code is returned in the API response (dev fallback) instead of being texted. |
 | `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render injects this). |
 
 > Auth is email/password only — Google sign-in was removed. `RENDER_EXTERNAL_URL` / `PUBLIC_BASE_URL` are read automatically for building absolute URLs.
@@ -346,12 +355,12 @@ All routes are mounted under the **`/api`** prefix and (except auth/registration
 
 | Route group        | Base paths (examples) | What it does |
 | ------------------ | --------------------- | ------------ |
-| **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username claim; **change email / password**, **set phone**; **developer API keys** (create/list/revoke); ToS/Privacy policy versions + acceptance. |
+| **Auth**           | `/auth/register`, `/auth/login`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/phone/send-code\|verify`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password registration & login (bcrypt, session tokens), profile read/patch, username claim; **change email / password**, **verify phone via SMS code**; **developer API keys** (create/list/revoke); ToS/Privacy policy versions + acceptance. |
 | **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip`, `/users/{id}/subscribe`, `/wallet`, `/admin/users/{id}` | User search, public profiles, follow/friends; **tips & subscriptions** + the creator **wallet** (earned **and sent**); **admin** verify/role/ban/suspend management + audit log. |
-| **Payments**       | `/payments/config`, `/payments/checkout`, `/payments/payouts/setup\|status\|account-session\|cashout`, `/payments/webhook`, `/payments/api-plan*`, `/payments/api-usage*` | Stripe Connect onboarding (hosted + embedded), Checkout for tips/subscriptions/promote, **instant debit-card cash-out**, the completion/expiry webhook, and paid Developer-API plans/usage. |
-| **Money & wallet** | `/money/security`, `/money/send`, `/money/transfers*` (accept/decline/**reverse**/history), `/money/request*`, `/wallet/balance\|topup\|topup/confirm\|topup/sync\|topups\|currency`, `/currencies` | Peer-to-peer send/request (security question, 5-min reversal), wallet **balance/top-up/cash-out**, **display currency**, and top-up history. |
-| **Admin (money)**  | `/admin/test-payments`, `/admin/fees`, `/admin/revenue`, `/admin/reset/money\|analytics` | Toggle simulated payments, set the **revenue split + transaction fee**, view **platform revenue**, and reset fake money/analytics. |
-| **Ads**            | `/ads/next`, `/ads/{id}/event\|hide\|report`, `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*` | Sponsored posts, prepaid ad accounts, link ads, and the publisher network (embed ads + earn). |
+| **Payments**       | `/payments/config`, `/payments/checkout`, `/payments/payouts/setup\|status\|account-session\|cashout`, `/payments/webhook`, `/payments/api-plan*`, `/payments/api-usage*` | Stripe Connect onboarding **and embedded payout management** (account-session enables onboarding + payouts + account-management components), Checkout for tips/subscriptions/promote, **instant debit-card cash-out**, the completion/expiry webhook, and paid Developer-API plans/usage. |
+| **Money & wallet** | `/money/security`, `/money/send`, `/money/transfers*` (accept/decline/**reverse**/history), `/money/request*`, `/wallet/balance\|topup\|topup/confirm\|topup/sync\|topup/{id}/cancel\|topups\|activity\|currency`, `/currencies`, `/payments/pay-wallet` | Peer-to-peer send/request (security question, 5-min reversal), wallet **balance/top-up/cash-out**, pay-from-balance, **display currency**, top-up history, and the unified **`/wallet/activity`** feed. |
+| **Admin (money)**  | `/admin/test-payments`, `/admin/fees`, `/admin/revenue`, `/admin/reset/money\|analytics`, `/admin/mobile-only`, `/admin/users/{id}/wallet` | Toggle simulated payments, set the **revenue split + transaction fee**, view **platform revenue**, reset fake money/analytics, toggle **mobile-only** mode, and **set a user's wallet balance**. |
+| **Ads**            | `/ads/next`, `/ads/{id}/event\|hide\|report`, `/ads/reels*` (CRUD + `serve`/`event`), `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*`, `/media/resolve-video` | Sponsored posts, **reel video ads** (budget-weighted serving + CTR), prepaid ad accounts, link ads, the publisher network (embed ads + earn), and verified-host video link resolution. |
 | **Posts / Feed**   | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, feeds, replies + **full comment threads**, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, **pinning**, hashtags. Forum posts carry `community_id` + `title`. |
 | **Stories**        | `/stories`, `/stories/tray`, `/stories/user/{id}`, `/stories/{id}/view\|viewers\|reply` | Create 24h ephemeral stories, story tray, view counts, viewer lists, and replies. |
 | **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/messages/{mid}/react`, `/conversations/{id}/read`, `/emojis` | DMs and group chats; text/place/media/voice/gif/file/contact/post messages; replies, ❤️ reactions, edits, receipts, deletion; **custom emoji** registry (`/emojis` GET/POST/DELETE). |
