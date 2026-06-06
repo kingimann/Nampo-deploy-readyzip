@@ -15,6 +15,7 @@ import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import PostCard from "@/src/components/PostCard";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
+import { DEFAULT_AVATARS } from "@/src/lib/avatars";
 
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbnxlbnwwfHx8fDE3ODA1NTgzMjh8MA&ixlib=rb-4.1.0&q=85";
@@ -33,6 +34,7 @@ export default function ProfileScreen() {
   const [usernameCheck, setUsernameCheck] = useState<{ checking: boolean; available: boolean | null }>({ checking: false, available: null });
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [profileTab, setProfileTab] = useState<"posts" | "media">("posts");
@@ -80,7 +82,21 @@ export default function ProfileScreen() {
   };
   const onReply = (p: Post) => router.push({ pathname: "/post/[id]", params: { id: p.id } });
 
-  const changeAvatar = async () => {
+  const changeAvatar = () => { if (!uploadingAvatar) setAvatarPickerOpen(true); };
+
+  const pickDefaultAvatar = async (url: string) => {
+    setAvatarPickerOpen(false);
+    setUploadingAvatar(true);
+    try {
+      await api.updateMe({ picture: url });
+      await refresh();
+    } catch (e: any) {
+      Alert.alert("Couldn't update avatar", e?.message || String(e));
+    } finally { setUploadingAvatar(false); }
+  };
+
+  const uploadPhoto = async () => {
+    setAvatarPickerOpen(false);
     if (uploadingAvatar) return;
     if (Platform.OS !== "web") {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -370,6 +386,34 @@ export default function ProfileScreen() {
         )}
       </ScrollView>
 
+      <Modal visible={avatarPickerOpen} transparent animationType="slide" onRequestClose={() => setAvatarPickerOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setAvatarPickerOpen(false)} />
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={[styles.modalTitle, { marginBottom: 2 }]}>Profile picture</Text>
+            <Text style={styles.avPickerSub}>Pick a default avatar or upload your own.</Text>
+            <View style={styles.avGrid}>
+              {DEFAULT_AVATARS.map((url) => {
+                const selected = user?.picture === url;
+                return (
+                  <TouchableOpacity key={url} onPress={() => pickDefaultAvatar(url)} style={[styles.avCell, selected && styles.avCellOn]} testID={`avatar-${url}`}>
+                    <Image source={{ uri: url }} style={styles.avImg} />
+                    {selected ? (
+                      <View style={styles.avCheck}><Ionicons name="checkmark" size={14} color="#fff" /></View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <TouchableOpacity style={styles.avUploadBtn} onPress={uploadPhoto} testID="avatar-upload">
+              <Ionicons name="image-outline" size={18} color="#fff" />
+              <Text style={styles.avUploadText}>Upload a photo</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={editOpen} transparent animationType="slide" onRequestClose={() => setEditOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalBackdrop}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setEditOpen(false)} />
@@ -452,6 +496,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
   },
   avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: theme.surfaceAlt },
+  avPickerSub: { color: theme.textMuted, fontSize: 13, marginTop: 2, marginBottom: 14 },
+  avGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "center" },
+  avCell: { width: 64, height: 64, borderRadius: 32, borderWidth: 2, borderColor: "transparent", overflow: "hidden", backgroundColor: theme.surfaceAlt },
+  avCellOn: { borderColor: theme.primary },
+  avImg: { width: "100%", height: "100%" },
+  avCheck: { position: "absolute", bottom: 0, right: 0, width: 20, height: 20, borderRadius: 10, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: theme.surface },
+  avUploadBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 14, marginTop: 20 },
+  avUploadText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   avatarBadge: {
     position: "absolute", bottom: 2, right: 2,
     width: 28, height: 28, borderRadius: 14,
