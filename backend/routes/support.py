@@ -98,8 +98,33 @@ async def create_ticket(body: TicketCreate, authorization: Optional[str] = Heade
         "text": message,
         "created_at": now,
     })
+    # Email the staff team (best-effort) so disputes don't sit unseen.
+    try:
+        import os
+        from services.email import send_email, email_enabled
+        admins = [e.strip() for e in (os.environ.get("ADMIN_EMAILS", "") or "").split(",") if e.strip()]
+        if email_enabled() and admins:
+            who = user.get("name") or user.get("username") or "A user"
+            for ae in admins:
+                send_email(
+                    ae, f"[Support · {category}] {subject}",
+                    f"{who} opened a support ticket.\n\nCategory: {category}\nSubject: {subject}\n\n{message[:1500]}\n\nReply from the staff inbox in the app.",
+                )
+    except Exception:
+        pass
     doc = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
     return await _hydrate_ticket(doc, with_messages=True)
+
+
+@router.get("/support/unread-count")
+async def unread_count(authorization: Optional[str] = Header(None)):
+    """Tickets needing the user's attention (a staff reply they haven't opened)."""
+    user = await get_current_user(authorization)
+    try:
+        n = await db.support_tickets.count_documents({"user_id": user["user_id"], "unread_for_user": True})
+    except Exception:
+        n = 0
+    return {"count": n}
 
 
 @router.get("/support/tickets")
