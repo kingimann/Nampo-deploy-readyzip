@@ -160,7 +160,24 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
     if body.sub_price is not None:
         patch["sub_price"] = max(0.0, round(float(body.sub_price), 2))
     if body.payout_frequency in ("biweekly", "monthly"):
-        patch["payout_frequency"] = body.payout_frequency
+        current_freq = user.get("payout_frequency", "monthly")
+        if body.payout_frequency != current_freq:
+            # Payout frequency can only be changed once a month.
+            last_change = user.get("payout_frequency_changed_at")
+            if last_change:
+                try:
+                    nxt = _norm_dt(last_change) + timedelta(days=30)
+                    if datetime.now(timezone.utc) < nxt:
+                        raise HTTPException(status_code=400, detail={
+                            "code": "frequency_locked",
+                            "message": f"You can only change your payout frequency once a month. You can change it again on {nxt.date().isoformat()}.",
+                        })
+                except HTTPException:
+                    raise
+                except Exception:
+                    pass
+            patch["payout_frequency"] = body.payout_frequency
+            patch["payout_frequency_changed_at"] = datetime.now(timezone.utc)
     if body.payout_threshold is not None:
         patch["payout_threshold"] = max(0.0, round(float(body.payout_threshold), 2))
     if body.default_comment_policy in ("everyone", "followers", "friends", "nobody"):

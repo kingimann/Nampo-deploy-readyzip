@@ -126,10 +126,21 @@ async def my_payouts(authorization: Optional[str] = Header(None)):
             next_due = (base + timedelta(days=_interval_days(freq))).isoformat()
     except Exception:
         pass
+    # Payout frequency can only be changed once a month.
+    freq_changed = user.get("payout_frequency_changed_at")
+    freq_locked_until = None
+    try:
+        if freq_changed:
+            nxt = _norm_dt(freq_changed) + timedelta(days=30)
+            if datetime.now(timezone.utc) < nxt:
+                freq_locked_until = nxt.isoformat()
+    except Exception:
+        pass
     return {
         "balance": round(earned - paid, 2),
         "total_paid_out": round(paid, 2),
         "frequency": freq,
+        "frequency_locked_until": freq_locked_until,
         "next_payout": next_due,
         "history": [
             {"id": p["id"], "amount": round(float(p.get("amount", 0) or 0), 2),

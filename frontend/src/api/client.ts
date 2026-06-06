@@ -203,7 +203,7 @@ export const api = {
   recordProfileView: (userId: string) =>
     request<{ ok: boolean; views?: number }>(`/users/${userId}/view`, { method: "POST" }),
   // Payments (Stripe Connect) — inert until the server has STRIPE_SECRET_KEY set.
-  getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number; transaction_fee_cents?: number }>("/payments/config"),
+  getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number; transaction_fee_cents?: number; cashout_min?: number; cashout_fee?: number }>("/payments/config"),
   setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
   getPayoutStatus: () =>
     request<{
@@ -226,7 +226,7 @@ export const api = {
   payoutAccountSession: () =>
     request<{ client_secret: string; publishable_key: string; components?: string[] }>("/payments/payouts/account-session", { method: "POST" }),
   cashoutToCard: (amount?: number) =>
-    request<{ ok: boolean; amount: number; balance: number; currency?: string; local_amount?: number }>("/payments/payouts/cashout", { method: "POST", body: JSON.stringify(amount != null ? { amount } : {}) }),
+    request<{ ok: boolean; amount: number; gross?: number; fee?: number; balance: number; currency?: string; local_amount?: number }>("/payments/payouts/cashout", { method: "POST", body: JSON.stringify(amount != null ? { amount } : {}) }),
   addDebitCard: (token: string) =>
     request<{ ok: boolean; has_debit_card: boolean; brand?: string; last4?: string }>("/payments/payouts/debit-card", { method: "POST", body: JSON.stringify({ token }) }),
 
@@ -711,7 +711,7 @@ export type WalletBalance = {
   balance: number; display: number; currencies?: Record<string, CurrencyInfo>;
 };
 export type Payout = { id: string; amount: number; status: string; created_at: string };
-export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };
+export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; frequency_locked_until?: string | null; next_payout?: string | null; history: Payout[] };
 export type Ad = { post_id: string | null; text: string; image?: string | null; author_name: string; reason?: string | null; author_picture?: string | null };
 export type AdCampaign = { post_id: string; text: string; impressions: number; clicks: number; ctr: number; budget: number; spent: number; cpc: number; promoted_until?: string | null; active: boolean };
 export type LinkAdServe = { id: string; url: string; headline: string; description?: string | null; image?: string | null; owner_id?: string };

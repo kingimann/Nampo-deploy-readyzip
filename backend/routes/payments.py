@@ -189,6 +189,8 @@ async def payments_config():
         "enabled": live,
         "platform_fee_percent": await platform_fee_percent(),
         "transaction_fee_cents": await transaction_fee_cents(),
+        "cashout_min": MIN_CASHOUT,
+        "cashout_fee": CASHOUT_FEE,
         "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
         # Why payments may be simulated, so the admin can tell the difference
         # between "Stripe isn't configured/down" and "an admin forced test mode".
@@ -290,6 +292,11 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
     }
 
 
+# Instant cash-out: floor and flat fee (USD).
+MIN_CASHOUT = 20.0
+CASHOUT_FEE = 2.0
+
+
 class CashoutBody(BaseModel):
     amount: Optional[float] = None   # None = cash out the whole balance
 
@@ -326,8 +333,16 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
     amount = round(float(body.amount if body.amount is not None else bal), 2)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Enter an amount to cash out")
+    if amount < MIN_CASHOUT - 1e-9:
+        raise HTTPException(status_code=400, detail={
+            "code": "below_minimum",
+            "message": f"The minimum cash-out is ${MIN_CASHOUT:.0f}. A ${CASHOUT_FEE:.0f} flat fee applies to each instant cash-out.",
+        })
     if amount > bal + 1e-9:
         raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance."})
+
+    # A flat fee is kept by the platform; the user receives the remainder on their card.
+    net = round(amount - CASHOUT_FEE, 2)
 
     # Wallet amounts are USD, but a payout has to be in the connected account's
     # settlement currency (e.g. a Canadian account pays out in CAD). Convert and
@@ -336,7 +351,7 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
     acct_ccy = (acct.get("default_currency") or "usd").lower()
     rate_meta = CURRENCIES.get(acct_ccy.upper())
     rate = float(rate_meta["rate"]) if rate_meta else 1.0
-    local_amount = round(amount * rate, 2)
+    local_amount = round(net * rate, 2)
     # Zero-decimal currencies (e.g. JPY) take whole-unit amounts, not cents.
     ZERO_DECIMAL = {"jpy", "krw", "vnd", "clp", "bif", "djf", "gnf", "kmf",
                     "mga", "pyg", "rwf", "ugx", "vuv", "xaf", "xof", "xpf"}
@@ -362,15 +377,25 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
             "message": f"Instant cash out failed: {msg}. Add a debit card as your payout method in Manage payouts — instant payouts need an eligible debit card (a bank account alone won't work).",
         })
 
+    now = datetime.now(timezone.utc)
     await db.payouts.insert_one({
-        "id": str(uuid.uuid4()), "user_id": user["user_id"], "amount": amount,
+        "id": str(uuid.uuid4()), "user_id": user["user_id"], "amount": net, "gross": amount, "fee": CASHOUT_FEE,
         "currency": acct_ccy, "local_amount": local_amount,
         "status": "instant", "method": "instant_card",
-        "stripe_payout_id": (payout or {}).get("id"), "created_at": datetime.now(timezone.utc),
+        "stripe_payout_id": (payout or {}).get("id"), "created_at": now,
     })
+    # Book the cash-out fee as platform revenue.
+    try:
+        await db.platform_revenue.insert_one({
+            "id": str(uuid.uuid4()), "amount": CASHOUT_FEE, "source": "cashout_fee",
+            "from_user_id": user["user_id"], "ref_id": (payout or {}).get("id"), "created_at": now,
+        })
+    except Exception:
+        pass
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "wallet_balance": 1})
     return {
-        "ok": True, "amount": amount, "currency": acct_ccy.upper(), "local_amount": local_amount,
+        "ok": True, "amount": net, "gross": amount, "fee": CASHOUT_FEE,
+        "currency": acct_ccy.upper(), "local_amount": local_amount,
         "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2),
     }
 
