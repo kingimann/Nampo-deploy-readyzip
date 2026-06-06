@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Modal, FlatList, TextInput, TouchableOpacity,
-  ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable,
+  ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,7 +25,41 @@ type Props = {
   onCommented?: (postId: string, newReply: Post) => void;
 };
 
-/** Instagram-style comments bottom sheet for a feed post. */
+/** Animated like (heart) — pops + a quick burst ring when you like a comment. */
+function CommentLike({ liked, count, onPress, testID }: { liked: boolean; count: number; onPress: () => void; testID?: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const burst = useRef(new Animated.Value(0)).current;
+  const prev = useRef(liked);
+  useEffect(() => {
+    if (liked && !prev.current) {
+      scale.setValue(0.6);
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start();
+      burst.setValue(0);
+      Animated.timing(burst, { toValue: 1, duration: 420, useNativeDriver: true }).start();
+    }
+    prev.current = liked;
+  }, [liked, scale, burst]);
+  return (
+    <TouchableOpacity style={styles.likeCol} onPress={onPress} testID={testID} activeOpacity={0.7}>
+      <View style={styles.likeHeartWrap}>
+        {/* Expanding ring burst */}
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.burst, {
+            opacity: burst.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.5, 0] }),
+            transform: [{ scale: burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.2] }) }],
+          }]}
+        />
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <Ionicons name={liked ? "heart" : "heart-outline"} size={19} color={liked ? "#EF4444" : theme.textMuted} />
+        </Animated.View>
+      </View>
+      <Text style={styles.likeCount}>{count > 0 ? count : ""}</Text>
+    </TouchableOpacity>
+  );
+}
+
+/** Instagram/TikTok-style comments bottom sheet for a feed post. */
 export default function CommentsSheet({ visible, post, onClose, onCommented }: Props) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -37,7 +71,11 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
   const [editingId, setEditingId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<Post | null>(null);
   const [gifOpen, setGifOpen] = useState(false);
+  // Which top-level comments have their reply threads expanded (TikTok-style).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const inputRef = useRef<TextInput>(null);
+  const toggleExpand = (id: string) =>
+    setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const load = useCallback(async () => {
     if (!post) return;
@@ -50,13 +88,15 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
   }, [post]);
 
   useEffect(() => {
-    if (visible && post) { setText(""); setEditingId(null); setReplyTo(null); load(); }
+    if (visible && post) { setText(""); setEditingId(null); setReplyTo(null); setExpanded(new Set()); load(); }
   }, [visible, post, load]);
 
-  // Flatten the thread into render rows: each top-level comment (depth 0)
-  // followed by its descendants (depth 1), each tagged with who it replies to.
+  // Build render rows: each top-level comment, then a "View N replies" expander,
+  // and its descendant replies only when that thread is expanded (TikTok-style).
+  type CommentRow = { kind: "comment"; c: Post; depth: number; replyToName?: string };
+  type ExpanderRow = { kind: "expander"; parentId: string; count: number; open: boolean };
   const rows = useMemo(() => {
-    if (!post) return [] as { c: Post; depth: number; replyToName?: string }[];
+    if (!post) return [] as (CommentRow | ExpanderRow)[];
     const byId = new Map(replies.map((r) => [r.id, r]));
     const kids = new Map<string, Post[]>();
     for (const r of replies) {
@@ -65,16 +105,35 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
     }
     const sortKids = (list: Post[]) =>
       [...list].sort((a, b) => (Number(!!b.pinned) - Number(!!a.pinned)) || (a.created_at < b.created_at ? -1 : 1));
-    const out: { c: Post; depth: number; replyToName?: string }[] = [];
-    const visit = (node: Post) => {
-      out.push({ c: node, depth: 1, replyToName: byId.get(node.parent_id || "")?.author?.name });
-      for (const ch of sortKids(kids.get(node.id) || [])) visit(ch);
-    };
+    const out: (CommentRow | ExpanderRow)[] = [];
     for (const t of sortKids(kids.get(post.id) || [])) {
-      out.push({ c: t, depth: 0 });
-      for (const ch of sortKids(kids.get(t.id) || [])) visit(ch);
+      out.push({ kind: "comment", c: t, depth: 0 });
+      // Gather all descendants (flattened to one indent level, like TikTok).
+      const desc: CommentRow[] = [];
+      const visit = (node: Post) => {
+        for (const ch of sortKids(kids.get(node.id) || [])) {
+          desc.push({ kind: "comment", c: ch, depth: 1, replyToName: byId.get(ch.parent_id || "")?.author?.name });
+          visit(ch);
+        }
+      };
+      visit(t);
+      if (desc.length > 0) {
+        const open = expanded.has(t.id);
+        out.push({ kind: "expander", parentId: t.id, count: desc.length, open });
+        if (open) out.push(...desc);
+      }
     }
     return out;
+  }, [replies, post, expanded]);
+
+  // Top-level ancestor id of a comment (so replying auto-expands the right thread).
+  const topAncestorId = useCallback((c: Post): string => {
+    const byId = new Map(replies.map((r) => [r.id, r]));
+    let node: Post | undefined = c;
+    while (node && node.parent_id && node.parent_id !== post?.id) {
+      node = byId.get(node.parent_id);
+    }
+    return node?.id || c.id;
   }, [replies, post]);
 
   const send = async () => {
@@ -91,6 +150,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         const reply = await api.createPost({ text: body, parent_id: parentId });
         setReplies((arr) => [...arr, reply]);
         if (!replyTo) onCommented?.(post.id, reply);  // only top-level bumps the post's count
+        else { const top = topAncestorId(replyTo); setExpanded((prev) => new Set(prev).add(top)); }
         setReplyTo(null);
       }
       setText("");
@@ -181,14 +241,14 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         >
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]} testID="comments-sheet">
             <View style={styles.handle} />
-            <Text style={styles.title}>{rows.length > 0 ? `${rows.length} comments` : "Comments"}</Text>
+            <Text style={styles.title}>{replies.length > 0 ? `${replies.length} comments` : "Comments"}</Text>
 
             {loading ? (
               <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
             ) : (
               <FlatList
                 data={rows}
-                keyExtractor={(i) => i.c.id}
+                keyExtractor={(i) => (i.kind === "expander" ? `exp_${i.parentId}` : i.c.id)}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 22 }}
                 keyboardShouldPersistTaps="handled"
                 style={{ flexGrow: 0, maxHeight: 460 }}
@@ -199,6 +259,21 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                   </View>
                 }
                 renderItem={({ item: row }) => {
+                  if (row.kind === "expander") {
+                    return (
+                      <TouchableOpacity
+                        style={styles.expander}
+                        onPress={() => toggleExpand(row.parentId)}
+                        testID={`comment-expand-${row.parentId}`}
+                      >
+                        <View style={styles.expanderLine} />
+                        <Text style={styles.expanderText}>
+                          {row.open ? "Hide replies" : `View ${row.count} ${row.count === 1 ? "reply" : "replies"}`}
+                        </Text>
+                        <Ionicons name={row.open ? "chevron-up" : "chevron-down"} size={13} color={theme.textMuted} />
+                      </TouchableOpacity>
+                    );
+                  }
                   const item = row.c;
                   const isMine = item.user_id === user?.user_id;
                   const isOwner = post?.user_id === user?.user_id;
@@ -256,11 +331,13 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                       </View>
                     </View>
 
-                    {/* Like (heart) + count on the right, TikTok-style */}
-                    <TouchableOpacity style={styles.likeCol} onPress={() => reactLike(item)} testID={`comment-like-${item.id}`}>
-                      <Ionicons name={item.liked_by_me ? "heart" : "heart-outline"} size={19} color={item.liked_by_me ? "#EF4444" : theme.textMuted} />
-                      <Text style={styles.likeCount}>{item.likes_count > 0 ? item.likes_count : ""}</Text>
-                    </TouchableOpacity>
+                    {/* Like (heart) + count on the right, TikTok-style with a pop */}
+                    <CommentLike
+                      liked={!!item.liked_by_me}
+                      count={item.likes_count || 0}
+                      onPress={() => reactLike(item)}
+                      testID={`comment-like-${item.id}`}
+                    />
                   </View>
                   );
                 }}
@@ -358,7 +435,15 @@ const styles = StyleSheet.create({
   metaTime: { color: theme.textMuted, fontSize: 12.5 },
   metaLink: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
   likeCol: { alignItems: "center", width: 34, paddingTop: 2, gap: 3 },
+  likeHeartWrap: { width: 22, height: 22, alignItems: "center", justifyContent: "center" },
+  burst: {
+    position: "absolute", width: 18, height: 18, borderRadius: 9,
+    borderWidth: 2, borderColor: "#EF4444",
+  },
   likeCount: { color: theme.textMuted, fontSize: 11.5, fontWeight: "600" },
+  expander: { flexDirection: "row", alignItems: "center", gap: 8, marginLeft: 52, marginTop: -10 },
+  expanderLine: { width: 24, height: StyleSheet.hairlineWidth, backgroundColor: theme.border },
+  expanderText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
 
   editHint: {
     flexDirection: "row", alignItems: "center", gap: 8,
