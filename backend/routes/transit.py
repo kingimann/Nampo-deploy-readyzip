@@ -119,6 +119,7 @@ async def _departures_for_stop(client: httpx.AsyncClient, onestop_id: str) -> li
                 "stop_name": stop_name,
                 "route": short or long or "—",
                 "route_long": long,
+                "route_id": route.get("onestop_id"),
                 "kind": _route_kind(route.get("route_type")),
                 "headsign": trip.get("trip_headsign") or dep.get("trip_headsign") or long,
                 "time_label": (dep.get("departure_time") or "")[:5],
@@ -130,20 +131,40 @@ async def _departures_for_stop(client: httpx.AsyncClient, onestop_id: str) -> li
     return out
 
 
+async def _routes_near(client: httpx.AsyncClient, lat: float, lon: float, radius: int) -> set:
+    """Set of route onestop_ids that serve stops near (lat, lon)."""
+    try:
+        resp = await client.get(
+            f"{TRANSITLAND_BASE}/routes",
+            params={"apikey": TRANSITLAND_API_KEY, "lat": lat, "lon": lon,
+                    "radius": radius, "limit": 100},
+        )
+        if resp.status_code != 200:
+            return set()
+        data = resp.json() or {}
+    except (httpx.HTTPError, ValueError):
+        return set()
+    return {r.get("onestop_id") for r in (data.get("routes") or []) if r.get("onestop_id")}
+
+
 @router.get("/transit/nearby")
 async def transit_nearby(
     lat: float = Query(...),
     lon: float = Query(...),
     radius: int = Query(800, ge=100, le=2000),
+    dest_lat: Optional[float] = Query(None),
+    dest_lon: Optional[float] = Query(None),
     authorization: Optional[str] = Header(None),
 ):
     await get_current_user(authorization)
     if not TRANSITLAND_API_KEY:
         return {"configured": False, "departures": [], "stops": []}
 
+    have_dest = dest_lat is not None and dest_lon is not None
+
     async with httpx.AsyncClient(timeout=12.0) as client:
         try:
-            resp = await client.get(
+            stops_task = client.get(
                 f"{TRANSITLAND_BASE}/stops",
                 params={
                     "apikey": TRANSITLAND_API_KEY,
@@ -153,6 +174,15 @@ async def transit_nearby(
                     "limit": 12,
                 },
             )
+            # In parallel, find which routes actually reach the destination area,
+            # so we can keep only departures whose route goes that way.
+            if have_dest:
+                resp, dest_routes = await asyncio.gather(
+                    stops_task, _routes_near(client, dest_lat, dest_lon, 1200)
+                )
+            else:
+                resp = await stops_task
+                dest_routes = set()
         except httpx.HTTPError:
             return {"configured": True, "departures": [], "stops": [], "error": "upstream"}
         if resp.status_code != 200:
@@ -177,6 +207,17 @@ async def transit_nearby(
     departures: list = []
     for r in results:
         departures.extend(r)
+
+    # Filter to routes heading toward the destination (route also serves a stop
+    # near the destination). Only apply when we actually found dest routes — if
+    # the destination has no transit nearby, fall back to showing everything.
+    filtered = False
+    if have_dest and dest_routes:
+        kept = [d for d in departures if d.get("route_id") in dest_routes]
+        if kept:
+            departures = kept
+            filtered = True
+
     # Sort: ones with a known minutes value first (soonest), then the rest.
     departures.sort(key=lambda d: d["minutes"] if d.get("minutes") is not None else 9999)
     departures = departures[:25]
@@ -185,4 +226,5 @@ async def transit_nearby(
         "configured": True,
         "stops": stop_list[:6],
         "departures": departures,
+        "filtered": filtered,
     }

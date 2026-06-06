@@ -389,9 +389,21 @@ export const api = {
   stopEta: (share_id: string) =>
     request<EtaShare>(`/eta/${share_id}/stop`, { method: "POST" }),
 
-  // Public transit — nearby stops + next departures (TransitLand)
-  transitNearby: (lat: number, lon: number, radius = 800) =>
-    request<TransitNearby>(`/transit/nearby?lat=${lat}&lon=${lon}&radius=${radius}`),
+  // Public transit — nearby stops + next departures (TransitLand). When a
+  // destination is given, only routes that reach it are returned.
+  transitNearby: (
+    lat: number,
+    lon: number,
+    opts: { radius?: number; destLat?: number; destLon?: number } = {},
+  ) => {
+    const p = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+    p.set("radius", String(opts.radius ?? 800));
+    if (opts.destLat != null && opts.destLon != null) {
+      p.set("dest_lat", String(opts.destLat));
+      p.set("dest_lon", String(opts.destLon));
+    }
+    return request<TransitNearby>(`/transit/nearby?${p.toString()}`);
+  },
 
   // Posts / Feed / Follows
   createPost: (body: PostCreate) =>
@@ -981,6 +993,7 @@ export type TransitDeparture = {
   stop_name: string;
   route: string;
   route_long?: string;
+  route_id?: string | null;
   kind: string; // bus | subway | rail | tram | ferry | …
   headsign?: string;
   time_label?: string; // "HH:MM"
@@ -998,6 +1011,7 @@ export type TransitNearby = {
   configured: boolean;
   stops: TransitStop[];
   departures: TransitDeparture[];
+  filtered?: boolean; // true when results were limited to routes toward the destination
   error?: string;
 };
 

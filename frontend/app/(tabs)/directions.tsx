@@ -219,6 +219,7 @@ export default function DirectionsScreen() {
   const [transitLoading, setTransitLoading] = useState(false);
   const [transitFetchedAt, setTransitFetchedAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(Date.now()); // drives the "updated Xs ago" label
+  const [transitAllNearby, setTransitAllNearby] = useState(false); // false = only routes toward destination
 
   // Step end-coordinates (where each maneuver "completes") — derived from route coords.
   // We approximate by using the cumulative distance per step against the route.
@@ -507,12 +508,17 @@ export default function DirectionsScreen() {
     } catch { setSarResults([]); } finally { setSarLoading(false); }
   };
 
-  const loadTransit = useCallback(async () => {
+  // Destination of the current plan (last waypoint with a real location).
+  const destFeature = waypoints[waypoints.length - 1]?.feature || null;
+
+  const loadTransit = useCallback(async (allNearby: boolean) => {
     const loc = userLocationRef.current || userLocation;
     if (!loc) return;
+    const dest = waypoints[waypoints.length - 1]?.feature || null;
     setTransitLoading(true);
     try {
-      const d = await api.transitNearby(loc[1], loc[0]);
+      const d = await api.transitNearby(loc[1], loc[0],
+        (!allNearby && dest) ? { destLat: dest.latitude, destLon: dest.longitude } : {});
       setTransitData(d);
       setTransitFetchedAt(Date.now());
     } catch {
@@ -520,11 +526,21 @@ export default function DirectionsScreen() {
     } finally {
       setTransitLoading(false);
     }
-  }, [userLocation]);
+  }, [userLocation, waypoints]);
 
   const openTransit = useCallback(() => {
     setTransitOpen(true);
-    loadTransit();
+    setTransitAllNearby(false);
+    loadTransit(false);
+  }, [loadTransit]);
+
+  // Flip between "toward destination" and "all nearby" and re-fetch.
+  const toggleTransitScope = useCallback(() => {
+    setTransitAllNearby((prev) => {
+      const next = !prev;
+      loadTransit(next);
+      return next;
+    });
   }, [loadTransit]);
 
   // Tick the "updated Xs ago" label while the sheet is open.
@@ -1212,13 +1228,22 @@ export default function DirectionsScreen() {
           <View style={[styles.sarSheet, { paddingBottom: insets.bottom + 14 }]}>
             <View style={styles.sarHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sarTitle}>Nearby transit</Text>
-                {transitData?.configured && transitFetchedAt && !transitLoading && (
-                  <Text style={styles.transitUpdated}>{agoLabel(transitFetchedAt, nowTick)}</Text>
-                )}
+                <Text style={styles.sarTitle}>
+                  {destFeature && !transitAllNearby ? "Routes toward your stop" : "Nearby transit"}
+                </Text>
+                <View style={styles.transitSubRow}>
+                  {destFeature && !transitAllNearby && (
+                    <Text style={styles.transitTowardText} numberOfLines={1}>
+                      → {destFeature.name}
+                    </Text>
+                  )}
+                  {transitData?.configured && transitFetchedAt && !transitLoading && (
+                    <Text style={styles.transitUpdated}>{agoLabel(transitFetchedAt, nowTick)}</Text>
+                  )}
+                </View>
               </View>
               <TouchableOpacity
-                onPress={loadTransit}
+                onPress={() => loadTransit(transitAllNearby)}
                 disabled={transitLoading}
                 testID="transit-refresh"
                 style={{ padding: 4, marginRight: 6 }}
@@ -1230,6 +1255,24 @@ export default function DirectionsScreen() {
                 <Ionicons name="close" size={22} color={theme.textPrimary} />
               </TouchableOpacity>
             </View>
+            {/* Toggle: only routes heading toward the destination vs everything nearby. */}
+            {destFeature && (
+              <TouchableOpacity
+                onPress={toggleTransitScope}
+                style={styles.transitScopeChip}
+                testID="transit-scope-toggle"
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={transitAllNearby ? "git-network-outline" : "navigate"}
+                  size={14}
+                  color={theme.primary}
+                />
+                <Text style={styles.transitScopeText}>
+                  {transitAllNearby ? "Showing all nearby — tap for toward destination" : "Toward destination — tap to show all nearby"}
+                </Text>
+              </TouchableOpacity>
+            )}
             {transitLoading ? (
               <ActivityIndicator color={theme.primary} style={{ marginVertical: 30 }} />
             ) : !transitData?.configured ? (
@@ -1239,7 +1282,9 @@ export default function DirectionsScreen() {
               </Text>
             ) : transitData.departures.length === 0 ? (
               <Text style={styles.sarEmpty}>
-                No upcoming departures found near you.
+                {destFeature && !transitAllNearby
+                  ? "No nearby routes head toward your destination. Tap “show all nearby” above to see every departure."
+                  : "No upcoming departures found near you."}
               </Text>
             ) : (
               <FlatList
@@ -1592,7 +1637,17 @@ const styles = StyleSheet.create({
   transitStop: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
   transitWhenWrap: { alignItems: "flex-end", minWidth: 72 },
   transitWhen: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
-  transitUpdated: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
+  transitSubRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" },
+  transitTowardText: { color: theme.primary, fontSize: 12, fontWeight: "700", maxWidth: 180 },
+  transitUpdated: { color: theme.textMuted, fontSize: 11 },
+  transitScopeChip: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    alignSelf: "flex-start", marginBottom: 8,
+    backgroundColor: theme.surfaceAlt, borderRadius: 999,
+    borderWidth: 1, borderColor: theme.border,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  transitScopeText: { color: theme.textSecondary, fontSize: 11, fontWeight: "600" },
   transitLiveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
   transitLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.success },
   transitLiveText: { color: theme.success, fontSize: 10, fontWeight: "700" },
