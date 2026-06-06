@@ -28,6 +28,24 @@ async def _credit_wallet(uid: str, amount: float):
     await db.users.update_one({"user_id": uid}, {"$inc": {"wallet_balance": round(float(amount), 2)}})
 
 
+async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: Optional[str] = None) -> bool:
+    """Credit a wallet top-up exactly once. The Stripe session id makes this
+    idempotent so the webhook and the on-return confirm can't double-credit."""
+    amount = round(float(amount), 2)
+    if amount <= 0:
+        return False
+    if session_id:
+        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "id": 1})
+        if existing:
+            return False
+    await _credit_wallet(uid, amount)
+    await db.wallet_topups.insert_one({
+        "id": str(uuid.uuid4()), "user_id": uid, "amount": amount,
+        "source": source, "session_id": session_id, "created_at": datetime.now(timezone.utc),
+    })
+    return True
+
+
 async def _debit_wallet(uid: str, amount: float) -> bool:
     """Debit the user's wallet if they have enough. Returns False if not."""
     amount = round(float(amount), 2)
@@ -439,12 +457,39 @@ async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(
         return _checkout_response(session, bool(body.embedded))
 
     # Test mode: credit instantly.
-    await _credit_wallet(me["user_id"], amount)
-    await db.wallet_topups.insert_one({
-        "id": str(uuid.uuid4()), "user_id": me["user_id"], "amount": amount,
-        "source": "test", "created_at": datetime.now(timezone.utc),
-    })
+    await _apply_wallet_topup(me["user_id"], amount, "test")
     usd = await _wallet_balance(me["user_id"])
     out = _currency_view(me.get("currency"), usd)
     out.update({"ok": True, "simulated": True})
+    return out
+
+
+class TopupConfirm(BaseModel):
+    session_id: str
+
+
+@router.post("/wallet/topup/confirm")
+async def wallet_topup_confirm(body: TopupConfirm, authorization: Optional[str] = Header(None)):
+    """Confirm a wallet top-up right after the user returns from Stripe Checkout,
+    so the balance updates even if the webhook is delayed or misconfigured.
+    Idempotent: crediting is keyed on the Stripe session id."""
+    me = await get_current_user(authorization)
+    from routes.payments import stripe, stripe_enabled
+    if not stripe_enabled() or not body.session_id:
+        raise HTTPException(status_code=400, detail="No payment to confirm")
+    try:
+        sess = stripe.checkout.Session.retrieve(body.session_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Payment session not found")
+    meta = (sess.get("metadata") or {})
+    if meta.get("kind") != "wallet_topup" or meta.get("buyer_id") != me["user_id"]:
+        raise HTTPException(status_code=403, detail="This payment isn't yours")
+    paid = sess.get("payment_status") == "paid"
+    amt = round(float(meta.get("amount") or 0), 2)
+    credited = False
+    if paid:
+        credited = await _apply_wallet_topup(me["user_id"], amt, "stripe", sess["id"])
+    usd = await _wallet_balance(me["user_id"])
+    out = _currency_view(me.get("currency"), usd)
+    out.update({"ok": paid, "paid": paid, "credited": credited})
     return out

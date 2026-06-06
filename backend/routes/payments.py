@@ -161,12 +161,17 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
         acct = stripe.Account.retrieve(acct_id)
     except Exception:
         return {"enabled": True, "connected": False, "payouts_enabled": False, "details_submitted": False}
+    reqs = acct.get("requirements", {}) or {}
+    due = list(reqs.get("currently_due", []) or []) + list(reqs.get("past_due", []) or [])
     return {
         "enabled": True,
         "connected": True,
         "payouts_enabled": bool(acct.get("payouts_enabled")),
         "charges_enabled": bool(acct.get("charges_enabled")),
         "details_submitted": bool(acct.get("details_submitted")),
+        # What Stripe still needs (so the UI can explain why setup won't finish).
+        "requirements_due": due,
+        "disabled_reason": reqs.get("disabled_reason"),
     }
 
 
@@ -454,12 +459,10 @@ async def stripe_webhook(request: Request):
                 await _apply_ad_topup(meta["buyer_id"], amt, "stripe")
         elif kind == "wallet_topup" and meta.get("buyer_id"):
             amt = round(float(meta.get("amount") or 0), 2)
-            if amt > 0:
-                await db.users.update_one({"user_id": meta["buyer_id"]}, {"$inc": {"wallet_balance": amt}})
-                await db.wallet_topups.insert_one({
-                    "id": str(uuid.uuid4()), "user_id": meta["buyer_id"], "amount": amt,
-                    "source": "stripe", "created_at": now,
-                })
+            session_id = (event.get("data", {}).get("object", {}) or {}).get("id")
+            from routes.money import _apply_wallet_topup
+            credited = await _apply_wallet_topup(meta["buyer_id"], amt, "stripe", session_id)
+            if credited:
                 try:
                     from routes.notifications import emit_notification
                     await emit_notification(user_id=meta["buyer_id"], actor_id=meta["buyer_id"],

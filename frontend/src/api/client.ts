@@ -183,7 +183,7 @@ export const api = {
   getPaymentsConfig: () => request<{ enabled: boolean; platform_fee_percent: number }>("/payments/config"),
   setupPayouts: () => request<{ url: string }>("/payments/payouts/setup", { method: "POST" }),
   getPayoutStatus: () =>
-    request<{ enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean }>("/payments/payouts/status"),
+    request<{ enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean; requirements_due?: string[]; disabled_reason?: string | null }>("/payments/payouts/status"),
   createCheckout: (
     kind: "tip" | "subscription" | "promote",
     creator_id: string,
@@ -407,6 +407,9 @@ export const api = {
   topupWallet: (amount: number, embedded?: boolean) =>
     request<{ url?: string; id?: string; client_secret?: string; embedded?: boolean; ok?: boolean; simulated?: boolean; balance?: number; display?: number; symbol?: string; currency?: string }>(
       "/wallet/topup", { method: "POST", body: JSON.stringify({ amount, embedded: !!embedded }) }),
+  confirmTopup: (session_id: string) =>
+    request<{ ok: boolean; paid?: boolean; credited?: boolean; balance: number; display: number; symbol: string; currency: string }>(
+      "/wallet/topup/confirm", { method: "POST", body: JSON.stringify({ session_id }) }),
   listFollowers: (uid: string) => request<PublicUser[]>(`/users/${uid}/followers`),
   listFollowing: (uid: string) => request<PublicUser[]>(`/users/${uid}/following`),
   sendFriendRequest: (uid: string) =>

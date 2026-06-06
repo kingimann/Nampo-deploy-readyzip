@@ -26,6 +26,19 @@ function sourceLabel(src?: string) {
   if (src === "stripe") return "Card · Stripe";
   return "Test mode";
 }
+const REQ_LABELS: Record<string, string> = {
+  external_account: "a bank account or debit card",
+  "individual.verification.document": "a photo ID",
+  "individual.id_number": "your ID/SSN number",
+  "individual.dob.day": "your date of birth",
+  "individual.address.line1": "your address",
+  "business_profile.url": "a website or product description",
+  "business_profile.mcc": "a business category",
+  "tos_acceptance.date": "accepting Stripe's terms",
+};
+function prettyReq(r: string): string {
+  return REQ_LABELS[r] || r.replace(/_/g, " ").replace(/\./g, " · ");
+}
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -68,8 +81,26 @@ export default function WalletScreen() {
 
   // Returning from hosted Stripe onboarding (?payouts=done) — poll until Stripe
   // flips payouts on, since it can lag a few seconds after submitting details.
-  const params = useLocalSearchParams<{ payouts?: string }>();
+  const params = useLocalSearchParams<{ payouts?: string; session_id?: string; stripe_return?: string }>();
   useEffect(() => { if (params?.payouts === "done") { pollPayoutStatus(); } }, [params?.payouts]);
+
+  // Returning from a wallet top-up checkout — confirm the payment server-side so
+  // the balance updates even if the Stripe webhook is delayed/misconfigured.
+  useEffect(() => {
+    const sid = params?.session_id;
+    if (!sid) return;
+    let cancelled = false;
+    (async () => {
+      for (let i = 0; i < 6 && !cancelled; i++) {
+        try {
+          const r = await api.confirmTopup(String(sid));
+          if (r.paid) { await load(); break; }
+        } catch { break; }   // not a top-up session (e.g. subscription) or not ours
+        await new Promise((res) => setTimeout(res, 2000));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [params?.session_id]);
 
   useEffect(() => { if (user?.payout_threshold != null) setThreshold(String(user.payout_threshold || "")); }, [user?.payout_threshold]);
 
@@ -286,6 +317,9 @@ export default function WalletScreen() {
                 <Text style={styles.payoutStatus}>{statusText}</Text>
               </View>
               <Text style={styles.payoutSub}>{subText}</Text>
+              {!payout?.payouts_enabled && (payout?.requirements_due?.length ?? 0) > 0 ? (
+                <Text style={styles.reqText}>Stripe still needs: {(payout?.requirements_due || []).slice(0, 4).map(prettyReq).join(", ")}.</Text>
+              ) : null}
               <TouchableOpacity style={styles.payoutBtn} onPress={setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
                 {connecting ? <ActivityIndicator color="#fff" size="small" /> : (
                   <>
@@ -609,6 +643,7 @@ const styles = StyleSheet.create({
   payoutBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   checkAgainBtn: { alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginTop: 2 },
   checkAgainText: { color: theme.primary, fontWeight: "800", fontSize: 14 },
+  reqText: { color: "#F59E0B", fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
   freqRow: { flexDirection: "row", gap: 10 },
   freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
   freqChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
