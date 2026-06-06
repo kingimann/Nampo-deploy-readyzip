@@ -20,7 +20,7 @@ export default function AdminPaymentsScreen() {
   const [feePct, setFeePct] = useState("");      // platform's cut % of subscriptions/tips
   const [feeCents, setFeeCents] = useState("");  // flat per-payment fee, in cents
   const [savingFees, setSavingFees] = useState(false);
-  const [revenue, setRevenue] = useState<{ total: number; by_source: Record<string, number> } | null>(null);
+  const [revenue, setRevenue] = useState<{ total: number; count: number; by_source: Record<string, number>; transaction_fee_cents: number } | null>(null);
 
   const load = useCallback(async () => {
     try { const r = await api.adminGetTestPayments(); setTestPayments(r.test_payments); setStripeConfigured(r.stripe_configured); }
@@ -113,7 +113,21 @@ export default function AdminPaymentsScreen() {
                   <Text style={styles.revLabel}>Transaction fees collected</Text>
                   <Text style={styles.revValue}>${revenue.total.toFixed(2)}</Text>
                 </View>
-                <Text style={styles.revNote}>From in-app flat fees. The % cut on tips/subscriptions is collected by Stripe — see your Stripe Dashboard.</Text>
+                <View style={styles.revBreakdown}>
+                  <View style={styles.revStat}>
+                    <Text style={styles.revStatNum}>{revenue.count}</Text>
+                    <Text style={styles.revStatLabel}>fee-paying payments</Text>
+                  </View>
+                  <View style={styles.revStat}>
+                    <Text style={styles.revStatNum}>{revenue.transaction_fee_cents}¢</Text>
+                    <Text style={styles.revStatLabel}>current per-send fee</Text>
+                  </View>
+                  <View style={styles.revStat}>
+                    <Text style={styles.revStatNum}>${(revenue.by_source?.transfer_fee ?? 0).toFixed(2)}</Text>
+                    <Text style={styles.revStatLabel}>from sends</Text>
+                  </View>
+                </View>
+                <Text style={styles.revNote}>From in-app flat fees (admins are exempt). The % cut on tips/subscriptions is collected by Stripe — see your Stripe Dashboard.</Text>
               </View>
             </>
           ) : null}
@@ -201,6 +215,10 @@ const styles = StyleSheet.create({
   revRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, paddingBottom: 6 },
   revLabel: { color: theme.textSecondary, fontSize: 14, fontWeight: "600" },
   revValue: { color: theme.primary, fontSize: 22, fontWeight: "900" },
+  revBreakdown: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 10 },
+  revStat: { flex: 1, backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 12, alignItems: "center", gap: 3 },
+  revStatNum: { color: theme.textPrimary, fontSize: 17, fontWeight: "900" },
+  revStatLabel: { color: theme.textMuted, fontSize: 10.5, textAlign: "center" },
   revNote: { color: theme.textMuted, fontSize: 12, lineHeight: 17, paddingHorizontal: 16, paddingBottom: 14 },
   resetBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.error, borderRadius: 12, paddingVertical: 14, marginBottom: 10 },
   resetText: { color: theme.error, fontSize: 13.5, fontWeight: "700" },
