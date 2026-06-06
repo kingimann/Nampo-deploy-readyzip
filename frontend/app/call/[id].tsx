@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { api } from "@/src/api/client";
+import { setupNativeAudio, teardownNativeAudio } from "@/src/utils/livekitNative";
 import { theme } from "@/src/theme";
 
 type Status = "connecting" | "ringing" | "connected" | "ended" | "error";
@@ -31,15 +32,19 @@ export default function CallScreen() {
   const remoteVideoRef = useRef<any>(null);
   const localVideoRef = useRef<any>(null);
 
+  const isWeb = Platform.OS === "web";
+
   const cleanup = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     try { roomRef.current?.disconnect?.(); } catch {}
     roomRef.current = null;
-    if (Platform.OS === "web") {
+    if (isWeb) {
       mediaEls.current.forEach((el) => { try { el.remove(); } catch {} });
       mediaEls.current = [];
+    } else {
+      teardownNativeAudio();
     }
-  }, []);
+  }, [isWeb]);
 
   const hangUp = useCallback(() => {
     cleanup();
@@ -69,11 +74,6 @@ export default function CallScreen() {
     let cancelled = false;
 
     (async () => {
-      if (Platform.OS !== "web") {
-        setStatus("error");
-        setErrText("Calls run in the web app for now. A native build with calling is coming soon.");
-        return;
-      }
       let info;
       try {
         info = await api.callToken(String(id));
@@ -88,6 +88,9 @@ export default function CallScreen() {
         return;
       }
       try {
+        // Native: register WebRTC globals + start the audio session first.
+        if (!isWeb) await setupNativeAudio();
+
         const LK: any = await import("livekit-client");
         const { Room, RoomEvent, Track } = LK;
         const room = new Room({ adaptiveStream: true, dynacast: true });
@@ -95,14 +98,14 @@ export default function CallScreen() {
 
         const onSubscribed = (track: any) => {
           if (track.kind === Track.Kind.Audio) {
-            mountTrack(track, remoteVideoRef.current ? remoteVideoRef.current : document.body);
+            // Web mounts an <audio> element; native plays through the audio session.
+            if (isWeb) mountTrack(track, remoteVideoRef.current ? remoteVideoRef.current : document.body);
           } else if (track.kind === Track.Kind.Video) {
-            mountTrack(track, remoteVideoRef.current);
-            if (!cancelled) setHasRemoteVideo(true);
+            if (isWeb) { mountTrack(track, remoteVideoRef.current); if (!cancelled) setHasRemoteVideo(true); }
           }
         };
         const onLocalPublished = (pub: any) => {
-          if (pub?.track?.kind === Track.Kind.Video) mountTrack(pub.track, localVideoRef.current);
+          if (isWeb && pub?.track?.kind === Track.Kind.Video) mountTrack(pub.track, localVideoRef.current);
         };
         const markConnected = () => {
           if (cancelled) return;
@@ -123,7 +126,7 @@ export default function CallScreen() {
 
         await room.connect(info.url, info.token);
         await room.localParticipant.setMicrophoneEnabled(true);
-        if (isVideoCall) await room.localParticipant.setCameraEnabled(true);
+        if (isVideoCall && isWeb) await room.localParticipant.setCameraEnabled(true);
         if (cancelled) { cleanup(); return; }
         setStatus((room.remoteParticipants?.size ?? 0) > 0 ? "connected" : "ringing");
         markConnected();
@@ -161,7 +164,9 @@ export default function CallScreen() {
     : status === "ended" ? "Call ended"
     : "Couldn't connect";
 
-  const showVideoStage = isVideoCall && status !== "error";
+  // Video tiles render on web; native shows the audio UI for now (native video
+  // preview via <VideoView> is the next step). Audio works on both.
+  const showVideoStage = isVideoCall && status !== "error" && isWeb;
 
   return (
     <SafeAreaView style={styles.root} testID="call-screen">
@@ -217,7 +222,7 @@ export default function CallScreen() {
         </TouchableOpacity>
 
         <View style={styles.ctrlBtn}>
-          {isVideoCall && (status === "connected" || status === "ringing") && (
+          {isVideoCall && isWeb && (status === "connected" || status === "ringing") && (
             <TouchableOpacity onPress={toggleCam} testID="call-camera" activeOpacity={0.85} style={styles.ctrlInner}>
               <View style={[styles.circle, !camOn && styles.circleActive]}>
                 <Ionicons name={camOn ? "videocam" : "videocam-off"} size={26} color="#fff" />
