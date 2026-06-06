@@ -34,7 +34,9 @@ async def foursquare_search(
         "radius": str(radius),
         "limit": str(limit),
         "sort": "DISTANCE",
-        "fields": "fsq_place_id,name,location,categories,distance,latitude,longitude,rating,price,closed_bucket",
+        # Coordinates live under `geocodes` (geocodes.main.{latitude,longitude})
+        # in the current Places API — NOT as top-level latitude/longitude.
+        "fields": "fsq_place_id,name,location,categories,distance,geocodes,rating,price",
     }
     try:
         async with httpx.AsyncClient(timeout=10.0) as http_client:
@@ -42,17 +44,19 @@ async def foursquare_search(
     except httpx.HTTPError:
         return {"configured": True, "results": [], "error": "upstream"}
     if resp.status_code != 200:
-        return {"configured": True, "results": [], "error": "upstream"}
+        return {"configured": True, "results": [], "error": "upstream", "status": resp.status_code}
 
     out = []
     for r in (resp.json() or {}).get("results", []):
         loc = r.get("location") or {}
         cats = r.get("categories") or []
-        rlat = r.get("latitude")
-        rlng = r.get("longitude")
-        if rlat is None or rlng is None:
-            geo = (r.get("geocodes") or {}).get("main") or {}
-            rlat, rlng = geo.get("latitude"), geo.get("longitude")
+        geo = r.get("geocodes") or {}
+        main = geo.get("main") or geo.get("roof") or geo.get("front_door") or {}
+        rlat = main.get("latitude")
+        rlng = main.get("longitude")
+        if rlat is None or rlng is None:  # legacy/alt shape fallback
+            rlat = rlat if rlat is not None else r.get("latitude")
+            rlng = rlng if rlng is not None else r.get("longitude")
         if rlat is None or rlng is None:
             continue
         out.append({
