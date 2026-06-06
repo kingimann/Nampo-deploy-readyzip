@@ -799,7 +799,7 @@ export default function DirectionsScreen() {
               <View style={styles.navIconBox}>
                 <Ionicons
                   name={stepIconFor(currentStep.modifier, currentStep.type)}
-                  size={34}
+                  size={24}
                   color="#fff"
                 />
               </View>
@@ -1202,22 +1202,22 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   navBanner: {
-    flexDirection: "row", alignItems: "center", gap: 16,
-    paddingHorizontal: 18, paddingVertical: 20,
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingHorizontal: 14, paddingVertical: 11,
   },
   navIconBox: {
-    width: 66, height: 66, borderRadius: 20,
+    width: 46, height: 46, borderRadius: 14,
     backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center", justifyContent: "center",
   },
-  navDistBig: { color: "#fff", fontSize: 28, fontWeight: "800", letterSpacing: -0.6 },
-  navInstr: { color: "rgba(255,255,255,0.96)", fontSize: 16, fontWeight: "600", marginTop: 1 },
+  navDistBig: { color: "#fff", fontSize: 21, fontWeight: "800", letterSpacing: -0.5 },
+  navInstr: { color: "rgba(255,255,255,0.96)", fontSize: 13.5, fontWeight: "600", marginTop: 1 },
   thenRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 18, paddingVertical: 13,
+    paddingHorizontal: 14, paddingVertical: 7,
     backgroundColor: "rgba(0,0,0,0.25)",
   },
-  thenText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "600", flex: 1 },
+  thenText: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "600", flex: 1 },
   navProgressTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.22)" },
   navProgressFill: { height: 3, backgroundColor: "#fff" },
   rerouteRow: {
@@ -1233,7 +1233,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(10,10,12,0.97)",
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     borderTopWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 20, paddingTop: 10, gap: 16,
+    paddingHorizontal: 20, paddingTop: 8, gap: 10,
   },
   grabberWrap: { alignSelf: "stretch", alignItems: "center", paddingTop: 12, paddingBottom: 10, gap: 6, marginHorizontal: -20, marginTop: -10 },
   grabber: { width: 48, height: 6, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.7 },
@@ -1301,31 +1301,31 @@ const styles = StyleSheet.create({
   linkDot: { color: theme.textMuted, fontSize: 14 },
 
   // Navigation footer
-  navFooter: { gap: 18, paddingTop: 8 },
+  navFooter: { gap: 12, paddingTop: 6 },
   navStats: {
     flexDirection: "row", alignItems: "center",
-    backgroundColor: theme.surface, borderRadius: 20,
+    backgroundColor: theme.surface, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border,
-    paddingVertical: 22,
+    paddingVertical: 12,
   },
-  navStat: { flex: 1, alignItems: "center", gap: 6 },
-  navStatDivider: { width: 1, height: 38, backgroundColor: theme.border },
-  navStatHero: { color: theme.primary, fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
-  navStatValue: { color: theme.textPrimary, fontSize: 25, fontWeight: "800", letterSpacing: -0.5 },
-  navStatLabel: { color: theme.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
-  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  navStat: { flex: 1, alignItems: "center", gap: 3 },
+  navStatDivider: { width: 1, height: 26, backgroundColor: theme.border },
+  navStatHero: { color: theme.primary, fontSize: 18, fontWeight: "800", letterSpacing: -0.4 },
+  navStatValue: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", letterSpacing: -0.4 },
+  navStatLabel: { color: theme.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.4 },
+  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   iconCircle: {
-    width: 54, height: 54, borderRadius: 27,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   endBtn: {
     flex: 1, flexDirection: "row", gap: 8,
-    height: 54, borderRadius: 27,
+    height: 44, borderRadius: 22,
     backgroundColor: theme.error,
     alignItems: "center", justifyContent: "center",
   },
-  endBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  endBtnText: { color: "#fff", fontSize: 14.5, fontWeight: "800" },
 
   stepsList: {
     backgroundColor: theme.surface,
