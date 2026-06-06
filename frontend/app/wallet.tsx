@@ -239,15 +239,16 @@ export default function WalletScreen() {
   };
 
   const freqLockedUntil = payoutInfo?.frequency_locked_until || null;
-  const changeFrequency = async (f: "biweekly" | "monthly") => {
-    if ((user?.payout_frequency || "monthly") === f) return;
+  const changeFrequency = async (f: "weekly" | "biweekly" | "monthly") => {
+    if ((user?.payout_frequency || "weekly") === f) return;
     if (freqLockedUntil) {
       Alert.alert("Locked for now", `You can change your payout frequency once a month. You can change it again on ${new Date(freqLockedUntil).toLocaleDateString()}.`);
       return;
     }
+    const label = f === "weekly" ? "Weekly" : f === "biweekly" ? "Bi-weekly" : "Monthly";
     const ok = await confirm({
       title: "Change payout frequency?",
-      message: `Set payouts to ${f === "biweekly" ? "Bi-weekly" : "Monthly"}? You can only change this once a month — after this you won't be able to change it again for 30 days.`,
+      message: `Set payouts to ${label}? You can only change this once a month — after this you won't be able to change it again for 30 days.`,
       confirmLabel: "Change",
       cancelLabel: "Keep current",
     });
@@ -476,9 +477,10 @@ export default function WalletScreen() {
 
           <Text style={styles.section}>Payout frequency</Text>
           <View style={styles.freqRow}>
-            {(["biweekly", "monthly"] as const).map((f) => {
-              const on = (user?.payout_frequency || "monthly") === f;
+            {(["weekly", "biweekly", "monthly"] as const).map((f) => {
+              const on = (user?.payout_frequency || "weekly") === f;
               const locked = !!freqLockedUntil && !on;
+              const label = f === "weekly" ? "Weekly" : f === "biweekly" ? "Bi-weekly" : "Monthly";
               return (
                 <TouchableOpacity
                   key={f}
@@ -488,7 +490,7 @@ export default function WalletScreen() {
                   testID={`freq-${f}`}
                 >
                   <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={16} color={on ? theme.primary : theme.textMuted} />
-                  <Text style={[styles.freqText, on && { color: theme.primary }]}>{f === "biweekly" ? "Bi-weekly" : "Monthly"}</Text>
+                  <Text style={[styles.freqText, on && { color: theme.primary }]}>{label}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -593,7 +595,7 @@ export default function WalletScreen() {
                 <Text style={styles.balanceLabel}>available balance</Text>
               </View>
               <View style={{ alignItems: "flex-end" }}>
-                <Text style={styles.balanceMeta}>{payoutInfo?.frequency === "biweekly" ? "Bi-weekly" : "Monthly"}</Text>
+                <Text style={styles.balanceMeta}>{payoutInfo?.frequency === "weekly" ? "Weekly" : payoutInfo?.frequency === "biweekly" ? "Bi-weekly" : "Monthly"}</Text>
                 <Text style={styles.balanceMeta}>next: {fmtDay(payoutInfo?.next_payout)}</Text>
               </View>
             </View>

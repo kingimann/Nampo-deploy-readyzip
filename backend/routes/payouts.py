@@ -29,7 +29,7 @@ STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 
 
 def _interval_days(freq: str) -> int:
-    return 14 if freq == "biweekly" else 30
+    return {"weekly": 7, "biweekly": 14, "monthly": 30}.get(freq, 7)
 
 
 async def _sums(collection, field="amount") -> dict:
@@ -61,7 +61,7 @@ async def process_payouts(only_due: bool = True) -> dict:
             last = await db.payouts.find_one({"user_id": uid}, {"_id": 0}, sort=[("created_at", -1)])
             if last and last.get("created_at"):
                 try:
-                    if (now - _norm_dt(last["created_at"])).days < _interval_days(user.get("payout_frequency", "monthly")):
+                    if (now - _norm_dt(last["created_at"])).days < _interval_days(user.get("payout_frequency", "weekly")):
                         continue
                 except Exception:
                     pass
@@ -80,7 +80,7 @@ async def process_payouts(only_due: bool = True) -> dict:
         await db.payouts.insert_one({
             "id": str(uuid.uuid4()), "user_id": uid, "amount": balance,
             "status": status, "stripe_transfer_id": transfer_id,
-            "frequency": user.get("payout_frequency", "monthly"), "created_at": now,
+            "frequency": user.get("payout_frequency", "weekly"), "created_at": now,
         })
         # Receipt: in-app notification (always) + best-effort email.
         try:
@@ -97,7 +97,7 @@ async def process_payouts(only_due: bool = True) -> dict:
                     user["email"], f"You've been paid ${balance:.2f}",
                     f"Hi {user.get('name', 'there')},\n\n"
                     f"A payout of ${balance:.2f} was sent to {where}.\n"
-                    f"Schedule: {user.get('payout_frequency', 'monthly')}.\n\n"
+                    f"Schedule: {user.get('payout_frequency', 'weekly')}.\n\n"
                     f"Thanks for creating on Nami.",
                 )
         except Exception:
@@ -117,7 +117,7 @@ async def my_payouts(authorization: Optional[str] = Header(None)):
     )
     paid_rows = await db.payouts.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(100)
     paid = sum(float(p.get("amount", 0) or 0) for p in paid_rows)
-    freq = user.get("payout_frequency", "monthly")
+    freq = user.get("payout_frequency", "weekly")
     last = paid_rows[0]["created_at"] if paid_rows else None
     next_due = None
     try:

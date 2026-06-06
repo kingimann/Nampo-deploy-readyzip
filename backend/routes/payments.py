@@ -292,9 +292,9 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
     }
 
 
-# Instant cash-out: floor and flat fee (USD).
-MIN_CASHOUT = 20.0
-CASHOUT_FEE = 2.0
+# Instant cash-out: floor and flat fee (USD) — DoorDash Fast Pay-style.
+MIN_CASHOUT = 5.0
+CASHOUT_FEE = 1.99
 
 
 class CashoutBody(BaseModel):
