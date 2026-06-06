@@ -7,12 +7,13 @@ import React, { useEffect, useRef } from "react";
  * player which doesn't fit a TikTok-style reels UI).
  */
 export default function ReelVideo({
-  uri, active, paused, muted,
+  uri, active, paused, muted, rate = 1,
 }: {
   uri: string;
   active: boolean;
   paused: boolean;
   muted: boolean;
+  rate?: number;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
 
@@ -24,6 +25,7 @@ export default function ReelVideo({
   }, [active, paused, uri]);
 
   useEffect(() => { const v = ref.current; if (v) v.muted = muted; }, [muted]);
+  useEffect(() => { const v = ref.current; if (v) { try { v.playbackRate = rate; } catch {} } }, [rate, active, paused]);
 
   return (
     <video

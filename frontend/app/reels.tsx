@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert, Linking,
+  Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert, Linking, Animated,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,46 +22,85 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const videoUri = mediaUri(video);
   const router = useRouter();
   const [paused, setPaused] = useState(false);
+  const [rate, setRate] = useState(1);          // base playback speed
+  const [fastFwd, setFastFwd] = useState(false); // hold-to-2x
+  const [reactOpen, setReactOpen] = useState(false);
 
   // Resume from paused whenever the reel becomes active again.
-  React.useEffect(() => { if (active) setPaused(false); }, [active]);
+  React.useEffect(() => { if (active) { setPaused(false); setRate(1); setFastFwd(false); } }, [active]);
 
-  const [liked, setLiked] = useState(post.liked_by_me);
-  const [likeCount, setLikeCount] = useState(post.likes_count);
-  const [disliked, setDisliked] = useState(!!post.disliked_by_me);
+  // Unified emoji reactions (replaces like/dislike).
+  const [myReaction, setMyReaction] = useState<string | null>(post.my_reaction ?? null);
+  const [reactionTotal, setReactionTotal] = useState(post.reactions_total ?? post.likes_count ?? 0);
   const [reposted, setReposted] = useState(!!post.reposted_by_me);
   const [repostCount, setRepostCount] = useState(post.reposts_count || 0);
 
-  // Re-sync from props when the FlatList recycles this row for a new reel,
-  // so likes/dislikes never show another post's state.
+  // Animated center indicators (Instagram-style): heart burst + mute flash.
+  const heartBurst = useRef(new Animated.Value(0)).current;
+  const muteFlash = useRef(new Animated.Value(0)).current;
+  const muteIcon = useRef<"volume-mute" | "volume-high">("volume-high");
+
+  // Re-sync from props when the FlatList recycles this row for a new reel.
   React.useEffect(() => {
-    setLiked(post.liked_by_me);
-    setLikeCount(post.likes_count);
-    setDisliked(!!post.disliked_by_me);
+    setMyReaction(post.my_reaction ?? null);
+    setReactionTotal(post.reactions_total ?? post.likes_count ?? 0);
     setReposted(!!post.reposted_by_me);
     setRepostCount(post.reposts_count || 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id]);
 
-  const onLike = async () => {
-    const nowLiked = !liked;
-    setLiked(nowLiked);
-    setLikeCount((n) => n + (nowLiked ? 1 : -1));
-    if (nowLiked && disliked) setDisliked(false);
+  const doReact = async (emoji: string) => {
+    setReactOpen(false);
+    const cur = myReaction;
+    const delta = cur === emoji ? -1 : cur ? 0 : 1;
+    setMyReaction(cur === emoji ? null : emoji);
+    setReactionTotal((n) => Math.max(0, n + delta));
     try {
-      const u = await api.toggleLike(post.id);
-      setLiked(!!u.liked_by_me); setLikeCount(u.likes_count); setDisliked(!!u.disliked_by_me);
+      const u = await api.reactToPost(post.id, emoji);
+      setMyReaction(u.my_reaction ?? null);
+      setReactionTotal(u.reactions_total ?? u.likes_count ?? 0);
     } catch {}
   };
-  const onDislike = async () => {
-    const nowDis = !disliked;
-    setDisliked(nowDis);
-    if (nowDis && liked) { setLiked(false); setLikeCount((n) => n - 1); }
-    try {
-      const u = await api.toggleDislike(post.id);
-      setDisliked(!!u.disliked_by_me); setLiked(!!u.liked_by_me); setLikeCount(u.likes_count);
-    } catch {}
+  const onHeartTap = () => doReact("❤️");
+
+  const flashHeart = () => {
+    heartBurst.setValue(0);
+    Animated.sequence([
+      Animated.spring(heartBurst, { toValue: 1, useNativeDriver: true, friction: 5, tension: 90 }),
+      Animated.timing(heartBurst, { toValue: 0, duration: 350, delay: 250, useNativeDriver: true }),
+    ]).start();
   };
+  const onDoubleTap = () => {
+    if (myReaction !== "❤️") doReact("❤️"); // double-tap always likes, never un-likes
+    flashHeart();
+  };
+
+  // Single tap = pause/play, double tap = like (Instagram).
+  const lastTap = useRef(0);
+  const pendingTap = useRef<any>(null);
+  const handleTap = () => {
+    const now = Date.now();
+    if (now - lastTap.current < 280) {
+      if (pendingTap.current) { clearTimeout(pendingTap.current); pendingTap.current = null; }
+      lastTap.current = 0;
+      onDoubleTap();
+    } else {
+      lastTap.current = now;
+      pendingTap.current = setTimeout(() => { setPaused((p) => !p); pendingTap.current = null; }, 280);
+    }
+  };
+
+  const cycleSpeed = () => {
+    const order = [1, 1.5, 2, 0.5];
+    setRate((r) => order[(order.indexOf(r) + 1) % order.length]);
+  };
+  const handleMute = () => {
+    muteIcon.current = muted ? "volume-high" : "volume-mute"; // new state after toggle
+    onToggleMute();
+    muteFlash.setValue(1);
+    Animated.timing(muteFlash, { toValue: 0, duration: 650, useNativeDriver: true }).start();
+  };
+
   const onRepost = async () => {
     setReposted((v) => !v);
     setRepostCount((n) => n + (reposted ? -1 : 1));
@@ -87,13 +126,42 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   return (
     <View style={{ width: screenW, height: screenH, backgroundColor: "#000" }}>
       {videoUri ? (
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} testID={`reel-tap-${post.id}`}>
-          <ReelVideo uri={videoUri} active={active} paused={paused} muted={muted} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={handleTap}
+          onLongPress={() => setFastFwd(true)}
+          onPressOut={() => setFastFwd(false)}
+          delayLongPress={220}
+          testID={`reel-tap-${post.id}`}
+        >
+          <ReelVideo uri={videoUri} active={active} paused={paused} muted={muted} rate={fastFwd ? 2 : rate} />
           {paused && (
             <View style={styles.centerPlay} pointerEvents="none">
               <Ionicons name="play" size={66} color="rgba(255,255,255,0.92)" />
             </View>
           )}
+          {fastFwd && (
+            <View style={styles.speedPill} pointerEvents="none">
+              <Ionicons name="play-forward" size={14} color="#fff" />
+              <Text style={styles.speedPillText}>2x</Text>
+            </View>
+          )}
+          {/* Double-tap heart burst */}
+          <Animated.View
+            style={[styles.centerPlay, {
+              opacity: heartBurst,
+              transform: [{ scale: heartBurst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.25] }) }],
+            }]}
+            pointerEvents="none"
+          >
+            <Ionicons name="heart" size={110} color="rgba(255,255,255,0.92)" />
+          </Animated.View>
+          {/* Mute/unmute flash */}
+          <Animated.View style={[styles.centerPlay, { opacity: muteFlash }]} pointerEvents="none">
+            <View style={styles.muteFlashCircle}>
+              <Ionicons name={muteIcon.current} size={34} color="#fff" />
+            </View>
+          </Animated.View>
         </Pressable>
       ) : imageUri ? (
         <Image
@@ -119,9 +187,14 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
       <View style={styles.scrim} pointerEvents="none" />
 
       {!!videoUri && (
-        <TouchableOpacity style={styles.muteBtn} onPress={onToggleMute} testID="reel-mute" activeOpacity={0.85}>
-          <Ionicons name={muted ? "volume-mute" : "volume-high"} size={18} color="#fff" />
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity style={styles.muteBtn} onPress={handleMute} testID="reel-mute" activeOpacity={0.85}>
+            <Ionicons name={muted ? "volume-mute" : "volume-high"} size={18} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.speedBtn} onPress={cycleSpeed} testID="reel-speed" activeOpacity={0.85}>
+            <Text style={styles.speedBtnText}>{rate}x</Text>
+          </TouchableOpacity>
+        </>
       )}
 
       <View style={styles.rightCol}>
@@ -130,13 +203,31 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
             <Text style={styles.avatarLetter}>{(post.author.name?.[0] || "?").toUpperCase()}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn} onPress={onLike} testID={`reel-like-${post.id}`}>
-          <Ionicons name={liked ? "heart" : "heart-outline"} size={30} color={liked ? "#EF4444" : "#fff"} />
-          <Text style={styles.metric}>{likeCount}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.iconBtn} onPress={onDislike} testID={`reel-dislike-${post.id}`}>
-          <Ionicons name={disliked ? "thumbs-down" : "thumbs-down-outline"} size={26} color={disliked ? "#3B82F6" : "#fff"} />
-        </TouchableOpacity>
+        <View>
+          {reactOpen && (
+            <View style={styles.reactBar}>
+              {["❤️", "😂", "😮", "😢", "🔥", "👍", "😡"].map((em) => (
+                <TouchableOpacity key={em} onPress={() => doReact(em)} testID={`reel-react-${em}`} style={styles.reactPick}>
+                  <Text style={{ fontSize: 26 }}>{em}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={onHeartTap}
+            onLongPress={() => setReactOpen((o) => !o)}
+            delayLongPress={250}
+            testID={`reel-like-${post.id}`}
+          >
+            {myReaction ? (
+              <Text style={{ fontSize: 28 }}>{myReaction}</Text>
+            ) : (
+              <Ionicons name="heart-outline" size={30} color="#fff" />
+            )}
+            <Text style={styles.metric}>{reactionTotal}</Text>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity style={styles.iconBtn} onPress={onComment}>
           <Ionicons name="chatbubble-outline" size={28} color="#fff" />
           <Text style={styles.metric}>{post.replies_count || 0}</Text>
@@ -409,6 +500,31 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center",
     zIndex: 10,
   },
+  speedBtn: {
+    position: "absolute", right: 16, top: 150,
+    minWidth: 38, height: 32, borderRadius: 16, paddingHorizontal: 8,
+    backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center",
+    zIndex: 10,
+  },
+  speedBtnText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  speedPill: {
+    position: "absolute", top: 70, alignSelf: "center",
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  speedPillText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  muteFlashCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center",
+  },
+  reactBar: {
+    position: "absolute", right: 46, bottom: -6,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(20,20,22,0.92)", borderRadius: 999,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  reactPick: { paddingHorizontal: 2 },
   textBg: { alignItems: "center", justifyContent: "center", backgroundColor: "#0A0A0A" },
   textCard: {
     width: "80%", padding: 28, borderRadius: 20,
