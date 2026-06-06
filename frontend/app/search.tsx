@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, PublicUser, Community, Listing } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -62,7 +63,7 @@ export default function SearchScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="search-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="search-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="search-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <View style={styles.searchWrap}>

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, MoneyRequest, PublicUser, WalletBalance } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { useConfirm } from "@/src/context/ConfirmContext";
@@ -143,7 +144,7 @@ export default function MoneyScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="money-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="money-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="money-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Money</Text>

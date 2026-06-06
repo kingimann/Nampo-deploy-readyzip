@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, AdminAuditEntry } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -44,7 +45,7 @@ export default function AdminAuditScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-audit-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="audit-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="audit-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Admin · Activity log</Text>

@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { backupKey, restoreKey, hasBackup } from "@/src/utils/e2e";
 import { theme } from "@/src/theme";
 
@@ -51,7 +52,7 @@ export default function EncryptionKeyScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="encryption-key-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="enc-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="enc-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Encryption key</Text>

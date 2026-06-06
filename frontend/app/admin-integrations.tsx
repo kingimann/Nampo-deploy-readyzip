@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Integration } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -82,7 +83,7 @@ export default function AdminIntegrationsScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-integrations-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="integrations-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="integrations-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Integrations & SDKs</Text>

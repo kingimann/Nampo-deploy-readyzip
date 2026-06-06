@@ -5,6 +5,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Place, PublicGuide } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
@@ -45,7 +46,7 @@ export default function PublicGuideScreen() {
     return (
       <SafeAreaView edges={["top"]} style={styles.root}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+          <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn}>
             <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
         </View>
@@ -57,7 +58,7 @@ export default function PublicGuideScreen() {
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="public-guide">
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }} />

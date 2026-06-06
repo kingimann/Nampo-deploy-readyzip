@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { api, Story, StoryViewer } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -49,7 +50,7 @@ export default function StoryViewerScreen() {
   const advance = useCallback(() => {
     setIdx((i) => {
       if (i + 1 >= stories.length) {
-        router.back();
+        safeBack();
         return i;
       }
       return i + 1;
@@ -110,7 +111,7 @@ export default function StoryViewerScreen() {
         try {
           await api.deleteStory(current.id);
           setStories((arr) => arr.filter((s) => s.id !== current.id));
-          if (stories.length <= 1) router.back();
+          if (stories.length <= 1) safeBack();
           else setIdx((i) => Math.min(i, stories.length - 2));
         } catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
       }},
@@ -139,7 +140,7 @@ export default function StoryViewerScreen() {
     return (
       <View style={styles.root}>
         <Stack.Screen options={{ headerShown: false }} />
-        <TouchableOpacity style={{ flex: 1, justifyContent: "center", alignItems: "center" }} onPress={() => router.back()}>
+        <TouchableOpacity style={{ flex: 1, justifyContent: "center", alignItems: "center" }} onPress={() => safeBack()}>
           <Text style={{ color: "#fff" }}>No stories. Tap to close.</Text>
         </TouchableOpacity>
       </View>
@@ -204,7 +205,7 @@ export default function StoryViewerScreen() {
               <Ionicons name="trash" size={20} color="#fff" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} testID="close-story">
+          <TouchableOpacity onPress={() => safeBack()} style={styles.headerBtn} testID="close-story">
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
         </View>

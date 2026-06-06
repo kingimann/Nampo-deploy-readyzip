@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import {
@@ -788,7 +789,7 @@ export default function DirectionsScreen() {
                 <Ionicons name="close" size={22} color="#fff" />
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="back-btn" activeOpacity={0.85}>
+              <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="back-btn" activeOpacity={0.85}>
                 <Ionicons name="chevron-back" size={22} color="#fff" />
               </TouchableOpacity>
             )}

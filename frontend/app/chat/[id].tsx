@@ -16,6 +16,7 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Message, Post, PublicUser, CustomEmoji } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
 import EmojiText from "@/src/components/EmojiText";
@@ -702,7 +703,7 @@ export default function ChatScreen() {
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="chat-screen">
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="chat-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="chat-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1, alignItems: "center" }}>

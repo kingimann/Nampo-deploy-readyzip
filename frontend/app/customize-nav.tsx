@@ -5,6 +5,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { useNavBar, NAV_CATALOG, NavShortcut } from "@/src/context/NavBarContext";
 import { theme } from "@/src/theme";
 
@@ -19,7 +20,7 @@ export default function CustomizeNavScreen() {
     <SafeAreaView edges={["top"]} style={styles.root}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="customize-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="customize-back">
           <Ionicons name="chevron-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Customize your shortcut bar</Text>

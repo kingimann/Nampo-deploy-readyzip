@@ -6,6 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
@@ -52,7 +53,7 @@ export default function PayScanScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="pay-scan-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="scan-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="scan-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Scan to pay</Text>

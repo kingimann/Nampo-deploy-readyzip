@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, AdRevenue } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -33,7 +34,7 @@ export default function AdminRevenueScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-revenue-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="admin-rev-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn} testID="admin-rev-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Ad revenue</Text>

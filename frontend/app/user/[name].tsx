@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Post, PublicUser, FriendStatus, SubTier } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -59,7 +60,7 @@ export default function UserProfileScreen() {
   const [pokeMsg, setPokeMsg] = useState(false);
 
   const goBack = () => {
-    if (router.canGoBack()) router.back();
+    if (router.canGoBack()) safeBack();
     else router.replace("/feed");
   };
 

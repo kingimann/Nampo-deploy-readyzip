@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -61,7 +62,7 @@ export default function PrivacyScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="privacy-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="privacy-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn} testID="privacy-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Privacy</Text>

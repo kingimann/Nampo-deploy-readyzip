@@ -7,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -309,7 +310,7 @@ export default function WalletScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="wallet-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)/profile"); }} style={styles.iconBtn} testID="wallet-back">
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) safeBack(); else router.replace("/(tabs)/profile"); }} style={styles.iconBtn} testID="wallet-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Wallet</Text>

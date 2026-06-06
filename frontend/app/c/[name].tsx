@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Community, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -84,7 +85,7 @@ export default function CommunityScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="community-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="community-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="community-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{community ? `/${community.name}` : "Community"}</Text>

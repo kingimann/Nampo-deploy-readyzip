@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -58,7 +59,7 @@ export default function HashtagScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="hashtag-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>#{cleanTag}</Text>

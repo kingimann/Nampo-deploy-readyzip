@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import QrCode from "@/src/components/QrCode";
@@ -42,7 +43,7 @@ export default function PayQRScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="pay-qr-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="qr-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="qr-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>My pay code</Text>

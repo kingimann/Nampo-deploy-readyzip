@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import * as ImagePicker from "expo-image-picker";
 import { api, Group, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -182,7 +183,7 @@ export default function GroupDetailScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.center}>
           <Text style={{ color: theme.textMuted }}>Group not found.</Text>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backLink}>
+          <TouchableOpacity onPress={() => safeBack()} style={styles.backLink}>
             <Text style={{ color: theme.primary, fontWeight: "700" }}>Go back</Text>
           </TouchableOpacity>
         </View>
@@ -196,7 +197,7 @@ export default function GroupDetailScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="group-detail-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="group-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn} testID="group-back">
           <Ionicons name="chevron-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>

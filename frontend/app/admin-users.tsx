@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, AdminUser, AdminTxn, Badge } from "@/src/api/client";
 import UserBadges from "@/src/components/UserBadges";
 import { useAuth } from "@/src/context/AuthContext";
@@ -208,7 +209,7 @@ export default function AdminUsersScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-users-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="admin-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="admin-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Admin · Users</Text>

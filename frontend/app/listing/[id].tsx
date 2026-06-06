@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import * as Clipboard from "expo-clipboard";
 import { api, Listing } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -95,14 +96,14 @@ export default function ListingDetailScreen() {
   const remove = async () => {
     if (!listing) return;
     if (!(await confirm({ title: "Delete listing?", message: "This cannot be undone.", confirmLabel: "Delete", destructive: true }))) return;
-    try { await api.deleteListing(listing.id); router.back(); } catch {}
+    try { await api.deleteListing(listing.id); safeBack(); } catch {}
   };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="listing-detail-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="listing-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="listing-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{listing?.title || "Listing"}</Text>

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import * as ImagePicker from "expo-image-picker";
 import { api, Post, AdCampaign, AdAccount, LinkAd, ReelAd, mediaUri } from "@/src/api/client";
 import { stripeCardPay } from "@/src/lib/stripeEmbed";
@@ -249,7 +250,7 @@ export default function AdvertiseScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="advertise-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="advertise-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="advertise-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Advertise</Text>

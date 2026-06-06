@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-nati
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { theme } from "@/src/theme";
 
 const EFFECTIVE = "June 5, 2026";
@@ -45,7 +46,7 @@ export default function LegalScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="legal-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="legal-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn} testID="legal-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>{title}</Text>

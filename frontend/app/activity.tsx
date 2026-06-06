@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, ActivityItem } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -43,7 +44,7 @@ export default function ActivityScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="activity-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/wallet"); }} style={styles.iconBtn} testID="activity-back">
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) safeBack(); else router.replace("/wallet"); }} style={styles.iconBtn} testID="activity-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>All activity</Text>

@@ -6,6 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, PublisherSite } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -59,7 +60,7 @@ export default function MonetizeScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="monetize-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="monetize-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="monetize-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Monetize your site</Text>

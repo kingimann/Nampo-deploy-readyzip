@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, PublicUser } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -42,7 +43,7 @@ export default function PayScreen() {
     try {
       await api.sendMoney({ to_user_id: target.user_id, amount: amt, note, answer });
       setMsg({ ok: true, text: `Sent $${amt.toFixed(2)} to ${target.name}. They'll get a notification to accept it.` });
-      setTimeout(() => { if (router.canGoBack()) router.back(); else router.replace("/money"); }, 1400);
+      setTimeout(() => { if (router.canGoBack()) safeBack(); else router.replace("/money"); }, 1400);
     } catch (e: any) {
       setMsg({ ok: false, text: String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Payment failed." });
     } finally { setBusy(false); }
@@ -52,7 +53,7 @@ export default function PayScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="pay-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/money"); }} style={styles.iconBtn} testID="pay-back">
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) safeBack(); else router.replace("/money"); }} style={styles.iconBtn} testID="pay-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Pay</Text>

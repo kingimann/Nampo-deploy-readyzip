@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -56,7 +57,7 @@ export default function SettingsScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="settings-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} testID="settings-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn} testID="settings-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Settings</Text>

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
@@ -428,7 +429,7 @@ export default function ReelsScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top + 4 }]}>
         <SidebarMenuButton light />
         <Text style={styles.title}>Reels</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn}>
           <Ionicons name="close" size={22} color="#fff" />
         </TouchableOpacity>
       </View>

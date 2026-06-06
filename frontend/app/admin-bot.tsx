@@ -6,6 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, BotPost, BotResult } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -54,7 +55,7 @@ export default function AdminBotScreen() {
       <SafeAreaView edges={["top"]} style={styles.root}>
         <Stack.Screen options={{ headerShown: false }} />
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}><Ionicons name="chevron-back" size={24} color={theme.textPrimary} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn}><Ionicons name="chevron-back" size={24} color={theme.textPrimary} /></TouchableOpacity>
           <Text style={styles.title}>Test Bot</Text><View style={{ width: 40 }} />
         </View>
         <View style={styles.center}><Text style={styles.empty}>Admins only.</Text></View>
@@ -66,7 +67,7 @@ export default function AdminBotScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-bot-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="bot-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="bot-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Test Bot</Text>

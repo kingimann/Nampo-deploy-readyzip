@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api } from "@/src/api/client";
 import { mountDebitCardField } from "@/src/lib/stripeEmbed";
 import { theme } from "@/src/theme";
@@ -67,7 +68,7 @@ export default function AddCardScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="add-card-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/wallet"); }} style={styles.iconBtn} testID="add-card-back">
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) safeBack(); else router.replace("/wallet"); }} style={styles.iconBtn} testID="add-card-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Debit card</Text>

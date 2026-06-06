@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api, Badge } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { useConfirm } from "@/src/context/ConfirmContext";
@@ -50,7 +51,7 @@ export default function AdminBadgesScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-badges-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} testID="badges-back">
+        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="badges-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Custom badges</Text>

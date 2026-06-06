@@ -5,6 +5,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import * as ImagePicker from "expo-image-picker";
 import { api } from "@/src/api/client";
 import { theme } from "@/src/theme";
@@ -130,7 +131,7 @@ export default function VerifyPayoutsScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="verify-payouts-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/wallet"); }} style={styles.iconBtn} testID="verify-back">
+        <TouchableOpacity onPress={() => { if (router.canGoBack()) safeBack(); else router.replace("/wallet"); }} style={styles.iconBtn} testID="verify-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Verify your identity</Text>

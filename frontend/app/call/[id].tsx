@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform }
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { safeBack } from "@/src/utils/nav";
 import { api } from "@/src/api/client";
 import { setupNativeAudio, teardownNativeAudio } from "@/src/utils/livekitNative";
 import VideoTile from "@/src/components/call/VideoTile";
@@ -53,7 +54,7 @@ export default function CallScreen() {
   const hangUp = useCallback(() => {
     cleanup();
     setStatus("ended");
-    router.back();
+    safeBack();
   }, [cleanup, router]);
 
   // Mount a LiveKit media track into a DOM container (web only).
