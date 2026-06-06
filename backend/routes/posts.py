@@ -928,6 +928,48 @@ async def trending_hashtags(authorization: Optional[str] = Header(None)):
     return {"hashtags": [{"tag": t, "count": n} for t, n in top]}
 
 
+def _engagement_score(d: dict) -> float:
+    return (
+        (d.get("likes_count", 0) or 0)
+        + 2.0 * (d.get("reposts_count", 0) or 0)
+        + 1.5 * (d.get("replies_count", 0) or 0)
+        + 0.1 * (d.get("views_count", 0) or 0)
+    )
+
+
+@router.get("/posts/popular", response_model=List[Post])
+async def popular_posts(limit: int = Query(8, ge=1, le=20), authorization: Optional[str] = Header(None)):
+    """Top recent non-video posts by engagement (for discovery)."""
+    user = await get_current_user(authorization)
+    since = datetime.now(timezone.utc) - timedelta(days=21)
+    docs = await db.posts.find(
+        {"parent_id": None, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]},
+         "created_at": {"$gte": since}},
+        {"_id": 0},
+    ).sort("likes_count", -1).limit(120).to_list(120)
+    skip = await _not_interested_ids(user["user_id"])
+    docs = [d for d in docs
+            if d.get("id") not in skip and not d.get("repost_of")
+            and not any(m.get("type") == "video" for m in (d.get("media") or []))]
+    docs.sort(key=_engagement_score, reverse=True)
+    return [await _hydrate_post(d, user["user_id"]) for d in docs[:limit]]
+
+
+@router.get("/reels/popular", response_model=List[Post])
+async def popular_reels(limit: int = Query(8, ge=1, le=20), authorization: Optional[str] = Header(None)):
+    """Top recent video reels by engagement (for discovery)."""
+    user = await get_current_user(authorization)
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    docs = await db.posts.find(
+        {"parent_id": None, "media": {"$elemMatch": {"type": "video"}}, "created_at": {"$gte": since}},
+        {"_id": 0},
+    ).sort("likes_count", -1).limit(120).to_list(120)
+    skip = await _not_interested_ids(user["user_id"])
+    out = [d for d in docs if d.get("id") not in skip and _has_playable_video(d)]
+    out.sort(key=_engagement_score, reverse=True)
+    return [await _hydrate_post(d, user["user_id"]) for d in out[:limit]]
+
+
 @router.get("/hashtags/{tag}", response_model=List[Post])
 async def posts_for_hashtag(tag: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)

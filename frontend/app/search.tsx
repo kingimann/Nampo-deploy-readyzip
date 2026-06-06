@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, ActivityIndicator, Platform,
+  View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, ActivityIndicator, Platform, ScrollView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, PublicUser, Community, Listing } from "@/src/api/client";
+import { api, PublicUser, Community, Listing, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
@@ -20,10 +20,16 @@ export default function SearchScreen() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(false);
   const [trending, setTrending] = useState<{ tag: string; count: number }[]>([]);
+  const [popReels, setPopReels] = useState<Post[]>([]);
+  const [popPosts, setPopPosts] = useState<Post[]>([]);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => { const t = setTimeout(() => inputRef.current?.focus(), 250); return () => clearTimeout(t); }, []);
-  useEffect(() => { api.trendingHashtags().then((r) => setTrending(r.hashtags)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.trendingHashtags().then((r) => setTrending(r.hashtags)).catch(() => {});
+    api.popularReels().then(setPopReels).catch(() => {});
+    api.popularPosts().then(setPopPosts).catch(() => {});
+  }, []);
 
   const run = useCallback(async (term: string) => {
     const s = term.trim();
@@ -90,7 +96,11 @@ export default function SearchScreen() {
       {loading && !hasResults ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : !q.trim() ? (
-        <View style={{ flex: 1 }}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
+          keyboardShouldPersistTaps="handled"
+        >
           {trending.length > 0 && (
             <>
               <Text style={styles.section}>Popular hashtags</Text>
@@ -109,8 +119,75 @@ export default function SearchScreen() {
               </View>
             </>
           )}
+
+          {popReels.length > 0 && (
+            <>
+              <Text style={styles.section}>Popular reels</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.reelStrip}
+                keyboardShouldPersistTaps="handled"
+              >
+                {popReels.map((p) => {
+                  const src = p.reposted_post || p;
+                  const vid = (src.media || []).find((m) => m.type === "video");
+                  const thumb = vid?.thumbnail || mediaUri(vid);
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.reelCard}
+                      onPress={() => router.push({ pathname: "/reels", params: { focus: p.id } })}
+                      testID={`pop-reel-${p.id}`}
+                    >
+                      {thumb ? (
+                        <Image source={{ uri: thumb }} style={styles.reelThumb} />
+                      ) : (
+                        <View style={[styles.reelThumb, styles.reelThumbFallback]}>
+                          <Ionicons name="play" size={22} color="#fff" />
+                        </View>
+                      )}
+                      <View style={styles.reelOverlay}>
+                        <Ionicons name="heart" size={11} color="#fff" />
+                        <Text style={styles.reelStat}>{src.likes_count || 0}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </>
+          )}
+
+          {popPosts.length > 0 && (
+            <>
+              <Text style={styles.section}>Popular posts</Text>
+              {popPosts.map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={styles.row}
+                  onPress={() => router.push({ pathname: "/post/[id]", params: { id: p.id } })}
+                  testID={`pop-post-${p.id}`}
+                >
+                  <View style={styles.avatar}>
+                    {p.author?.picture ? (
+                      <Image source={{ uri: p.author.picture }} style={styles.avatarImg} />
+                    ) : (
+                      <Text style={styles.avatarInit}>{(p.author?.name?.[0] || "?").toUpperCase()}</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.name} numberOfLines={1}>{p.author?.name}</Text>
+                    <Text style={styles.sub} numberOfLines={2}>{p.text || "View post"}</Text>
+                    <Text style={styles.postMeta}>♥ {p.likes_count || 0} · {p.replies_count || 0} replies</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+
           <View style={styles.center}><Text style={styles.hint}>Search across the whole site — people, communities, marketplace and hashtags.</Text></View>
-        </View>
+        </ScrollView>
       ) : (
         <FlatList
           data={rows}
@@ -175,4 +252,11 @@ const styles = StyleSheet.create({
   avatarInit: { color: "#fff", fontSize: 16, fontWeight: "700" },
   name: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
   sub: { color: theme.textMuted, fontSize: 12.5, marginTop: 1 },
+  postMeta: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700", marginTop: 3 },
+  reelStrip: { paddingHorizontal: 16, paddingTop: 4, gap: 10 },
+  reelCard: { width: 104, height: 156, borderRadius: 12, overflow: "hidden", backgroundColor: theme.surfaceAlt },
+  reelThumb: { width: "100%", height: "100%" },
+  reelThumbFallback: { alignItems: "center", justifyContent: "center", backgroundColor: theme.surface },
+  reelOverlay: { position: "absolute", left: 6, bottom: 6, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 999, paddingHorizontal: 7, paddingVertical: 3 },
+  reelStat: { color: "#fff", fontSize: 11, fontWeight: "800" },
 });

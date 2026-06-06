@@ -529,6 +529,8 @@ export const api = {
       method: "POST", body: JSON.stringify({ option_id }),
     }),
   trendingHashtags: () => request<{ hashtags: { tag: string; count: number }[] }>("/hashtags/trending"),
+  popularPosts: () => request<Post[]>("/posts/popular"),
+  popularReels: () => request<Post[]>("/reels/popular"),
   hashtagPosts: (tag: string) =>
     request<Post[]>(`/hashtags/${encodeURIComponent(tag.replace(/^#/, ""))}`),
   hashtagCount: (tag: string) =>
