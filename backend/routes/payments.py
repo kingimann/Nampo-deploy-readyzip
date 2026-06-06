@@ -556,6 +556,17 @@ async def stripe_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
     # An abandoned/expired Checkout — mark a pending wallet top-up as failed.
+    # Inline (Elements) card top-up succeeded — credit it (idempotent backup to
+    # the client-side confirm-intent call).
+    if event.get("type") == "payment_intent.succeeded":
+        obj = event.get("data", {}).get("object", {}) or {}
+        meta = obj.get("metadata", {}) or {}
+        if meta.get("kind") == "wallet_topup" and meta.get("buyer_id") and obj.get("id"):
+            amt = round(float(meta.get("amount") or 0), 2)
+            from routes.money import _apply_wallet_topup
+            await _apply_wallet_topup(meta["buyer_id"], amt, "stripe", obj["id"])
+        return {"ok": True}
+
     if event.get("type") == "checkout.session.expired":
         obj = event.get("data", {}).get("object", {}) or {}
         if (obj.get("metadata") or {}).get("kind") == "wallet_topup" and obj.get("id"):

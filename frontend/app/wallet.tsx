@@ -10,7 +10,7 @@ import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-rou
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeOnboarding, stripeTopup } from "@/src/lib/stripeEmbed";
+import { stripeOnboarding, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
@@ -224,7 +224,8 @@ export default function WalletScreen() {
     if (amt <= 0) { Alert.alert("Enter an amount", "How much would you like to add?"); return; }
     setToppingUp(true);
     try {
-      const credited = await stripeTopup(amt);
+      // Inline card field on web when live; falls back to embedded/hosted checkout.
+      const credited = payEnabled ? await stripeCardTopup(amt) : await stripeTopup(amt);
       setTopupOpen(false); setTopupAmt("");
       await load();   // refresh balance + show the new top-up (processing/completed)
       void credited;

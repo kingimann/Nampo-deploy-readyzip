@@ -433,6 +433,10 @@ export const api = {
       "/wallet/topup/confirm", { method: "POST", body: JSON.stringify({ session_id }) }),
   payFromWallet: (body: { kind: "tip" | "subscription"; creator_id: string; amount?: number; tier?: string; note?: string; conversation_id?: string }) =>
     request<{ ok: boolean; amount: number; balance: number }>("/payments/pay-wallet", { method: "POST", body: JSON.stringify(body) }),
+  createTopupIntent: (amount: number) =>
+    request<{ client_secret: string; publishable_key: string; intent_id: string }>("/wallet/topup/intent", { method: "POST", body: JSON.stringify({ amount }) }),
+  confirmTopupIntent: (intent_id: string) =>
+    request<{ ok: boolean; paid?: boolean; credited?: boolean; status?: string; balance: number }>("/wallet/topup/confirm-intent", { method: "POST", body: JSON.stringify({ intent_id }) }),
   syncTopups: () =>
     request<{ credited: number; count: number; balance: number; display: number; symbol: string; currency: string }>(
       "/wallet/topup/sync", { method: "POST" }),

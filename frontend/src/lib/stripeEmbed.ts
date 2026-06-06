@@ -124,6 +124,75 @@ export async function stripeTopup(amount: number): Promise<boolean> {
 }
 
 /**
+ * Inline card top-up (Stripe Elements) — renders a compact card field right on
+ * the site (number / expiry / CVC), like the old test sheet, instead of the
+ * full embedded Checkout. Returns true if the wallet was credited. Falls back to
+ * the embedded/hosted top-up on native or any failure.
+ */
+export async function stripeCardTopup(amount: number): Promise<boolean> {
+  if (!isWeb || !PK) return stripeTopup(amount);
+  let res: any;
+  try { res = await api.createTopupIntent(amount); } catch { return stripeTopup(amount); }
+  const cs = res?.client_secret;
+  if (!cs) return stripeTopup(amount);
+  try {
+    await loadScript("https://js.stripe.com/v3/");
+    const Stripe = (window as any).Stripe;
+    if (!Stripe) return stripeTopup(amount);
+    const stripe = Stripe(res.publishable_key || PK);
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: { base: { fontSize: "16px", color: "#0b141a", "::placeholder": { color: "#9aa5a1" } } },
+    });
+
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (v: boolean) => { if (settled) return; settled = true; resolve(v); };
+      const { container, close } = makeOverlay(() => finish(false));
+
+      const title = document.createElement("div");
+      title.textContent = `Add $${amount.toFixed(2)} to your wallet`;
+      title.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin:4px 2px 12px;";
+      const cardBox = document.createElement("div");
+      cardBox.style.cssText = "border:1px solid #d6dcd9;border-radius:12px;padding:14px 12px;background:#fff;";
+      const err = document.createElement("div");
+      err.style.cssText = "color:#dc2626;font-size:13px;font-weight:600;margin:8px 2px 0;min-height:16px;";
+      const pay = document.createElement("button");
+      pay.textContent = `Pay $${amount.toFixed(2)}`;
+      pay.style.cssText = "width:100%;margin-top:14px;padding:14px;border:0;border-radius:12px;background:#00A884;color:#fff;font-size:15px;font-weight:800;cursor:pointer;";
+      const hint = document.createElement("div");
+      hint.textContent = "🔒 Your card is processed securely by Stripe.";
+      hint.style.cssText = "color:#7a8a85;font-size:11.5px;text-align:center;margin-top:10px;";
+
+      container.appendChild(title);
+      container.appendChild(cardBox);
+      container.appendChild(err);
+      container.appendChild(pay);
+      container.appendChild(hint);
+      card.mount(cardBox);
+
+      pay.onclick = async () => {
+        pay.disabled = true; pay.textContent = "Processing…"; err.textContent = "";
+        try {
+          const { error, paymentIntent } = await stripe.confirmCardPayment(cs, { payment_method: { card } });
+          if (error) { err.textContent = error.message || "Payment failed."; pay.disabled = false; pay.textContent = `Pay $${amount.toFixed(2)}`; return; }
+          if (paymentIntent && paymentIntent.status === "succeeded") {
+            try { await api.confirmTopupIntent(res.intent_id); } catch {}
+            finish(true); close();
+          } else {
+            err.textContent = "Payment didn't complete."; pay.disabled = false; pay.textContent = `Pay $${amount.toFixed(2)}`;
+          }
+        } catch (e: any) {
+          err.textContent = String(e?.message || e) || "Something went wrong."; pay.disabled = false; pay.textContent = `Pay $${amount.toFixed(2)}`;
+        }
+      };
+    });
+  } catch {
+    return stripeTopup(amount);
+  }
+}
+
+/**
  * Run payout (Connect) onboarding. The returned promise resolves when the user
  * finishes or closes the flow, so the caller can re-check payout status. On
  * native (or without a publishable key) it opens the hosted onboarding link.

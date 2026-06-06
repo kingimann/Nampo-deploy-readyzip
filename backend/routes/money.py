@@ -726,6 +726,63 @@ async def wallet_topup_sync(authorization: Optional[str] = Header(None)):
     return out
 
 
+class TopupIntent(BaseModel):
+    amount: float
+
+
+@router.post("/wallet/topup/intent")
+async def wallet_topup_intent(body: TopupIntent, authorization: Optional[str] = Header(None)):
+    """Create a PaymentIntent for an inline (Stripe Elements) card top-up."""
+    me = await get_current_user(authorization)
+    amount = round(float(body.amount or 0), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    if amount > 10000:
+        raise HTTPException(status_code=400, detail="Maximum top-up is $10,000")
+    from routes.payments import payments_live, stripe, STRIPE_PUBLISHABLE_KEY
+    if not await payments_live():
+        raise HTTPException(status_code=400, detail={"code": "not_live", "message": "Card payments aren't enabled right now."})
+    pi = stripe.PaymentIntent.create(
+        amount=int(round(amount * 100)), currency="usd",
+        payment_method_types=["card"],
+        metadata={"kind": "wallet_topup", "buyer_id": me["user_id"], "amount": str(amount)},
+    )
+    await db.wallet_topups.insert_one({
+        "id": str(uuid.uuid4()), "user_id": me["user_id"], "amount": amount,
+        "source": "stripe", "session_id": pi["id"], "status": "processing",
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {"client_secret": pi["client_secret"], "publishable_key": STRIPE_PUBLISHABLE_KEY, "intent_id": pi["id"]}
+
+
+class IntentConfirm(BaseModel):
+    intent_id: str
+
+
+@router.post("/wallet/topup/confirm-intent")
+async def wallet_topup_confirm_intent(body: IntentConfirm, authorization: Optional[str] = Header(None)):
+    """Credit a top-up after the inline card payment succeeds (idempotent)."""
+    me = await get_current_user(authorization)
+    from routes.payments import stripe, stripe_enabled
+    if not stripe_enabled() or not body.intent_id:
+        raise HTTPException(status_code=400, detail="Nothing to confirm")
+    try:
+        pi = stripe.PaymentIntent.retrieve(body.intent_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    if (pi.get("metadata") or {}).get("buyer_id") != me["user_id"]:
+        raise HTTPException(status_code=403, detail="This payment isn't yours")
+    paid = pi.get("status") == "succeeded"
+    amt = round(float((pi.get("metadata") or {}).get("amount") or 0), 2)
+    credited = False
+    if paid:
+        credited = await _apply_wallet_topup(me["user_id"], amt, "stripe", pi["id"])
+    usd = await _wallet_balance(me["user_id"])
+    out = _currency_view(me.get("currency"), usd)
+    out.update({"ok": paid, "paid": paid, "credited": credited, "status": pi.get("status")})
+    return out
+
+
 class TopupConfirm(BaseModel):
     session_id: str
 
