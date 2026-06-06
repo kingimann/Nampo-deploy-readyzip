@@ -11,6 +11,7 @@ import { theme } from "@/src/theme";
 import { storage } from "@/src/utils/storage";
 
 const HIDE_STORIES_KEY = "hide_stories"; // keep in sync with the feed screen
+const CHAT_FAB_SIDE_KEY = "chat_fab_side"; // keep in sync with ChatFab
 
 const POLICIES = [
   { k: "everyone", label: "Everyone", icon: "earth-outline" },
@@ -35,6 +36,14 @@ export default function PrivacyScreen() {
   const toggleStories = async () => {
     const next = !showStories; setShowStories(next);
     await storage.setItem(HIDE_STORIES_KEY, !next); // stored value is "hidden"
+  };
+  const [chatSide, setChatSide] = useState<"left" | "right">("right");
+  React.useEffect(() => {
+    storage.getItem(CHAT_FAB_SIDE_KEY, "right").then((v) => setChatSide(v === "left" ? "left" : "right"));
+  }, []);
+  const pickChatSide = async (s: "left" | "right") => {
+    setChatSide(s);
+    await storage.setItem(CHAT_FAB_SIDE_KEY, s);
   };
 
   const savePolicy = async (k: string) => {
@@ -113,6 +122,27 @@ export default function PrivacyScreen() {
           </TouchableOpacity>
         </View>
 
+        <Text style={styles.section}>Chat button</Text>
+        <Text style={styles.note}>The floating chat button on your feed. (Tip: long-press it to move sides too.)</Text>
+        <View style={styles.card}>
+          <View style={styles.optRow}>
+            <Ionicons name="chatbubbles-outline" size={18} color={theme.textMuted} />
+            <Text style={styles.optLabel}>Position</Text>
+            <View style={styles.segRow}>
+              {(["left", "right"] as const).map((s) => (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.seg, chatSide === s && styles.segOn]}
+                  onPress={() => pickChatSide(s)}
+                  testID={`chat-side-${s}`}
+                >
+                  <Text style={[styles.segText, chatSide === s && { color: "#fff" }]}>{s === "left" ? "Left" : "Right"}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+
         <Text style={styles.section}>Messages</Text>
         <View style={styles.card}>
           <TouchableOpacity style={styles.optRow} onPress={() => router.push("/encryption-key")} testID="privacy-encryption">
@@ -148,5 +178,9 @@ const styles = StyleSheet.create({
   switchOn: { backgroundColor: theme.primary, borderColor: theme.primary },
   knob: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff" },
   knobOn: { alignSelf: "flex-end" },
+  segRow: { flexDirection: "row", gap: 4, backgroundColor: theme.surfaceAlt, borderRadius: 10, padding: 3, borderWidth: 1, borderColor: theme.border },
+  seg: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8 },
+  segOn: { backgroundColor: theme.primary },
+  segText: { color: theme.textSecondary, fontSize: 13, fontWeight: "700" },
   footer: { color: theme.textMuted, fontSize: 12, lineHeight: 18, marginTop: 18, textAlign: "center" },
 });

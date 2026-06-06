@@ -18,6 +18,7 @@ import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 import ConfirmModal from "@/src/components/ConfirmModal";
+import ChatFab from "@/src/components/ChatFab";
 import { storage } from "@/src/utils/storage";
 
 export const HIDE_STORIES_KEY = "hide_stories";
@@ -337,6 +338,9 @@ export default function FeedScreen() {
       >
         <Ionicons name="create" size={22} color="#fff" />
       </TouchableOpacity>
+
+      {/* Floating chat button — tap opens Chat, long-press moves it left/right. */}
+      <ChatFab />
 
       <PostComposer
         visible={composeOpen}
