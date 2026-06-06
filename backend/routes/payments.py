@@ -168,18 +168,43 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
     eventually = [r for r in (reqs.get("eventually_due", []) or []) if r not in due]
     # Whether a payout method (bank/debit card) is on file at all.
     has_external = bool((acct.get("external_accounts", {}) or {}).get("total_count", 0))
+    caps = acct.get("capabilities", {}) or {}
+    payouts_enabled = bool(acct.get("payouts_enabled"))
+
+    # When payouts aren't on and nothing is "due", the blocker is usually upstream:
+    # the transfers capability is still being activated, or the PLATFORM Stripe
+    # account itself isn't fully set up (which blocks payouts for everyone).
+    platform = None
+    if not payouts_enabled:
+        try:
+            p = stripe.Account.retrieve()   # the platform account (API key owner)
+            preq = (p.get("requirements") or {})
+            pdue = list(preq.get("currently_due", []) or []) + list(preq.get("past_due", []) or [])
+            platform = {
+                "charges_enabled": bool(p.get("charges_enabled")),
+                "payouts_enabled": bool(p.get("payouts_enabled")),
+                "details_submitted": bool(p.get("details_submitted")),
+                "requirements_due": pdue,
+                "disabled_reason": preq.get("disabled_reason"),
+            }
+        except Exception:
+            platform = None
+
     return {
         "enabled": True,
         "connected": True,
-        "payouts_enabled": bool(acct.get("payouts_enabled")),
+        "payouts_enabled": payouts_enabled,
         "charges_enabled": bool(acct.get("charges_enabled")),
         "details_submitted": bool(acct.get("details_submitted")),
         "has_external_account": has_external,
+        "country": acct.get("country"),
+        "capabilities": {"transfers": caps.get("transfers"), "card_payments": caps.get("card_payments")},
         # What Stripe still needs (so the UI can explain why setup won't finish).
         "requirements_due": due,
         "requirements_eventually": eventually,
         "requirements_pending": pending,
         "disabled_reason": reqs.get("disabled_reason"),
+        "platform": platform,
     }
 
 

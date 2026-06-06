@@ -370,10 +370,16 @@ export default function WalletScreen() {
             const eventually = payout?.requirements_eventually || [];
             const pending = payout?.requirements_pending || [];
             const needsBank = verifying && (!payout?.has_external_account || [...due, ...eventually].some((r) => r.includes("external_account")));
+            const transfers = payout?.capabilities?.transfers;          // active | pending | inactive
+            const plat = payout?.platform;
+            const platformNotReady = !!plat && (!plat.charges_enabled || (plat.requirements_due?.length ?? 0) > 0);
             // The single most useful reason it isn't finishing yet.
             let reasonLine = "";
             if (due.length) reasonLine = "Stripe still needs: " + due.slice(0, 4).map(prettyReq).join(", ") + ".";
             else if (eventually.length) reasonLine = "To turn on payouts, add: " + eventually.slice(0, 4).map(prettyReq).join(", ") + ".";
+            else if (platformNotReady) reasonLine = "Your Nami Stripe (platform) account isn't fully activated yet. Finish business verification in your Stripe Dashboard — until then payouts stay off for every creator.";
+            else if (transfers === "pending") reasonLine = "Stripe is still activating the transfers capability on your account — this is a review on Stripe's side and usually clears within a day.";
+            else if (transfers === "inactive") reasonLine = "Stripe hasn't activated transfers on your account. Tap Update details to finish, or check your Stripe Dashboard.";
             else if (payout?.disabled_reason) reasonLine = disabledReasonLabel(payout.disabled_reason);
             else if (pending.length) reasonLine = "Stripe is verifying your information — this can take a few minutes to a day.";
             const dotColor = payout?.payouts_enabled ? "#22C55E" : verifying ? "#F59E0B" : theme.textMuted;
@@ -402,8 +408,10 @@ export default function WalletScreen() {
               {!payout?.payouts_enabled && reasonLine ? (
                 <Text style={styles.reqText}>{reasonLine}</Text>
               ) : null}
-              {!payout?.payouts_enabled && payout?.disabled_reason ? (
-                <Text style={styles.reasonCode}>Stripe status: {payout.disabled_reason}</Text>
+              {!payout?.payouts_enabled && (payout?.disabled_reason || transfers) ? (
+                <Text style={styles.reasonCode}>
+                  Stripe status: {payout?.disabled_reason || "—"}{transfers ? ` · transfers: ${transfers}` : ""}{platformNotReady ? " · platform: setup needed" : ""}
+                </Text>
               ) : null}
               <TouchableOpacity style={styles.payoutBtn} onPress={setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
                 {connecting ? <ActivityIndicator color="#fff" size="small" /> : (
