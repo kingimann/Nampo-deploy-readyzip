@@ -166,6 +166,9 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
         patch["default_comment_policy"] = body.default_comment_policy
     if body.default_likes_disabled is not None:
         patch["default_likes_disabled"] = bool(body.default_likes_disabled)
+    if body.currency is not None:
+        from core import normalize_currency
+        patch["currency"] = normalize_currency(body.currency)
     if patch:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": patch})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})

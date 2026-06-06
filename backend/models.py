@@ -28,6 +28,8 @@ class User(BaseModel):
     payout_frequency: str = "monthly"  # biweekly | monthly
     payout_threshold: float = 0   # hold earnings until balance reaches this
     ad_balance: float = 0         # prepaid ad-account balance (funds campaigns)
+    wallet_balance: float = 0     # spendable wallet balance (top up to send money)
+    currency: str = "USD"         # preferred display currency
     # Privacy defaults applied to new posts.
     default_comment_policy: str = "everyone"   # everyone | followers | friends | nobody
     default_likes_disabled: bool = False       # turn off likes on new posts by default
@@ -78,6 +80,7 @@ class ProfilePatch(BaseModel):
     payout_threshold: Optional[float] = None
     default_comment_policy: Optional[str] = None  # everyone | followers | friends | nobody
     default_likes_disabled: Optional[bool] = None
+    currency: Optional[str] = None   # preferred display currency (USD, EUR, ...)
 
 
 class TipCreate(BaseModel):
@@ -108,6 +111,7 @@ class WalletTxn(BaseModel):
 
 class WalletSummary(BaseModel):
     currency: str = "USD"
+    balance: float = 0            # spendable wallet balance (top-up funds), USD
     total_earned: float = 0
     tips_total: float = 0
     subs_total: float = 0

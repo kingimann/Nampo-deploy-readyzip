@@ -7,10 +7,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, WalletSummary, WalletTxn } from "@/src/api/client";
+import { api, WalletSummary, WalletTxn, WalletBalance } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeOnboarding } from "@/src/lib/stripeEmbed";
+import { stripeOnboarding, stripeTopup } from "@/src/lib/stripeEmbed";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
@@ -43,12 +43,18 @@ export default function WalletScreen() {
   const [runningPayout, setRunningPayout] = useState(false);
   const [threshold, setThreshold] = useState("");
   const [savingThreshold, setSavingThreshold] = useState(false);
+  const [bal, setBal] = useState<WalletBalance | null>(null);
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [topupAmt, setTopupAmt] = useState("");
+  const [toppingUp, setToppingUp] = useState(false);
+  const [curOpen, setCurOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const data = await api.getWallet();
       setW(data);
     } catch {} finally { setLoading(false); }
+    try { setBal(await api.getWalletBalance()); } catch {}
     try { const { tiers } = await api.getSubscriptionTiers(); setSubTiers(tiers); } catch {}
     // Payment/payout status (Stripe) — harmless when Stripe is off.
     try {
@@ -104,6 +110,30 @@ export default function WalletScreen() {
     } finally { setConnecting(false); }
   };
 
+  const fmtBal = (usd: number) =>
+    bal ? `${bal.symbol}${(usd * bal.rate).toFixed(2)}` : `$${(usd || 0).toFixed(2)}`;
+
+  const doTopup = async () => {
+    const amt = Math.round((Number(topupAmt) || 0) * 100) / 100;
+    if (amt <= 0) { Alert.alert("Enter an amount", "How much would you like to add?"); return; }
+    setToppingUp(true);
+    try {
+      const credited = await stripeTopup(amt);
+      setTopupOpen(false); setTopupAmt("");
+      if (credited) await load();   // test mode: funds added instantly
+    } catch (e: any) {
+      Alert.alert("Top up failed", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setToppingUp(false); }
+  };
+
+  const changeCurrency = async (code: string) => {
+    try {
+      const r = await api.setCurrency(code);
+      setBal(r); setCurOpen(false);
+      if (typeof refresh === "function") await refresh();
+    } catch {}
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="wallet-screen">
       <Stack.Screen options={{ headerShown: false }} />
@@ -129,6 +159,32 @@ export default function WalletScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30 }}>
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceTop}>
+              <Text style={styles.balLabel}>Wallet balance</Text>
+              <TouchableOpacity style={styles.curChip} onPress={() => setCurOpen(true)} testID="wallet-currency">
+                <Text style={styles.curChipText}>{bal?.currency || w?.currency || "USD"}</Text>
+                <Ionicons name="chevron-down" size={13} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.balValue}>
+              {bal ? `${bal.symbol}${bal.display.toFixed(2)}` : `$${(w?.balance ?? 0).toFixed(2)}`}
+            </Text>
+            {bal && bal.currency !== "USD" ? (
+              <Text style={styles.balUsd}>≈ ${bal.balance.toFixed(2)} USD</Text>
+            ) : null}
+            <View style={styles.balActions}>
+              <TouchableOpacity style={styles.topupBtn} onPress={() => { setTopupAmt(""); setTopupOpen(true); }} testID="wallet-topup">
+                <Ionicons name="add-circle" size={18} color={theme.primary} />
+                <Text style={styles.topupBtnText}>Top up</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.sendMoneyBtn} onPress={() => router.push("/money")} testID="wallet-send">
+                <Ionicons name="paper-plane-outline" size={16} color="#fff" />
+                <Text style={styles.sendMoneyText}>Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <View style={styles.totalCard}>
             <Text style={styles.totalLabel}>Total earned</Text>
             <Text style={styles.totalValue}>${(w?.total_earned ?? 0).toFixed(2)}</Text>
@@ -376,6 +432,79 @@ export default function WalletScreen() {
           )}
         </View>
       </Modal>
+
+      {/* ── Top up ───────────────────────────────────────────────────── */}
+      <Modal visible={topupOpen} transparent animationType="fade" onRequestClose={() => setTopupOpen(false)}>
+        <View style={styles.detailBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setTopupOpen(false)} />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Top up wallet</Text>
+            <Text style={styles.sheetSub}>
+              {payEnabled ? "Pay securely with Stripe. Funds appear in your balance after payment." : "Test mode — funds are added instantly."}
+            </Text>
+            <View style={styles.amountWrap}>
+              <Text style={styles.amountDollar}>$</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={topupAmt}
+                onChangeText={(t) => setTopupAmt(t.replace(/[^0-9.]/g, ""))}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={theme.textMuted}
+                autoFocus
+                testID="topup-amount"
+              />
+            </View>
+            {bal && bal.currency !== "USD" && Number(topupAmt) > 0 ? (
+              <Text style={styles.amountConv}>≈ {bal.symbol}{(Number(topupAmt) * bal.rate).toFixed(2)} {bal.currency}</Text>
+            ) : null}
+            <View style={styles.quickRow}>
+              {[10, 25, 50, 100].map((q) => (
+                <TouchableOpacity key={q} style={styles.quickChip} onPress={() => setTopupAmt(String(q))} testID={`topup-${q}`}>
+                  <Text style={styles.quickText}>${q}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity style={styles.sheetBtn} onPress={doTopup} disabled={toppingUp} testID="topup-confirm">
+              {toppingUp ? <ActivityIndicator color="#fff" size="small" /> : (
+                <Text style={styles.sheetBtnText}>{payEnabled ? "Continue to payment" : "Add funds"}</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.detailClose} onPress={() => setTopupOpen(false)}>
+              <Text style={styles.detailCloseText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Currency picker ──────────────────────────────────────────── */}
+      <Modal visible={curOpen} transparent animationType="fade" onRequestClose={() => setCurOpen(false)}>
+        <View style={styles.detailBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setCurOpen(false)} />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Display currency</Text>
+            <Text style={styles.sheetSub}>Balances are shown in this currency. Money is still held in USD.</Text>
+            <ScrollView style={{ maxHeight: 340, alignSelf: "stretch" }}>
+              {Object.entries(bal?.currencies || {}).map(([code, info]) => {
+                const on = (bal?.currency || "USD") === code;
+                return (
+                  <TouchableOpacity key={code} style={styles.curRow} onPress={() => changeCurrency(code)} testID={`cur-${code}`}>
+                    <Text style={styles.curSym}>{info.symbol}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.curCode}>{code}</Text>
+                      <Text style={styles.curName}>{info.name}</Text>
+                    </View>
+                    {on ? <Ionicons name="checkmark-circle" size={20} color={theme.primary} /> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={styles.detailClose} onPress={() => setCurOpen(false)}>
+              <Text style={styles.detailCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -386,6 +515,34 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  balanceCard: { backgroundColor: theme.primary, borderRadius: 18, padding: 20, marginBottom: 14 },
+  balanceTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  balLabel: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  curChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  curChipText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  balValue: { color: "#fff", fontSize: 40, fontWeight: "900", letterSpacing: -1, marginTop: 8 },
+  balUsd: { color: "rgba(255,255,255,0.8)", fontSize: 13, marginTop: 2 },
+  balActions: { flexDirection: "row", gap: 10, marginTop: 16 },
+  topupBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "#fff", borderRadius: 12, paddingVertical: 12 },
+  topupBtnText: { color: theme.primary, fontWeight: "800", fontSize: 15 },
+  sendMoneyBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 12, paddingVertical: 12 },
+  sendMoneyText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  sheet: { width: "100%", maxWidth: 420, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 22, alignItems: "center" },
+  sheetTitle: { color: theme.textPrimary, fontSize: 19, fontWeight: "900" },
+  sheetSub: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },
+  amountWrap: { flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "stretch", marginTop: 18, gap: 4 },
+  amountDollar: { color: theme.textPrimary, fontSize: 30, fontWeight: "800" },
+  amountInput: { color: theme.textPrimary, fontSize: 40, fontWeight: "900", minWidth: 120, textAlign: "center", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  amountConv: { color: theme.textMuted, fontSize: 13, marginTop: 4 },
+  quickRow: { flexDirection: "row", gap: 8, marginTop: 16, alignSelf: "stretch" },
+  quickChip: { flex: 1, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
+  quickText: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  sheetBtn: { alignSelf: "stretch", backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 18 },
+  sheetBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  curRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  curSym: { color: theme.textPrimary, fontSize: 18, fontWeight: "800", width: 34, textAlign: "center" },
+  curCode: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  curName: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
   totalCard: { backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 20, alignItems: "center", gap: 4 },
   totalLabel: { color: theme.textMuted, fontSize: 13, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
   totalValue: { color: theme.textPrimary, fontSize: 40, fontWeight: "900", letterSpacing: -1 },

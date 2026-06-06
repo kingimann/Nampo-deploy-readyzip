@@ -399,6 +399,14 @@ export const api = {
     request<{ ok: boolean }>(`/money/requests/${rid}/decline`, { method: "POST" }),
   cancelMoneyRequest: (rid: string) =>
     request<{ ok: boolean }>(`/money/requests/${rid}/cancel`, { method: "POST" }),
+  // Wallet balance + display currency
+  getWalletBalance: () => request<WalletBalance>("/wallet/balance"),
+  listCurrencies: () => request<{ currencies: Record<string, CurrencyInfo> }>("/currencies"),
+  setCurrency: (currency: string) =>
+    request<WalletBalance>("/wallet/currency", { method: "POST", body: JSON.stringify({ currency }) }),
+  topupWallet: (amount: number, embedded?: boolean) =>
+    request<{ url?: string; id?: string; client_secret?: string; embedded?: boolean; ok?: boolean; simulated?: boolean; balance?: number; display?: number; symbol?: string; currency?: string }>(
+      "/wallet/topup", { method: "POST", body: JSON.stringify({ amount, embedded: !!embedded }) }),
   listFollowers: (uid: string) => request<PublicUser[]>(`/users/${uid}/followers`),
   listFollowing: (uid: string) => request<PublicUser[]>(`/users/${uid}/following`),
   sendFriendRequest: (uid: string) =>
@@ -620,11 +628,16 @@ export type ProfilePatch = {
 export type SubTier = { id: string; name: string; price: number };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; created_at: string };
 export type WalletSummary = {
-  currency: string; total_earned: number; tips_total: number; subs_total: number;
+  currency: string; balance?: number; total_earned: number; tips_total: number; subs_total: number;
   tips_count: number; active_subscribers: number; sub_price: number; recent: WalletTxn[];
   total_spent: number; tips_sent_total: number; subs_sent_total: number;
   subscriptions_count: number; sent: WalletTxn[];
   ads_total?: number;
+};
+export type CurrencyInfo = { symbol: string; name: string; rate: number };
+export type WalletBalance = {
+  currency: string; symbol: string; name: string; rate: number;
+  balance: number; display: number; currencies?: Record<string, CurrencyInfo>;
 };
 export type Payout = { id: string; amount: number; status: string; created_at: string };
 export type PayoutInfo = { balance: number; total_paid_out: number; frequency: string; next_payout?: string | null; history: Payout[] };

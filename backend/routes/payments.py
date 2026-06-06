@@ -452,6 +452,20 @@ async def stripe_webhook(request: Request):
             if amt > 0:
                 from routes.ads import _apply_ad_topup
                 await _apply_ad_topup(meta["buyer_id"], amt, "stripe")
+        elif kind == "wallet_topup" and meta.get("buyer_id"):
+            amt = round(float(meta.get("amount") or 0), 2)
+            if amt > 0:
+                await db.users.update_one({"user_id": meta["buyer_id"]}, {"$inc": {"wallet_balance": amt}})
+                await db.wallet_topups.insert_one({
+                    "id": str(uuid.uuid4()), "user_id": meta["buyer_id"], "amount": amt,
+                    "source": "stripe", "created_at": now,
+                })
+                try:
+                    from routes.notifications import emit_notification
+                    await emit_notification(user_id=meta["buyer_id"], actor_id=meta["buyer_id"],
+                                            ntype="wallet_topup", message=f"${amt:.2f} added to your wallet")
+                except Exception:
+                    pass
         elif kind == "api_usage" and meta.get("buyer_id") and meta.get("pack"):
             pack = API_OVERAGE_BY_ID.get(meta["pack"])
             if pack:
@@ -567,9 +581,10 @@ async def admin_reset_money(authorization: Optional[str] = Header(None)):
     and zero ad balances. For clearing test/fake money."""
     me = await get_current_user(authorization)
     _admin_only(me)
-    for coll in ("earnings", "tips", "subscriptions", "payouts", "money_transfers", "money_requests"):
+    for coll in ("earnings", "tips", "subscriptions", "payouts", "money_transfers",
+                 "money_requests", "wallet_topups", "ad_topups"):
         await getattr(db, coll).delete_many({})
-    await db.users.update_many({}, {"$set": {"ad_balance": 0}})
+    await db.users.update_many({}, {"$set": {"ad_balance": 0, "wallet_balance": 0}})
     return {"ok": True}
 
 

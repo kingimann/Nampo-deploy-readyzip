@@ -12,10 +12,37 @@ import bcrypt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from core import db, get_current_user, _public_user
+from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency
 from routes.notifications import emit_notification
 
 router = APIRouter()
+
+
+# ── Wallet balance (spendable, topped-up funds) ──────────────────────────────
+async def _wallet_balance(uid: str) -> float:
+    u = await db.users.find_one({"user_id": uid}, {"_id": 0, "wallet_balance": 1})
+    return round(float((u or {}).get("wallet_balance", 0) or 0), 2)
+
+
+async def _credit_wallet(uid: str, amount: float):
+    await db.users.update_one({"user_id": uid}, {"$inc": {"wallet_balance": round(float(amount), 2)}})
+
+
+async def _debit_wallet(uid: str, amount: float) -> bool:
+    """Debit the user's wallet if they have enough. Returns False if not."""
+    amount = round(float(amount), 2)
+    bal = await _wallet_balance(uid)
+    if bal + 1e-9 < amount:
+        return False
+    await db.users.update_one({"user_id": uid}, {"$inc": {"wallet_balance": -amount}})
+    return True
+
+
+def _insufficient():
+    return HTTPException(status_code=400, detail={
+        "code": "insufficient_balance",
+        "message": "Not enough wallet balance. Top up your wallet first.",
+    })
 
 
 def _hash(s: str) -> str:
@@ -49,9 +76,11 @@ async def _require_answer(user_doc: dict, answer: Optional[str]):
 
 
 async def _do_transfer(sender: dict, to_id: str, amount: float, note: str):
-    """Move money sender -> recipient. Mirrors a tip so the Wallet shows it."""
+    """Credit the recipient: add to their spendable wallet and mirror a tip so
+    the Wallet's Received list shows it. The sender is debited by the caller."""
     now = datetime.now(timezone.utc)
     name = sender.get("name", "Someone")
+    await _credit_wallet(to_id, amount)
     await db.tips.insert_one({
         "id": str(uuid.uuid4()),
         "from_user_id": sender["user_id"], "from_name": name,
@@ -122,6 +151,10 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     await _require_answer(me, body.answer)
+    # Hold the funds: debit the sender now (escrow). They're credited to the
+    # recipient on accept, or refunded to the sender on decline.
+    if not await _debit_wallet(me["user_id"], amount):
+        raise _insufficient()
     # Money isn't credited until the recipient accepts it (Cash App-style).
     now = datetime.now(timezone.utc)
     doc = {
@@ -196,6 +229,8 @@ async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
+    # Refund the escrowed funds back to the sender.
+    await _credit_wallet(t["from_user_id"], round(float(t.get("amount", 0) or 0), 2))
     await db.money_transfers.update_one(
         {"id": tid}, {"$set": {"status": "declined", "resolved_at": datetime.now(timezone.utc)}}
     )
@@ -286,6 +321,8 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
         raise HTTPException(status_code=404, detail="Request not found")
     amount = round(float(req.get("amount", 0) or 0), 2)
     await _require_answer(me, body.answer)
+    if not await _debit_wallet(me["user_id"], amount):
+        raise _insufficient()
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
     await db.money_requests.update_one(
         {"id": rid}, {"$set": {"status": "paid", "resolved_at": datetime.now(timezone.utc)}}
@@ -323,3 +360,91 @@ async def cancel_request(rid: str, authorization: Optional[str] = Header(None)):
         {"id": rid}, {"$set": {"status": "cancelled", "resolved_at": datetime.now(timezone.utc)}}
     )
     return {"ok": True}
+
+
+# ── Wallet: balance, currency + top up ───────────────────────────────────────
+def _currency_view(code: str, usd: float) -> dict:
+    code = normalize_currency(code)
+    cur = CURRENCIES[code]
+    return {
+        "currency": code,
+        "symbol": cur["symbol"],
+        "name": cur["name"],
+        "rate": cur["rate"],
+        "balance": round(float(usd), 2),                 # canonical USD
+        "display": round(float(usd) * cur["rate"], 2),   # in chosen currency
+    }
+
+
+@router.get("/currencies")
+async def list_currencies():
+    """All supported display currencies and their fixed USD conversion rates."""
+    return {"currencies": CURRENCIES}
+
+
+@router.get("/wallet/balance")
+async def wallet_balance(authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    usd = await _wallet_balance(me["user_id"])
+    out = _currency_view(me.get("currency"), usd)
+    out["currencies"] = CURRENCIES
+    return out
+
+
+class SetCurrency(BaseModel):
+    currency: str
+
+
+@router.post("/wallet/currency")
+async def set_currency(body: SetCurrency, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    code = normalize_currency(body.currency)
+    await db.users.update_one({"user_id": me["user_id"]}, {"$set": {"currency": code}})
+    usd = await _wallet_balance(me["user_id"])
+    return _currency_view(code, usd)
+
+
+class WalletTopup(BaseModel):
+    amount: float
+    embedded: Optional[bool] = False
+
+
+@router.post("/wallet/topup")
+async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(None)):
+    """Add funds to the wallet. Uses Stripe Checkout when real payments are
+    live (credited by the webhook); otherwise credits immediately (test mode)."""
+    me = await get_current_user(authorization)
+    amount = round(float(body.amount or 0), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    if amount > 10000:
+        raise HTTPException(status_code=400, detail="Maximum top-up is $10,000")
+
+    from routes.payments import payments_live
+    if await payments_live():
+        from routes.payments import stripe, _ui_kwargs, _checkout_response
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": "Wallet top-up"},
+                    "unit_amount": int(round(amount * 100)),
+                },
+                "quantity": 1,
+            }],
+            **_ui_kwargs(bool(body.embedded), "/wallet"),
+            metadata={"kind": "wallet_topup", "buyer_id": me["user_id"], "amount": str(amount)},
+        )
+        return _checkout_response(session, bool(body.embedded))
+
+    # Test mode: credit instantly.
+    await _credit_wallet(me["user_id"], amount)
+    await db.wallet_topups.insert_one({
+        "id": str(uuid.uuid4()), "user_id": me["user_id"], "amount": amount,
+        "source": "test", "created_at": datetime.now(timezone.utc),
+    })
+    usd = await _wallet_balance(me["user_id"])
+    out = _currency_view(me.get("currency"), usd)
+    out.update({"ok": True, "simulated": True})
+    return out

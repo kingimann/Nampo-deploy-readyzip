@@ -612,7 +612,10 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
         for i in sent_items[:30]
     ]
 
+    from core import normalize_currency
     return WalletSummary(
+        currency=normalize_currency(me.get("currency")),
+        balance=round(float(me.get("wallet_balance", 0) or 0), 2),
         total_earned=round(sum(r.get("amount", 0) for r in rows), 2),
         tips_total=round(tips_total, 2),
         subs_total=round(subs_total, 2),

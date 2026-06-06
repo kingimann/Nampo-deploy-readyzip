@@ -297,6 +297,31 @@ SUBSCRIPTION_TIERS = [
 SUBSCRIPTION_TIERS_BY_ID = {t["id"]: t for t in SUBSCRIPTION_TIERS}
 
 
+# Display currencies. USD is the settlement/storage currency — these are fixed,
+# approximate conversion rates (USD -> currency) used only to DISPLAY balances
+# in the currency a user prefers. Money is always stored and moved in USD.
+CURRENCIES = {
+    "USD": {"symbol": "$",   "name": "US Dollar",          "rate": 1.0},
+    "EUR": {"symbol": "€",   "name": "Euro",               "rate": 0.92},
+    "GBP": {"symbol": "£",   "name": "British Pound",       "rate": 0.79},
+    "CAD": {"symbol": "C$",  "name": "Canadian Dollar",     "rate": 1.37},
+    "AUD": {"symbol": "A$",  "name": "Australian Dollar",   "rate": 1.52},
+    "NGN": {"symbol": "₦",   "name": "Nigerian Naira",      "rate": 1550.0},
+    "INR": {"symbol": "₹",   "name": "Indian Rupee",        "rate": 83.0},
+    "PKR": {"symbol": "₨",   "name": "Pakistani Rupee",     "rate": 278.0},
+    "JPY": {"symbol": "¥",   "name": "Japanese Yen",        "rate": 157.0},
+    "ZAR": {"symbol": "R",   "name": "South African Rand",  "rate": 18.5},
+    "BRL": {"symbol": "R$",  "name": "Brazilian Real",      "rate": 5.4},
+    "AED": {"symbol": "د.إ", "name": "UAE Dirham",          "rate": 3.67},
+}
+DEFAULT_CURRENCY = "USD"
+
+
+def normalize_currency(code) -> str:
+    c = (code or DEFAULT_CURRENCY).upper()
+    return c if c in CURRENCIES else DEFAULT_CURRENCY
+
+
 def _needs_policy_agreement(d: dict) -> bool:
     return (
         str(d.get("tos_version") or "") != TOS_VERSION
@@ -327,6 +352,8 @@ def _user_doc_to_model(d: dict) -> dict:
         "payout_frequency": d.get("payout_frequency") or "monthly",
         "payout_threshold": float(d.get("payout_threshold", 0) or 0),
         "ad_balance": round(float(d.get("ad_balance", 0) or 0), 2),
+        "wallet_balance": round(float(d.get("wallet_balance", 0) or 0), 2),
+        "currency": normalize_currency(d.get("currency")),
         "default_comment_policy": d.get("default_comment_policy") or "everyone",
         "default_likes_disabled": bool(d.get("default_likes_disabled", False)),
         "created_at": d["created_at"],

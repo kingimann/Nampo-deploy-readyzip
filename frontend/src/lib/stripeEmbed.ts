@@ -73,6 +73,37 @@ export async function stripeCheckout(args: {
   }
 }
 
+/**
+ * Top up the wallet. Returns true if funds were credited immediately (test
+ * mode) so the caller can refresh; for real Stripe it opens checkout (embedded
+ * on web, hosted otherwise) and returns false.
+ */
+export async function stripeTopup(amount: number): Promise<boolean> {
+  const hosted = async (embedded: boolean) => {
+    const r = await api.topupWallet(amount, embedded);
+    if (r.simulated) return true;           // credited instantly (test mode)
+    if (r.url) { await Linking.openURL(r.url); return false; }
+    return !!r.simulated;
+  };
+  if (!isWeb || !PK) return hosted(false);
+  try {
+    const res = await api.topupWallet(amount, true);
+    if (res.simulated) return true;
+    const cs = res.client_secret;
+    if (!cs) return hosted(false);
+    await loadScript("https://js.stripe.com/v3/");
+    const Stripe = (window as any).Stripe;
+    if (!Stripe) return hosted(false);
+    const stripe = Stripe(PK);
+    const { container } = makeOverlay();
+    const checkout = await stripe.initEmbeddedCheckout({ fetchClientSecret: async () => cs });
+    checkout.mount(container);
+    return false;
+  } catch {
+    try { return await hosted(false); } catch { return false; }
+  }
+}
+
 export async function stripeOnboarding(): Promise<void> {
   const hosted = async () => { const { url } = await api.setupPayouts(); if (url) await Linking.openURL(url); };
   if (!isWeb || !PK) return hosted();

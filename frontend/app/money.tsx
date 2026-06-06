@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, MoneyRequest, PublicUser } from "@/src/api/client";
+import { api, MoneyRequest, PublicUser, WalletBalance } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
@@ -43,11 +43,13 @@ export default function MoneyScreen() {
   const [secBusy, setSecBusy] = useState(false);
   const [secMsg, setSecMsg] = useState<string | null>(null);
 
+  const [bal, setBal] = useState<WalletBalance | null>(null);
   const load = useCallback(async () => {
     try {
       const [s, r, t] = await Promise.all([api.getMoneySecurity(), api.listMoneyRequests(), api.listMoneyTransfers()]);
       setSecurity(s); setReqs(r); setTransfers(t);
     } catch {} finally { setLoading(false); }
+    try { setBal(await api.getWalletBalance()); } catch {}
   }, []);
   const acceptTransfer = async (t: MoneyRequest) => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch {} };
   const declineTransfer = async (t: MoneyRequest) => { try { await api.declineMoneyTransfer(t.id); await load(); } catch {} };
@@ -224,6 +226,13 @@ export default function MoneyScreen() {
               <Text style={styles.dollar}>$</Text>
               <TextInput style={styles.amtInput} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.textMuted} testID="money-amount" />
             </View>
+            {flow === "send" && bal ? (
+              <TouchableOpacity onPress={() => { setFlow(null); router.push("/wallet"); }} testID="money-balance">
+                <Text style={styles.balHint}>
+                  Wallet balance: {bal.symbol}{bal.display.toFixed(2)}{bal.currency !== "USD" ? ` (${bal.currency})` : ""} · Top up
+                </Text>
+              </TouchableOpacity>
+            ) : null}
             <TextInput style={styles.noteInput} value={note} onChangeText={setNote} placeholder="What's it for? (optional)" placeholderTextColor={theme.textMuted} testID="money-note" />
 
             {flow === "send" && security?.is_set && (
@@ -403,6 +412,7 @@ const styles = StyleSheet.create({
   input: { backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, height: 48, color: theme.textPrimary, fontSize: 15, ...webInput },
   warn: { color: "#F59E0B", fontSize: 12.5, marginTop: 12, lineHeight: 18 },
   flowMsg: { color: theme.primary, fontSize: 13, fontWeight: "600", marginTop: 12, textAlign: "center" },
+  balHint: { color: theme.textMuted, fontSize: 12.5, fontWeight: "600", textAlign: "center", marginTop: 8 },
   submitBtn: { backgroundColor: theme.primary, borderRadius: 14, height: 52, alignItems: "center", justifyContent: "center", marginTop: 16 },
   submitText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   cancelText: { color: theme.textMuted, fontSize: 14, fontWeight: "700", textAlign: "center", marginTop: 10, paddingVertical: 6 },

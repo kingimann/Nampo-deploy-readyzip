@@ -199,7 +199,11 @@ Developer API key (Settings → Developer API).
 | POST | `/users/{id}/poke` | Poke (Facebook-style); they can poke back |
 | GET | `/subscription-tiers` | The three fixed subscription tiers |
 | POST/DELETE | `/users/{id}/subscribe` | Subscribe (body `{tier}`) / unsubscribe |
-| GET | `/wallet` · `/wallet/export` | Earnings + money sent · CSV export |
+| GET | `/wallet` · `/wallet/export` | Earnings + money sent (incl. `balance`, `currency`) · CSV export |
+| GET | `/wallet/balance` | Spendable wallet balance → `{balance, display, currency, symbol, rate, currencies}` |
+| POST | `/wallet/topup` | Add funds — `{amount, embedded?}`. Stripe Checkout when live, instant in test mode |
+| POST | `/wallet/currency` | Set preferred display currency — `{currency}` |
+| GET | `/currencies` | Supported display currencies + fixed USD conversion rates |
 
 ### Posts & feed
 | Method | Path | Description |
@@ -265,11 +269,27 @@ preview, and `read`. (Developer webhooks receive the same events — see Webhook
 ### Payments (when Stripe is configured)
 `GET /payments/config` · `POST /payments/payouts/setup` · `GET /payments/payouts/status`
 · `POST /payments/checkout` (`kind`: tip | subscription | promote) · `POST /payments/webhook`
+· `POST /payments/payouts/account-session` (embedded Connect onboarding)
 · `GET/POST /payments/api-plan*` · `GET/POST /payments/api-usage*` (plans + pay-as-you-go)
 
-### Money (peer-to-peer)
+`GET /payments/config` → `{enabled, platform_fee_percent, publishable_key, stripe_configured, test_mode, test_override}`.
+**Test/simulated payments are off by default** — real Stripe is used whenever Stripe is
+configured and no admin has forced test mode. The app only simulates payments when Stripe
+isn't configured (down / not set up) or an admin turns test mode on.
+
+**Admin (payments):** `GET/POST /admin/test-payments` (toggle simulated mode),
+`POST /admin/reset/money` (wipe earnings/tips/subs/payouts/transfers/requests/wallet top-ups
+and zero ad + wallet balances), `POST /admin/reset/analytics`.
+
+### Money (peer-to-peer) & wallet
+The **wallet** is a spendable balance you top up (`/wallet/topup`). Sending money draws from
+it (it's a closed loop): the sender is debited on send, the recipient is credited on accept,
+and a decline refunds the sender. Balances are stored in USD and shown in the user's chosen
+display currency (`/wallet/currency`, `/currencies`).
+
 Sending requires the **sender's transfer security question** (bcrypt-hashed answer).
 Sent money is a **pending transfer the recipient accepts** before it's credited.
+Insufficient funds → `400 insufficient_balance`.
 
 | Method | Path | Description |
 | --- | --- | --- |
