@@ -75,6 +75,54 @@ async def emit_notification(
         })
     except Exception:
         pass
+    # Mirror to SMS when the recipient opted in and has a verified phone.
+    try:
+        await _maybe_sms_notify(user_id, ntype, actor_id, message)
+    except Exception:
+        pass
+
+
+# Notification types worth a text (the noisier ones like likes are left out).
+_SMS_TYPES = {
+    "message", "group_invite", "group_message", "friend_request",
+    "friend_accept", "poke", "money", "tip", "subscribe",
+}
+
+
+async def _maybe_sms_notify(
+    user_id: str, ntype: str, actor_id: Optional[str], message: Optional[str],
+) -> None:
+    if ntype not in _SMS_TYPES:
+        return
+    user = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "phone": 1, "phone_verified": 1, "sms_notifications": 1},
+    )
+    if not user or not user.get("sms_notifications") or not user.get("phone_verified") or not user.get("phone"):
+        return
+    from services.sms import send_sms, sms_enabled
+    if not sms_enabled():
+        return
+    actor_name = "Someone"
+    if actor_id:
+        a = await db.users.find_one({"user_id": actor_id}, {"_id": 0, "name": 1})
+        if a and a.get("name"):
+            actor_name = a["name"]
+    verb = {
+        "message": "sent you a message",
+        "group_invite": "invited you to a group",
+        "group_message": "posted in your group",
+        "friend_request": "sent you a friend request",
+        "friend_accept": "accepted your friend request",
+        "poke": "poked you",
+        "money": "sent you money",
+        "tip": "tipped you",
+        "subscribe": "subscribed to you",
+    }.get(ntype, "sent you a notification")
+    body = f"Nami: {actor_name} {verb}."
+    if message:
+        body += f" “{message[:80]}”"
+    await send_sms(user["phone"], body)
 
 
 async def _hydrate(doc: dict) -> Notification:

@@ -257,7 +257,7 @@ Nampo-deploy-readyzip/
 | `STRIPE_PUBLISHABLE_KEY` | No| No     | *(none)*       | Stripe publishable key returned to the client for embedded Connect onboarding/checkout. (The web client uses `EXPO_PUBLIC_STRIPE_KEY`.) |
 | `PLATFORM_FEE_PERCENT` | No  | No     | `0`            | Default platform cut of subscriptions/tips (admin-tunable at runtime via `/admin/fees`). |
 | `ANTHROPIC_API_KEY` | No     | **Yes**| *(none)*       | Enables the in-app **@claude** assistant bot. `CLAUDE_BOT_MODEL` / `CLAUDE_BOT_ALLOW` tune the model and the username allowlist. |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` | No | **Yes** | *(none)* | Twilio credentials for **phone-number SMS verification**. When unset, the verification code is returned in the API response (dev fallback) instead of being texted. |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` | No | **Yes** | *(none)* | Twilio credentials that power all SMS: **phone verification, phone OTP login, SMS two-factor, password reset by text, and SMS notifications**. When unset, codes are returned in the API response (`dev_code`) instead of being texted, so the flows still work in development. |
 | `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render injects this). |
 
 > Auth is email/password only — Google sign-in was removed. `RENDER_EXTERNAL_URL` / `PUBLIC_BASE_URL` are read automatically for building absolute URLs.
