@@ -41,7 +41,21 @@ export default function WebNavGuard() {
     window.addEventListener("popstate", onPop);
 
     const onKey = async (e: KeyboardEvent) => {
-      const refresh = e.key === "F5" || ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"));
+      const k = (e.key || "").toLowerCase();
+      const mod = e.ctrlKey || e.metaKey;
+      // Block common save / view-source / dev-tools shortcuts.
+      if (
+        e.key === "F12" ||
+        (mod && k === "s") ||                                   // Save page
+        (mod && k === "u") ||                                   // View source
+        (mod && k === "p") ||                                   // Print
+        (mod && e.shiftKey && (k === "i" || k === "j" || k === "c"))  // DevTools
+      ) {
+        e.preventDefault();
+        return;
+      }
+      // Refresh → in-app confirm.
+      const refresh = e.key === "F5" || (mod && (k === "r"));
       if (!refresh || busy) return;
       e.preventDefault();
       busy = true;
