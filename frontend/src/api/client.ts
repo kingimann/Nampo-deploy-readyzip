@@ -410,6 +410,10 @@ export const api = {
   confirmTopup: (session_id: string) =>
     request<{ ok: boolean; paid?: boolean; credited?: boolean; balance: number; display: number; symbol: string; currency: string }>(
       "/wallet/topup/confirm", { method: "POST", body: JSON.stringify({ session_id }) }),
+  syncTopups: () =>
+    request<{ credited: number; count: number; balance: number; display: number; symbol: string; currency: string }>(
+      "/wallet/topup/sync", { method: "POST" }),
+  getTopups: () => request<{ topups: Topup[] }>("/wallet/topups"),
   listFollowers: (uid: string) => request<PublicUser[]>(`/users/${uid}/followers`),
   listFollowing: (uid: string) => request<PublicUser[]>(`/users/${uid}/following`),
   sendFriendRequest: (uid: string) =>
@@ -638,6 +642,11 @@ export type WalletSummary = {
   ads_total?: number;
 };
 export type CurrencyInfo = { symbol: string; name: string; rate: number };
+export type Topup = {
+  id: string; amount: number;
+  status: "processing" | "completed" | "failed";
+  source: "stripe" | "test"; created_at: string; completed_at?: string | null;
+};
 export type WalletBalance = {
   currency: string; symbol: string; name: string; rate: number;
   balance: number; display: number; currencies?: Record<string, CurrencyInfo>;

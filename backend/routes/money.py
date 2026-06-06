@@ -29,21 +29,41 @@ async def _credit_wallet(uid: str, amount: float):
 
 
 async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: Optional[str] = None) -> bool:
-    """Credit a wallet top-up exactly once. The Stripe session id makes this
-    idempotent so the webhook and the on-return confirm can't double-credit."""
+    """Credit a wallet top-up exactly once and mark it completed. Idempotent via
+    the Stripe session id, so the webhook, the on-return confirm and the sync
+    can't double-credit. If a 'processing' record already exists for the session
+    it's flipped to 'completed'; otherwise a completed record is created."""
     amount = round(float(amount), 2)
     if amount <= 0:
         return False
+    now = datetime.now(timezone.utc)
     if session_id:
-        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "id": 1})
+        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "id": 1, "status": 1})
         if existing:
-            return False
+            if existing.get("status") == "completed":
+                return False   # already credited
+            await _credit_wallet(uid, amount)
+            await db.wallet_topups.update_one(
+                {"session_id": session_id},
+                {"$set": {"status": "completed", "completed_at": now, "amount": amount, "source": source}},
+            )
+            return True
     await _credit_wallet(uid, amount)
     await db.wallet_topups.insert_one({
         "id": str(uuid.uuid4()), "user_id": uid, "amount": amount,
-        "source": source, "session_id": session_id, "created_at": datetime.now(timezone.utc),
+        "source": source, "session_id": session_id, "status": "completed",
+        "created_at": now, "completed_at": now,
     })
     return True
+
+
+async def _mark_topup_failed(session_id: str):
+    if not session_id:
+        return
+    await db.wallet_topups.update_one(
+        {"session_id": session_id, "status": "processing"},
+        {"$set": {"status": "failed", "completed_at": datetime.now(timezone.utc)}},
+    )
 
 
 async def _debit_wallet(uid: str, amount: float) -> bool:
@@ -454,6 +474,13 @@ async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(
             **_ui_kwargs(bool(body.embedded), "/wallet"),
             metadata={"kind": "wallet_topup", "buyer_id": me["user_id"], "amount": str(amount)},
         )
+        # Record the attempt so it shows in the user's top-up history as
+        # "Processing" until the payment completes (or expires -> "Failed").
+        await db.wallet_topups.insert_one({
+            "id": str(uuid.uuid4()), "user_id": me["user_id"], "amount": amount,
+            "source": "stripe", "session_id": session["id"], "status": "processing",
+            "created_at": datetime.now(timezone.utc),
+        })
         return _checkout_response(session, bool(body.embedded))
 
     # Test mode: credit instantly.
@@ -461,6 +488,37 @@ async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(
     usd = await _wallet_balance(me["user_id"])
     out = _currency_view(me.get("currency"), usd)
     out.update({"ok": True, "simulated": True})
+    return out
+
+
+@router.post("/wallet/topup/sync")
+async def wallet_topup_sync(authorization: Optional[str] = Header(None)):
+    """Safety net: scan the user's recent Stripe Checkout sessions and credit any
+    paid wallet top-up that wasn't recorded (e.g. a missed/late webhook).
+    Idempotent via the session id."""
+    me = await get_current_user(authorization)
+    from routes.payments import stripe, stripe_enabled
+    credited_total, count = 0.0, 0
+    if stripe_enabled():
+        try:
+            sessions = stripe.checkout.Session.list(limit=100)
+            for s in (sessions.get("data", []) if isinstance(sessions, dict) else sessions.data):
+                meta = (s.get("metadata") if isinstance(s, dict) else s.metadata) or {}
+                if meta.get("kind") != "wallet_topup" or meta.get("buyer_id") != me["user_id"]:
+                    continue
+                pay_status = s.get("payment_status") if isinstance(s, dict) else s.payment_status
+                if pay_status != "paid":
+                    continue
+                sid = s.get("id") if isinstance(s, dict) else s.id
+                amt = round(float(meta.get("amount") or 0), 2)
+                if await _apply_wallet_topup(me["user_id"], amt, "stripe", sid):
+                    credited_total += amt
+                    count += 1
+        except Exception:
+            pass
+    usd = await _wallet_balance(me["user_id"])
+    out = _currency_view(me.get("currency"), usd)
+    out.update({"credited": round(credited_total, 2), "count": count})
     return out
 
 
@@ -489,7 +547,31 @@ async def wallet_topup_confirm(body: TopupConfirm, authorization: Optional[str] 
     credited = False
     if paid:
         credited = await _apply_wallet_topup(me["user_id"], amt, "stripe", sess["id"])
+    elif sess.get("status") == "expired":
+        await _mark_topup_failed(sess["id"])
     usd = await _wallet_balance(me["user_id"])
     out = _currency_view(me.get("currency"), usd)
-    out.update({"ok": paid, "paid": paid, "credited": credited})
+    status = "completed" if paid else ("failed" if sess.get("status") == "expired" else "processing")
+    out.update({"ok": paid, "paid": paid, "credited": credited, "status": status})
     return out
+
+
+def _topup_view(t: dict) -> dict:
+    return {
+        "id": t.get("id"),
+        "amount": round(float(t.get("amount", 0) or 0), 2),
+        "status": t.get("status", "completed"),     # processing | completed | failed
+        "source": t.get("source", "stripe"),         # stripe | test
+        "created_at": t.get("created_at"),
+        "completed_at": t.get("completed_at"),
+    }
+
+
+@router.get("/wallet/topups")
+async def list_topups(authorization: Optional[str] = Header(None)):
+    """The user's wallet top-up history with status (processing/completed/failed)."""
+    me = await get_current_user(authorization)
+    rows = await db.wallet_topups.find(
+        {"user_id": me["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    return {"topups": [_topup_view(t) for t in rows]}
