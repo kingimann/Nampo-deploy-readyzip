@@ -730,6 +730,13 @@ export default function ChatScreen() {
         >
           <Ionicons name="call" size={20} color={theme.primary} />
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => { api.ringCall(String(id)).catch(() => {}); router.push({ pathname: "/call/[id]", params: { id: String(id), name: name || "Call", video: "1" } }); }}
+          style={styles.iconBtn}
+          testID="chat-video"
+        >
+          <Ionicons name="videocam" size={20} color={theme.primary} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setOptionsOpen(true)} style={styles.iconBtn} testID="chat-options">
           <Ionicons name="ellipsis-horizontal" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
