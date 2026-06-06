@@ -30,6 +30,7 @@ from routes import (
     push as push_routes,
     reviews as reviews_routes,
     stories as stories_routes,
+    support as support_routes,
     transit as transit_routes,
     users as users_routes,
     webhooks as webhooks_routes,
@@ -136,6 +137,7 @@ api_router.include_router(transit_routes.router)
 api_router.include_router(integrations_routes.router)
 api_router.include_router(calls_routes.router)
 api_router.include_router(push_routes.router)
+api_router.include_router(support_routes.router)
 
 app.include_router(api_router)
 

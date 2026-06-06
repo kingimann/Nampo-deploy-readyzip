@@ -355,6 +355,19 @@ export const api = {
     request<{ ok: boolean }>("/push/register", { method: "POST", body: JSON.stringify({ token, platform, kind }) }),
   unregisterPush: (token: string) =>
     request<{ ok: boolean }>("/push/register", { method: "DELETE", body: JSON.stringify({ token }) }),
+
+  // Support & disputes
+  createTicket: (body: { category: string; subject: string; message: string; related_type?: string; related_id?: string }) =>
+    request<SupportTicket>("/support/tickets", { method: "POST", body: JSON.stringify(body) }),
+  myTickets: () => request<SupportTicket[]>("/support/tickets"),
+  getTicket: (id: string) => request<SupportTicket>(`/support/tickets/${id}`),
+  replyTicket: (id: string, text: string) =>
+    request<SupportTicket>(`/support/tickets/${id}/messages`, { method: "POST", body: JSON.stringify({ text }) }),
+  setTicketStatus: (id: string, status: string) =>
+    request<SupportTicket>(`/support/tickets/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+  adminTickets: (status?: string) =>
+    request<SupportTicket[]>(`/admin/support/tickets${status ? `?status=${status}` : ""}`),
+
   listMessages: (conv_id: string) =>
     request<Message[]>(`/conversations/${conv_id}/messages`),
   sendMessage: (conv_id: string, body: MessageCreate) =>
@@ -1036,11 +1049,28 @@ export type ConversationView = {
   created_at: string;
 };
 
+export type SupportMessage = { id: string; sender_id: string; is_staff: boolean; text: string; created_at: string };
+export type SupportTicket = {
+  id: string;
+  user_id: string;
+  category: string;
+  subject: string;
+  status: string; // open | awaiting_staff | awaiting_user | resolved | closed
+  related_type?: string | null;
+  related_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
+  unread_for_user: boolean;
+  user?: PublicUser | null;
+  messages?: SupportMessage[];
+};
+
 export type Notification = {
   id: string;
   user_id: string;
   type: "like" | "repost" | "reply" | "message" | "group_invite" | "group_message" | "follow" | "poke"
-    | "call"
+    | "call" | "support"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;

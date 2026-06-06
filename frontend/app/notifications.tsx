@@ -20,6 +20,7 @@ const ICON: Record<Notification["type"], { name: any; color: string }> = {
   follow:        { name: "person-add",       color: "#0EA5E9" },
   poke:          { name: "hand-left",        color: "#F59E0B" },
   call:          { name: "call",             color: "#00A884" },
+  support:       { name: "help-buoy",        color: "#06B6D4" },
   money_request:         { name: "cash",        color: "#22C55E" },
   money_received:        { name: "cash",        color: "#22C55E" },
   money_request_paid:    { name: "checkmark-circle", color: "#22C55E" },
@@ -38,6 +39,7 @@ const VERB: Record<Notification["type"], string> = {
   follow: "followed you",
   poke: "poked you 👈",
   call: "is calling you 📞 — tap to join",
+  support: "Support replied to your ticket",
   money_request: "requested money",
   money_received: "sent you money",
   money_request_paid: "paid your request",
@@ -73,6 +75,8 @@ export default function NotificationsScreen() {
     if (n.type === "call" && n.conversation_id) {
       // Join the incoming voice call.
       router.push({ pathname: "/call/[id]", params: { id: n.conversation_id, name: n.actor_name || "Call" } });
+    } else if (n.type === "support") {
+      router.push("/support");
     } else if (n.type.startsWith("money")) {
       router.push("/money");
     } else if (n.conversation_id) {

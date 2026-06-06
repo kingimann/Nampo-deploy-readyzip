@@ -73,6 +73,9 @@ const HIDDEN_BAR_PREFIXES = [
   "/admin-users",
   "/admin-audit",
   "/admin-payments",
+  "/admin-support",
+  "/support", // support list
+  "/support/", // ticket thread (reply bar)
   "/privacy",
   "/encryption-key",
   "/oauth/",
