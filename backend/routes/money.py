@@ -876,7 +876,8 @@ async def wallet_activity(authorization: Optional[str] = Header(None)):
         items.append({
             "id": f"topup:{t.get('id')}", "kind": "topup", "direction": "in",
             "amount": round(float(t.get("amount", 0) or 0), 2), "status": t.get("status", "completed"),
-            "title": "Wallet top-up", "subtitle": "Card · Stripe" if t.get("source") == "stripe" else "Test mode",
+            "title": "Wallet top-up",
+            "subtitle": "Card · Stripe" if t.get("source") == "stripe" else ("Added by admin" if t.get("source") == "admin" else "Test mode"),
             "created_at": t.get("created_at"),
         })
 
@@ -886,17 +887,17 @@ async def wallet_activity(authorization: Optional[str] = Header(None)):
             "id": f"cashout:{p.get('id')}", "kind": "cashout", "direction": "out",
             "amount": round(float(p.get("amount", 0) or 0), 2), "status": p.get("status", "paid"),
             "title": "Cash out" + (" to debit card" if p.get("method") == "instant_card" else ""),
-            "subtitle": "Stripe payout", "created_at": p.get("created_at"),
+            "subtitle": "Added by admin" if p.get("method") == "manual" else "Stripe payout", "created_at": p.get("created_at"),
         })
 
     earnings = await db.earnings.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     for e in earnings:
         kind = e.get("kind", "tip")
-        label = "Subscription" if kind == "subscription" else ("Money received" if e.get("source") in ("transfer", "wallet") else "Tip")
+        label = "Subscription" if kind == "subscription" else ("Money received" if e.get("source") in ("transfer", "wallet", "admin") else "Tip")
         items.append({
             "id": f"earn:{e.get('id')}", "kind": "received", "direction": "in",
             "amount": round(float(e.get("amount", 0) or 0), 2), "status": "completed",
-            "title": f"{label} from {e.get('from_name', 'Someone')}", "message": e.get("message", ""),
+            "title": f"{label} from {e.get('from_name', 'Someone')}", "subtitle": label, "message": e.get("message", ""),
             "created_at": e.get("created_at"),
         })
 
@@ -917,17 +918,19 @@ async def wallet_activity(authorization: Optional[str] = Header(None)):
         names = {u["user_id"]: u.get("name", "Someone") for u in urows}
 
     for t in sent_tips:
+        to_name = names.get(t.get("to_user_id")) or t.get("to_name") or "Someone"
+        slabel = "Money sent" if t.get("source") in ("transfer", "wallet", "admin") else "Tip"
         items.append({
             "id": f"sent:{t.get('id')}", "kind": "sent", "direction": "out",
             "amount": round(float(t.get("amount", 0) or 0), 2), "status": "completed",
-            "title": f"To {names.get(t.get('to_user_id'), 'Someone')}", "message": t.get("message", ""),
+            "title": f"{slabel} to {to_name}", "subtitle": slabel, "message": t.get("message", ""),
             "created_at": t.get("created_at"),
         })
     for s in paid_subs:
         items.append({
             "id": f"sub:{s.get('id')}", "kind": "subscription_paid", "direction": "out",
             "amount": round(float(s.get("amount", 0) or 0), 2), "status": "active",
-            "title": f"Subscription to {names.get(s.get('creator_id'), 'creator')}",
+            "title": f"Subscription to {names.get(s.get('creator_id'), 'creator')}", "subtitle": "Subscription",
             "created_at": s.get("created_at") or s.get("started_at"),
         })
     for mt in pend:
@@ -936,8 +939,8 @@ async def wallet_activity(authorization: Optional[str] = Header(None)):
         items.append({
             "id": f"transfer:{mt.get('id')}", "kind": "transfer", "direction": "out" if out else "in",
             "amount": round(float(mt.get("amount", 0) or 0), 2), "status": mt.get("status", "pending"),
-            "title": f"{'To' if out else 'From'} {other}", "message": mt.get("note", ""),
-            "created_at": mt.get("created_at"),
+            "title": f"Money {'sent to' if out else 'received from'} {other}", "subtitle": "Money transfer",
+            "message": mt.get("note", ""), "created_at": mt.get("created_at"),
         })
 
     items = [i for i in items if i.get("created_at") is not None]

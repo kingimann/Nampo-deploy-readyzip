@@ -680,19 +680,20 @@ async def my_wallet(authorization: Optional[str] = Header(None)):
 
     sent_items = [
         {"id": t["id"], "kind": "tip", "amount": float(t.get("amount", 0) or 0),
-         "to_user_id": t.get("to_user_id", ""), "source": t.get("source", "test"),
+         "to_user_id": t.get("to_user_id", ""), "to_name": t.get("to_name", ""), "source": t.get("source", "test"),
          "message": t.get("message", ""), "created_at": t["created_at"]}
         for t in sent_tips
     ] + [
         {"id": s["id"], "kind": "subscription", "amount": float(s.get("amount", 0) or 0),
-         "to_user_id": s.get("creator_id", ""), "source": s.get("source", "test"),
+         "to_user_id": s.get("creator_id", ""), "to_name": "", "source": s.get("source", "test"),
          "message": "", "created_at": s.get("created_at") or s.get("started_at")}
         for s in paid_subs
     ]
     sent_items.sort(key=lambda x: x["created_at"], reverse=True)
     sent = [
         WalletTxn(id=i["id"], kind=i["kind"], amount=i["amount"],
-                  from_user_id=i["to_user_id"], from_name=name_by_id.get(i["to_user_id"], "Someone"),
+                  from_user_id=i["to_user_id"],
+                  from_name=name_by_id.get(i["to_user_id"]) or i.get("to_name") or "Someone",
                   source=i["source"], message=i.get("message", ""), created_at=i["created_at"])
         for i in sent_items[:30]
     ]

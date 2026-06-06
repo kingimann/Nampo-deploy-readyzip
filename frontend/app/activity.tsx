@@ -72,7 +72,7 @@ export default function ActivityScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
                   <Text style={styles.rowMeta} numberOfLines={1}>
-                    {fmtWhen(item.created_at)}{item.message ? ` · ${item.message}` : ""}
+                    {item.subtitle ? item.subtitle : ""}{item.subtitle ? " · " : ""}{fmtWhen(item.created_at)}{item.message ? ` · ${item.message}` : ""}
                   </Text>
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
