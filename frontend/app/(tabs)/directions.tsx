@@ -142,6 +142,13 @@ const transitStatus = (
     ? { text: `${mins} min late`, color: theme.warning }
     : { text: `${mins} min early`, color: theme.textSecondary };
 };
+const agoLabel = (fetchedAt: number | null, now: number): string => {
+  if (!fetchedAt) return "";
+  const s = Math.max(0, Math.round((now - fetchedAt) / 1000));
+  if (s < 5) return "Updated just now";
+  if (s < 60) return `Updated ${s}s ago`;
+  return `Updated ${Math.round(s / 60)} min ago`;
+};
 
 export default function DirectionsScreen() {
   const insets = useSafeAreaInsets();
@@ -210,6 +217,8 @@ export default function DirectionsScreen() {
   const [transitOpen, setTransitOpen] = useState(false);
   const [transitData, setTransitData] = useState<TransitNearby | null>(null);
   const [transitLoading, setTransitLoading] = useState(false);
+  const [transitFetchedAt, setTransitFetchedAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(Date.now()); // drives the "updated Xs ago" label
 
   // Step end-coordinates (where each maneuver "completes") — derived from route coords.
   // We approximate by using the cumulative distance per step against the route.
@@ -498,20 +507,32 @@ export default function DirectionsScreen() {
     } catch { setSarResults([]); } finally { setSarLoading(false); }
   };
 
-  const openTransit = useCallback(async () => {
+  const loadTransit = useCallback(async () => {
     const loc = userLocationRef.current || userLocation;
     if (!loc) return;
-    setTransitOpen(true);
     setTransitLoading(true);
     try {
       const d = await api.transitNearby(loc[1], loc[0]);
       setTransitData(d);
+      setTransitFetchedAt(Date.now());
     } catch {
       setTransitData(null);
     } finally {
       setTransitLoading(false);
     }
   }, [userLocation]);
+
+  const openTransit = useCallback(() => {
+    setTransitOpen(true);
+    loadTransit();
+  }, [loadTransit]);
+
+  // Tick the "updated Xs ago" label while the sheet is open.
+  useEffect(() => {
+    if (!transitOpen) return;
+    const t = setInterval(() => setNowTick(Date.now()), 10000);
+    return () => clearInterval(t);
+  }, [transitOpen]);
 
   const addSarStop = (f: GeocodeFeature) => {
     setWaypoints((ws) => {
@@ -1190,8 +1211,22 @@ export default function DirectionsScreen() {
         <View style={styles.sarSheetWrap} pointerEvents="box-none">
           <View style={[styles.sarSheet, { paddingBottom: insets.bottom + 14 }]}>
             <View style={styles.sarHeader}>
-              <Text style={styles.sarTitle}>Nearby transit</Text>
-              <TouchableOpacity onPress={() => setTransitOpen(false)} testID="transit-close">
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sarTitle}>Nearby transit</Text>
+                {transitData?.configured && transitFetchedAt && !transitLoading && (
+                  <Text style={styles.transitUpdated}>{agoLabel(transitFetchedAt, nowTick)}</Text>
+                )}
+              </View>
+              <TouchableOpacity
+                onPress={loadTransit}
+                disabled={transitLoading}
+                testID="transit-refresh"
+                style={{ padding: 4, marginRight: 6 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="refresh" size={20} color={transitLoading ? theme.textMuted : theme.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setTransitOpen(false)} testID="transit-close" style={{ padding: 4 }}>
                 <Ionicons name="close" size={22} color={theme.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -1211,33 +1246,36 @@ export default function DirectionsScreen() {
                 data={transitData.departures}
                 keyExtractor={(_i, idx) => String(idx)}
                 style={{ maxHeight: 360 }}
-                renderItem={({ item }) => (
-                  <View style={styles.transitRow} testID="transit-departure">
-                    <View style={styles.transitBadge}>
-                      <Ionicons name={transitIcon(item.kind)} size={14} color="#fff" />
-                      <Text style={styles.transitBadgeText} numberOfLines={1}>{item.route}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.transitHeadsign} numberOfLines={1}>
-                        {item.headsign || item.route_long || "—"}
-                      </Text>
-                      <Text style={styles.transitStop} numberOfLines={1}>{item.stop_name}</Text>
-                    </View>
-                    <View style={styles.transitWhenWrap}>
-                      <Text style={styles.transitWhen}>{transitWhen(item)}</Text>
-                      {(() => {
-                        const st = transitStatus(item);
-                        if (!st) return null;
-                        return (
+                renderItem={({ item }) => {
+                  const st = transitStatus(item);
+                  // Tint the countdown amber when the trip is actually running late.
+                  const isLate = (item.delay ?? 0) >= 60 && item.realtime;
+                  return (
+                    <View style={styles.transitRow} testID="transit-departure">
+                      <View style={styles.transitBadge}>
+                        <Ionicons name={transitIcon(item.kind)} size={14} color="#fff" />
+                        <Text style={styles.transitBadgeText} numberOfLines={1}>{item.route}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.transitHeadsign} numberOfLines={1}>
+                          {item.headsign || item.route_long || "—"}
+                        </Text>
+                        <Text style={styles.transitStop} numberOfLines={1}>{item.stop_name}</Text>
+                      </View>
+                      <View style={styles.transitWhenWrap}>
+                        <Text style={[styles.transitWhen, isLate && { color: theme.warning }]}>
+                          {transitWhen(item)}
+                        </Text>
+                        {st && (
                           <View style={styles.transitLiveRow}>
                             <View style={[styles.transitLiveDot, { backgroundColor: st.color }]} />
                             <Text style={[styles.transitLiveText, { color: st.color }]}>{st.text}</Text>
                           </View>
-                        );
-                      })()}
+                        )}
+                      </View>
                     </View>
-                  </View>
-                )}
+                  );
+                }}
               />
             )}
           </View>
@@ -1554,6 +1592,7 @@ const styles = StyleSheet.create({
   transitStop: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
   transitWhenWrap: { alignItems: "flex-end", minWidth: 72 },
   transitWhen: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  transitUpdated: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
   transitLiveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
   transitLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.success },
   transitLiveText: { color: theme.success, fontSize: 10, fontWeight: "700" },
