@@ -208,9 +208,10 @@ async def register(body: RegisterRequest):
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     try:
         now = datetime.now(timezone.utc)
+        from core import random_default_avatar
         await db.users.insert_one({
             "user_id": user_id, "email": email, "username": username, "name": name,
-            "picture": None, "bio": "",
+            "picture": random_default_avatar(username), "bio": "",
             "hashed_password": _hash_password(body.password),
             "auth_providers": ["local"],
             "failed_login_attempts": 0, "locked_until": None,
