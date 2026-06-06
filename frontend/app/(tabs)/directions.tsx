@@ -483,7 +483,19 @@ export default function DirectionsScreen() {
     }
   };
 
-  // ───────── Nav loop: advance step + recenter + reroute + voice ─────────
+  // ───────── Follow camera + user dot — runs on EVERY GPS fix while navigating,
+  // independent of step parsing, so the map always pans/tilts to track you. ─────
+  useEffect(() => {
+    if (!navMode || !userLocation) return;
+    const useDeviceHeading = typeof heading === "number" && !isNaN(heading) && heading >= 0;
+    const target = stepEndCoords[stepIdx] || (routeCoords.length > 1 ? routeCoords[1] : null);
+    const brg = useDeviceHeading ? heading : (target ? bearingTo(userLocation, target) : 0);
+    mapRef.current?.setUserLocation(userLocation[0], userLocation[1], locAccuracy ?? undefined, useDeviceHeading ? heading : undefined);
+    // Tight, tilted, course-up camera so the streets and the next turn are visible.
+    mapRef.current?.followCamera(userLocation[0], userLocation[1], 17.5, brg, 55);
+  }, [navMode, userLocation, heading, locAccuracy, routeCoords, stepEndCoords, stepIdx]);
+
+  // ───────── Nav loop: advance step + reroute + voice ─────────
   useEffect(() => {
     if (!navMode || !userLocation || steps.length === 0 || stepEndCoords.length === 0) return;
     const currentEnd = stepEndCoords[stepIdx];
@@ -511,19 +523,6 @@ export default function DirectionsScreen() {
     }
     setRemainingDist(remainD);
     setRemainingDur(remainT);
-
-    // Recenter the camera on user position with bearing toward direction of travel.
-    // Prefer device compass heading (stable, matches Google Maps' track-up).
-    // Fall back to "bearing to next maneuver" only if heading is unavailable.
-    const useDeviceHeading = typeof heading === "number" && !isNaN(heading) && heading >= 0;
-    const brg = useDeviceHeading
-      ? heading
-      : (currentEnd ? bearingTo(userLocation, currentEnd) : 0);
-    mapRef.current?.setUserLocation(userLocation[0], userLocation[1], locAccuracy ?? undefined, useDeviceHeading ? heading : undefined);
-    // Tight, tilted, course-up "navigation camera" so the streets and the next
-    // turn are clearly visible — center + close zoom + bearing + 3D pitch in one
-    // smooth move (instead of a top-down flyTo).
-    mapRef.current?.followCamera(userLocation[0], userLocation[1], 17.5, brg, 55);
 
     // ── Speed limit lookup: find nearest route coord, then map to leg/segment ──
     if (routeLegs.length && routeCoords.length) {
@@ -799,7 +798,7 @@ export default function DirectionsScreen() {
               <View style={styles.navIconBox}>
                 <Ionicons
                   name={stepIconFor(currentStep.modifier, currentStep.type)}
-                  size={24}
+                  size={19}
                   color="#fff"
                 />
               </View>
@@ -983,7 +982,7 @@ export default function DirectionsScreen() {
                     testID="voice-toggle"
                     activeOpacity={0.85}
                   >
-                    <Ionicons name={voiceOn ? "volume-high" : "volume-mute"} size={22} color={voiceOn ? theme.primary : theme.textMuted} />
+                    <Ionicons name={voiceOn ? "volume-high" : "volume-mute"} size={19} color={voiceOn ? theme.primary : theme.textMuted} />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => setShowSteps((s) => !s)}
@@ -991,10 +990,10 @@ export default function DirectionsScreen() {
                     testID="toggle-steps"
                     activeOpacity={0.85}
                   >
-                    <Ionicons name="list" size={22} color={showSteps ? theme.primary : theme.textSecondary} />
+                    <Ionicons name="list" size={19} color={showSteps ? theme.primary : theme.textSecondary} />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={exitNav} style={styles.endBtn} testID="end-route-btn" activeOpacity={0.85}>
-                    <Ionicons name="close" size={18} color="#fff" />
+                    <Ionicons name="close" size={16} color="#fff" />
                     <Text style={styles.endBtnText}>End route</Text>
                   </TouchableOpacity>
                 </View>
@@ -1202,22 +1201,22 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   navBanner: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    paddingHorizontal: 14, paddingVertical: 11,
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
   },
   navIconBox: {
-    width: 46, height: 46, borderRadius: 14,
+    width: 38, height: 38, borderRadius: 11,
     backgroundColor: "rgba(255,255,255,0.18)",
     alignItems: "center", justifyContent: "center",
   },
-  navDistBig: { color: "#fff", fontSize: 21, fontWeight: "800", letterSpacing: -0.5 },
-  navInstr: { color: "rgba(255,255,255,0.96)", fontSize: 13.5, fontWeight: "600", marginTop: 1 },
+  navDistBig: { color: "#fff", fontSize: 18, fontWeight: "800", letterSpacing: -0.4 },
+  navInstr: { color: "rgba(255,255,255,0.96)", fontSize: 12.5, fontWeight: "600", marginTop: 0 },
   thenRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 14, paddingVertical: 7,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 5,
     backgroundColor: "rgba(0,0,0,0.25)",
   },
-  thenText: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "600", flex: 1 },
+  thenText: { color: "rgba(255,255,255,0.85)", fontSize: 10.5, fontWeight: "600", flex: 1 },
   navProgressTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.22)" },
   navProgressFill: { height: 3, backgroundColor: "#fff" },
   rerouteRow: {
@@ -1233,7 +1232,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(10,10,12,0.97)",
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     borderTopWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 20, paddingTop: 8, gap: 10,
+    paddingHorizontal: 18, paddingTop: 6, gap: 8,
   },
   grabberWrap: { alignSelf: "stretch", alignItems: "center", paddingTop: 12, paddingBottom: 10, gap: 6, marginHorizontal: -20, marginTop: -10 },
   grabber: { width: 48, height: 6, borderRadius: 3, backgroundColor: theme.textMuted, opacity: 0.7 },
@@ -1301,31 +1300,31 @@ const styles = StyleSheet.create({
   linkDot: { color: theme.textMuted, fontSize: 14 },
 
   // Navigation footer
-  navFooter: { gap: 12, paddingTop: 6 },
+  navFooter: { gap: 9, paddingTop: 4 },
   navStats: {
     flexDirection: "row", alignItems: "center",
-    backgroundColor: theme.surface, borderRadius: 16,
+    backgroundColor: theme.surface, borderRadius: 14,
     borderWidth: 1, borderColor: theme.border,
-    paddingVertical: 12,
+    paddingVertical: 9,
   },
   navStat: { flex: 1, alignItems: "center", gap: 3 },
-  navStatDivider: { width: 1, height: 26, backgroundColor: theme.border },
-  navStatHero: { color: theme.primary, fontSize: 18, fontWeight: "800", letterSpacing: -0.4 },
-  navStatValue: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", letterSpacing: -0.4 },
-  navStatLabel: { color: theme.textMuted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.4 },
-  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  navStatDivider: { width: 1, height: 22, backgroundColor: theme.border },
+  navStatHero: { color: theme.primary, fontSize: 15.5, fontWeight: "800", letterSpacing: -0.3 },
+  navStatValue: { color: theme.textPrimary, fontSize: 15, fontWeight: "800", letterSpacing: -0.3 },
+  navStatLabel: { color: theme.textMuted, fontSize: 9.5, textTransform: "uppercase", letterSpacing: 0.3 },
+  navBtnRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   iconCircle: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 38, height: 38, borderRadius: 19,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   endBtn: {
-    flex: 1, flexDirection: "row", gap: 8,
-    height: 44, borderRadius: 22,
+    flex: 1, flexDirection: "row", gap: 7,
+    height: 38, borderRadius: 19,
     backgroundColor: theme.error,
     alignItems: "center", justifyContent: "center",
   },
-  endBtnText: { color: "#fff", fontSize: 14.5, fontWeight: "800" },
+  endBtnText: { color: "#fff", fontSize: 13.5, fontWeight: "800" },
 
   stepsList: {
     backgroundColor: theme.surface,
