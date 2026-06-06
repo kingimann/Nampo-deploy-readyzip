@@ -110,10 +110,26 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     else window.parent && window.parent.postMessage(s, '*');
   }
 
+  // Hide Mapbox's built-in business/POI labels & icons (they can look outdated).
+  function hidePoiLayers() {
+    try {
+      var ls = (map.getStyle() && map.getStyle().layers) || [];
+      for (var i = 0; i < ls.length; i++) {
+        var id = (ls[i].id || '').toLowerCase();
+        if (id.indexOf('poi') !== -1) {
+          try { map.setLayoutProperty(ls[i].id, 'visibility', 'none'); } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
+
   map.on('load', function () {
     post({ type: 'ready' });
     ensureRouteLayer();
+    hidePoiLayers();
   });
+  // Re-apply when the basemap style changes (e.g. switching map styles).
+  map.on('styledata', hidePoiLayers);
   map.on('click', function (e) {
     post({ type: 'click', lng: e.lngLat.lng, lat: e.lngLat.lat });
   });
@@ -175,6 +191,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     map.setStyle(url);
     map.once('styledata', function () {
       ensureRouteLayer();
+      hidePoiLayers();
       // Re-apply traffic / 3d if needed
       if (window.__trafficOn) addTraffic();
       if (window.__buildingsOn) add3D();
