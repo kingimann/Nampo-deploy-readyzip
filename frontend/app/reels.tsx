@@ -11,6 +11,8 @@ import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import ReelVideo from "@/src/components/ReelVideo";
+import VerifiedBadge from "@/src/components/VerifiedBadge";
+import UserBadges from "@/src/components/UserBadges";
 import { useAuth } from "@/src/context/AuthContext";
 
 function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH, myId }: {
@@ -25,6 +27,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const [rate, setRate] = useState(1);          // base playback speed
   const [fastFwd, setFastFwd] = useState(false); // hold-to-2x
   const [reactOpen, setReactOpen] = useState(false);
+  const [captionOpen, setCaptionOpen] = useState(false);
 
   // Resume from paused whenever the reel becomes active again.
   React.useEffect(() => { if (active) { setPaused(false); setRate(1); setFastFwd(false); } }, [active]);
@@ -253,9 +256,18 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
       </View>
 
       <View style={styles.bottom}>
-        <Text style={styles.author}>@{post.author.name}</Text>
-        {!!post.text && !(!videoUri && !imageUri) && (
-          <Text style={styles.caption} numberOfLines={3}>{post.text}</Text>
+        <TouchableOpacity style={styles.authorRow} onPress={onUser} activeOpacity={0.8}>
+          <Text style={styles.author} numberOfLines={1}>@{post.author.name}</Text>
+          {post.author.verified && <VerifiedBadge size={15} />}
+          <UserBadges badges={post.author.badges} size={15} />
+        </TouchableOpacity>
+        {!!post.text && (videoUri || imageUri) && (
+          <TouchableOpacity activeOpacity={0.9} onPress={() => setCaptionOpen((o) => !o)}>
+            <Text style={styles.caption} numberOfLines={captionOpen ? undefined : 2}>{post.text}</Text>
+            {!captionOpen && post.text.length > 80 && (
+              <Text style={styles.captionMore}>more</Text>
+            )}
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -552,6 +564,8 @@ const styles = StyleSheet.create({
   bottom: {
     position: "absolute", left: 16, right: 90, bottom: 30,
   },
-  author: { color: "#fff", fontSize: 16, fontWeight: "800" },
-  caption: { color: "rgba(255,255,255,0.85)", fontSize: 14, marginTop: 6, lineHeight: 20 },
+  authorRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  author: { color: "#fff", fontSize: 16, fontWeight: "800", flexShrink: 1, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
+  caption: { color: "rgba(255,255,255,0.9)", fontSize: 14, marginTop: 6, lineHeight: 20, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
+  captionMore: { color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: "700", marginTop: 2 },
 });
