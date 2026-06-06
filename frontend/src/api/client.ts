@@ -431,6 +431,8 @@ export const api = {
   confirmTopup: (session_id: string) =>
     request<{ ok: boolean; paid?: boolean; credited?: boolean; balance: number; display: number; symbol: string; currency: string }>(
       "/wallet/topup/confirm", { method: "POST", body: JSON.stringify({ session_id }) }),
+  payFromWallet: (body: { kind: "tip" | "subscription"; creator_id: string; amount?: number; tier?: string; note?: string; conversation_id?: string }) =>
+    request<{ ok: boolean; amount: number; balance: number }>("/payments/pay-wallet", { method: "POST", body: JSON.stringify(body) }),
   syncTopups: () =>
     request<{ credited: number; count: number; balance: number; display: number; symbol: string; currency: string }>(
       "/wallet/topup/sync", { method: "POST" }),
