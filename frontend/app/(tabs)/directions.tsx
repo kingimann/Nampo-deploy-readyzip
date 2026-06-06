@@ -418,15 +418,24 @@ export default function DirectionsScreen() {
     lastSpokenKey.current = "";
     // Drop the alternates — we commit to the selected route while navigating.
     mapRef.current?.setAltRoutes([]);
-    // Camera: zoom in + tilt + bearing to next maneuver
-    mapRef.current?.flyTo(userLocation[0], userLocation[1], 17);
-    mapRef.current?.setPitch(60);
+    // Camera: drop straight into the tilted, course-up navigation view (single
+    // smooth move) so the road ahead and the next turn are clearly visible.
+    const brg = (typeof heading === "number" && heading >= 0)
+      ? heading
+      : (routeCoords.length > 1 ? bearingTo(userLocation, routeCoords[1]) : 0);
+    mapRef.current?.followCamera(userLocation[0], userLocation[1], 17.5, brg, 55);
   };
 
   const recenterMap = () => {
     if (!userLocation) return;
-    mapRef.current?.flyTo(userLocation[0], userLocation[1], navMode ? 17 : 15);
-    if (navMode) mapRef.current?.setPitch(60);
+    if (navMode) {
+      const brg = (typeof heading === "number" && heading >= 0)
+        ? heading
+        : (routeCoords.length > 1 ? bearingTo(userLocation, routeCoords[1]) : 0);
+      mapRef.current?.followCamera(userLocation[0], userLocation[1], 17.5, brg, 55);
+    } else {
+      mapRef.current?.flyTo(userLocation[0], userLocation[1], 15);
+    }
   };
 
   // Zoom out to frame the whole trip.
@@ -511,8 +520,10 @@ export default function DirectionsScreen() {
       ? heading
       : (currentEnd ? bearingTo(userLocation, currentEnd) : 0);
     mapRef.current?.setUserLocation(userLocation[0], userLocation[1], locAccuracy ?? undefined, useDeviceHeading ? heading : undefined);
-    mapRef.current?.flyTo(userLocation[0], userLocation[1], 17);
-    mapRef.current?.setBearing(brg);
+    // Tight, tilted, course-up "navigation camera" so the streets and the next
+    // turn are clearly visible — center + close zoom + bearing + 3D pitch in one
+    // smooth move (instead of a top-down flyTo).
+    mapRef.current?.followCamera(userLocation[0], userLocation[1], 17.5, brg, 55);
 
     // ── Speed limit lookup: find nearest route coord, then map to leg/segment ──
     if (routeLegs.length && routeCoords.length) {

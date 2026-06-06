@@ -32,6 +32,7 @@ export type MapboxWebViewHandle = {
   setAltRoutes: (geometries: RouteGeometry[]) => void;
   flyTo: (lng: number, lat: number, zoom?: number) => void;
   panTo: (lng: number, lat: number) => void;
+  followCamera: (lng: number, lat: number, zoom?: number, bearing?: number, pitch?: number) => void;
   setUserLocation: (lng: number, lat: number, accuracy?: number, heading?: number) => void;
   setPitch: (pitch: number) => void;
   setBearing: (bearing: number) => void;
@@ -257,6 +258,16 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   function panTo(lng, lat) {
     map.easeTo({ center:[lng,lat], duration: 700, easing: function (t) { return t; } });
   }
+  // Combined navigation "follow camera": center + zoom + bearing (course-up) +
+  // pitch (3D forward view) in a single smooth ease, so you can see the streets
+  // and the upcoming turn. Fired on each GPS fix during turn-by-turn.
+  function followCamera(lng, lat, zoom, bearing, pitch) {
+    var opts = { center:[lng,lat], duration: 900, easing: function (t) { return t; } };
+    if (zoom != null) opts.zoom = zoom;
+    if (bearing != null) opts.bearing = bearing;
+    if (pitch != null) opts.pitch = pitch;
+    map.easeTo(opts);
+  }
   function setUserLocation(lng, lat, accuracyM, heading) {
     if (!userMarker) {
       var el = document.createElement('div');
@@ -413,6 +424,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
         case 'setAltRoutes': setAltRoutes(msg.geometries); break;
         case 'flyTo': flyTo(msg.lng, msg.lat, msg.zoom); break;
         case 'panTo': panTo(msg.lng, msg.lat); break;
+        case 'followCamera': followCamera(msg.lng, msg.lat, msg.zoom, msg.bearing, msg.pitch); break;
         case 'setUserLocation': setUserLocation(msg.lng, msg.lat, msg.accuracy, msg.heading); break;
         case 'setPitch': setPitch(msg.value); break;
         case 'setBearing': setBearing(msg.value); break;
@@ -459,6 +471,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewHandle, Props>(
       setAltRoutes: (geometries) => send({ cmd: "setAltRoutes", geometries }),
       flyTo: (lng, lat, zoom) => send({ cmd: "flyTo", lng, lat, zoom }),
       panTo: (lng, lat) => send({ cmd: "panTo", lng, lat }),
+      followCamera: (lng, lat, zoom, bearing, pitch) => send({ cmd: "followCamera", lng, lat, zoom, bearing, pitch }),
       setUserLocation: (lng, lat, accuracy, heading) => send({ cmd: "setUserLocation", lng, lat, accuracy, heading }),
       setPitch: (value) => send({ cmd: "setPitch", value }),
       setBearing: (value) => send({ cmd: "setBearing", value }),
