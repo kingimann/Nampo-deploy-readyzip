@@ -279,7 +279,9 @@ export default function WalletScreen() {
       const r = await api.cashoutToCard(amt);
       setCashoutOpen(false); setCashoutAmt("");
       await load();
-      Alert.alert("On its way", `$${r.amount.toFixed(2)} is being sent to your debit card. Instant payouts usually arrive within minutes.`);
+      const local = r.currency && r.currency !== "USD" && r.local_amount != null
+        ? ` (${r.local_amount.toFixed(2)} ${r.currency})` : "";
+      Alert.alert("On its way", `$${r.amount.toFixed(2)}${local} is being sent to your debit card. Instant payouts usually arrive within minutes.`);
     } catch (e: any) {
       Alert.alert("Cash out failed", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setCashingOut(false); }

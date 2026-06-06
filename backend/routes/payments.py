@@ -307,17 +307,29 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
         raise HTTPException(status_code=400, detail="Enter an amount to cash out")
     if amount > bal + 1e-9:
         raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance."})
-    cents = int(round(amount * 100))
+
+    # Wallet amounts are USD, but a payout has to be in the connected account's
+    # settlement currency (e.g. a Canadian account pays out in CAD). Convert and
+    # use that currency for both the transfer and the instant payout.
+    from core import CURRENCIES
+    acct_ccy = (acct.get("default_currency") or "usd").lower()
+    rate_meta = CURRENCIES.get(acct_ccy.upper())
+    rate = float(rate_meta["rate"]) if rate_meta else 1.0
+    local_amount = round(amount * rate, 2)
+    # Zero-decimal currencies (e.g. JPY) take whole-unit amounts, not cents.
+    ZERO_DECIMAL = {"jpy", "krw", "vnd", "clp", "bif", "djf", "gnf", "kmf",
+                    "mga", "pyg", "rwf", "ugx", "vuv", "xaf", "xof", "xpf"}
+    units = int(round(local_amount)) if acct_ccy in ZERO_DECIMAL else int(round(local_amount * 100))
 
     # Debit first, refund on any failure so balances can't be lost.
     await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"wallet_balance": -amount}})
     try:
         stripe.Transfer.create(
-            amount=cents, currency="usd", destination=acct_id,
+            amount=units, currency=acct_ccy, destination=acct_id,
             metadata={"kind": "cashout", "user_id": user["user_id"]},
         )
         payout = stripe.Payout.create(
-            amount=cents, currency="usd", method="instant",
+            amount=units, currency=acct_ccy, method="instant",
             stripe_account=acct_id,
             metadata={"kind": "cashout", "user_id": user["user_id"]},
         )
@@ -326,16 +338,20 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
         msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
         raise HTTPException(status_code=400, detail={
             "code": "cashout_failed",
-            "message": f"Instant cash out failed: {msg}. Make sure a debit card is added to your payout account (Instant Payouts need an eligible debit card).",
+            "message": f"Instant cash out failed: {msg}. Add a debit card as your payout method in Manage payouts — instant payouts need an eligible debit card (a bank account alone won't work).",
         })
 
     await db.payouts.insert_one({
         "id": str(uuid.uuid4()), "user_id": user["user_id"], "amount": amount,
+        "currency": acct_ccy, "local_amount": local_amount,
         "status": "instant", "method": "instant_card",
         "stripe_payout_id": (payout or {}).get("id"), "created_at": datetime.now(timezone.utc),
     })
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "wallet_balance": 1})
-    return {"ok": True, "amount": amount, "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2)}
+    return {
+        "ok": True, "amount": amount, "currency": acct_ccy.upper(), "local_amount": local_amount,
+        "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2),
+    }
 
 
 @router.post("/payments/checkout")
