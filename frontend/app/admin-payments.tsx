@@ -170,7 +170,7 @@ export default function AdminPaymentsScreen() {
                     <Text style={styles.revStatLabel}>per cash-out</Text>
                   </View>
                 </View>
-                <Text style={styles.revNote}>In-app flat fees only (admins exempt). The % cut on tips/subscriptions is collected by Stripe — see your Stripe Dashboard.</Text>
+                <Text style={styles.revNote}>In-app flat fees (charged on every send, including admins). Send fees show as soon as the money is sent and are removed if it's reversed/declined. The % cut on tips/subscriptions is collected by Stripe — see your Stripe Dashboard.</Text>
               </View>
             </>
           ) : (

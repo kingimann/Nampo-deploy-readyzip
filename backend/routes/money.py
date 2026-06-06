@@ -12,7 +12,7 @@ import bcrypt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt, is_admin
+from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
 
 # How long the sender can reverse a money transfer before the recipient can claim it.
 REVERSAL_WINDOW_MIN = 5
@@ -235,8 +235,7 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     await _require_answer(me, body.answer)
     # The payer covers a flat transaction fee; the recipient gets the full amount.
-    # Admins (the platform owner) are exempt — no fee on their own sends.
-    fee = 0.0 if is_admin(me) else await _fee_dollars()
+    fee = await _fee_dollars()
     # Hold the funds: debit the sender (amount + fee) now (escrow). The amount is
     # credited to the recipient on accept; the full amount+fee is refunded on decline.
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
@@ -253,6 +252,9 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
         "claimable_at": now + timedelta(minutes=REVERSAL_WINDOW_MIN),
     }
     await db.money_transfers.insert_one(doc.copy())
+    # Book the flat fee as platform revenue now (shows immediately); it's removed
+    # again if the transfer is reversed or declined.
+    await _record_platform_fee(fee, "transfer_fee", me["user_id"], doc["id"])
     await _notify_money(body.to_user_id, me["user_id"], "money_received",
                         f"sent you ${amount:.2f} — accept it")
     return {"ok": True, "amount": amount, "fee": fee, "status": "pending",
@@ -330,7 +332,7 @@ async def accept_transfer(tid: str, authorization: Optional[str] = Header(None))
     sender = await db.users.find_one({"user_id": t["from_user_id"]}, {"_id": 0, "user_id": 1, "name": 1}) \
         or {"user_id": t["from_user_id"], "name": t.get("from_name", "Someone")}
     await _do_transfer(sender, me["user_id"], amount, t.get("note") or "")
-    await _record_platform_fee(t.get("fee", 0), "transfer_fee", t["from_user_id"], tid)
+    # The fee was already booked as platform revenue when the transfer was sent.
     await db.money_transfers.update_one(
         {"id": tid}, {"$set": {"status": "accepted", "resolved_at": datetime.now(timezone.utc)}}
     )
@@ -347,8 +349,9 @@ async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
-    # Refund the escrowed funds (amount + fee) back to the sender.
+    # Refund the escrowed funds (amount + fee) back to the sender, and un-book the fee.
     await _credit_wallet(t["from_user_id"], round(float(t.get("amount", 0) or 0) + float(t.get("fee", 0) or 0), 2))
+    await db.platform_revenue.delete_one({"ref_id": tid, "source": "transfer_fee"})
     await db.money_transfers.update_one(
         {"id": tid}, {"$set": {"status": "declined", "resolved_at": datetime.now(timezone.utc)}}
     )
@@ -368,6 +371,7 @@ async def reverse_transfer(tid: str, authorization: Optional[str] = Header(None)
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found or already settled")
     await _credit_wallet(me["user_id"], round(float(t.get("amount", 0) or 0) + float(t.get("fee", 0) or 0), 2))
+    await db.platform_revenue.delete_one({"ref_id": tid, "source": "transfer_fee"})
     await db.money_transfers.update_one(
         {"id": tid}, {"$set": {"status": "reversed", "resolved_at": datetime.now(timezone.utc)}}
     )
@@ -459,8 +463,7 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
     amount = round(float(req.get("amount", 0) or 0), 2)
     await _require_answer(me, body.answer)
     # The payer covers the flat transaction fee; the requester gets the full amount.
-    # Admins (the platform owner) are exempt.
-    fee = 0.0 if is_admin(me) else await _fee_dollars()
+    fee = await _fee_dollars()
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
         raise _insufficient()
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
@@ -561,7 +564,7 @@ async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header
         amount = round(float(body.amount or 0), 2)
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be greater than 0")
-        fee = 0.0 if is_admin(me) else await _fee_dollars()
+        fee = await _fee_dollars()
 
     total = round(amount + fee, 2)
     bal = await _wallet_balance(me["user_id"])
