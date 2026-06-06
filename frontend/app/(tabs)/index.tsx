@@ -73,6 +73,16 @@ export default function MapScreen() {
   }, [mapReady, lightMode, effectivePreset]);
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  // Always-fresh location (updated every fix) for search bias, without forcing a
+  // re-render on every GPS tick. The `userLocation` state is updated only on
+  // meaningful moves so the distance labels refresh but the screen stays smooth.
+  const userLocationRef = useRef<[number, number] | null>(null);
+  const setUserLoc = useCallback((c: [number, number]) => {
+    userLocationRef.current = c;
+    setUserLocation((prev) =>
+      prev && Math.abs(prev[0] - c[0]) < 0.0002 && Math.abs(prev[1] - c[1]) < 0.0002 ? prev : c,
+    );
+  }, []);
   const [bearing, setBearing] = useState(0);
   const [pitch, setPitch] = useState(0);
   const [locating, setLocating] = useState(false);
@@ -177,7 +187,7 @@ export default function MapScreen() {
         accuracy: Location.Accuracy.BestForNavigation,
       });
       const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
-      setUserLocation(coords);
+      setUserLoc(coords);
       mapRef.current?.setUserLocation(
         coords[0], coords[1],
         pos.coords.accuracy ?? undefined,
@@ -207,7 +217,7 @@ export default function MapScreen() {
         });
         if (cancelled) return;
         const c0: [number, number] = [initial.coords.longitude, initial.coords.latitude];
-        setUserLocation((prev) => prev ?? c0);
+        setUserLoc(c0);
         mapRef.current?.setUserLocation(
           c0[0], c0[1],
           initial.coords.accuracy ?? undefined,
@@ -220,9 +230,11 @@ export default function MapScreen() {
         watcherRef.current?.remove();
         watcherRef.current = await Location.watchPositionAsync(
           {
-            accuracy: Location.Accuracy.BestForNavigation,
-            timeInterval: 1000,
-            distanceInterval: 2,
+            // The casual map tab doesn't need navigation-grade GPS (that's heavy
+            // on CPU/battery); High accuracy with a calmer cadence is plenty.
+            accuracy: Location.Accuracy.High,
+            timeInterval: 3000,
+            distanceInterval: 8,
           },
           (loc) => {
             if (cancelled) return;
@@ -230,7 +242,7 @@ export default function MapScreen() {
             const acc = loc.coords.accuracy;
             if (acc != null && acc > 100) return;
             const c: [number, number] = [loc.coords.longitude, loc.coords.latitude];
-            setUserLocation(c);
+            setUserLoc(c);
             mapRef.current?.setUserLocation(
               c[0], c[1],
               acc ?? undefined,
@@ -262,14 +274,14 @@ export default function MapScreen() {
       }
       setSearching(true);
       try {
-        const r = await forwardGeocode(query, userLocation || undefined);
+        const r = await forwardGeocode(query, userLocationRef.current || undefined);
         setResults(r);
       } finally {
         setSearching(false);
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [query, userLocation]);
+  }, [query]);
 
   const onMapEvent = useCallback(
     (e: MapboxEvent) => {
