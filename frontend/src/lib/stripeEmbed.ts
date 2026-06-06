@@ -227,9 +227,25 @@ function embeddedConnectFlow(preferred: "account_onboarding" | "payouts" | "acco
           ? preferred
           : (["payouts", "account_management", "account_onboarding"].find((c) => enabled.includes(c)) || "account_onboarding");
         await loadScript("https://connect-js.stripe.com/v1.0/connect.js");
-        const loader = (window as any).StripeConnect?.loadConnectAndInitialize || (window as any).loadConnectAndInitialize;
+        // The CDN connect.js exposes `window.StripeConnect.init(...)`; the
+        // `loadConnectAndInitialize` name is the npm package's API (not on the
+        // CDN global). Support both, and wait briefly in case `init` is defined
+        // just after onload, so we don't wrongly fall back to the hosted redirect.
+        const getLoader = () => {
+          const SC = (window as any).StripeConnect;
+          return { SC, fn: SC?.init || SC?.loadConnectAndInitialize || (window as any).loadConnectAndInitialize };
+        };
+        let { SC, fn: loader } = getLoader();
+        for (let i = 0; !loader && i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          ({ SC, fn: loader } = getLoader());
+        }
         if (!loader) return void hosted();
-        const instance = loader({ publishableKey: PK, fetchClientSecret: async () => cs });
+        const instance = loader.call(SC, {
+          publishableKey: PK,
+          fetchClientSecret: async () => cs,
+          appearance: { variables: { colorPrimary: "#00A884" } },
+        });
         // resolve() runs once, whether the user exits the component or closes the overlay.
         const { container, close } = makeOverlay(() => resolve());
         const comp = instance.create(COMPONENT_NAME[pick] || "account-onboarding");
