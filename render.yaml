@@ -56,6 +56,10 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      # Publishable key (pk_…) — only needed for Stripe rendered inside the site
+      # (embedded Checkout / Connect onboarding). Safe to expose.
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
       - key: PLATFORM_FEE_PERCENT
         value: "0"
       - key: WEB_APP_URL
@@ -101,6 +105,9 @@ services:
       # too; paste it in the dashboard (sync:false) since it shouldn't live in git.
       - key: EXPO_PUBLIC_BACKEND_URL
         value: https://nampo-backend.onrender.com
+      # Stripe publishable key (pk_…) for rendering Stripe inside the site.
+      - key: EXPO_PUBLIC_STRIPE_KEY
+        sync: false
       - key: EXPO_PUBLIC_MAPBOX_TOKEN
         sync: false
       # Optional: Cloudinary CDN for media (esp. video). When both are set, the

@@ -474,8 +474,8 @@ async def send_message(
     # earning for them and as a tip in the chat for display.
     tip_amount: Optional[float] = None
     if body.type == "tip":
-        from routes.payments import stripe_enabled
-        if stripe_enabled():
+        from routes.payments import payments_live
+        if await payments_live():
             raise HTTPException(status_code=409, detail={"code": "use_stripe", "message": "Real payments are on — send tips through Stripe checkout."})
         if conv.get("kind") == "group":
             raise HTTPException(status_code=400, detail="Tips can only be sent in direct messages")

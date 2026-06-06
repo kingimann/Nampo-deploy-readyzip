@@ -92,6 +92,9 @@ export default function SettingsScreen() {
             <Row icon="people-circle-outline" label="Manage users (admin)" color="#F97316" onPress={() => router.push("/admin-users")} />
           )}
           {user?.role === "admin" && (
+            <Row icon="card-outline" label="Payments & data (admin)" color="#0EA5E9" onPress={() => router.push("/admin-payments")} />
+          )}
+          {user?.role === "admin" && (
             <Row icon="bar-chart-outline" label="Ad revenue (admin)" color="#EAB308" onPress={() => router.push("/admin-revenue")} />
           )}
           {user?.role === "admin" && (

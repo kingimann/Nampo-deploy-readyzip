@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover
 router = APIRouter()
 
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 # Platform cut of each transaction, in percent (0 = creator gets everything).
 PLATFORM_FEE_PERCENT = float(os.environ.get("PLATFORM_FEE_PERCENT", "0") or 0)
@@ -45,6 +46,18 @@ if stripe and STRIPE_SECRET_KEY:
 
 def stripe_enabled() -> bool:
     return bool(stripe and STRIPE_SECRET_KEY)
+
+
+async def test_payments_on() -> bool:
+    """Admin override: force simulated/test payments even when Stripe is configured."""
+    doc = await db.app_settings.find_one({"key": "test_payments"}, {"_id": 0, "value": 1})
+    return bool(doc and doc.get("value"))
+
+
+async def payments_live() -> bool:
+    """Real Stripe payments are in effect: Stripe is configured AND an admin
+    hasn't forced test mode."""
+    return stripe_enabled() and not await test_payments_on()
 
 
 def _require_stripe():
@@ -63,12 +76,32 @@ class CheckoutCreate(BaseModel):
     tier: Optional[str] = None             # subscription tier id
     budget: Optional[float] = None         # promote: pay-per-click budget
     cpc: Optional[float] = None            # promote: cost per click
+    embedded: Optional[bool] = False       # render Stripe Checkout inside the site (web)
+
+
+def _ui_kwargs(embedded: bool, base_path: str) -> dict:
+    """Embedded checkout returns a client_secret + uses return_url; hosted uses
+    success/cancel URLs (unchanged behaviour when embedded is False)."""
+    if embedded:
+        return {"ui_mode": "embedded", "return_url": f"{WEB_APP_URL}{base_path}?stripe_return=1&session_id={{CHECKOUT_SESSION_ID}}"}
+    return {"success_url": f"{WEB_APP_URL}{base_path}?pay=success", "cancel_url": f"{WEB_APP_URL}{base_path}?pay=cancel"}
+
+
+def _checkout_response(session, embedded: bool) -> dict:
+    if embedded:
+        return {"client_secret": session.get("client_secret"), "id": session["id"], "embedded": True}
+    return {"url": session["url"], "id": session["id"]}
 
 
 @router.get("/payments/config")
 async def payments_config():
     """Tell the client whether real payments are available."""
-    return {"enabled": stripe_enabled(), "platform_fee_percent": PLATFORM_FEE_PERCENT}
+    live = await payments_live()
+    return {
+        "enabled": live,
+        "platform_fee_percent": PLATFORM_FEE_PERCENT,
+        "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
+    }
 
 
 @router.post("/payments/payouts/setup")
@@ -149,15 +182,14 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
                 },
                 "quantity": 1,
             }],
-            success_url=f"{WEB_APP_URL}/advertise?pay=success",
-            cancel_url=f"{WEB_APP_URL}/advertise?pay=cancel",
+            **_ui_kwargs(bool(body.embedded), "/advertise"),
             metadata={
                 "kind": "promote", "post_id": body.post_id, "days": str(days), "buyer_id": me["user_id"],
                 **({"budget": str(round(float(body.budget), 2))} if body.budget else {}),
                 **({"cpc": str(round(float(body.cpc), 2))} if body.cpc else {}),
             },
         )
-        return {"url": session["url"], "id": session["id"]}
+        return _checkout_response(session, bool(body.embedded))
 
     # ── Tip / subscription: pays a creator's connected account ──
     if not body.creator_id or body.creator_id == me["user_id"]:
@@ -197,11 +229,10 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
                 "application_fee_percent": PLATFORM_FEE_PERCENT,
                 "transfer_data": {"destination": dest},
             },
-            success_url=f"{WEB_APP_URL}/wallet?pay=success",
-            cancel_url=f"{WEB_APP_URL}/wallet?pay=cancel",
+            **_ui_kwargs(bool(body.embedded), "/wallet"),
             metadata=meta,
         )
-        return {"url": session["url"], "id": session["id"]}
+        return _checkout_response(session, bool(body.embedded))
 
     # tip (one-time)
     net = round(float(body.amount or 0), 2)
@@ -232,11 +263,10 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
             "application_fee_amount": fee_cents,
             "transfer_data": {"destination": dest},
         },
-        success_url=f"{WEB_APP_URL}/wallet?pay=success",
-        cancel_url=f"{WEB_APP_URL}/wallet?pay=cancel",
+        **_ui_kwargs(bool(body.embedded), "/wallet"),
         metadata=meta,
     )
-    return {"url": session["url"], "id": session["id"]}
+    return _checkout_response(session, bool(body.embedded))
 
 
 # ── Developer API plans (tiered, paid) ───────────────────────────────────────
@@ -458,4 +488,88 @@ async def stripe_webhook(request: Request):
                     {"id": conv_id},
                     {"$set": {"last_message_at": now}},
                 )
+    return {"ok": True}
+
+
+# ── Embedded Connect onboarding (renders payout setup inside the site) ────────
+@router.post("/payments/payouts/account-session")
+async def payout_account_session(authorization: Optional[str] = Header(None)):
+    """Create an Account Session for Stripe's embedded onboarding component."""
+    _require_stripe()
+    user = await get_current_user(authorization)
+    try:
+        acct_id = user.get("stripe_account_id")
+        if not acct_id:
+            acct = stripe.Account.create(
+                type="express", email=user.get("email"),
+                metadata={"user_id": user["user_id"]},
+                capabilities={"transfers": {"requested": True}, "card_payments": {"requested": True}},
+            )
+            acct_id = acct["id"]
+            await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"stripe_account_id": acct_id}})
+        sess = stripe.AccountSession.create(
+            account=acct_id,
+            components={"account_onboarding": {"enabled": True}},
+        )
+        return {"client_secret": sess["client_secret"], "publishable_key": STRIPE_PUBLISHABLE_KEY}
+    except Exception as e:
+        msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
+        raise HTTPException(status_code=400, detail={"code": "stripe_setup_failed", "message": f"Stripe setup failed: {msg}"})
+
+
+# ── Admin: test-payments toggle + reset fake money/analytics ──────────────────
+class TestPaymentsBody(BaseModel):
+    enabled: bool
+
+
+def _admin_only(me: dict):
+    from core import is_admin
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+
+
+@router.get("/admin/test-payments")
+async def admin_get_test_payments(authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    return {"test_payments": await test_payments_on(), "stripe_configured": stripe_enabled()}
+
+
+@router.post("/admin/test-payments")
+async def admin_set_test_payments(body: TestPaymentsBody, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    val = bool(body.enabled)
+    existing = await db.app_settings.find_one({"key": "test_payments"}, {"_id": 0, "key": 1})
+    if existing:
+        await db.app_settings.update_one({"key": "test_payments"}, {"$set": {"value": val}})
+    else:
+        await db.app_settings.insert_one({"key": "test_payments", "value": val})
+    return {"test_payments": val}
+
+
+@router.post("/admin/reset/money")
+async def admin_reset_money(authorization: Optional[str] = Header(None)):
+    """Wipe wallet/money data (earnings, tips, subs, payouts, transfers, requests)
+    and zero ad balances. For clearing test/fake money."""
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    for coll in ("earnings", "tips", "subscriptions", "payouts", "money_transfers", "money_requests"):
+        await getattr(db, coll).delete_many({})
+    await db.users.update_many({}, {"$set": {"ad_balance": 0}})
+    return {"ok": True}
+
+
+@router.post("/admin/reset/analytics")
+async def admin_reset_analytics(authorization: Optional[str] = Header(None)):
+    """Zero ad + view analytics (impressions/clicks/spend, profile views, events)."""
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    await db.posts.update_many({}, {"$set": {"ad_impressions": 0, "ad_clicks": 0, "ad_comments": 0, "ad_spent": 0, "views_count": 0}})
+    await db.link_ads.update_many({}, {"$set": {"ad_impressions": 0, "ad_clicks": 0, "ad_spent": 0}})
+    await db.ad_sites.update_many({}, {"$set": {"impressions": 0, "clicks": 0, "earned": 0}})
+    await db.users.update_many({}, {"$set": {"profile_views": 0}})
+    await db.ad_events.delete_many({})
+    await db.post_views.delete_many({})
+    await db.bot_seen.delete_many({})
     return {"ok": True}
