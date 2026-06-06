@@ -10,6 +10,65 @@ from models import FsqProfile
 router = APIRouter()
 
 
+@router.get("/foursquare/search")
+async def foursquare_search(
+    query: str = Query(...),
+    lng: float = Query(...),
+    lat: float = Query(...),
+    radius: int = Query(8000, ge=100, le=100000),
+    limit: int = Query(20, ge=1, le=50),
+    authorization: Optional[str] = Header(None),
+):
+    """List nearby places matching a query (e.g. 'McDonald's'), nearest first."""
+    await get_current_user(authorization)
+    if not FSQ_API_KEY:
+        return {"configured": False, "results": []}
+    headers = {
+        "Authorization": f"Bearer {FSQ_API_KEY}",
+        "X-Places-Api-Version": "2025-06-17",
+        "Accept": "application/json",
+    }
+    params = {
+        "query": query,
+        "ll": f"{lat},{lng}",
+        "radius": str(radius),
+        "limit": str(limit),
+        "sort": "DISTANCE",
+        "fields": "fsq_place_id,name,location,categories,distance,latitude,longitude,rating,price,closed_bucket",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            resp = await http_client.get(f"{FSQ_BASE}/search", headers=headers, params=params)
+    except httpx.HTTPError:
+        return {"configured": True, "results": [], "error": "upstream"}
+    if resp.status_code != 200:
+        return {"configured": True, "results": [], "error": "upstream"}
+
+    out = []
+    for r in (resp.json() or {}).get("results", []):
+        loc = r.get("location") or {}
+        cats = r.get("categories") or []
+        rlat = r.get("latitude")
+        rlng = r.get("longitude")
+        if rlat is None or rlng is None:
+            geo = (r.get("geocodes") or {}).get("main") or {}
+            rlat, rlng = geo.get("latitude"), geo.get("longitude")
+        if rlat is None or rlng is None:
+            continue
+        out.append({
+            "fsq_id": r.get("fsq_place_id", ""),
+            "name": r.get("name", query),
+            "address": loc.get("formatted_address") or loc.get("address") or loc.get("locality") or "",
+            "category": (cats[0].get("name") if cats else None),
+            "latitude": rlat,
+            "longitude": rlng,
+            "distance": r.get("distance"),
+            "rating": r.get("rating"),
+            "price": r.get("price"),
+        })
+    return {"configured": True, "results": out}
+
+
 @router.get("/foursquare/match", response_model=Optional[FsqProfile])
 async def foursquare_match(
     name: str = Query(...),

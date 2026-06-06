@@ -333,6 +333,11 @@ export const api = {
     request<FsqProfile | null>(
       `/foursquare/match?name=${encodeURIComponent(name)}&lng=${lng}&lat=${lat}`,
     ),
+  // Nearby places matching a query (e.g. all "McDonald's" near you), nearest first.
+  fsqSearch: (query: string, lng: number, lat: number, radius = 8000) =>
+    request<{ configured: boolean; results: FsqSearchResult[] }>(
+      `/foursquare/search?query=${encodeURIComponent(query)}&lng=${lng}&lat=${lat}&radius=${radius}`,
+    ),
 
   getOrCreateConversation: (recipient_user_id: string) =>
     request<ConversationView>("/conversations", {
@@ -951,6 +956,17 @@ export type FsqProfile = {
   open_now?: boolean | null;
   photo?: string | null;
   distance?: number | null;
+};
+export type FsqSearchResult = {
+  fsq_id: string;
+  name: string;
+  address?: string | null;
+  category?: string | null;
+  latitude: number;
+  longitude: number;
+  distance?: number | null;
+  rating?: number | null;
+  price?: number | null;
 };
 export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact" | "tip";
 export type Message = {

@@ -279,8 +279,34 @@ export default function MapScreen() {
       }
       setSearching(true);
       try {
-        const r = await forwardGeocode(query, userLocationRef.current || undefined);
-        setResults(r);
+        const loc = userLocationRef.current;
+        // Run the address geocoder and (when we know where you are) a Foursquare
+        // place search in parallel — the latter lists every nearby match for a
+        // brand/business like "McDonald's", nearest first.
+        const [geo, fsq] = await Promise.all([
+          forwardGeocode(query, loc || undefined),
+          loc
+            ? api.fsqSearch(query, loc[0], loc[1]).then((r) => r.results).catch(() => [])
+            : Promise.resolve([] as Awaited<ReturnType<typeof api.fsqSearch>>["results"]),
+        ]);
+        const fsqFeatures: GeocodeFeature[] = fsq.map((r) => ({
+          id: `fsq_${r.fsq_id || `${r.longitude},${r.latitude}`}`,
+          name: r.name,
+          full_address: r.address || "",
+          longitude: r.longitude,
+          latitude: r.latitude,
+          category: r.category || undefined,
+          distance: r.distance ?? undefined,
+        }));
+        // Nearby businesses first (with distance), then geocoder hits; dedupe by name+addr.
+        const seen = new Set<string>();
+        const merged = [...fsqFeatures, ...geo].filter((f) => {
+          const key = `${f.name}|${f.full_address}`.toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setResults(merged.slice(0, 12));
       } finally {
         setSearching(false);
       }
@@ -586,10 +612,17 @@ export default function MapScreen() {
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.resultTitle} numberOfLines={1}>{item.name}</Text>
-                      {!!item.full_address && (
-                        <Text style={styles.resultSub} numberOfLines={1}>{item.full_address}</Text>
+                      {(!!item.full_address || !!item.category) && (
+                        <Text style={styles.resultSub} numberOfLines={1}>
+                          {[item.category, item.full_address].filter(Boolean).join(" · ")}
+                        </Text>
                       )}
                     </View>
+                    {typeof item.distance === "number" && (
+                      <Text style={styles.resultDist}>
+                        {item.distance < 1000 ? `${Math.round(item.distance)} m` : `${(item.distance / 1000).toFixed(1)} km`}
+                      </Text>
+                    )}
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.resultDirBtn}
@@ -1084,6 +1117,7 @@ const styles = StyleSheet.create({
   },
   resultTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
   resultSub: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+  resultDist: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700", marginLeft: 8 },
 
   fabStack: { position: "absolute", right: 14, gap: 10, alignItems: "flex-end" },
   // Solo FAB (compass — appears only when bearing != 0)

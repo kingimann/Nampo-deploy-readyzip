@@ -8,6 +8,7 @@ export type GeocodeFeature = {
   latitude: number;
   category?: string;
   maki?: string;
+  distance?: number; // meters from the user (when known, e.g. Foursquare results)
 };
 
 export async function forwardGeocode(
