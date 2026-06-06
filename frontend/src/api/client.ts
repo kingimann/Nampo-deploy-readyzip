@@ -1035,6 +1035,7 @@ export type Notification = {
   id: string;
   user_id: string;
   type: "like" | "repost" | "reply" | "message" | "group_invite" | "group_message" | "follow" | "poke"
+    | "call"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;
