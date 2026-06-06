@@ -91,6 +91,60 @@ def _require_stripe():
         raise HTTPException(status_code=503, detail="Stripe is not configured on this server")
 
 
+# Fully-embedded Connect: the platform owns the dashboard, so the embedded
+# payouts / account-management components render inside our site (no Stripe
+# Express dashboard, no leaving the app). New accounts are created this way.
+CONNECT_CONTROLLER = {
+    "stripe_dashboard": {"type": "none"},
+    "fees": {"payer": "application"},
+    "losses": {"payments": "application"},
+    "requirement_collection": "application",
+}
+
+
+async def _ensure_connect_account(user: dict) -> str:
+    """Return the user's Stripe Connect account id, creating a platform-controlled
+    (embedded-dashboard) account on first use so payout management stays in-app.
+
+    A legacy Express account (which can't render the embedded payouts dashboard) is
+    transparently replaced with a platform-controlled one — but only while payouts
+    aren't enabled yet, so we never strand a balance on the old account."""
+    acct_id = user.get("stripe_account_id")
+    if acct_id:
+        try:
+            acct = stripe.Account.retrieve(acct_id)
+            dash = ((acct.get("controller") or {}).get("stripe_dashboard") or {}).get("type")
+            is_express = acct.get("type") == "express" or dash == "express"
+            if not (is_express and not acct.get("payouts_enabled")):
+                return acct_id
+            # else: fall through and create a fresh platform-controlled account.
+        except Exception:
+            return acct_id
+    acct = stripe.Account.create(
+        controller=CONNECT_CONTROLLER,
+        email=user.get("email"),
+        metadata={"user_id": user["user_id"]},
+        capabilities={"transfers": {"requested": True}, "card_payments": {"requested": True}},
+    )
+    acct_id = acct["id"]
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"stripe_account_id": acct_id}})
+    return acct_id
+
+
+def _account_supports_embedded_mgmt(acct_id: str) -> bool:
+    """Embedded payouts/account-management components only work on accounts where
+    the platform controls the dashboard (controller-based). Legacy Express accounts
+    (which have the Stripe-hosted Express dashboard) only support embedded onboarding."""
+    try:
+        acct = stripe.Account.retrieve(acct_id)
+    except Exception:
+        return False
+    if acct.get("type") == "express":
+        return False
+    dash = ((acct.get("controller") or {}).get("stripe_dashboard") or {}).get("type")
+    return dash != "express"
+
+
 class CheckoutCreate(BaseModel):
     kind: str            # "tip" | "subscription" | "promote"
     creator_id: Optional[str] = None
@@ -151,18 +205,7 @@ async def setup_payouts(authorization: Optional[str] = Header(None)):
     _require_stripe()
     user = await get_current_user(authorization)
     try:
-        acct_id = user.get("stripe_account_id")
-        if not acct_id:
-            acct = stripe.Account.create(
-                type="express",
-                email=user.get("email"),
-                metadata={"user_id": user["user_id"]},
-                # Request card_payments too: a standard Express account that doesn't
-                # need the special "transfers without card_payments" approval.
-                capabilities={"transfers": {"requested": True}, "card_payments": {"requested": True}},
-            )
-            acct_id = acct["id"]
-            await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"stripe_account_id": acct_id}})
+        acct_id = await _ensure_connect_account(user)
         link = stripe.AccountLink.create(
             account=acct_id,
             refresh_url=f"{WEB_APP_URL}/wallet?payouts=refresh",
@@ -664,47 +707,55 @@ async def stripe_webhook(request: Request):
     return {"ok": True}
 
 
-# ── Embedded Connect onboarding (renders payout setup inside the site) ────────
+# ── Embedded Connect onboarding + payout management (rendered inside the site) ─
 @router.post("/payments/payouts/account-session")
 async def payout_account_session(authorization: Optional[str] = Header(None)):
-    """Create an Account Session for Stripe's embedded onboarding component."""
+    """Create an Account Session for Stripe's embedded components.
+
+    Returns the list of enabled `components` so the client knows whether it can
+    render the full embedded **payouts** dashboard (platform-controlled accounts)
+    or just the embedded onboarding/account-update view (legacy Express accounts).
+    Either way the panel renders inside the site — the user never leaves the app.
+    """
     _require_stripe()
     user = await get_current_user(authorization)
     try:
-        acct_id = user.get("stripe_account_id")
-        if not acct_id:
-            acct = stripe.Account.create(
-                type="express", email=user.get("email"),
-                metadata={"user_id": user["user_id"]},
-                capabilities={"transfers": {"requested": True}, "card_payments": {"requested": True}},
-            )
-            acct_id = acct["id"]
-            await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"stripe_account_id": acct_id}})
-        sess = stripe.AccountSession.create(
-            account=acct_id,
-            components={
-                "account_onboarding": {"enabled": True},
-                # Embedded payout management (DoorDash-style) so users never leave the site:
-                # see balance, payout history/schedule, change bank/debit card, cash out instantly.
-                "payouts": {
-                    "enabled": True,
-                    "features": {
-                        "instant_payouts": True,
-                        "standard_payouts": True,
-                        "edit_payout_schedule": True,
-                    },
+        acct_id = await _ensure_connect_account(user)
+
+        components: dict = {"account_onboarding": {"enabled": True}}
+        if _account_supports_embedded_mgmt(acct_id):
+            # Full DoorDash-style payout management embedded in the site: balance,
+            # payout history/schedule, change bank/debit card, instant cash-out.
+            components["payouts"] = {
+                "enabled": True,
+                "features": {
+                    "instant_payouts": True,
+                    "standard_payouts": True,
+                    "edit_payout_schedule": True,
                 },
-                "account_management": {
-                    "enabled": True,
-                    "features": {"external_account_collection": True},
-                },
-                "notification_banner": {
-                    "enabled": True,
-                    "features": {"external_account_collection": True},
-                },
-            },
-        )
-        return {"client_secret": sess["client_secret"], "publishable_key": STRIPE_PUBLISHABLE_KEY}
+            }
+            components["account_management"] = {
+                "enabled": True,
+                "features": {"external_account_collection": True},
+            }
+            components["notification_banner"] = {
+                "enabled": True,
+                "features": {"external_account_collection": True},
+            }
+
+        try:
+            sess = stripe.AccountSession.create(account=acct_id, components=components)
+        except Exception:
+            # If a management component isn't allowed for this account, still return
+            # a working onboarding session so the embedded panel renders in-site.
+            components = {"account_onboarding": {"enabled": True}}
+            sess = stripe.AccountSession.create(account=acct_id, components=components)
+
+        return {
+            "client_secret": sess["client_secret"],
+            "publishable_key": STRIPE_PUBLISHABLE_KEY,
+            "components": list(components.keys()),
+        }
     except Exception as e:
         msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
         raise HTTPException(status_code=400, detail={"code": "stripe_setup_failed", "message": f"Stripe setup failed: {msg}"})
