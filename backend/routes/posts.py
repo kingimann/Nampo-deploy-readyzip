@@ -636,6 +636,9 @@ async def promote_post(
     """Boost your own post for N days — it surfaces higher and shows a
     'Sponsored' badge."""
     user = await get_current_user(authorization)
+    from routes.payments import stripe_enabled
+    if stripe_enabled():
+        raise HTTPException(status_code=409, detail={"code": "use_stripe", "message": "Real payments are on — promote through Stripe checkout."})
     doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found or not yours")

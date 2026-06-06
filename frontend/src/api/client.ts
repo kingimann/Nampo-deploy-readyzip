@@ -183,7 +183,7 @@ export const api = {
     kind: "tip" | "subscription" | "promote",
     creator_id: string,
     amount: number,
-    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string; tier?: string },
+    extra?: { post_id?: string; days?: number; conversation_id?: string; note?: string; tier?: string; budget?: number; cpc?: number },
   ) =>
     request<{ url: string; id: string }>("/payments/checkout", {
       method: "POST", body: JSON.stringify({ kind, creator_id, amount, ...(extra || {}) }),

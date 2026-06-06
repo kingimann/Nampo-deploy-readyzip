@@ -61,6 +61,8 @@ class CheckoutCreate(BaseModel):
     conversation_id: Optional[str] = None  # tip sent from a DM
     note: Optional[str] = None             # tip message
     tier: Optional[str] = None             # subscription tier id
+    budget: Optional[float] = None         # promote: pay-per-click budget
+    cpc: Optional[float] = None            # promote: cost per click
 
 
 @router.get("/payments/config")
@@ -143,7 +145,11 @@ async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = H
             }],
             success_url=f"{WEB_APP_URL}/advertise?pay=success",
             cancel_url=f"{WEB_APP_URL}/advertise?pay=cancel",
-            metadata={"kind": "promote", "post_id": body.post_id, "days": str(days), "buyer_id": me["user_id"]},
+            metadata={
+                "kind": "promote", "post_id": body.post_id, "days": str(days), "buyer_id": me["user_id"],
+                **({"budget": str(round(float(body.budget), 2))} if body.budget else {}),
+                **({"cpc": str(round(float(body.cpc), 2))} if body.cpc else {}),
+            },
         )
         return {"url": session["url"], "id": session["id"]}
 
@@ -381,10 +387,12 @@ async def stripe_webhook(request: Request):
         now = datetime.now(timezone.utc)
         if kind == "promote" and meta.get("post_id"):
             days = max(1, min(30, int(meta.get("days") or 7)))
-            await db.posts.update_one(
-                {"id": meta["post_id"]},
-                {"$set": {"promoted_until": now + timedelta(days=days)}},
-            )
+            promo: dict = {"promoted_until": now + timedelta(days=days)}
+            if meta.get("budget"):
+                promo["ad_budget"] = round(float(meta["budget"]), 2)
+            if meta.get("cpc"):
+                promo["ad_cpc"] = round(float(meta["cpc"]), 2)
+            await db.posts.update_one({"id": meta["post_id"]}, {"$set": promo})
         elif kind == "api_plan" and meta.get("buyer_id") and meta.get("plan"):
             await db.users.update_one(
                 {"user_id": meta["buyer_id"]},

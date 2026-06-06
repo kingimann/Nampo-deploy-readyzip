@@ -132,7 +132,7 @@ export default function WalletScreen() {
           <View style={styles.totalCard}>
             <Text style={styles.totalLabel}>Total earned</Text>
             <Text style={styles.totalValue}>${(w?.total_earned ?? 0).toFixed(2)}</Text>
-            <Text style={styles.totalSub}>All earnings go to you. Payouts are simulated (test mode).</Text>
+            <Text style={styles.totalSub}>{payEnabled ? "All earnings go to you, paid out via Stripe." : "All earnings go to you. Payouts are simulated (test mode)."}</Text>
           </View>
 
           <View style={styles.statsRow}>

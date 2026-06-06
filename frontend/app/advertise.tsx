@@ -134,7 +134,10 @@ export default function AdvertiseScreen() {
       // post once payment confirms. Falls back to the test flow when off.
       if (payEnabled) {
         try {
-          const { url } = await api.createCheckout("promote", "", chargeAmount, { post_id: picking.id, days: selDays });
+          const { url } = await api.createCheckout("promote", "", chargeAmount, {
+            post_id: picking.id, days: selDays,
+            ...(ppc ? { budget: campaignBudget, cpc: campaignCpc } : {}),
+          });
           await Linking.openURL(url);
           setBusy(false);
           return;
@@ -349,7 +352,7 @@ export default function AdvertiseScreen() {
 
                 <View style={styles.testBanner}>
                   <Ionicons name="lock-closed" size={13} color={theme.primary} />
-                  <Text style={styles.testBannerText}>Test mode · no real charge</Text>
+                  <Text style={styles.testBannerText}>{payEnabled ? "Secure checkout · powered by Stripe" : "Test mode · no real charge"}</Text>
                 </View>
 
                 <View style={styles.ppcRow}>
@@ -383,69 +386,75 @@ export default function AdvertiseScreen() {
                   <Text style={styles.summaryPrice}>${chargeAmount.toFixed(2)}</Text>
                 </View>
 
-                <Text style={styles.fieldLabel}>Card number</Text>
-                <View style={styles.inputWrap}>
-                  <Ionicons name="card-outline" size={18} color={theme.textMuted} />
-                  <TextInput
-                    style={styles.input}
-                    value={card}
-                    onChangeText={(t) => setCard(formatCard(t))}
-                    keyboardType="number-pad"
-                    placeholder="1234 5678 9012 3456"
-                    placeholderTextColor={theme.textMuted}
-                    maxLength={19}
-                    editable={!busy}
-                    testID="pay-card"
-                  />
-                </View>
+                {payEnabled ? (
+                  <Text style={styles.stripeNote}>You'll be taken to Stripe's secure checkout to complete payment.</Text>
+                ) : (
+                  <>
+                    <Text style={styles.fieldLabel}>Card number</Text>
+                    <View style={styles.inputWrap}>
+                      <Ionicons name="card-outline" size={18} color={theme.textMuted} />
+                      <TextInput
+                        style={styles.input}
+                        value={card}
+                        onChangeText={(t) => setCard(formatCard(t))}
+                        keyboardType="number-pad"
+                        placeholder="1234 5678 9012 3456"
+                        placeholderTextColor={theme.textMuted}
+                        maxLength={19}
+                        editable={!busy}
+                        testID="pay-card"
+                      />
+                    </View>
 
-                <View style={styles.fieldRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel}>Expiry</Text>
+                    <View style={styles.fieldRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fieldLabel}>Expiry</Text>
+                        <View style={styles.inputWrap}>
+                          <TextInput
+                            style={styles.input}
+                            value={exp}
+                            onChangeText={(t) => setExp(formatExp(t))}
+                            keyboardType="number-pad"
+                            placeholder="MM/YY"
+                            placeholderTextColor={theme.textMuted}
+                            maxLength={5}
+                            editable={!busy}
+                            testID="pay-exp"
+                          />
+                        </View>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fieldLabel}>CVC</Text>
+                        <View style={styles.inputWrap}>
+                          <TextInput
+                            style={styles.input}
+                            value={cvc}
+                            onChangeText={(t) => setCvc(t.replace(/\D/g, "").slice(0, 4))}
+                            keyboardType="number-pad"
+                            placeholder="123"
+                            placeholderTextColor={theme.textMuted}
+                            maxLength={4}
+                            editable={!busy}
+                            testID="pay-cvc"
+                          />
+                        </View>
+                      </View>
+                    </View>
+
+                    <Text style={styles.fieldLabel}>Name on card</Text>
                     <View style={styles.inputWrap}>
                       <TextInput
                         style={styles.input}
-                        value={exp}
-                        onChangeText={(t) => setExp(formatExp(t))}
-                        keyboardType="number-pad"
-                        placeholder="MM/YY"
+                        value={name}
+                        onChangeText={setName}
+                        placeholder="Full name"
                         placeholderTextColor={theme.textMuted}
-                        maxLength={5}
                         editable={!busy}
-                        testID="pay-exp"
+                        testID="pay-name"
                       />
                     </View>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel}>CVC</Text>
-                    <View style={styles.inputWrap}>
-                      <TextInput
-                        style={styles.input}
-                        value={cvc}
-                        onChangeText={(t) => setCvc(t.replace(/\D/g, "").slice(0, 4))}
-                        keyboardType="number-pad"
-                        placeholder="123"
-                        placeholderTextColor={theme.textMuted}
-                        maxLength={4}
-                        editable={!busy}
-                        testID="pay-cvc"
-                      />
-                    </View>
-                  </View>
-                </View>
-
-                <Text style={styles.fieldLabel}>Name on card</Text>
-                <View style={styles.inputWrap}>
-                  <TextInput
-                    style={styles.input}
-                    value={name}
-                    onChangeText={setName}
-                    placeholder="Full name"
-                    placeholderTextColor={theme.textMuted}
-                    editable={!busy}
-                    testID="pay-name"
-                  />
-                </View>
+                  </>
+                )}
 
                 <TouchableOpacity
                   style={[styles.payBtn, busy && { opacity: 0.7 }]}
@@ -456,7 +465,7 @@ export default function AdvertiseScreen() {
                   {busy ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.payBtnText}>Pay ${chargeAmount.toFixed(2)}</Text>
+                    <Text style={styles.payBtnText}>{payEnabled ? `Continue · $${chargeAmount.toFixed(2)}` : `Pay $${chargeAmount.toFixed(2)}`}</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -674,6 +683,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 5, marginBottom: 14,
   },
   testBannerText: { color: theme.primary, fontSize: 12, fontWeight: "700" },
+  stripeNote: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginVertical: 6 },
   summary: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 14, marginBottom: 16,
