@@ -123,7 +123,19 @@ export default function PostComposer({
             });
             continue;
           } catch (err) {
-            Alert.alert("Upload failed", String((err as Error)?.message || err));
+            const msg = String((err as Error)?.message || err);
+            if (/too large|file size|maximum is/i.test(msg)) {
+              Alert.alert(
+                isVideo ? "Video too large" : "File too large",
+                isVideo
+                  ? "This clip is over your upload limit. Try a shorter or lower-resolution video (a 15–30s clip usually works)."
+                  : "Please pick a smaller file.",
+              );
+            } else if (/network|failed to fetch|timeout/i.test(msg)) {
+              Alert.alert("Upload failed", "Couldn't reach the upload server. Check your connection and try again.");
+            } else {
+              Alert.alert("Upload failed", msg);
+            }
             continue;
           }
         }

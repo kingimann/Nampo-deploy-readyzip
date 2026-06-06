@@ -6,11 +6,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useVideoPlayer, VideoView } from "expo-video";
 import { api, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import CommentsSheet from "@/src/components/CommentsSheet";
+import ReelVideo from "@/src/components/ReelVideo";
 
 function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH }: {
   post: Post; active: boolean; muted: boolean; onToggleMute: () => void;
@@ -19,20 +19,8 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const video = post.media?.find((m) => m.type === "video");
   const image = post.media?.find((m) => m.type === "image");
   const videoUri = mediaUri(video);
-  const player = useVideoPlayer(videoUri || "about:blank", (p) => { p.loop = true; p.muted = muted; });
   const router = useRouter();
   const [paused, setPaused] = useState(false);
-
-  // Play only when this reel is on screen and not manually paused.
-  React.useEffect(() => {
-    if (!videoUri) return;
-    if (active && !paused) { try { player.play(); } catch {} }
-    else { try { player.pause(); } catch {} }
-    return () => { try { player.pause(); } catch {} };
-  }, [active, paused, player, videoUri]);
-
-  // Keep the player's mute in sync with the global toggle.
-  React.useEffect(() => { try { player.muted = muted; } catch {} }, [muted, player]);
 
   // Resume from paused whenever the reel becomes active again.
   React.useEffect(() => { if (active) setPaused(false); }, [active]);
@@ -99,12 +87,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
     <View style={{ width: screenW, height: screenH, backgroundColor: "#000" }}>
       {videoUri ? (
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setPaused((p) => !p)} testID={`reel-tap-${post.id}`}>
-          <VideoView
-            player={player}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            nativeControls={false}
-          />
+          <ReelVideo uri={videoUri} active={active} paused={paused} muted={muted} />
           {paused && (
             <View style={styles.centerPlay} pointerEvents="none">
               <Ionicons name="play" size={66} color="rgba(255,255,255,0.92)" />
