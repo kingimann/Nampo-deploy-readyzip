@@ -24,6 +24,7 @@ function fmtFull(iso: string) {
 }
 function sourceLabel(src?: string) {
   if (src === "stripe") return "Card · Stripe";
+  if (src === "transfer") return "Wallet transfer";
   return "Test mode";
 }
 function fmtTopup(iso: string) {
