@@ -4,8 +4,9 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
+import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
@@ -18,6 +19,10 @@ export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
+  const [supportUnread, setSupportUnread] = React.useState(0);
+  useFocusEffect(React.useCallback(() => {
+    api.supportUnreadCount().then((r) => setSupportUnread(r.count || 0)).catch(() => {});
+  }, []));
 
   const onSignOut = () => {
     Alert.alert("Sign out", "Are you sure you want to sign out?", [
@@ -34,10 +39,10 @@ export default function SettingsScreen() {
   };
 
   const Row = ({
-    icon, label, color = theme.primary, onPress, danger, last,
+    icon, label, color = theme.primary, onPress, danger, last, badge,
   }: {
     icon: IconName; label: string; color?: string;
-    onPress: () => void; danger?: boolean; last?: boolean;
+    onPress: () => void; danger?: boolean; last?: boolean; badge?: number;
   }) => (
     <TouchableOpacity
       style={[styles.row, last && { borderBottomWidth: 0 }]}
@@ -49,6 +54,9 @@ export default function SettingsScreen() {
         <Ionicons name={icon} size={18} color={danger ? theme.error : color} />
       </View>
       <Text style={[styles.rowLabel, danger && { color: theme.error }]}>{label}</Text>
+      {!!badge && badge > 0 && (
+        <View style={styles.badge}><Text style={styles.badgeText}>{badge > 9 ? "9+" : badge}</Text></View>
+      )}
       {!danger && <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />}
     </TouchableOpacity>
   );
@@ -117,7 +125,7 @@ export default function SettingsScreen() {
           <Row icon="bookmark-outline" label="Bookmarks" color={theme.primary} onPress={() => router.push("/bookmarks")} />
           <Row icon="people-outline" label="Connections" color="#7C3AED" onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })} />
           <Row icon="location-outline" label="Saved places" color="#22C55E" onPress={() => router.push("/(tabs)/favorites")} />
-          <Row icon="help-buoy-outline" label="Support & disputes" color="#06B6D4" onPress={() => router.push("/support")} last />
+          <Row icon="help-buoy-outline" label="Support & disputes" color="#06B6D4" badge={supportUnread} onPress={() => router.push("/support")} last />
         </View>
 
         <View style={[styles.group, { marginTop: 24 }]}>
@@ -168,6 +176,8 @@ const styles = StyleSheet.create({
   },
   rowIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   rowLabel: { flex: 1, color: theme.textPrimary, fontSize: 16.5, fontWeight: "600" },
+  badge: { minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 6, backgroundColor: theme.error, alignItems: "center", justifyContent: "center", marginRight: 8 },
+  badgeText: { color: "#fff", fontSize: 11.5, fontWeight: "800" },
 
   aboutRow: {
     flexDirection: "row", alignItems: "center", gap: 14,

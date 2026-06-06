@@ -367,6 +367,7 @@ export const api = {
     request<SupportTicket>(`/support/tickets/${id}/status`, { method: "POST", body: JSON.stringify({ status }) }),
   adminTickets: (status?: string) =>
     request<SupportTicket[]>(`/admin/support/tickets${status ? `?status=${status}` : ""}`),
+  supportUnreadCount: () => request<{ count: number }>("/support/unread-count"),
 
   listMessages: (conv_id: string) =>
     request<Message[]>(`/conversations/${conv_id}/messages`),

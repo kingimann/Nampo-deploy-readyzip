@@ -292,6 +292,14 @@ export default function MoneyScreen() {
                     <Text style={[styles.histAmt, { color: out ? theme.textSecondary : "#16A34A" }]}>{out ? "-" : "+"}${t.amount.toFixed(2)}</Text>
                     <Text style={[styles.histStatus, { color: st.color }]}>{st.label}</Text>
                   </View>
+                  <TouchableOpacity
+                    onPress={() => router.push({ pathname: "/support", params: { compose: "1", category: "dispute", subject: `Dispute: ${out ? "payment to" : "payment from"} ${t.other_user.name} ($${t.amount.toFixed(2)})`, related_type: "transfer", related_id: t.id } })}
+                    hitSlop={8}
+                    style={{ paddingLeft: 8 }}
+                    testID={`dispute-transfer-${t.id}`}
+                  >
+                    <Ionicons name="flag-outline" size={16} color={theme.textMuted} />
+                  </TouchableOpacity>
                 </View>
               );
             })

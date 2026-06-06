@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useFocusEffect, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, SupportTicket } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -46,12 +46,14 @@ export default function SupportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const params = useLocalSearchParams<{ compose?: string; category?: string; subject?: string; related_type?: string; related_id?: string }>();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [composeOpen, setComposeOpen] = useState(false);
   const [category, setCategory] = useState("dispute");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  const [related, setRelated] = useState<{ type?: string; id?: string }>({});
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -60,13 +62,24 @@ export default function SupportScreen() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // Open a pre-filled ticket when deep-linked (e.g. "Dispute this transaction").
+  React.useEffect(() => {
+    if (params.compose === "1") {
+      if (params.category) setCategory(String(params.category));
+      if (params.subject) setSubject(String(params.subject));
+      setRelated({ type: params.related_type ? String(params.related_type) : undefined, id: params.related_id ? String(params.related_id) : undefined });
+      setComposeOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.compose, params.category, params.subject, params.related_type, params.related_id]);
+
   const submit = async () => {
     setErr(null);
     if (!subject.trim() || !message.trim()) { setErr("Add a subject and describe the issue."); return; }
     setSending(true);
     try {
-      const t = await api.createTicket({ category, subject: subject.trim(), message: message.trim() });
-      setComposeOpen(false); setSubject(""); setMessage(""); setCategory("dispute");
+      const t = await api.createTicket({ category, subject: subject.trim(), message: message.trim(), related_type: related.type, related_id: related.id });
+      setComposeOpen(false); setSubject(""); setMessage(""); setCategory("dispute"); setRelated({});
       router.push({ pathname: "/support/[id]", params: { id: t.id } });
     } catch (e: any) {
       setErr(String(e?.message || e).replace(/^\d{3}:\s*/, ""));
