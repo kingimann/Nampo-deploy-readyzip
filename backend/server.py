@@ -27,6 +27,7 @@ from routes import (
     payouts as payouts_routes,
     places as places_routes,
     posts as posts_routes,
+    push as push_routes,
     reviews as reviews_routes,
     stories as stories_routes,
     transit as transit_routes,
@@ -134,6 +135,7 @@ api_router.include_router(money_routes.router)
 api_router.include_router(transit_routes.router)
 api_router.include_router(integrations_routes.router)
 api_router.include_router(calls_routes.router)
+api_router.include_router(push_routes.router)
 
 app.include_router(api_router)
 
