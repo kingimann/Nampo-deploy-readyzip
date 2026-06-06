@@ -197,7 +197,7 @@ export async function stripeCardTopup(amount: number): Promise<boolean> {
  * finishes or closes the flow, so the caller can re-check payout status. On
  * native (or without a publishable key) it opens the hosted onboarding link.
  */
-export function stripeOnboarding(): Promise<void> {
+function embeddedConnectFlow(component: "account-onboarding" | "payouts" | "account-management"): Promise<void> {
   return new Promise<void>((resolve) => {
     const hosted = async () => {
       try { const { url } = await api.setupPayouts(); if (url) await Linking.openURL(url); } catch {}
@@ -215,7 +215,7 @@ export function stripeOnboarding(): Promise<void> {
         const instance = loader({ publishableKey: PK, fetchClientSecret: async () => cs });
         // resolve() runs once, whether the user exits the component or closes the overlay.
         const { container, close } = makeOverlay(() => resolve());
-        const comp = instance.create("account-onboarding");
+        const comp = instance.create(component);
         if (comp.setOnExit) comp.setOnExit(() => close());
         container.appendChild(comp);
       } catch {
@@ -223,4 +223,23 @@ export function stripeOnboarding(): Promise<void> {
       }
     })();
   });
+}
+
+/**
+ * Run payout (Connect) onboarding. The returned promise resolves when the user
+ * finishes or closes the flow, so the caller can re-check payout status. On
+ * native (or without a publishable key) it opens the hosted onboarding link.
+ */
+export function stripeOnboarding(): Promise<void> {
+  return embeddedConnectFlow("account-onboarding");
+}
+
+/**
+ * Embedded payout management (DoorDash-style): balance, payout schedule/history,
+ * change bank or debit card, and instant cash-out — all in an in-site overlay so
+ * the user never leaves the site. Falls back to the hosted Express dashboard on
+ * native or if the embedded component can't load.
+ */
+export function stripeManagePayouts(): Promise<void> {
+  return embeddedConnectFlow("payouts");
 }

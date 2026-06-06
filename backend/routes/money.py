@@ -860,6 +860,88 @@ async def cancel_topup(tid: str, authorization: Optional[str] = Header(None)):
     return {"ok": True, "status": "cancelled"}
 
 
+@router.get("/wallet/activity")
+async def wallet_activity(authorization: Optional[str] = Header(None)):
+    """One chronological feed of everything money: top-ups, cash-outs, tips and
+    subscriptions (sent & received), and money transfers (incl. pending/reversed)."""
+    me = await get_current_user(authorization)
+    uid = me["user_id"]
+    items: list = []
+
+    topups = await db.wallet_topups.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    for t in topups:
+        items.append({
+            "id": f"topup:{t.get('id')}", "kind": "topup", "direction": "in",
+            "amount": round(float(t.get("amount", 0) or 0), 2), "status": t.get("status", "completed"),
+            "title": "Wallet top-up", "subtitle": "Card · Stripe" if t.get("source") == "stripe" else "Test mode",
+            "created_at": t.get("created_at"),
+        })
+
+    payouts = await db.payouts.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    for p in payouts:
+        items.append({
+            "id": f"cashout:{p.get('id')}", "kind": "cashout", "direction": "out",
+            "amount": round(float(p.get("amount", 0) or 0), 2), "status": p.get("status", "paid"),
+            "title": "Cash out" + (" to debit card" if p.get("method") == "instant_card" else ""),
+            "subtitle": "Stripe payout", "created_at": p.get("created_at"),
+        })
+
+    earnings = await db.earnings.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    for e in earnings:
+        kind = e.get("kind", "tip")
+        label = "Subscription" if kind == "subscription" else ("Money received" if e.get("source") in ("transfer", "wallet") else "Tip")
+        items.append({
+            "id": f"earn:{e.get('id')}", "kind": "received", "direction": "in",
+            "amount": round(float(e.get("amount", 0) or 0), 2), "status": "completed",
+            "title": f"{label} from {e.get('from_name', 'Someone')}", "message": e.get("message", ""),
+            "created_at": e.get("created_at"),
+        })
+
+    sent_tips = await db.tips.find({"from_user_id": uid}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    paid_subs = await db.subscriptions.find({"subscriber_id": uid, "status": "active"}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    pend = await db.money_transfers.find(
+        {"$or": [{"from_user_id": uid}, {"to_user_id": uid}], "status": {"$in": ["pending", "reversed", "declined", "cancelled"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(100).to_list(100)
+
+    need = {t.get("to_user_id") for t in sent_tips} | {s.get("creator_id") for s in paid_subs}
+    for mt in pend:
+        need.add(mt["to_user_id"] if mt["from_user_id"] == uid else mt["from_user_id"])
+    need.discard(None); need.discard(uid)
+    names: dict = {}
+    if need:
+        urows = await db.users.find({"user_id": {"$in": list(need)}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(need))
+        names = {u["user_id"]: u.get("name", "Someone") for u in urows}
+
+    for t in sent_tips:
+        items.append({
+            "id": f"sent:{t.get('id')}", "kind": "sent", "direction": "out",
+            "amount": round(float(t.get("amount", 0) or 0), 2), "status": "completed",
+            "title": f"To {names.get(t.get('to_user_id'), 'Someone')}", "message": t.get("message", ""),
+            "created_at": t.get("created_at"),
+        })
+    for s in paid_subs:
+        items.append({
+            "id": f"sub:{s.get('id')}", "kind": "subscription_paid", "direction": "out",
+            "amount": round(float(s.get("amount", 0) or 0), 2), "status": "active",
+            "title": f"Subscription to {names.get(s.get('creator_id'), 'creator')}",
+            "created_at": s.get("created_at") or s.get("started_at"),
+        })
+    for mt in pend:
+        out = mt["from_user_id"] == uid
+        other = names.get(mt["to_user_id"] if out else mt["from_user_id"], "Someone")
+        items.append({
+            "id": f"transfer:{mt.get('id')}", "kind": "transfer", "direction": "out" if out else "in",
+            "amount": round(float(mt.get("amount", 0) or 0), 2), "status": mt.get("status", "pending"),
+            "title": f"{'To' if out else 'From'} {other}", "message": mt.get("note", ""),
+            "created_at": mt.get("created_at"),
+        })
+
+    items = [i for i in items if i.get("created_at") is not None]
+    items.sort(key=lambda x: x["created_at"], reverse=True)
+    return {"activity": items[:120]}
+
+
 @router.get("/wallet/topups")
 async def list_topups(authorization: Optional[str] = Header(None)):
     """The user's wallet top-up history with status (processing/completed/failed)."""

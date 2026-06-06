@@ -10,7 +10,7 @@ import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-rou
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeOnboarding, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
+import { stripeOnboarding, stripeManagePayouts, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
 
 function fmtWhen(iso: string) {
   try { return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" }); } catch { return ""; }
@@ -202,6 +202,17 @@ export default function WalletScreen() {
       await pollPayoutStatus();
     } catch (e: any) {
       Alert.alert("Couldn't start payout setup", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setConnecting(false); }
+  };
+
+  const managePayouts = async () => {
+    setConnecting(true);
+    try {
+      await stripeManagePayouts();
+      await load();
+      await pollPayoutStatus(1);
+    } catch (e: any) {
+      Alert.alert("Couldn't open payouts", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setConnecting(false); }
   };
 
@@ -468,7 +479,7 @@ export default function WalletScreen() {
                   Stripe status: {payout?.disabled_reason || "—"}{transfers ? ` · transfers: ${transfers}` : ""}{platformNotReady ? " · platform: setup needed" : ""}
                 </Text>
               ) : null}
-              <TouchableOpacity style={styles.payoutBtn} onPress={setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
+              <TouchableOpacity style={styles.payoutBtn} onPress={payout?.payouts_enabled ? managePayouts : setupPayouts} disabled={connecting} testID="wallet-setup-payouts">
                 {connecting ? <ActivityIndicator color="#fff" size="small" /> : (
                   <>
                     <Ionicons name="card-outline" size={16} color="#fff" />
@@ -558,6 +569,12 @@ export default function WalletScreen() {
               </View>
             ))}
           </View>
+
+          <TouchableOpacity style={styles.allActivityBtn} onPress={() => router.push("/activity")} activeOpacity={0.7} testID="wallet-all-activity">
+            <Ionicons name="list" size={17} color={theme.primary} />
+            <Text style={styles.allActivityText}>View all activity</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+          </TouchableOpacity>
 
           <Text style={styles.section}>Received</Text>
           {(w?.recent || []).length === 0 ? (
@@ -906,6 +923,8 @@ const styles = StyleSheet.create({
   statNum: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
   statLabel: { color: theme.textMuted, fontSize: 11, textAlign: "center" },
   section: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 26, marginBottom: 12 },
+  allActivityBtn: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 22, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 14, backgroundColor: theme.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border },
+  allActivityText: { flex: 1, color: theme.textPrimary, fontSize: 14.5, fontWeight: "700" },
   payoutCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 10 },
   payoutHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   payoutDot: { width: 9, height: 9, borderRadius: 5 },

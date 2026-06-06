@@ -682,7 +682,27 @@ async def payout_account_session(authorization: Optional[str] = Header(None)):
             await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"stripe_account_id": acct_id}})
         sess = stripe.AccountSession.create(
             account=acct_id,
-            components={"account_onboarding": {"enabled": True}},
+            components={
+                "account_onboarding": {"enabled": True},
+                # Embedded payout management (DoorDash-style) so users never leave the site:
+                # see balance, payout history/schedule, change bank/debit card, cash out instantly.
+                "payouts": {
+                    "enabled": True,
+                    "features": {
+                        "instant_payouts": True,
+                        "standard_payouts": True,
+                        "edit_payout_schedule": True,
+                    },
+                },
+                "account_management": {
+                    "enabled": True,
+                    "features": {"external_account_collection": True},
+                },
+                "notification_banner": {
+                    "enabled": True,
+                    "features": {"external_account_collection": True},
+                },
+            },
         )
         return {"client_secret": sess["client_secret"], "publishable_key": STRIPE_PUBLISHABLE_KEY}
     except Exception as e:

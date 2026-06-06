@@ -458,6 +458,7 @@ export const api = {
   getTopups: () => request<{ topups: Topup[] }>("/wallet/topups"),
   cancelTopup: (id: string) =>
     request<{ ok: boolean; status: string; credited?: boolean }>(`/wallet/topup/${id}/cancel`, { method: "POST" }),
+  getActivity: () => request<{ activity: ActivityItem[] }>("/wallet/activity"),
   listFollowers: (uid: string) => request<PublicUser[]>(`/users/${uid}/followers`),
   listFollowing: (uid: string) => request<PublicUser[]>(`/users/${uid}/following`),
   sendFriendRequest: (uid: string) =>
@@ -686,6 +687,17 @@ export type WalletSummary = {
   ads_total?: number;
 };
 export type CurrencyInfo = { symbol: string; name: string; rate: number };
+export type ActivityItem = {
+  id: string;
+  kind: "topup" | "cashout" | "received" | "sent" | "subscription_paid" | "transfer";
+  direction: "in" | "out";
+  amount: number;
+  status: string;
+  title: string;
+  subtitle?: string;
+  message?: string;
+  created_at: string;
+};
 export type Topup = {
   id: string; amount: number;
   status: "processing" | "completed" | "failed" | "cancelled";
