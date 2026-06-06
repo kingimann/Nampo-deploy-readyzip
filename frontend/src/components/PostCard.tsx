@@ -59,10 +59,15 @@ export default function PostCard({
   const [reportOpen, setReportOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reactOpen, setReactOpen] = useState(false);
+  // Local copy so an emoji reaction updates instantly regardless of the parent.
+  const [localPost, setLocalPost] = useState<Post | null>(null);
   // If this entry is a pure repost (no text, has repost_of), render the original
   // with a "X reposted" banner.
   const isRepost = !!post.repost_of && post.reposted_post;
-  const display = (isRepost ? post.reposted_post! : post);
+  const baseDisplay = (isRepost ? post.reposted_post! : post);
+  const display = (localPost && localPost.id === baseDisplay.id) ? localPost : baseDisplay;
   const isOwner = !!viewerId && display.user_id === viewerId;
   const hasVideo = (display.media || []).some((m) => m.type === "video");
   const embed = getEmbed(display.text);
@@ -102,8 +107,19 @@ export default function PostCard({
     finally { setReporting(false); }
   };
 
-  const showMenu = !isOwner || !!onMore;
-  const onMenuPress = () => { if (isOwner) onMore?.(post); else reportPost(); };
+  // Everyone gets the overflow menu now (Send in DM / Bookmark / Report live here).
+  const showMenu = true;
+  const onMenuPress = () => setMenuOpen(true);
+
+  // Emoji reactions (unified like/dislike). Optimistic via a local override.
+  const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "😮", "😢", "🎉", "👏", "🙏", "👎"];
+  const doReact = async (emoji: string) => {
+    setReactOpen(false);
+    try {
+      const updated = await api.reactToPost(display.id, emoji);
+      if (!isRepost) setLocalPost(updated);
+    } catch {}
+  };
 
   return (
     <TouchableOpacity
@@ -251,62 +267,43 @@ export default function PostCard({
         </TouchableOpacity>
 
         {!display.likes_disabled && (
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={(e) => { e.stopPropagation?.(); onLike(display); }}
-            onLongPress={() => setLikers({ open: true, kind: "likers" })}
-            delayLongPress={350}
-            testID={`like-${post.id}`}
-          >
-            <Ionicons
-              name={display.liked_by_me ? "heart" : "heart-outline"}
-              size={18}
-              color={display.liked_by_me ? "#EF4444" : theme.textSecondary}
-            />
-            <Text style={[styles.actionText, display.liked_by_me && { color: "#EF4444" }]}>
-              {display.likes_count}
-            </Text>
-          </TouchableOpacity>
+          <>
+            {/* Unified reaction button — opens the emoji picker (or removes your
+                current reaction with a long-press). */}
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={(e) => { e.stopPropagation?.(); setReactOpen(true); }}
+              onLongPress={() => { if (display.my_reaction) doReact(display.my_reaction); else setLikers({ open: true, kind: "likers" }); }}
+              delayLongPress={350}
+              testID={`react-${post.id}`}
+            >
+              {display.my_reaction ? (
+                <Text style={{ fontSize: 17 }}>{display.my_reaction}</Text>
+              ) : (
+                <Ionicons name="happy-outline" size={18} color={theme.textSecondary} />
+              )}
+              {(display.reactions_total ?? display.likes_count) > 0 && (
+                <Text style={[styles.actionText, display.my_reaction && { color: theme.primary }]}>
+                  {display.reactions_total ?? display.likes_count}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Top reaction tallies — tap to react with that emoji. */}
+            {(display.reactions || []).slice(0, 3).map((r) => (
+              <TouchableOpacity
+                key={r.emoji}
+                style={[styles.reactChip, display.my_reaction === r.emoji && styles.reactChipMine]}
+                onPress={(e) => { e.stopPropagation?.(); doReact(r.emoji); }}
+                testID={`react-chip-${post.id}-${r.emoji}`}
+              >
+                <Text style={{ fontSize: 13 }}>{r.emoji}</Text>
+                <Text style={styles.reactChipCount}>{r.count}</Text>
+              </TouchableOpacity>
+            ))}
+          </>
         )}
 
-        {onDislike && (
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={(e) => { e.stopPropagation?.(); onDislike(display); }}
-            testID={`dislike-${post.id}`}
-          >
-            <Ionicons
-              name={display.disliked_by_me ? "thumbs-down" : "thumbs-down-outline"}
-              size={17}
-              color={display.disliked_by_me ? "#3B82F6" : theme.textSecondary}
-            />
-            {!!display.dislikes_count && display.dislikes_count > 0 && (
-              <Text style={[styles.actionText, display.disliked_by_me && { color: "#3B82F6" }]}>
-                {display.dislikes_count}
-              </Text>
-            )}
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => { e.stopPropagation?.(); onBookmark(display); }}
-          testID={`bookmark-${post.id}`}
-        >
-          <Ionicons
-            name={display.bookmarked_by_me ? "bookmark" : "bookmark-outline"}
-            size={17}
-            color={display.bookmarked_by_me ? theme.primary : theme.textSecondary}
-          />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={(e) => { e.stopPropagation?.(); setShareOpen(true); }}
-          testID={`share-${post.id}`}
-        >
-          <Ionicons name="paper-plane-outline" size={17} color={theme.textSecondary} />
-        </TouchableOpacity>
         {!!display.views_count && display.views_count > 0 && (
           isOwner ? (
             <TouchableOpacity
@@ -336,6 +333,62 @@ export default function PostCard({
       <ShareToChatSheet visible={shareOpen} post={display} onClose={() => setShareOpen(false)} />
 
       <PostViewersModal visible={viewersOpen} postId={display.id} onClose={() => setViewersOpen(false)} />
+
+      {/* Emoji reaction picker */}
+      <Modal visible={reactOpen} transparent animationType="fade" onRequestClose={() => setReactOpen(false)}>
+        <Pressable style={styles.reportBackdrop} onPress={() => setReactOpen(false)}>
+          <Pressable style={styles.reactSheet} onPress={(e) => e.stopPropagation?.()}>
+            <Text style={styles.reportTitle}>React</Text>
+            <View style={styles.reactGrid}>
+              {QUICK_EMOJIS.map((em) => (
+                <TouchableOpacity
+                  key={em}
+                  style={[styles.reactPick, display.my_reaction === em && styles.reactPickMine]}
+                  onPress={() => doReact(em)}
+                  testID={`react-pick-${em}`}
+                >
+                  <Text style={{ fontSize: 28 }}>{em}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {!!display.my_reaction && (
+              <TouchableOpacity style={styles.reportCancel} onPress={() => doReact(display.my_reaction!)} testID="react-remove">
+                <Text style={[styles.reportCancelText, { color: theme.error }]}>Remove my reaction</Text>
+              </TouchableOpacity>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Overflow menu — Send in DM / Bookmark / Report (+ owner options) */}
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.reportBackdrop} onPress={() => setMenuOpen(false)}>
+          <Pressable style={styles.reportSheet} onPress={(e) => e.stopPropagation?.()}>
+            <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); setShareOpen(true); }} testID={`menu-send-${post.id}`}>
+              <Ionicons name="paper-plane-outline" size={20} color={theme.textPrimary} />
+              <Text style={styles.menuText}>Send in DM</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); onBookmark(display); }} testID={`menu-bookmark-${post.id}`}>
+              <Ionicons name={display.bookmarked_by_me ? "bookmark" : "bookmark-outline"} size={20} color={display.bookmarked_by_me ? theme.primary : theme.textPrimary} />
+              <Text style={styles.menuText}>{display.bookmarked_by_me ? "Remove bookmark" : "Bookmark"}</Text>
+            </TouchableOpacity>
+            {isOwner && onMore ? (
+              <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); onMore(post); }} testID={`menu-owner-${post.id}`}>
+                <Ionicons name="create-outline" size={20} color={theme.textPrimary} />
+                <Text style={styles.menuText}>Edit or delete…</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); reportPost(); }} testID={`menu-report-${post.id}`}>
+                <Ionicons name="flag-outline" size={20} color={theme.error} />
+                <Text style={[styles.menuText, { color: theme.error }]}>Report post</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.reportCancel} onPress={() => setMenuOpen(false)} testID="menu-cancel">
+              <Text style={styles.reportCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={reportOpen} transparent animationType="fade" onRequestClose={() => { setReportOpen(false); setReported(false); }}>
         <View style={styles.reportBackdrop}>
@@ -380,6 +433,26 @@ export default function PostCard({
 const styles = StyleSheet.create({
   reportBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
   reportSheet: { backgroundColor: theme.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, paddingBottom: 28, gap: 4 },
+  reactChip: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: theme.surfaceAlt, borderRadius: 999,
+    paddingHorizontal: 8, paddingVertical: 3, marginRight: 4,
+    borderWidth: 1, borderColor: "transparent",
+  },
+  reactChipMine: { borderColor: theme.primary, backgroundColor: "rgba(0,168,132,0.12)" },
+  reactChipCount: { color: theme.textSecondary, fontSize: 12, fontWeight: "700" },
+  reactSheet: {
+    backgroundColor: theme.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 18, paddingBottom: 28, gap: 10,
+  },
+  reactGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "space-between" },
+  reactPick: {
+    width: 52, height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center",
+    backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: "transparent",
+  },
+  reactPickMine: { borderColor: theme.primary, backgroundColor: "rgba(0,168,132,0.14)" },
+  menuRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 15, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  menuText: { color: theme.textPrimary, fontSize: 15.5, fontWeight: "600" },
   reportTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
   reportSub: { color: theme.textMuted, fontSize: 13, marginBottom: 8 },
   reportOpt: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },

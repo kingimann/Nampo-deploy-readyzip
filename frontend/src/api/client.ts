@@ -456,6 +456,9 @@ export const api = {
     request<Post>(`/posts/${id}/like`, { method: "POST" }),
   toggleDislike: (id: string) =>
     request<Post>(`/posts/${id}/dislike`, { method: "POST" }),
+  // React to a post with any emoji (toggles off if it's already your reaction).
+  reactToPost: (id: string, emoji: string) =>
+    request<Post>(`/posts/${id}/react`, { method: "POST", body: JSON.stringify({ emoji }) }),
   promotePost: (id: string, days = 7, opts?: { budget?: number; cpc?: number }) =>
     request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days, ...(opts || {}) }) }),
   getCampaigns: () => request<{ campaigns: AdCampaign[] }>("/ads/campaigns"),
@@ -1111,6 +1114,9 @@ export type Post = {
   poll?: Poll | null;
   hashtags?: string[];
   likes_count: number; dislikes_count?: number; replies_count: number; reposts_count?: number;
+  reactions?: { emoji: string; count: number }[];
+  reactions_total?: number;
+  my_reaction?: string | null;
   quotes_count?: number;
   bookmarks_count?: number;
   views_count?: number;

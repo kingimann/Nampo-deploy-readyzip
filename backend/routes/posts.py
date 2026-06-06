@@ -10,7 +10,7 @@ from db import DuplicateKeyError
 from core import db, get_current_user, is_mod, is_admin
 from models import (
     LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
-    PostPatch, PostPrivacyPatch, PublicUser, ReportCreate, PromoteCreate,
+    PostPatch, PostPrivacyPatch, PublicUser, ReactionCount, ReportCreate, PromoteCreate,
 )
 from routes.notifications import emit_notification
 from services.link_preview import fetch_link_preview, first_url
@@ -24,6 +24,13 @@ from datetime import timedelta
 router = APIRouter()
 
 _HASHTAG_RE = re.compile(r"(?<![A-Za-z0-9_])#([A-Za-z0-9_]{1,50})")
+
+
+def _reaction_list(reactions: Optional[dict]) -> list:
+    """Turn the {emoji: count} tally into a list sorted by count desc."""
+    items = [{"emoji": k, "count": int(v)} for k, v in (reactions or {}).items() if int(v) > 0]
+    items.sort(key=lambda r: r["count"], reverse=True)
+    return items
 
 
 def _extract_hashtags(text: str) -> list:
@@ -226,17 +233,15 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
     disliked = False
     reposted = False
     bookmarked = False
+    my_reaction: Optional[str] = None
     if viewer_id:
-        liked = bool(
-            await db.post_likes.find_one(
-                {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0}
-            )
+        mine = await db.post_reactions.find_one(
+            {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0, "emoji": 1}
         )
-        disliked = bool(
-            await db.post_dislikes.find_one(
-                {"post_id": doc["id"], "user_id": viewer_id}, {"_id": 0}
-            )
-        )
+        my_reaction = mine.get("emoji") if mine else None
+        # Back-compat flags derived from the unified reaction system.
+        liked = my_reaction == "👍"
+        disliked = my_reaction == "👎"
         reposted = bool(
             await db.posts.find_one(
                 {"user_id": viewer_id, "repost_of": doc["id"]}, {"_id": 0, "id": 1}
@@ -286,6 +291,9 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         hashtags=doc.get("hashtags", []) or [],
         likes_count=doc.get("likes_count", 0),
         dislikes_count=doc.get("dislikes_count", 0),
+        reactions=_reaction_list(doc.get("reactions")),
+        reactions_total=sum((doc.get("reactions") or {}).values()),
+        my_reaction=my_reaction,
         replies_count=doc.get("replies_count", 0),
         reposts_count=doc.get("reposts_count", 0),
         quotes_count=doc.get("quotes_count", 0),
@@ -676,71 +684,93 @@ async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
     return [await _hydrate_post(d, me["user_id"]) for d in docs]
 
 
-@router.post("/posts/{post_id}/like", response_model=Post)
-async def toggle_like(post_id: str, authorization: Optional[str] = Header(None)):
-    user = await get_current_user(authorization)
-    doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Post not found")
-    existing = await db.post_likes.find_one(
-        {"post_id": post_id, "user_id": user["user_id"]}, {"_id": 0}
-    )
-    if existing:
-        await db.post_likes.delete_one({"post_id": post_id, "user_id": user["user_id"]})
-        await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": -1}})
-    else:
-        if doc.get("likes_disabled"):
-            raise HTTPException(status_code=403, detail="Likes are turned off for this post")
-        # Like and dislike are mutually exclusive — clear any dislike first.
-        dis = await db.post_dislikes.find_one({"post_id": post_id, "user_id": user["user_id"]}, {"_id": 0})
-        if dis:
-            await db.post_dislikes.delete_one({"post_id": post_id, "user_id": user["user_id"]})
-            await db.posts.update_one({"id": post_id}, {"$inc": {"dislikes_count": -1}})
-        try:
-            await db.post_likes.insert_one({
-                "post_id": post_id, "user_id": user["user_id"],
-                "created_at": datetime.now(timezone.utc),
-            })
-            await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": 1}})
-            await emit_notification(
-                user_id=doc["user_id"],
-                actor_id=user["user_id"],
-                ntype="like",
-                post_id=post_id,
-                message=(doc.get("text") or "")[:140],
-            )
-        except DuplicateKeyError:
-            pass
-    updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
-    return await _hydrate_post(updated, user["user_id"])
+class ReactBody(BaseModel):
+    emoji: str
 
 
-@router.post("/posts/{post_id}/dislike", response_model=Post)
-async def toggle_dislike(post_id: str, authorization: Optional[str] = Header(None)):
-    user = await get_current_user(authorization)
+def _norm_emoji(raw: str) -> str:
+    """Accept a single emoji / short token, capped so nobody stuffs the field."""
+    e = (raw or "").strip()
+    if not e:
+        raise HTTPException(status_code=400, detail="Pick an emoji to react with")
+    if len(e) > 16:
+        raise HTTPException(status_code=400, detail="That's not a valid reaction")
+    return e
+
+
+async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
+    """Unified emoji reactions (replaces separate like/dislike). One reaction per
+    user per post: same emoji again removes it; a different emoji switches it.
+    `reactions` is kept as an {emoji: count} tally on the post doc; `likes_count`
+    mirrors the total so feed ranking keeps working."""
     uid = user["user_id"]
     doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found")
-    existing = await db.post_dislikes.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
-    if existing:
-        await db.post_dislikes.delete_one({"post_id": post_id, "user_id": uid})
-        await db.posts.update_one({"id": post_id}, {"$inc": {"dislikes_count": -1}})
+    reactions = dict(doc.get("reactions") or {})
+
+    def _dec(em: str):
+        n = int(reactions.get(em, 0)) - 1
+        if n > 0:
+            reactions[em] = n
+        else:
+            reactions.pop(em, None)
+
+    existing = await db.post_reactions.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
+    if existing and existing.get("emoji") == emoji:
+        # Toggle off.
+        await db.post_reactions.delete_one({"post_id": post_id, "user_id": uid})
+        _dec(emoji)
+    elif existing:
+        # Switch reaction.
+        await db.post_reactions.update_one(
+            {"post_id": post_id, "user_id": uid},
+            {"$set": {"emoji": emoji, "created_at": datetime.now(timezone.utc)}},
+        )
+        _dec(existing.get("emoji", ""))
+        reactions[emoji] = int(reactions.get(emoji, 0)) + 1
     else:
-        # Clear any like first (mutually exclusive).
-        like = await db.post_likes.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
-        if like:
-            await db.post_likes.delete_one({"post_id": post_id, "user_id": uid})
-            await db.posts.update_one({"id": post_id}, {"$inc": {"likes_count": -1}})
+        if doc.get("likes_disabled"):
+            raise HTTPException(status_code=403, detail="Reactions are turned off for this post")
         try:
-            await db.post_dislikes.insert_one({
-                "post_id": post_id, "user_id": uid, "created_at": datetime.now(timezone.utc),
+            await db.post_reactions.insert_one({
+                "post_id": post_id, "user_id": uid, "emoji": emoji,
+                "created_at": datetime.now(timezone.utc),
             })
-            await db.posts.update_one({"id": post_id}, {"$inc": {"dislikes_count": 1}})
+            reactions[emoji] = int(reactions.get(emoji, 0)) + 1
+            await emit_notification(
+                user_id=doc["user_id"], actor_id=uid, ntype="like",
+                post_id=post_id, message=f"{emoji} {(doc.get('text') or '')[:120]}".strip(),
+            )
         except DuplicateKeyError:
             pass
+    total = sum(int(v) for v in reactions.values())
+    await db.posts.update_one(
+        {"id": post_id}, {"$set": {"reactions": reactions, "likes_count": total}}
+    )
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, uid)
+
+
+@router.post("/posts/{post_id}/react", response_model=Post)
+async def react_to_post(post_id: str, body: ReactBody, authorization: Optional[str] = Header(None)):
+    """React to a post with any emoji (toggles / switches)."""
+    user = await get_current_user(authorization)
+    return await _apply_reaction(post_id, user, _norm_emoji(body.emoji))
+
+
+@router.post("/posts/{post_id}/like", response_model=Post)
+async def toggle_like(post_id: str, authorization: Optional[str] = Header(None)):
+    """Back-compat: a 👍 reaction."""
+    user = await get_current_user(authorization)
+    return await _apply_reaction(post_id, user, "👍")
+
+
+@router.post("/posts/{post_id}/dislike", response_model=Post)
+async def toggle_dislike(post_id: str, authorization: Optional[str] = Header(None)):
+    """Back-compat: a 👎 reaction."""
+    user = await get_current_user(authorization)
+    return await _apply_reaction(post_id, user, "👎")
 
 
 @router.post("/posts/{post_id}/promote", response_model=Post)

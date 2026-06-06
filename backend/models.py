@@ -578,6 +578,11 @@ class PostAuthor(BaseModel):
     badges: List[Badge] = []
 
 
+class ReactionCount(BaseModel):
+    emoji: str
+    count: int = 0
+
+
 class Post(BaseModel):
     id: str
     user_id: str
@@ -597,6 +602,9 @@ class Post(BaseModel):
     hashtags: List[str] = []
     likes_count: int = 0
     dislikes_count: int = 0
+    reactions: List["ReactionCount"] = []   # emoji reaction tallies (desc by count)
+    reactions_total: int = 0
+    my_reaction: Optional[str] = None        # the emoji the viewer reacted with, if any
     replies_count: int = 0
     reposts_count: int = 0
     quotes_count: int = 0
