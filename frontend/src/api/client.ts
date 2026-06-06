@@ -146,6 +146,11 @@ export const api = {
   adminRemoveUser: (userId: string) =>
     request<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
   adminAuditLog: () => request<{ entries: AdminAuditEntry[] }>("/admin/audit"),
+  adminGetTestPayments: () => request<{ test_payments: boolean; stripe_configured: boolean }>("/admin/test-payments"),
+  adminSetTestPayments: (enabled: boolean) =>
+    request<{ test_payments: boolean }>("/admin/test-payments", { method: "POST", body: JSON.stringify({ enabled }) }),
+  adminResetMoney: () => request<{ ok: boolean }>("/admin/reset/money", { method: "POST" }),
+  adminResetAnalytics: () => request<{ ok: boolean }>("/admin/reset/analytics", { method: "POST" }),
   tipUser: (userId: string, amount: number, message?: string) =>
     request<{ id: string }>(`/users/${userId}/tip`, { method: "POST", body: JSON.stringify({ amount, message: message || "" }) }),
   getSubscriptionTiers: () => request<{ tiers: SubTier[] }>("/subscription-tiers"),
