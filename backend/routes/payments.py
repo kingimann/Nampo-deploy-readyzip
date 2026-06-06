@@ -95,12 +95,25 @@ def _checkout_response(session, embedded: bool) -> dict:
 
 @router.get("/payments/config")
 async def payments_config():
-    """Tell the client whether real payments are available."""
-    live = await payments_live()
+    """Tell the client whether real payments are available.
+
+    Test/simulated payments are OFF by default: real Stripe is used whenever
+    Stripe is configured and an admin hasn't explicitly forced test mode. The
+    app only falls back to simulated payments when Stripe isn't configured
+    (i.e. it's down / not set up) or an admin turns test mode on.
+    """
+    configured = stripe_enabled()
+    test_override = await test_payments_on()
+    live = configured and not test_override
     return {
         "enabled": live,
         "platform_fee_percent": PLATFORM_FEE_PERCENT,
         "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
+        # Why payments may be simulated, so the admin can tell the difference
+        # between "Stripe isn't configured/down" and "an admin forced test mode".
+        "stripe_configured": configured,
+        "test_mode": (not live),
+        "test_override": test_override,
     }
 
 
