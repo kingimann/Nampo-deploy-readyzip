@@ -3,11 +3,10 @@ import { Platform } from "react-native";
 import { useConfirm } from "@/src/context/ConfirmContext";
 
 /**
- * Web-only: intercepts the browser **Back** button and **keyboard refresh**
- * (F5 / Ctrl+R / ⌘R) and asks for confirmation with an in-app dialog instead of
- * the browser's own popup. (The browser's refresh *toolbar button* and tab-close
- * can't be intercepted without the native beforeunload dialog, so they're left
- * alone by design.)
+ * Web-only hardening: confirms **keyboard refresh** (F5 / Ctrl+R / ⌘R) with an
+ * in-app dialog, and blocks save / view-source / dev-tools shortcuts and the
+ * right-click context menu. It does NOT touch the browser Back button — that's
+ * the app's own navigation (expo-router uses browser history).
  */
 export default function WebNavGuard() {
   const confirm = useConfirm();
@@ -17,28 +16,9 @@ export default function WebNavGuard() {
 
     let busy = false;
 
-    const seed = () => { try { window.history.pushState(null, "", window.location.href); } catch {} };
-    seed();
-
-    const onPop = async () => {
-      if (busy) return;
-      // Cancel this back navigation by re-pushing our state…
-      seed();
-      busy = true;
-      const leave = await confirm({
-        title: "Leave this page?",
-        message: "Going back will leave what you're doing. Use the in-app navigation to move around.",
-        confirmLabel: "Go back",
-        cancelLabel: "Stay",
-        destructive: true,
-      });
-      busy = false;
-      if (leave) {
-        window.removeEventListener("popstate", onPop);
-        try { window.history.go(-2); } catch { try { window.history.back(); } catch {} }
-      }
-    };
-    window.addEventListener("popstate", onPop);
+    // NOTE: we deliberately do NOT intercept the browser Back button — the app's
+    // own navigation (expo-router) is built on browser history, so trapping
+    // popstate breaks every in-app back action.
 
     const onKey = async (e: KeyboardEvent) => {
       const k = (e.key || "").toLowerCase();
@@ -75,7 +55,6 @@ export default function WebNavGuard() {
     window.addEventListener("contextmenu", onContext);
 
     return () => {
-      window.removeEventListener("popstate", onPop);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("contextmenu", onContext);
     };
