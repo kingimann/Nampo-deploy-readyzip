@@ -25,25 +25,25 @@ function makeOverlay(onClose?: () => void): { container: HTMLDivElement; close: 
   const overlay = document.createElement("div");
   overlay.setAttribute("data-stripe-overlay", "1");
   overlay.style.cssText =
-    "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;";
+    "position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:99999;display:flex;align-items:flex-end;justify-content:center;";
+  // App-themed sheet (matches the dark UI) so the form feels native, not a popup.
   const card = document.createElement("div");
   card.style.cssText =
-    "background:#fff;border-radius:18px;max-width:400px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;position:relative;box-shadow:0 16px 50px rgba(0,0,0,.4);";
-  // Branded header so the embedded Stripe panel feels part of the site.
+    "background:#1F2C33;border-radius:20px 20px 0 0;max-width:480px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;position:relative;box-shadow:0 -8px 40px rgba(0,0,0,.5);";
   const header = document.createElement("div");
   header.style.cssText =
-    "display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff;z-index:3;";
+    "display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.08);position:sticky;top:0;background:#1F2C33;z-index:3;";
   const title = document.createElement("div");
-  title.textContent = "🔒 Secure payment · Stripe";
-  title.style.cssText = "font-size:13px;font-weight:800;color:#0b141a;letter-spacing:.2px;";
+  title.textContent = "🔒 Secured by Stripe";
+  title.style.cssText = "font-size:12.5px;font-weight:800;color:#8696A0;letter-spacing:.2px;";
   const x = document.createElement("button");
   x.textContent = "✕";
   x.setAttribute("aria-label", "Close");
   x.style.cssText =
-    "border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#666;padding:2px 4px;";
+    "border:0;background:transparent;font-size:20px;line-height:1;cursor:pointer;color:#8696A0;padding:2px 4px;";
   header.appendChild(title); header.appendChild(x);
   const container = document.createElement("div");
-  container.style.cssText = "padding:12px;min-height:60px;overflow:auto;flex:1;";
+  container.style.cssText = "padding:16px;min-height:60px;overflow:auto;flex:1;";
   card.appendChild(header); card.appendChild(container); overlay.appendChild(card);
   document.body.appendChild(overlay);
   let closed = false;
@@ -89,6 +89,84 @@ export async function stripeCheckout(args: {
     return true;
   } catch {
     return hosted();
+  }
+}
+
+/**
+ * Inline card payment for tips / subscriptions / promote — renders a card field
+ * right in the app (like the top-up sheet) instead of Stripe's embedded checkout.
+ * Returns true if the payment went through. Falls back to stripeCheckout only if
+ * the inline intent can't be created.
+ */
+export async function stripeCardPay(args: {
+  kind: "tip" | "subscription" | "promote";
+  creator_id?: string;
+  amount?: number;
+  label?: string;
+  extra?: Record<string, any>;
+}): Promise<boolean> {
+  if (!isWeb || !PK) return stripeCheckout(args);
+  let res: any;
+  try {
+    res = await api.createPayIntent(args.kind, args.creator_id || "", args.amount || 0, args.extra || {});
+  } catch (e: any) {
+    // A real error (e.g. creator has no payouts) — surface it, don't silently checkout.
+    throw e;
+  }
+  const cs = res?.client_secret;
+  if (!cs) return stripeCheckout(args);
+  const confirmRef = res.subscription_id ? { subscription_id: res.subscription_id } : { intent_id: res.intent_id };
+  try {
+    await loadScript("https://js.stripe.com/v3/");
+    const Stripe = (window as any).Stripe;
+    if (!Stripe) return stripeCheckout(args);
+    const stripe = Stripe(res.publishable_key || PK);
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: { base: { fontSize: "16px", color: "#E9EDEF", "::placeholder": { color: "#8696A0" } } },
+    });
+
+    return await new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      const done = (v: boolean) => { if (settled) return; settled = true; resolve(v); };
+      const { container, close } = makeOverlay(() => done(false));
+
+      const title = document.createElement("div");
+      title.textContent = args.label || (args.kind === "subscription" ? "Subscribe" : args.kind === "promote" ? "Promote your post" : "Send a tip");
+      title.style.cssText = "font-size:16px;font-weight:800;color:#E9EDEF;margin:4px 2px 12px;";
+      const cardBox = document.createElement("div");
+      cardBox.style.cssText = "border:1px solid rgba(134,150,160,0.25);border-radius:12px;padding:14px 12px;background:#0B141A;";
+      const err = document.createElement("div");
+      err.style.cssText = "color:#f87171;font-size:13px;font-weight:600;margin:8px 2px 0;min-height:16px;";
+      const payLabel = args.amount ? `Pay $${args.amount.toFixed(2)}` : "Confirm";
+      const pay = document.createElement("button");
+      pay.textContent = payLabel;
+      pay.style.cssText = "width:100%;margin-top:14px;padding:14px;border:0;border-radius:12px;background:#00A884;color:#fff;font-size:15px;font-weight:800;cursor:pointer;";
+      const hint = document.createElement("div");
+      hint.textContent = "🔒 Your card is processed securely by Stripe.";
+      hint.style.cssText = "color:#8696A0;font-size:11.5px;text-align:center;margin-top:10px;";
+
+      [title, cardBox, err, pay, hint].forEach((el) => container.appendChild(el));
+      card.mount(cardBox);
+
+      pay.onclick = async () => {
+        pay.disabled = true; pay.textContent = "Processing…"; err.textContent = "";
+        try {
+          const { error, paymentIntent } = await stripe.confirmCardPayment(cs, { payment_method: { card } });
+          if (error) { err.textContent = error.message || "Payment failed."; pay.disabled = false; pay.textContent = payLabel; return; }
+          if (paymentIntent && (paymentIntent.status === "succeeded" || paymentIntent.status === "processing")) {
+            try { await api.confirmPayIntent(confirmRef); } catch {}
+            done(true); close();
+          } else {
+            err.textContent = "Payment didn't complete."; pay.disabled = false; pay.textContent = payLabel;
+          }
+        } catch (e: any) {
+          err.textContent = String(e?.message || e) || "Something went wrong."; pay.disabled = false; pay.textContent = payLabel;
+        }
+      };
+    });
+  } catch {
+    return stripeCheckout(args);
   }
 }
 
@@ -142,7 +220,7 @@ export async function stripeCardTopup(amount: number): Promise<boolean> {
     const stripe = Stripe(res.publishable_key || PK);
     const elements = stripe.elements();
     const card = elements.create("card", {
-      style: { base: { fontSize: "16px", color: "#0b141a", "::placeholder": { color: "#9aa5a1" } } },
+      style: { base: { fontSize: "16px", color: "#E9EDEF", "::placeholder": { color: "#8696A0" } } },
     });
 
     return await new Promise<boolean>((resolve) => {
@@ -152,9 +230,9 @@ export async function stripeCardTopup(amount: number): Promise<boolean> {
 
       const title = document.createElement("div");
       title.textContent = `Add $${amount.toFixed(2)} to your wallet`;
-      title.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin:4px 2px 12px;";
+      title.style.cssText = "font-size:16px;font-weight:800;color:#E9EDEF;margin:4px 2px 12px;";
       const cardBox = document.createElement("div");
-      cardBox.style.cssText = "border:1px solid #d6dcd9;border-radius:12px;padding:14px 12px;background:#fff;";
+      cardBox.style.cssText = "border:1px solid rgba(134,150,160,0.25);border-radius:12px;padding:14px 12px;background:#0B141A;";
       const err = document.createElement("div");
       err.style.cssText = "color:#dc2626;font-size:13px;font-weight:600;margin:8px 2px 0;min-height:16px;";
       const pay = document.createElement("button");
@@ -225,10 +303,10 @@ function embeddedConnectFlow(preferred: "account_onboarding" | "payouts" | "acco
       wrap.style.cssText = "padding:22px 18px;text-align:center;";
       const h = document.createElement("div");
       h.textContent = title;
-      h.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin-bottom:8px;";
+      h.style.cssText = "font-size:16px;font-weight:800;color:#E9EDEF;margin-bottom:8px;";
       const p = document.createElement("div");
       p.textContent = body;
-      p.style.cssText = "font-size:13.5px;color:#55636b;line-height:1.5;";
+      p.style.cssText = "font-size:13.5px;color:#8696A0;line-height:1.5;";
       wrap.appendChild(h); wrap.appendChild(p);
       if (showLink) {
         const a = document.createElement("button");
@@ -341,7 +419,7 @@ export async function stripeAddDebitCard(acctId: string, currency?: string): Pro
     const elements = stripe.elements();
     const card = elements.create("card", {
       hidePostalCode: false,
-      style: { base: { fontSize: "16px", color: "#0b141a", "::placeholder": { color: "#9aa5a1" } } },
+      style: { base: { fontSize: "16px", color: "#E9EDEF", "::placeholder": { color: "#8696A0" } } },
     });
 
     return await new Promise<boolean>((resolve) => {
@@ -351,12 +429,12 @@ export async function stripeAddDebitCard(acctId: string, currency?: string): Pro
 
       const title = document.createElement("div");
       title.textContent = "Add a debit card to cash out";
-      title.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin:4px 2px 4px;";
+      title.style.cssText = "font-size:16px;font-weight:800;color:#E9EDEF;margin:4px 2px 4px;";
       const sub = document.createElement("div");
       sub.textContent = "Instant cash-out sends money straight to this debit card. Credit and most prepaid cards aren’t eligible.";
-      sub.style.cssText = "font-size:12.5px;color:#55636b;line-height:1.45;margin:0 2px 12px;";
+      sub.style.cssText = "font-size:12.5px;color:#8696A0;line-height:1.45;margin:0 2px 12px;";
       const cardBox = document.createElement("div");
-      cardBox.style.cssText = "border:1px solid #d6dcd9;border-radius:12px;padding:14px 12px;background:#fff;";
+      cardBox.style.cssText = "border:1px solid rgba(134,150,160,0.25);border-radius:12px;padding:14px 12px;background:#0B141A;";
       const err = document.createElement("div");
       err.style.cssText = "color:#dc2626;font-size:13px;font-weight:600;margin:8px 2px 0;min-height:16px;";
       const save = document.createElement("button");
@@ -394,6 +472,36 @@ export async function stripeAddDebitCard(acctId: string, currency?: string): Pro
 }
 
 /**
+ * Tokenize a bank account with Stripe.js and return the token id, so a NATIVE
+ * in-app form (our own RN inputs) can collect the details and we never render a
+ * Stripe popup. Throws with a friendly message on failure.
+ */
+export async function tokenizeBankAccount(
+  acctId: string,
+  fields: { account_holder_name: string; routing_number: string; account_number: string },
+  country?: string,
+  currency?: string,
+): Promise<string> {
+  if (!isWeb) throw new Error("Bank entry is available on the web app.");
+  if (!PK || !acctId) throw new Error("Payouts aren't set up on this device.");
+  await loadScript("https://js.stripe.com/v3/");
+  const Stripe = (window as any).Stripe;
+  if (!Stripe) throw new Error("Couldn't load the secure tokenizer. Please try again.");
+  const stripe = Stripe(PK, { stripeAccount: acctId });
+  const cc = (country || "US").toUpperCase();
+  const ccy = (currency || (cc === "CA" ? "cad" : "usd")).toLowerCase();
+  const { token, error } = await stripe.createToken("bank_account", {
+    country: cc, currency: ccy,
+    account_holder_name: fields.account_holder_name.trim(),
+    account_holder_type: "individual",
+    routing_number: fields.routing_number.replace(/\s|-/g, ""),
+    account_number: fields.account_number.replace(/\s/g, ""),
+  });
+  if (error) throw new Error(error.message || "Couldn't read those bank details.");
+  return token.id;
+}
+
+/**
  * Inline bank-account (direct deposit) entry — a plain in-app form. The numbers
  * are tokenized client-side by Stripe.js (never sent to our server) and attached
  * as the connected account's bank payout method. Returns true if added.
@@ -416,15 +524,15 @@ export async function stripeAddBankAccount(acctId: string, country?: string, cur
 
       const title = document.createElement("div");
       title.textContent = "Add direct deposit (bank account)";
-      title.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin:4px 2px 4px;";
+      title.style.cssText = "font-size:16px;font-weight:800;color:#E9EDEF;margin:4px 2px 4px;";
       const sub = document.createElement("div");
       sub.textContent = "Standard payouts are sent to this bank account on your schedule.";
-      sub.style.cssText = "font-size:12.5px;color:#55636b;line-height:1.45;margin:0 2px 12px;";
+      sub.style.cssText = "font-size:12.5px;color:#8696A0;line-height:1.45;margin:0 2px 12px;";
 
       const mkInput = (placeholder: string) => {
         const i = document.createElement("input");
         i.placeholder = placeholder;
-        i.style.cssText = "width:100%;box-sizing:border-box;border:1px solid #d6dcd9;border-radius:10px;padding:13px 12px;font-size:15px;color:#0b141a;margin-top:8px;background:#fff;";
+        i.style.cssText = "width:100%;box-sizing:border-box;border:1px solid rgba(134,150,160,0.25);border-radius:10px;padding:13px 12px;font-size:15px;color:#E9EDEF;margin-top:8px;background:#0B141A;";
         return i;
       };
       const nameI = mkInput("Account holder name");

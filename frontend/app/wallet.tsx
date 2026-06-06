@@ -10,7 +10,7 @@ import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-rou
 import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
-import { stripeAddDebitCard, stripeAddBankAccount, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
+import { stripeAddDebitCard, stripeTopup, stripeCardTopup } from "@/src/lib/stripeEmbed";
 import { useConfirm } from "@/src/context/ConfirmContext";
 
 function fmtWhen(iso: string) {
@@ -214,19 +214,6 @@ export default function WalletScreen() {
       if (added) Alert.alert("Card added", "Your debit card is set up. You can now cash out instantly.");
     } catch (e: any) {
       Alert.alert("Couldn't add card", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
-    } finally { setConnecting(false); }
-  };
-
-  const addBankAccount = async () => {
-    if (!payout?.account_id) { await setupPayouts(); return; }
-    setConnecting(true);
-    try {
-      const added = await stripeAddBankAccount(payout.account_id, payout.country, payout.account_currency);
-      await load();
-      await pollPayoutStatus(1);
-      if (added) Alert.alert("Bank added", "Your direct-deposit bank account is set up.");
-    } catch (e: any) {
-      Alert.alert("Couldn't add bank", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setConnecting(false); }
   };
 
@@ -862,7 +849,7 @@ export default function WalletScreen() {
                   {payout?.bank_account?.last4 ? `${payout.bank_account.bank || "Bank"} •••• ${payout.bank_account.last4}` : "Not set up yet"}
                 </Text>
               </View>
-              <TouchableOpacity onPress={async () => { setManageOpen(false); await addBankAccount(); }} disabled={connecting} testID="mp-bank">
+              <TouchableOpacity onPress={() => { setManageOpen(false); router.push("/add-bank"); }} testID="mp-bank">
                 <Text style={styles.mpAction}>{payout?.bank_account?.last4 ? "Change" : "Add"}</Text>
               </TouchableOpacity>
             </View>

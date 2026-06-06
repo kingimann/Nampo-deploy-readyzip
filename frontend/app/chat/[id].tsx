@@ -27,7 +27,7 @@ import QuoteCard from "@/src/components/QuoteCard";
 import GifPickerSheet from "@/src/components/GifPickerSheet";
 import ContactPickerSheet from "@/src/components/ContactPickerSheet";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
-import { stripeCheckout } from "@/src/lib/stripeEmbed";
+import { stripeCardPay } from "@/src/lib/stripeEmbed";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { useConfirm } from "@/src/context/ConfirmContext";
@@ -1153,7 +1153,7 @@ export default function ChatScreen() {
         appleFee
         live={payEnabled}
         onCheckout={payEnabled && peer ? (amt, note) =>
-          stripeCheckout({ kind: "tip", creator_id: peer.id, amount: amt, extra: { conversation_id: id, note } }) : undefined}
+          stripeCardPay({ kind: "tip", creator_id: peer.id, amount: amt, extra: { conversation_id: id, note } }) : undefined}
         onWalletFallback={peer ? (amt, note) =>
           router.push(`/pay/${peer.id}?amount=${amt}&note=${encodeURIComponent(note || "")}`) : undefined}
         walletBalance={walletBal ?? undefined}
