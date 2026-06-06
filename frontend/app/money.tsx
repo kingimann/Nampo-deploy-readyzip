@@ -44,12 +44,14 @@ export default function MoneyScreen() {
   const [secMsg, setSecMsg] = useState<string | null>(null);
 
   const [bal, setBal] = useState<WalletBalance | null>(null);
+  const [feeCents, setFeeCents] = useState(0);
   const load = useCallback(async () => {
     try {
       const [s, r, t] = await Promise.all([api.getMoneySecurity(), api.listMoneyRequests(), api.listMoneyTransfers()]);
       setSecurity(s); setReqs(r); setTransfers(t);
     } catch {} finally { setLoading(false); }
     try { setBal(await api.getWalletBalance()); } catch {}
+    try { setFeeCents((await api.getPaymentsConfig()).transaction_fee_cents || 0); } catch {}
   }, []);
   const acceptTransfer = async (t: MoneyRequest) => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch {} };
   const declineTransfer = async (t: MoneyRequest) => { try { await api.declineMoneyTransfer(t.id); await load(); } catch {} };
@@ -226,6 +228,11 @@ export default function MoneyScreen() {
               <Text style={styles.dollar}>$</Text>
               <TextInput style={styles.amtInput} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.textMuted} testID="money-amount" />
             </View>
+            {flow === "send" && feeCents > 0 && Number(amount) > 0 ? (
+              <Text style={styles.feeHint}>
+                ${(Number(amount) || 0).toFixed(2)} to them + ${(feeCents / 100).toFixed(2)} fee = ${((Number(amount) || 0) + feeCents / 100).toFixed(2)} total
+              </Text>
+            ) : null}
             {flow === "send" && bal ? (
               <TouchableOpacity onPress={() => { setFlow(null); router.push("/wallet"); }} testID="money-balance">
                 <Text style={styles.balHint}>
@@ -413,6 +420,7 @@ const styles = StyleSheet.create({
   warn: { color: "#F59E0B", fontSize: 12.5, marginTop: 12, lineHeight: 18 },
   flowMsg: { color: theme.primary, fontSize: 13, fontWeight: "600", marginTop: 12, textAlign: "center" },
   balHint: { color: theme.textMuted, fontSize: 12.5, fontWeight: "600", textAlign: "center", marginTop: 8 },
+  feeHint: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700", textAlign: "center", marginTop: 8 },
   submitBtn: { backgroundColor: theme.primary, borderRadius: 14, height: 52, alignItems: "center", justifyContent: "center", marginTop: 16 },
   submitText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   cancelText: { color: theme.textMuted, fontSize: 14, fontWeight: "700", textAlign: "center", marginTop: 10, paddingVertical: 6 },

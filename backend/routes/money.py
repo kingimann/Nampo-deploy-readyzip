@@ -83,6 +83,12 @@ def _insufficient():
     })
 
 
+async def _fee_dollars() -> float:
+    """The flat per-payment transaction fee, in dollars (admin-controlled)."""
+    from routes.payments import transaction_fee_cents
+    return round((await transaction_fee_cents()) / 100.0, 2)
+
+
 def _hash(s: str) -> str:
     return bcrypt.hashpw(s.encode("utf-8")[:72], bcrypt.gensalt(rounds=12)).decode("utf-8")
 
@@ -189,22 +195,24 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     await _require_answer(me, body.answer)
-    # Hold the funds: debit the sender now (escrow). They're credited to the
-    # recipient on accept, or refunded to the sender on decline.
-    if not await _debit_wallet(me["user_id"], amount):
+    # The payer covers a flat transaction fee; the recipient gets the full amount.
+    fee = await _fee_dollars()
+    # Hold the funds: debit the sender (amount + fee) now (escrow). The amount is
+    # credited to the recipient on accept; the full amount+fee is refunded on decline.
+    if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
         raise _insufficient()
     # Money isn't credited until the recipient accepts it (Cash App-style).
     now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
         "from_user_id": me["user_id"], "from_name": me.get("name", "Someone"),
-        "to_user_id": body.to_user_id, "amount": amount, "note": (body.note or "")[:200],
+        "to_user_id": body.to_user_id, "amount": amount, "fee": fee, "note": (body.note or "")[:200],
         "status": "pending", "created_at": now,
     }
     await db.money_transfers.insert_one(doc.copy())
     await _notify_money(body.to_user_id, me["user_id"], "money_received",
                         f"sent you ${amount:.2f} — accept it")
-    return {"ok": True, "amount": amount, "status": "pending"}
+    return {"ok": True, "amount": amount, "fee": fee, "status": "pending"}
 
 
 async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
@@ -267,8 +275,8 @@ async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
-    # Refund the escrowed funds back to the sender.
-    await _credit_wallet(t["from_user_id"], round(float(t.get("amount", 0) or 0), 2))
+    # Refund the escrowed funds (amount + fee) back to the sender.
+    await _credit_wallet(t["from_user_id"], round(float(t.get("amount", 0) or 0) + float(t.get("fee", 0) or 0), 2))
     await db.money_transfers.update_one(
         {"id": tid}, {"$set": {"status": "declined", "resolved_at": datetime.now(timezone.utc)}}
     )
@@ -359,7 +367,9 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
         raise HTTPException(status_code=404, detail="Request not found")
     amount = round(float(req.get("amount", 0) or 0), 2)
     await _require_answer(me, body.answer)
-    if not await _debit_wallet(me["user_id"], amount):
+    # The payer covers the flat transaction fee; the requester gets the full amount.
+    fee = await _fee_dollars()
+    if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
         raise _insufficient()
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
     await db.money_requests.update_one(

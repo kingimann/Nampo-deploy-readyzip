@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Alert, TextInput,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,12 +17,31 @@ export default function AdminPaymentsScreen() {
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [feePct, setFeePct] = useState("");      // platform's cut % of subscriptions/tips
+  const [feeCents, setFeeCents] = useState("");  // flat per-payment fee, in cents
+  const [savingFees, setSavingFees] = useState(false);
 
   const load = useCallback(async () => {
     try { const r = await api.adminGetTestPayments(); setTestPayments(r.test_payments); setStripeConfigured(r.stripe_configured); }
     catch {} finally { setLoading(false); }
+    try { const f = await api.adminGetFees(); setFeePct(String(f.platform_fee_percent)); setFeeCents(String(f.transaction_fee_cents)); }
+    catch {}
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const saveFees = async () => {
+    setSavingFees(true); setMsg(null);
+    try {
+      const f = await api.adminSetFees({
+        platform_fee_percent: Math.max(0, Math.min(100, Number(feePct) || 0)),
+        transaction_fee_cents: Math.max(0, Math.round(Number(feeCents) || 0)),
+      });
+      setFeePct(String(f.platform_fee_percent)); setFeeCents(String(f.transaction_fee_cents));
+      setMsg(`Saved — creators keep ${f.creator_share_percent}%, ${f.transaction_fee_cents}¢ fee per payment.`);
+    } catch (e: any) { Alert.alert("Couldn't save", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setSavingFees(false); }
+  };
+  const creatorShare = Math.max(0, Math.min(100, 100 - (Number(feePct) || 0)));
 
   const toggle = async () => {
     const next = !testPayments; setTestPayments(next); setSaving(true); setMsg(null);
@@ -84,6 +103,43 @@ export default function AdminPaymentsScreen() {
               : stripeConfigured ? "💳 Live — real Stripe charges." : "Simulated (Stripe not set up)."}
           </Text>
 
+          <Text style={styles.section}>Fees & revenue split</Text>
+          <View style={styles.card}>
+            <View style={styles.feeRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>Platform cut (subscriptions)</Text>
+                <Text style={styles.rowSub}>Your share of each subscription & tip. Creators keep the rest.</Text>
+              </View>
+              <View style={styles.feeInputWrap}>
+                <TextInput
+                  style={styles.feeInput} value={feePct}
+                  onChangeText={(t) => setFeePct(t.replace(/[^0-9.]/g, ""))}
+                  keyboardType="decimal-pad" placeholder="30" placeholderTextColor={theme.textMuted} testID="ap-fee-pct"
+                />
+                <Text style={styles.feeUnit}>%</Text>
+              </View>
+            </View>
+            <Text style={styles.splitText}>Split: creators {creatorShare}% · you {Math.max(0, Math.min(100, Number(feePct) || 0))}%</Text>
+            <View style={styles.feeDivider} />
+            <View style={styles.feeRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>Transaction fee</Text>
+                <Text style={styles.rowSub}>Flat fee charged to the payer on each payment (tips & money sends).</Text>
+              </View>
+              <View style={styles.feeInputWrap}>
+                <TextInput
+                  style={styles.feeInput} value={feeCents}
+                  onChangeText={(t) => setFeeCents(t.replace(/[^0-9]/g, ""))}
+                  keyboardType="number-pad" placeholder="10" placeholderTextColor={theme.textMuted} testID="ap-fee-cents"
+                />
+                <Text style={styles.feeUnit}>¢</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.saveBtn} onPress={saveFees} disabled={savingFees} testID="ap-save-fees">
+              {savingFees ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveText}>Save fees</Text>}
+            </TouchableOpacity>
+          </View>
+
           <Text style={styles.section}>Reset data</Text>
           <TouchableOpacity style={[styles.resetBtn, busy === "money" && { opacity: 0.6 }]} onPress={() => confirmReset("money")} disabled={busy !== null} testID="ap-reset-money">
             {busy === "money" ? <ActivityIndicator color={theme.error} /> : (
@@ -119,6 +175,14 @@ const styles = StyleSheet.create({
   knob: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff" },
   knobOn: { alignSelf: "flex-end" },
   note: { color: theme.textSecondary, fontSize: 13, marginTop: 10, fontWeight: "600" },
+  feeRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
+  feeInputWrap: { flexDirection: "row", alignItems: "center", backgroundColor: theme.surfaceAlt, borderRadius: 10, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 10, height: 44, minWidth: 74 },
+  feeInput: { flex: 1, color: theme.textPrimary, fontSize: 17, fontWeight: "800", textAlign: "right", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  feeUnit: { color: theme.textMuted, fontSize: 15, fontWeight: "800", marginLeft: 4 },
+  splitText: { color: theme.primary, fontSize: 13, fontWeight: "700", paddingHorizontal: 16, marginTop: -4 },
+  feeDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginVertical: 6, marginHorizontal: 16 },
+  saveBtn: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13, alignItems: "center", margin: 16, marginTop: 10 },
+  saveText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   resetBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.error, borderRadius: 12, paddingVertical: 14, marginBottom: 10 },
   resetText: { color: theme.error, fontSize: 13.5, fontWeight: "700" },
   msg: { color: theme.primary, fontSize: 13, fontWeight: "600", marginTop: 8, textAlign: "center" },
