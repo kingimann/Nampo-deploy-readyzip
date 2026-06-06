@@ -202,6 +202,9 @@ Developer API key (Settings → Developer API).
 | GET | `/wallet` · `/wallet/export` | Earnings + money sent (incl. `balance`, `currency`) · CSV export |
 | GET | `/wallet/balance` | Spendable wallet balance → `{balance, display, currency, symbol, rate, currencies}` |
 | POST | `/wallet/topup` | Add funds — `{amount, embedded?}`. Stripe Checkout when live, instant in test mode |
+| GET | `/wallet/topups` | Top-up history with `status` (processing \| completed \| failed), amount, time |
+| POST | `/wallet/topup/confirm` | Confirm a checkout on return — `{session_id}`; credits if paid (idempotent) |
+| POST | `/wallet/topup/sync` | Reconcile recent Stripe payments; credits any paid top-up a missed webhook dropped |
 | POST | `/wallet/currency` | Set preferred display currency — `{currency}` |
 | GET | `/currencies` | Supported display currencies + fixed USD conversion rates |
 

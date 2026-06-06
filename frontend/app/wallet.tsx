@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
   ActivityIndicator, Platform, Linking, Alert, Share, Modal,
@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
-import { api, WalletSummary, WalletTxn, WalletBalance } from "@/src/api/client";
+import { api, WalletSummary, WalletTxn, WalletBalance, Topup } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { stripeOnboarding, stripeTopup } from "@/src/lib/stripeEmbed";
@@ -39,6 +39,11 @@ const REQ_LABELS: Record<string, string> = {
 function prettyReq(r: string): string {
   return REQ_LABELS[r] || r.replace(/_/g, " ").replace(/\./g, " · ");
 }
+const TOPUP_STATUS: Record<string, { label: string; icon: string; color: string; bg: string }> = {
+  completed: { label: "Completed", icon: "checkmark-circle", color: "#16A34A", bg: "rgba(22,163,74,0.12)" },
+  processing: { label: "Processing", icon: "time-outline", color: "#D97706", bg: "rgba(217,119,6,0.12)" },
+  failed: { label: "Failed", icon: "close-circle", color: "#DC2626", bg: "rgba(220,38,38,0.12)" },
+};
 
 export default function WalletScreen() {
   const router = useRouter();
@@ -61,6 +66,7 @@ export default function WalletScreen() {
   const [topupAmt, setTopupAmt] = useState("");
   const [toppingUp, setToppingUp] = useState(false);
   const [curOpen, setCurOpen] = useState(false);
+  const [topups, setTopups] = useState<Topup[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +74,7 @@ export default function WalletScreen() {
       setW(data);
     } catch {} finally { setLoading(false); }
     try { setBal(await api.getWalletBalance()); } catch {}
+    try { setTopups((await api.getTopups()).topups); } catch {}
     try { const { tiers } = await api.getSubscriptionTiers(); setSubTiers(tiers); } catch {}
     // Payment/payout status (Stripe) — harmless when Stripe is off.
     try {
@@ -101,6 +108,15 @@ export default function WalletScreen() {
     })();
     return () => { cancelled = true; };
   }, [params?.session_id]);
+
+  // Safety net: once per visit, reconcile any paid top-up that a missed webhook
+  // never credited (recovers funds even without a session_id in the URL).
+  const syncedRef = useRef(false);
+  useEffect(() => {
+    if (syncedRef.current) return;
+    syncedRef.current = true;
+    (async () => { try { const r = await api.syncTopups(); if (r.credited > 0) await load(); } catch {} })();
+  }, [load]);
 
   useEffect(() => { if (user?.payout_threshold != null) setThreshold(String(user.payout_threshold || "")); }, [user?.payout_threshold]);
 
@@ -183,7 +199,8 @@ export default function WalletScreen() {
     try {
       const credited = await stripeTopup(amt);
       setTopupOpen(false); setTopupAmt("");
-      if (credited) await load();   // test mode: funds added instantly
+      await load();   // refresh balance + show the new top-up (processing/completed)
+      void credited;
     } catch (e: any) {
       Alert.alert("Top up failed", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setToppingUp(false); }
@@ -247,6 +264,34 @@ export default function WalletScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {topups.length > 0 && (
+            <>
+              <Text style={styles.section}>Top-ups</Text>
+              <View style={styles.topupsCard}>
+                {topups.slice(0, 8).map((t) => {
+                  const st = TOPUP_STATUS[t.status] || TOPUP_STATUS.completed;
+                  return (
+                    <View key={t.id} style={styles.topupRow}>
+                      <View style={[styles.topupIcon, { backgroundColor: theme.surfaceAlt }]}>
+                        <Ionicons name={st.icon as any} size={16} color={st.color} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.topupTitle}>Wallet top-up</Text>
+                        <Text style={styles.topupMeta}>{fmtFull(t.created_at)}{t.source === "test" ? " · test" : ""}</Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text style={[styles.topupAmt, t.status === "failed" && { color: theme.textMuted, textDecorationLine: "line-through" }]}>+${t.amount.toFixed(2)}</Text>
+                        <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
+                          <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
           <View style={styles.totalCard}>
             <Text style={styles.totalLabel}>Total earned</Text>
@@ -644,6 +689,14 @@ const styles = StyleSheet.create({
   checkAgainBtn: { alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: theme.border, marginTop: 2 },
   checkAgainText: { color: theme.primary, fontWeight: "800", fontSize: 14 },
   reqText: { color: "#F59E0B", fontSize: 12.5, fontWeight: "700", lineHeight: 18 },
+  topupsCard: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14 },
+  topupRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  topupIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  topupTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
+  topupMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+  topupAmt: { color: "#16A34A", fontSize: 15, fontWeight: "800" },
+  statusPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, marginTop: 3 },
+  statusText: { fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
   freqRow: { flexDirection: "row", gap: 10 },
   freqChip: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
   freqChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
