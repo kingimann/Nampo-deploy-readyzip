@@ -39,10 +39,10 @@ export default function ChatScreen() {
   const { user } = useAuth();
   const confirm = useConfirm();
   const insets = useSafeAreaInsets();
-  const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
+  const { id, name, draft } = useLocalSearchParams<{ id: string; name?: string; draft?: string }>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(typeof draft === "string" ? draft : "");
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<Message>>(null);
   const [peerKey, setPeerKey] = useState<Uint8Array | null>(null);

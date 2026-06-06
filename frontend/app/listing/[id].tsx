@@ -52,7 +52,12 @@ export default function ListingDetailScreen() {
     setBusy(true);
     try {
       const conv = await api.contactSeller(listing.id);
-      router.push({ pathname: "/chat/[id]", params: { id: conv.id, name: conv.other_user?.name || listing.seller.name } });
+      router.push({ pathname: "/chat/[id]", params: {
+        id: conv.id,
+        name: conv.other_user?.name || listing.seller.name,
+        // Pre-fill (but don't send) a starter message about this listing.
+        draft: `Hi! Is your listing "${listing.title}" still available?`,
+      } });
     } catch {} finally { setBusy(false); }
   };
 

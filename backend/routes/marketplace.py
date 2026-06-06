@@ -599,20 +599,9 @@ async def contact_seller(listing_id: str, authorization: Optional[str] = Header(
         {"id": conv["id"]},
         {"$set": {"listing_id": listing_id, "listing_title": listing_title}},
     )
-    now = datetime.now(timezone.utc)
-    await db.messages.insert_one({
-        "id": str(uuid.uuid4()),
-        "conversation_id": conv["id"],
-        "sender_id": user["user_id"],
-        "type": "text",
-        "text": encrypt_text(f"Hi! Is your listing \"{listing['title']}\" still available?"),
-        "place_name": None,
-        "place_address": None,
-        "place_longitude": None,
-        "place_latitude": None,
-        "created_at": now,
-    })
-    await db.conversations.update_one({"id": conv["id"]}, {"$set": {"last_message_at": now}})
+    # Don't auto-send a greeting — just open the conversation so the buyer writes
+    # their own first message. Surface any existing last message if the thread
+    # already had one.
     other = await _public_user(seller_id)
     last_msg_doc = await db.messages.find_one(
         {"conversation_id": conv["id"]}, {"_id": 0}, sort=[("created_at", -1)]
@@ -625,7 +614,7 @@ async def contact_seller(listing_id: str, authorization: Optional[str] = Header(
         listing_id=conv.get("listing_id"),
         listing_title=conv.get("listing_title"),
         last_message=Message(**last_msg_doc) if last_msg_doc else None,
-        last_message_at=now,
+        last_message_at=conv.get("last_message_at"),
         unread_count=0,
         created_at=conv["created_at"],
     )
