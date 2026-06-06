@@ -80,10 +80,11 @@ async def call_token(conversation_id: str, authorization: Optional[str] = Header
 
 @router.post("/calls/{conversation_id}/ring")
 async def call_ring(conversation_id: str, authorization: Optional[str] = Header(None)):
-    """Notify the other participant(s) of an incoming call."""
+    """Notify the other participant(s) of an incoming call (in-app + push)."""
     user = await get_current_user(authorization)
     conv = await _conv_or_404(conversation_id, user["user_id"])
     room = f"call_{conversation_id}"
+    caller = user.get("name") or "Someone"
     for pid in (conv.get("participant_ids") or []):
         if pid == user["user_id"]:
             continue
@@ -91,4 +92,18 @@ async def call_ring(conversation_id: str, authorization: Optional[str] = Header(
             user_id=pid, actor_id=user["user_id"], ntype="call",
             conversation_id=conversation_id, message="📞 Incoming voice call",
         )
+        # Wake the device so the call can ring in the background.
+        try:
+            from routes.push import push_tokens_for
+            from services.push import send_expo_push
+            tokens = await push_tokens_for(pid)
+            if tokens:
+                await send_expo_push(
+                    tokens,
+                    title=f"📞 {caller}",
+                    body="Incoming call — tap to answer",
+                    data={"type": "call", "conversation_id": conversation_id, "room": room, "caller": caller},
+                )
+        except Exception:
+            pass
     return {"ok": True, "room": room}
