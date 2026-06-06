@@ -52,7 +52,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapboxWebViewHandle>(null);
   const insets = useSafeAreaInsets();
 
-  const [styleKey, setStyleKey] = useState<MapStyleKey>("dark");
+  const [styleKey, setStyleKey] = useState<MapStyleKey>("standard");
   const [styleSheetOpen, setStyleSheetOpen] = useState(false);
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
@@ -631,6 +631,7 @@ export default function MapScreen() {
                     <View
                       style={[
                         styles.styleSwatch,
+                        s.key === "standard" && { backgroundColor: "#2b6cb0" },
                         s.key === "streets" && { backgroundColor: "#3a4a5a" },
                         s.key === "satellite" && { backgroundColor: "#2d3a26" },
                         s.key === "dark" && { backgroundColor: "#111" },

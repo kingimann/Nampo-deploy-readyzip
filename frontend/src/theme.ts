@@ -37,6 +37,11 @@ export const theme = {
 
 export const MAP_STYLES = [
   {
+    key: "standard",
+    label: "Standard",
+    url: "mapbox://styles/mapbox/standard",
+  },
+  {
     key: "streets",
     label: "Streets",
     url: "mapbox://styles/mapbox/streets-v12",

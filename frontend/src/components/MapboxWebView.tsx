@@ -67,7 +67,6 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   .user-dot {
     width: 16px; height: 16px; border-radius: 8px;
     background:#1A73E8; border:3px solid #fff; box-shadow: 0 0 8px rgba(0,0,0,0.45);
-    transition: transform 600ms linear;
     position: relative;
   }
   .user-dot.has-heading::after {
@@ -112,6 +111,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
 
   // Hide Mapbox's built-in business/POI labels & icons (they can look outdated).
   function hidePoiLayers() {
+    // New Standard style: POIs are a config flag, not a separate layer.
+    try { map.setConfigProperty('basemap', 'showPointOfInterestLabels', false); } catch (e) {}
+    // Classic styles (streets/satellite/dark/outdoors): hide 'poi' layers.
     try {
       var ls = (map.getStyle() && map.getStyle().layers) || [];
       for (var i = 0; i < ls.length; i++) {
@@ -254,21 +256,20 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     if (!userMarker) {
       var el = document.createElement('div');
       el.className = 'user-dot';
-      userMarker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([lng,lat]).addTo(map);
+      userMarker = new mapboxgl.Marker({ element: el, anchor: 'center', rotationAlignment: 'map' }).setLngLat([lng,lat]).addTo(map);
     } else {
       userMarker.setLngLat([lng, lat]);
     }
-    // Heading arrow
+    // Heading arrow — rotate the WHOLE marker via Mapbox (never touch the
+    // element's transform directly: that's what positions it on the ground).
     try {
       var dotEl = userMarker.getElement();
       if (heading != null && !isNaN(heading)) {
         dotEl.classList.add('has-heading');
-        dotEl.style.setProperty('--h', heading + 'deg');
-        // Rotate the ::after via inline rotation on the element (CSS var trick)
-        dotEl.style.transform = 'rotate(' + heading + 'deg)';
+        userMarker.setRotation(heading);
       } else {
         dotEl.classList.remove('has-heading');
-        dotEl.style.transform = '';
+        userMarker.setRotation(0);
       }
     } catch (e) {}
 
