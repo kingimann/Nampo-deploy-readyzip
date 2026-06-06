@@ -423,6 +423,12 @@ export const api = {
     }
     return request<TransitNearby>(`/transit/nearby?${p.toString()}`);
   },
+  // How to reach a destination on a given route (where to get off + the walk).
+  transitPlan: (routeId: string, destLat: number, destLon: number, boardLat?: number, boardLon?: number) => {
+    const p = new URLSearchParams({ route_id: routeId, dest_lat: String(destLat), dest_lon: String(destLon) });
+    if (boardLat != null && boardLon != null) { p.set("board_lat", String(boardLat)); p.set("board_lon", String(boardLon)); }
+    return request<TransitPlan>(`/transit/plan?${p.toString()}`);
+  },
 
   // Posts / Feed / Follows
   createPost: (body: PostCreate) =>
@@ -1047,6 +1053,9 @@ export type EtaUpdateBody = {
 export type TransitDeparture = {
   stop_name: string;
   stop_distance?: number | null; // meters from the user to the stop
+  stop_id?: string | null;
+  board_lat?: number | null;
+  board_lon?: number | null;
   route: string;
   route_long?: string;
   route_id?: string | null;
@@ -1069,6 +1078,12 @@ export type TransitNearby = {
   departures: TransitDeparture[];
   filtered?: boolean; // true when results were limited to routes toward the destination
   error?: string;
+};
+export type TransitPlan = {
+  configured: boolean;
+  found?: boolean;
+  alight?: { name: string; lat: number; lon: number; walk_to_dest_m: number } | null;
+  ride_meters?: number | null;
 };
 
 export type LinkPreview = {

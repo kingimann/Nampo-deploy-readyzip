@@ -14,7 +14,7 @@ import {
 import {
   forwardGeocode, fetchRoutes, categorySearch, GeocodeFeature, Profile, Step, RouteResult,
 } from "@/src/api/mapbox";
-import { api, EtaShare, TransitNearby } from "@/src/api/client";
+import { api, EtaShare, TransitNearby, TransitDeparture, TransitPlan } from "@/src/api/client";
 import { MAP_STYLES, theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 
@@ -228,6 +228,10 @@ export default function DirectionsScreen() {
   const [nowTick, setNowTick] = useState(Date.now()); // drives the "updated Xs ago" label
   const [transitAllNearby, setTransitAllNearby] = useState(false); // false = only routes toward destination
   const [transitExpanded, setTransitExpanded] = useState(true); // foldable sheet body
+  // Tapped departure → "how to get there" detail
+  const [selectedDep, setSelectedDep] = useState<TransitDeparture | null>(null);
+  const [plan, setPlan] = useState<TransitPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
   // Drag-or-tap handle for the foldable transit sheet (mirrors the main panel):
   // a small move = tap (toggle); a clear vertical drag sets the state directly.
   const transitHandle = useRef(
@@ -564,6 +568,26 @@ export default function DirectionsScreen() {
       return next;
     });
   }, [loadTransit]);
+
+  // Tap a departure → show how to get to the destination on that route.
+  const openDepartureDetail = useCallback(async (dep: TransitDeparture) => {
+    setSelectedDep(dep);
+    setPlan(null);
+    const dest = waypoints[waypoints.length - 1]?.feature || null;
+    if (!dest || !dep.route_id) return;
+    setPlanLoading(true);
+    try {
+      const p = await api.transitPlan(
+        dep.route_id, dest.latitude, dest.longitude,
+        dep.board_lat ?? undefined, dep.board_lon ?? undefined,
+      );
+      setPlan(p);
+    } catch {
+      setPlan(null);
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [waypoints]);
 
   // Tick the "updated Xs ago" label while the sheet is open.
   useEffect(() => {
@@ -1349,7 +1373,12 @@ export default function DirectionsScreen() {
                           ? item.route_long
                           : null;
                       return (
-                        <View style={styles.transitRow} testID="transit-departure">
+                        <TouchableOpacity
+                          style={styles.transitRow}
+                          testID="transit-departure"
+                          activeOpacity={0.7}
+                          onPress={() => openDepartureDetail(item)}
+                        >
                           <View style={[styles.transitBadge, isLate && { backgroundColor: theme.warning }]}>
                             <Ionicons name={transitIcon(item.kind)} size={16} color="#fff" />
                             <Text style={styles.transitBadgeText} numberOfLines={1}>{item.route}</Text>
@@ -1387,14 +1416,92 @@ export default function DirectionsScreen() {
                                 <Text style={[styles.transitLiveText, { color: st.color }]}>{st.text}</Text>
                               </View>
                             )}
+                            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} style={{ marginTop: 2 }} />
                           </View>
-                        </View>
+                        </TouchableOpacity>
                       );
                     }}
                   />
                 )}
               </>
             )}
+          </View>
+        </View>
+      )}
+
+      {/* Departure detail — how to get to the destination on this route */}
+      {selectedDep && (
+        <View style={styles.sarSheetWrap} pointerEvents="box-none">
+          <View style={[styles.sarSheet, { paddingBottom: insets.bottom + 14 }]}>
+            <View style={styles.sarHeader}>
+              <View style={[styles.transitBadge, { marginRight: 10 }]}>
+                <Ionicons name={transitIcon(selectedDep.kind)} size={16} color="#fff" />
+                <Text style={styles.transitBadgeText} numberOfLines={1}>{selectedDep.route}</Text>
+              </View>
+              <Text style={[styles.sarTitle, { flex: 1 }]} numberOfLines={1}>
+                {selectedDep.headsign || selectedDep.route_long || "Route"}
+              </Text>
+              <TouchableOpacity onPress={() => { setSelectedDep(null); setPlan(null); }} testID="dep-detail-close" style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={theme.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Step 1 — walk to the boarding stop */}
+            <View style={styles.planStep}>
+              <Ionicons name="walk" size={18} color={theme.primary} style={styles.planIcon} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.planTitle}>Walk to {selectedDep.stop_name}</Text>
+                {!!walkLabel(selectedDep.stop_distance) && (
+                  <Text style={styles.planSub}>{walkLabel(selectedDep.stop_distance)}</Text>
+                )}
+              </View>
+            </View>
+            {/* Step 2 — board */}
+            <View style={styles.planStep}>
+              <Ionicons name={transitIcon(selectedDep.kind)} size={18} color={theme.primary} style={styles.planIcon} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.planTitle}>
+                  Board {selectedDep.route} toward {selectedDep.headsign || selectedDep.route_long || "—"}
+                </Text>
+                <Text style={styles.planSub}>
+                  Departs {transitWhen(selectedDep)}{selectedDep.time_label ? ` · ${selectedDep.time_label}` : ""}
+                  {(() => { const s = transitStatus(selectedDep); return s ? ` · ${s.text}` : ""; })()}
+                </Text>
+              </View>
+            </View>
+            {/* Step 3 + 4 — ride and alight (needs a destination) */}
+            {planLoading ? (
+              <ActivityIndicator color={theme.primary} style={{ marginVertical: 16 }} />
+            ) : !destFeature ? (
+              <Text style={styles.planNote}>Set a destination above to see where to get off and the walk from there.</Text>
+            ) : plan?.found && plan.alight ? (
+              <>
+                <View style={styles.planStep}>
+                  <Ionicons name="flag" size={18} color={theme.primary} style={styles.planIcon} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.planTitle}>Get off at {plan.alight.name}</Text>
+                    {plan.ride_meters != null && (
+                      <Text style={styles.planSub}>~{(plan.ride_meters / 1000).toFixed(1)} km ride (approx.)</Text>
+                    )}
+                  </View>
+                </View>
+                <View style={styles.planStep}>
+                  <Ionicons name="walk" size={18} color={theme.primary} style={styles.planIcon} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.planTitle}>Walk to {destFeature.name}</Text>
+                    {!!walkLabel(plan.alight.walk_to_dest_m) && (
+                      <Text style={styles.planSub}>{walkLabel(plan.alight.walk_to_dest_m)}</Text>
+                    )}
+                  </View>
+                </View>
+              </>
+            ) : (
+              <Text style={styles.planNote}>
+                Ride toward {selectedDep.headsign || "the destination"} and get off at the stop nearest {destFeature.name}.
+                (Couldn't pin the exact stop for this route.)
+              </Text>
+            )}
+            <Text style={styles.planDisclaimer}>Times are live where the agency provides them; ride distance is an estimate.</Text>
           </View>
         </View>
       )}
@@ -1740,4 +1847,10 @@ const styles = StyleSheet.create({
   transitLiveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 },
   transitLiveDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.success },
   transitLiveText: { color: theme.success, fontSize: 11, fontWeight: "700" },
+  planStep: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 11, borderLeftWidth: 2, borderLeftColor: theme.border, marginLeft: 9, paddingLeft: 12 },
+  planIcon: { marginTop: 1, marginLeft: -23, backgroundColor: theme.surface, paddingVertical: 2 },
+  planTitle: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "700", lineHeight: 19 },
+  planSub: { color: theme.textSecondary, fontSize: 12.5, marginTop: 2 },
+  planNote: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, paddingVertical: 12 },
+  planDisclaimer: { color: theme.textMuted, fontSize: 11, marginTop: 10, lineHeight: 15 },
 });

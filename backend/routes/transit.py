@@ -4,6 +4,7 @@ Proxies the TransitLand v2 REST API so the API key stays server-side. Set
 TRANSITLAND_API_KEY in the environment (free key at https://www.transit.land/).
 """
 import asyncio
+import math
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -90,6 +91,14 @@ def _delay_seconds(dep: dict) -> Optional[int]:
     return None
 
 
+def _stop_coords(stop: dict) -> tuple:
+    geo = stop.get("geometry") or {}
+    coords = geo.get("coordinates") or []
+    if len(coords) >= 2:
+        return coords[0], coords[1]  # lon, lat
+    return None, None
+
+
 async def _departures_for_stop(
     client: httpx.AsyncClient, onestop_id: str, stop_distance: Optional[float] = None,
 ) -> list:
@@ -107,6 +116,7 @@ async def _departures_for_stop(
     out = []
     for stop in (data.get("stops") or []):
         stop_name = stop.get("stop_name") or stop.get("name") or ""
+        board_lon, board_lat = _stop_coords(stop)
         for dep in (stop.get("departures") or []):
             trip = dep.get("trip") or {}
             route = trip.get("route") or {}
@@ -120,6 +130,9 @@ async def _departures_for_stop(
             out.append({
                 "stop_name": stop_name,
                 "stop_distance": stop_distance,
+                "stop_id": onestop_id,
+                "board_lat": board_lat,
+                "board_lon": board_lon,
                 "route": short or long or "—",
                 "route_long": long,
                 "route_id": route.get("onestop_id"),
@@ -232,4 +245,76 @@ async def transit_nearby(
         "stops": stop_list[:6],
         "departures": departures,
         "filtered": filtered,
+    }
+
+
+def _haversine_m(lon1, lat1, lon2, lat2) -> Optional[float]:
+    try:
+        r = 6371000.0
+        p1, p2 = math.radians(lat1), math.radians(lat2)
+        dp = math.radians(lat2 - lat1)
+        dl = math.radians(lon2 - lon1)
+        a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+        return 2 * r * math.asin(math.sqrt(a))
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/transit/plan")
+async def transit_plan(
+    route_id: str = Query(...),
+    board_lat: Optional[float] = Query(None),
+    board_lon: Optional[float] = Query(None),
+    dest_lat: float = Query(...),
+    dest_lon: float = Query(...),
+    authorization: Optional[str] = Header(None),
+):
+    """How to reach the destination on a given route: find the stop on this route
+    closest to the destination (the place to get off) + the walk from there."""
+    await get_current_user(authorization)
+    if not TRANSITLAND_API_KEY:
+        return {"configured": False}
+
+    alight = None
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        try:
+            resp = await client.get(
+                f"{TRANSITLAND_BASE}/stops",
+                params={
+                    "apikey": TRANSITLAND_API_KEY,
+                    "lat": dest_lat, "lon": dest_lon, "radius": 1500,
+                    "served_by_onestop_ids": route_id, "limit": 25,
+                },
+            )
+            stops = (resp.json() or {}).get("stops") or [] if resp.status_code == 200 else []
+        except (httpx.HTTPError, ValueError):
+            stops = []
+
+        # Closest served stop to the destination = where you get off.
+        best_d = None
+        for s in stops:
+            lon, lat = _stop_coords(s)
+            if lon is None:
+                continue
+            d = _haversine_m(lon, lat, dest_lon, dest_lat)
+            if d is None:
+                continue
+            if best_d is None or d < best_d:
+                best_d = d
+                alight = {
+                    "name": s.get("stop_name") or s.get("name") or "Stop",
+                    "lat": lat, "lon": lon,
+                    "walk_to_dest_m": round(d),
+                }
+
+    ride_m = None
+    if alight and board_lat is not None and board_lon is not None:
+        ride_m = _haversine_m(board_lon, board_lat, alight["lon"], alight["lat"])
+        ride_m = round(ride_m) if ride_m is not None else None
+
+    return {
+        "configured": True,
+        "found": bool(alight),
+        "alight": alight,
+        "ride_meters": ride_m,  # straight-line; an estimate, not the driven distance
     }
