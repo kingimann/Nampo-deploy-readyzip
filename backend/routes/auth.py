@@ -191,6 +191,14 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
     if body.currency is not None:
         from core import normalize_currency
         patch["currency"] = normalize_currency(body.currency)
+    if body.sms_notifications is not None:
+        # SMS notifications need a verified phone to send to.
+        if body.sms_notifications and not user.get("phone_verified"):
+            raise HTTPException(status_code=400, detail={
+                "code": "phone_unverified",
+                "message": "Verify your phone number before turning on SMS notifications.",
+            })
+        patch["sms_notifications"] = bool(body.sms_notifications)
     if patch:
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": patch})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
@@ -249,7 +257,7 @@ async def register(body: RegisterRequest):
     return AuthResponse(session_token=token, user=User(**_user_doc_to_model(user_doc)))
 
 
-@router.post("/auth/login", response_model=AuthResponse)
+@router.post("/auth/login")
 async def login(body: LoginRequest):
     ident = (body.identifier or "").strip().lower()
     if not ident:
@@ -281,6 +289,10 @@ async def login(body: LoginRequest):
         {"user_id": user_doc["user_id"]},
         {"$set": {"failed_login_attempts": 0, "locked_until": None}},
     )
+    # Two-factor: if enabled (and a verified phone exists), don't mint a session
+    # yet — text a one-time code and require /auth/login/2fa to finish.
+    if user_doc.get("twofa_enabled") and user_doc.get("phone_verified") and user_doc.get("phone"):
+        return await _begin_2fa_challenge(user_doc)
     token = await _mint_session(user_doc["user_id"])
     return AuthResponse(session_token=token, user=User(**_user_doc_to_model(user_doc)))
 
@@ -570,6 +582,270 @@ async def phone_verify(body: PhoneVerify, authorization: Optional[str] = Header(
     }})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return User(**_user_doc_to_model(updated))
+
+
+# ── SMS auth helpers (codes via Twilio; dev_code fallback when unconfigured) ──
+CODE_TTL_MIN = 10
+CODE_MAX_ATTEMPTS = 5
+CODE_COOLDOWN_SEC = 30
+
+
+def _gen_code() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def _hash_code(code: str) -> str:
+    return bcrypt.hashpw(code.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+
+
+def _check_code(code: str, hashed: Optional[str]) -> bool:
+    if not hashed:
+        return False
+    try:
+        return bcrypt.checkpw((code or "").strip().encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def _mask_phone(p: Optional[str]) -> str:
+    digits = re.sub(r"\D", "", p or "")
+    if len(digits) < 4:
+        return "your phone"
+    return f"•••• {digits[-4:]}"
+
+
+def _cooldown_ok(last) -> bool:
+    if not last:
+        return True
+    try:
+        return (datetime.now(timezone.utc) - _norm_dt(last)).total_seconds() >= CODE_COOLDOWN_SEC
+    except Exception:
+        return True
+
+
+async def _begin_2fa_challenge(user_doc: dict) -> dict:
+    """Text a login code and return a 2fa_required payload."""
+    from services.sms import send_sms, sms_enabled
+    code = _gen_code()
+    now = datetime.now(timezone.utc)
+    await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {
+        "twofa_code_hash": _hash_code(code),
+        "twofa_code_expires": now + timedelta(minutes=CODE_TTL_MIN),
+        "twofa_code_attempts": 0,
+        "twofa_code_sent_at": now,
+    }})
+    sent = await send_sms(user_doc["phone"], f"Your Nami login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
+    out = {
+        "twofa_required": True,
+        "identifier": user_doc.get("username") or user_doc.get("email"),
+        "masked_phone": _mask_phone(user_doc.get("phone")),
+        "sent": sent,
+    }
+    if not sms_enabled():
+        out["dev_code"] = code
+        out["note"] = "SMS isn't configured; use dev_code to finish signing in."
+    return out
+
+
+class TwoFALogin(BaseModel):
+    identifier: str  # email OR username
+    code: str
+
+
+@router.post("/auth/login/2fa", response_model=AuthResponse)
+async def login_2fa(body: TwoFALogin):
+    """Finish a two-factor login with the texted code."""
+    ident = (body.identifier or "").strip().lower()
+    user_doc = await db.users.find_one(
+        {"$or": [{"email": ident}, {"username": ident}]}, {"_id": 0}
+    )
+    if not user_doc or not user_doc.get("twofa_code_hash"):
+        raise HTTPException(status_code=400, detail="No login in progress — start again.")
+    exp = user_doc.get("twofa_code_expires")
+    try:
+        if exp and _norm_dt(exp) < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="That code expired — sign in again.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    if int(user_doc.get("twofa_code_attempts", 0) or 0) >= CODE_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many attempts — sign in again.")
+    if not _check_code(body.code, user_doc.get("twofa_code_hash")):
+        await db.users.update_one({"user_id": user_doc["user_id"]}, {"$inc": {"twofa_code_attempts": 1}})
+        raise HTTPException(status_code=400, detail="Incorrect code")
+    await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {
+        "twofa_code_hash": "", "twofa_code_expires": None, "twofa_code_attempts": 0,
+    }})
+    token = await _mint_session(user_doc["user_id"])
+    return AuthResponse(session_token=token, user=User(**_user_doc_to_model(user_doc)))
+
+
+class TwoFAToggle(BaseModel):
+    enabled: bool
+    password: Optional[str] = None  # required to disable
+
+
+@router.post("/auth/2fa", response_model=User)
+async def set_twofa(body: TwoFAToggle, authorization: Optional[str] = Header(None)):
+    """Turn SMS two-factor on/off. Enabling needs a verified phone; disabling
+    needs the current password."""
+    user = await get_current_user(authorization)
+    if body.enabled:
+        if not user.get("phone_verified"):
+            raise HTTPException(status_code=400, detail={
+                "code": "phone_unverified",
+                "message": "Verify your phone number before enabling two-factor.",
+            })
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"twofa_enabled": True}})
+    else:
+        if not _verify_password(body.password or "", user.get("hashed_password", "")):
+            raise HTTPException(status_code=400, detail="Enter your current password to disable two-factor.")
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+            "twofa_enabled": False, "twofa_code_hash": "", "twofa_code_expires": None,
+        }})
+    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return User(**_user_doc_to_model(updated))
+
+
+# ── Phone OTP login (existing accounts with a verified phone) ────────────────
+class PhoneLoginStart(BaseModel):
+    phone: str
+
+
+@router.post("/auth/login/phone/start")
+async def login_phone_start(body: PhoneLoginStart):
+    """Text a one-time login code to a known, verified phone. Returns exists:false
+    (without sending) when no verified-phone account matches."""
+    raw = (body.phone or "").strip()
+    if not PHONE_RE.match(raw):
+        raise HTTPException(status_code=400, detail="Enter a valid phone number (e.g. +14155551234)")
+    user_doc = await db.users.find_one({"phone": raw, "phone_verified": True}, {"_id": 0})
+    if not user_doc:
+        return {"exists": False}
+    if not _cooldown_ok(user_doc.get("login_code_sent_at")):
+        raise HTTPException(status_code=429, detail="Please wait a moment before requesting another code")
+    from services.sms import send_sms, sms_enabled
+    code = _gen_code()
+    now = datetime.now(timezone.utc)
+    await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {
+        "login_code_hash": _hash_code(code),
+        "login_code_expires": now + timedelta(minutes=CODE_TTL_MIN),
+        "login_code_attempts": 0,
+        "login_code_sent_at": now,
+    }})
+    sent = await send_sms(raw, f"Your Nami login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
+    out = {"exists": True, "sent": sent, "masked_phone": _mask_phone(raw)}
+    if not sms_enabled():
+        out["dev_code"] = code
+    return out
+
+
+class PhoneLoginVerify(BaseModel):
+    phone: str
+    code: str
+
+
+@router.post("/auth/login/phone/verify", response_model=AuthResponse)
+async def login_phone_verify(body: PhoneLoginVerify):
+    raw = (body.phone or "").strip()
+    user_doc = await db.users.find_one({"phone": raw, "phone_verified": True}, {"_id": 0})
+    if not user_doc or not user_doc.get("login_code_hash"):
+        raise HTTPException(status_code=400, detail="Request a code first")
+    exp = user_doc.get("login_code_expires")
+    try:
+        if exp and _norm_dt(exp) < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="That code expired — request a new one")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    if int(user_doc.get("login_code_attempts", 0) or 0) >= CODE_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many attempts — request a new code")
+    if not _check_code(body.code, user_doc.get("login_code_hash")):
+        await db.users.update_one({"user_id": user_doc["user_id"]}, {"$inc": {"login_code_attempts": 1}})
+        raise HTTPException(status_code=400, detail="Incorrect code")
+    from core import _enforce_moderation, _effective_role
+    if _effective_role(user_doc) != "admin":
+        _enforce_moderation(user_doc)
+    await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {
+        "login_code_hash": "", "login_code_expires": None, "login_code_attempts": 0,
+        "failed_login_attempts": 0, "locked_until": None,
+    }})
+    token = await _mint_session(user_doc["user_id"])
+    return AuthResponse(session_token=token, user=User(**_user_doc_to_model(user_doc)))
+
+
+# ── Password reset via SMS ──────────────────────────────────────────────────
+class ForgotSms(BaseModel):
+    identifier: str  # email, username, or phone
+
+
+@router.post("/auth/forgot-password/sms")
+async def forgot_password_sms(body: ForgotSms):
+    """Text a reset code to the account's verified phone. Always returns ok
+    (never reveals whether an account/phone exists)."""
+    from services.sms import send_sms, sms_enabled
+    ident = (body.identifier or "").strip()
+    low = ident.lower()
+    user = await db.users.find_one(
+        {"$or": [{"email": low}, {"username": low}, {"phone": ident}]}, {"_id": 0}
+    )
+    sent = False
+    masked = None
+    out_dev = None
+    if user and user.get("phone_verified") and user.get("phone") and _cooldown_ok(user.get("pw_reset_sent_at")):
+        code = _gen_code()
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+            "pw_reset_hash": _hash_code(code),
+            "pw_reset_expires": datetime.now(timezone.utc) + timedelta(minutes=CODE_TTL_MIN),
+            "pw_reset_sent_at": datetime.now(timezone.utc),
+        }})
+        sent = await send_sms(user["phone"], f"Your Nami password reset code is {code}. It expires in {CODE_TTL_MIN} minutes.")
+        masked = _mask_phone(user["phone"])
+        if not sms_enabled():
+            out_dev = code
+    out = {"ok": True, "sent": sent, "sms_configured": sms_enabled(), "masked_phone": masked}
+    if out_dev:
+        out["dev_code"] = out_dev
+    return out
+
+
+class ResetWithCode(BaseModel):
+    identifier: str  # email, username, or phone
+    code: str
+    new_password: str
+
+
+@router.post("/auth/reset-password/code")
+async def reset_password_code(body: ResetWithCode):
+    """Set a new password using a code sent by SMS (or email). Accepts the
+    account's email, username, or phone as the identifier."""
+    if len((body.new_password or "")) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
+    ident = (body.identifier or "").strip()
+    low = ident.lower()
+    user = await db.users.find_one(
+        {"$or": [{"email": low}, {"username": low}, {"phone": ident}]}, {"_id": 0}
+    )
+    if not user or not user.get("pw_reset_hash"):
+        raise HTTPException(status_code=400, detail="No reset in progress — request a new code.")
+    exp = user.get("pw_reset_expires")
+    try:
+        if exp and _norm_dt(exp) < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="That code expired — request a new one.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    if not _check_code(body.code, user.get("pw_reset_hash")):
+        raise HTTPException(status_code=400, detail="Incorrect code.")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+        "hashed_password": _hash_password(body.new_password),
+        "failed_login_attempts": 0, "locked_until": None,
+        "pw_reset_hash": "", "pw_reset_expires": None,
+    }})
+    return {"ok": True, "message": "Password updated — you can log in now."}
 
 
 # ── Developer API keys ──────────────────────────────────────────────────────

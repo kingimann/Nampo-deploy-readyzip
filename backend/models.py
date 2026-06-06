@@ -15,6 +15,8 @@ class User(BaseModel):
     picture: Optional[str] = None
     phone: Optional[str] = None
     phone_verified: bool = False
+    twofa_enabled: bool = False        # SMS two-factor on login
+    sms_notifications: bool = False    # mirror in-app notifications to SMS
     bio: Optional[str] = ""
     home_name: Optional[str] = None
     home_longitude: Optional[float] = None
@@ -91,6 +93,7 @@ class ProfilePatch(BaseModel):
     default_comment_policy: Optional[str] = None  # everyone | followers | friends | nobody
     default_likes_disabled: Optional[bool] = None
     currency: Optional[str] = None   # preferred display currency (USD, EUR, ...)
+    sms_notifications: Optional[bool] = None  # mirror notifications to SMS (needs verified phone)
 
 
 class TipCreate(BaseModel):
