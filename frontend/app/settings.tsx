@@ -101,7 +101,10 @@ export default function SettingsScreen() {
             <Row icon="ribbon-outline" label="Custom badges (admin)" color="#A855F7" onPress={() => router.push("/admin-badges")} />
           )}
           {user?.role === "admin" && (
-            <Row icon="flask-outline" label="Test bot (admin)" color="#EC4899" onPress={() => router.push("/admin-bot")} last />
+            <Row icon="flask-outline" label="Test bot (admin)" color="#EC4899" onPress={() => router.push("/admin-bot")} />
+          )}
+          {user?.role === "admin" && (
+            <Row icon="pulse-outline" label="Integrations & SDKs (admin)" color="#06B6D4" onPress={() => router.push("/admin-integrations")} last />
           )}
         </View>
 

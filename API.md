@@ -179,9 +179,17 @@ Developer API key (Settings → Developer API).
 | Method | Path | Description |
 | --- | --- | --- |
 | POST | `/auth/register` | Create account → `{session_token, user}` |
-| POST | `/auth/login` | Log in (email or username) |
-| GET | `/auth/me` | Current user (incl. `picture`, `wallet_balance`, `currency`) |
-| PATCH | `/auth/me` | Update profile — `name`, `bio`, `picture`, home/work, `sub_price`, `payout_frequency\|threshold`, `default_comment_policy\|likes_disabled`, `currency` |
+| POST | `/auth/login` | Log in (email or username). Returns `{session_token, user}`, **or** `{twofa_required:true, identifier, masked_phone, sent}` when SMS 2FA is on |
+| POST | `/auth/login/2fa` | Finish 2FA login — `{identifier, code}` → `{session_token, user}` |
+| POST | `/auth/2fa` | Toggle SMS two-factor — `{enabled, password?}` (enable needs a verified phone; disable needs the password) |
+| POST | `/auth/login/phone/start` | Phone OTP login: text a code to a verified phone — `{phone}` → `{exists, masked_phone, dev_code?}` |
+| POST | `/auth/login/phone/verify` | Finish phone OTP login — `{phone, code}` → `{session_token, user}` |
+| POST | `/auth/forgot-password` · `/auth/forgot-password/sms` | Send a reset code by **email** (`{email}`) or **SMS** (`{identifier}` = email/username/phone) |
+| POST | `/auth/reset-password` · `/auth/reset-password/code` | Reset with the code — email form `{email, code, new_password}`, or `{identifier, code, new_password}` |
+| POST | `/auth/recover-password` | Owner break-glass reset — `{secret, identifier, new_password}` (needs `RECOVERY_SECRET`) |
+| POST | `/auth/phone/send-code` · `/auth/phone/verify` | Verify a phone number via SMS code (when signed in) |
+| GET | `/auth/me` | Current user (incl. `picture`, `wallet_balance`, `currency`, `twofa_enabled`, `sms_notifications`) |
+| PATCH | `/auth/me` | Update profile — `name`, `bio`, `picture`, home/work, `sub_price`, `payout_frequency\|threshold`, `default_comment_policy\|likes_disabled`, `currency`, `sms_notifications` |
 | PATCH | `/auth/me/email\|password\|phone` | Change email / password / phone |
 | POST | `/auth/username` | Claim a username |
 | GET/POST/DELETE | `/auth/api-keys` | Manage developer API keys |
@@ -260,6 +268,15 @@ Messages also support server-side encryption at rest regardless.
 ### Places, guides, reviews, ETA
 `/places` · `/guides` (+ `/public/guides/{slug}`) · `/reviews` · `/eta`
 (+ WebSocket `wss://…/ws/eta/{share_id}`)
+
+### Maps extras
+`GET /foursquare/match?name&lng&lat` — business profile for a place (needs `FSQ_API_KEY`).
+`GET /transit/nearby?lat&lon&radius&dest_lat&dest_lon` — nearby public-transit stops and
+the next departures (real-time where the agency publishes it; needs `TRANSITLAND_API_KEY`).
+Each departure includes `route`, `kind`, `headsign`, `stop_name`, `stop_distance`,
+`minutes`, `time_label`, `realtime`, and `delay` (seconds, +late/−early). Pass
+`dest_lat`/`dest_lon` to keep only routes heading toward the destination
+(`filtered:true` in the response). Returns `{configured:false}` when no key is set.
 
 ### Notifications
 `GET /notifications` · `GET /notifications/unread` (count) ·
@@ -377,6 +394,8 @@ established accounts on both sides, no self/related clicks, and a daily earning 
 | GET | `/admin/audit` | Audit log of admin actions |
 | GET | `/admin/ad-revenue` | Platform ad dashboard |
 | GET/POST | `/admin/bot/posts` · `/admin/bot/run` | Test bot (wallet/analytics) |
+| GET | `/admin/badges` · POST/DELETE | Manage site-wide custom badges |
+| GET | `/admin/integrations?live=1` | Integration/SDK status board — each service's `configured`, `status`, the `env` vars it needs, a `fix` string, and (with `?live=1`) a real health-check `detail` |
 
 Banned/currently-suspended users are blocked at login and on every request
 (`403 banned` / `403 suspended`, with the moderator's reason). Admins are exempt;

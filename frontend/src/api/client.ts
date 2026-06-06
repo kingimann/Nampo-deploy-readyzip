@@ -65,6 +65,8 @@ export const api = {
     request<{ ok: boolean }>(`/admin/badges/${badgeId}`, { method: "DELETE" }),
   adminSetUserBadge: (userId: string, badge_id: string, action: "add" | "remove") =>
     request<{ ok: boolean }>(`/admin/users/${userId}/badge`, { method: "POST", body: JSON.stringify({ badge_id, action }) }),
+  adminIntegrations: (live = false) =>
+    request<IntegrationsReport>(`/admin/integrations${live ? "?live=1" : ""}`),
   updateMe: (p: ProfilePatch) =>
     request<User>("/auth/me", { method: "PATCH", body: JSON.stringify(p) }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
@@ -769,6 +771,26 @@ export type TwofaChallenge = {
   note?: string;
 };
 export type LoginResponse = { session_token: string; user: User } | TwofaChallenge;
+export type Integration = {
+  key: string;
+  name: string;
+  category: string;
+  required: boolean;
+  env: string[];
+  summary: string;
+  fix: string;
+  docs: string;
+  configured: boolean;
+  can_test: boolean;
+  status: "operational" | "configured" | "not_configured" | "optional_off" | "error";
+  detail: string;
+  tested?: boolean;
+};
+export type IntegrationsReport = {
+  integrations: Integration[];
+  summary: { total: number; configured: number; needs_setup: number };
+  live: boolean;
+};
 export type SubTier = { id: string; name: string; price: number };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; message?: string; created_at: string };
 export type WalletSummary = {
