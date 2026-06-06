@@ -11,15 +11,18 @@ from core import _conv_key, _public_user, db, get_current_user, _norm_dt, requir
 from models import (
     ConversationView,
     Listing,
+    ListingComment,
     ListingCreate,
     ListingPatch,
     MarketplaceReview,
     MarketplaceReviewCreate,
     Message,
     PostAuthor,
+    ReportCreate,
     SellerProfile,
     TradeConfirm,
 )
+from pydantic import BaseModel
 from services.encryption import encrypt_text, decrypt_text
 
 router = APIRouter()
@@ -81,6 +84,8 @@ async def _hydrate_listing(
     else:
         saved_by_me = False
     saved_count = await db.listing_saves.count_documents({"listing_id": doc["id"]}) if with_counts else 0
+    liked_by_me = bool(await db.listing_likes.find_one(
+        {"listing_id": doc["id"], "user_id": viewer_id}, {"_id": 0, "id": 1})) if viewer_id else False
     distance_km = None
     if viewer_coords is not None:
         coords = _doc_coords(doc)
@@ -106,6 +111,9 @@ async def _hydrate_listing(
         views_count=doc.get("views_count", 0),
         saved_count=saved_count,
         saved_by_me=saved_by_me,
+        likes_count=int(doc.get("likes_count", 0) or 0),
+        liked_by_me=liked_by_me,
+        comments_count=int(doc.get("comments_count", 0) or 0),
         created_at=doc["created_at"],
     )
 
@@ -618,3 +626,108 @@ async def contact_seller(listing_id: str, authorization: Optional[str] = Header(
         unread_count=0,
         created_at=conv["created_at"],
     )
+
+
+# ── Listing engagement: like, comment, report ──────────────────────────────
+class ListingCommentCreate(BaseModel):
+    text: str
+
+
+async def _hydrate_comment(c: dict, viewer_id: str) -> ListingComment:
+    a = await db.users.find_one({"user_id": c["user_id"]}, {"_id": 0})
+    return ListingComment(
+        id=c["id"], listing_id=c["listing_id"],
+        author=PostAuthor(
+            user_id=c["user_id"],
+            name=(a or {}).get("name", "User"),
+            username=(a or {}).get("username"),
+            picture=(a or {}).get("picture"),
+            verified=bool((a or {}).get("verified", False)),
+        ),
+        text=c.get("text", ""),
+        mine=c["user_id"] == viewer_id,
+        created_at=c["created_at"],
+    )
+
+
+@router.post("/listings/{listing_id}/like", response_model=Listing)
+async def toggle_listing_like(listing_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.listings.find_one({"id": listing_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    existing = await db.listing_likes.find_one(
+        {"listing_id": listing_id, "user_id": user["user_id"]}, {"_id": 0, "id": 1})
+    if existing:
+        await db.listing_likes.delete_one({"listing_id": listing_id, "user_id": user["user_id"]})
+        await db.listings.update_one({"id": listing_id}, {"$inc": {"likes_count": -1}})
+    else:
+        await db.listing_likes.insert_one({
+            "id": str(uuid.uuid4()), "listing_id": listing_id,
+            "user_id": user["user_id"], "created_at": datetime.now(timezone.utc),
+        })
+        await db.listings.update_one({"id": listing_id}, {"$inc": {"likes_count": 1}})
+    updated = await db.listings.find_one({"id": listing_id}, {"_id": 0})
+    return await _hydrate_listing(updated, viewer_id=user["user_id"], with_counts=True)
+
+
+@router.post("/listings/{listing_id}/report")
+async def report_listing(listing_id: str, body: ReportCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.listings.find_one({"id": listing_id}, {"_id": 0, "id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    existing = await db.reports.find_one(
+        {"listing_id": listing_id, "reporter_id": user["user_id"]}, {"_id": 0, "id": 1})
+    if not existing:
+        await db.reports.insert_one({
+            "id": str(uuid.uuid4()),
+            "listing_id": listing_id,
+            "reporter_id": user["user_id"],
+            "reason": (body.reason or "other")[:200],
+            "created_at": datetime.now(timezone.utc),
+        })
+    return {"ok": True}
+
+
+@router.get("/listings/{listing_id}/comments", response_model=List[ListingComment])
+async def list_listing_comments(listing_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    rows = await db.listing_comments.find(
+        {"listing_id": listing_id}, {"_id": 0}
+    ).sort("created_at", 1).to_list(300)
+    return [await _hydrate_comment(c, user["user_id"]) for c in rows]
+
+
+@router.post("/listings/{listing_id}/comments", response_model=ListingComment)
+async def add_listing_comment(listing_id: str, body: ListingCommentCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.listings.find_one({"id": listing_id}, {"_id": 0, "id": 1, "user_id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    text = (body.text or "").strip()[:1000]
+    if not text:
+        raise HTTPException(status_code=400, detail="Comment can't be empty")
+    c = {
+        "id": str(uuid.uuid4()), "listing_id": listing_id,
+        "user_id": user["user_id"], "text": text,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.listing_comments.insert_one(c)
+    await db.listings.update_one({"id": listing_id}, {"$inc": {"comments_count": 1}})
+    return await _hydrate_comment(c, user["user_id"])
+
+
+@router.delete("/listings/{listing_id}/comments/{comment_id}")
+async def delete_listing_comment(listing_id: str, comment_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    c = await db.listing_comments.find_one({"id": comment_id, "listing_id": listing_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    listing = await db.listings.find_one({"id": listing_id}, {"_id": 0, "user_id": 1})
+    # The comment's author or the listing's owner can delete it.
+    if c["user_id"] != user["user_id"] and (listing or {}).get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    await db.listing_comments.delete_one({"id": comment_id})
+    await db.listings.update_one({"id": listing_id}, {"$inc": {"comments_count": -1}})
+    return {"ok": True}

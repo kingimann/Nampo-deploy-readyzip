@@ -628,6 +628,16 @@ export const api = {
     request<{ ok: boolean }>(`/listings/${id}`, { method: "DELETE" }),
   contactSeller: (id: string) =>
     request<ConversationView>(`/listings/${id}/contact`, { method: "POST" }),
+  likeListing: (id: string) =>
+    request<Listing>(`/listings/${id}/like`, { method: "POST" }),
+  reportListing: (id: string, reason: string) =>
+    request<{ ok: boolean }>(`/listings/${id}/report`, { method: "POST", body: JSON.stringify({ reason }) }),
+  listingComments: (id: string) =>
+    request<ListingComment[]>(`/listings/${id}/comments`),
+  addListingComment: (id: string, text: string) =>
+    request<ListingComment>(`/listings/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  deleteListingComment: (id: string, commentId: string) =>
+    request<{ ok: boolean }>(`/listings/${id}/comments/${commentId}`, { method: "DELETE" }),
   getSellerProfile: (userId: string) =>
     request<SellerProfile>(`/marketplace/users/${userId}`),
   listSellerReviews: (userId: string) =>
@@ -739,7 +749,13 @@ export type Listing = {
   views_count?: number;
   saved_count?: number;
   saved_by_me?: boolean;
+  likes_count?: number;
+  liked_by_me?: boolean;
+  comments_count?: number;
   created_at: string;
+};
+export type ListingComment = {
+  id: string; listing_id: string; author: PostAuthor; text: string; mine?: boolean; created_at: string;
 };
 export type ListingCreate = {
   title: string; price?: number; currency?: string; category?: string;

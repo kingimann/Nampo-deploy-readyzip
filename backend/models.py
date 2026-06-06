@@ -451,6 +451,18 @@ class Listing(BaseModel):
     views_count: int = 0
     saved_count: int = 0
     saved_by_me: bool = False
+    likes_count: int = 0
+    liked_by_me: bool = False
+    comments_count: int = 0
+    created_at: datetime
+
+
+class ListingComment(BaseModel):
+    id: str
+    listing_id: str
+    author: "PostAuthor"
+    text: str
+    mine: bool = False
     created_at: datetime
 
 
@@ -636,6 +648,7 @@ class PromoteCreate(BaseModel):
 
 
 Listing.model_rebuild()
+ListingComment.model_rebuild()
 MarketplaceReview.model_rebuild()
 SellerProfile.model_rebuild()
 Post.model_rebuild()
