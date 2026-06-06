@@ -523,6 +523,107 @@ async def list_currencies():
     return {"currencies": CURRENCIES}
 
 
+# ── Pay a creator straight from the wallet balance (tips & subscriptions) ─────
+class WalletPay(BaseModel):
+    kind: str                       # tip | subscription
+    creator_id: str
+    amount: Optional[float] = None  # tip amount
+    tier: Optional[str] = None      # subscription tier id
+    note: Optional[str] = ""
+    conversation_id: Optional[str] = None
+
+
+@router.post("/payments/pay-wallet")
+async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header(None)):
+    """Pay a tip or a (first) subscription charge from the in-app wallet balance.
+    Tips carry the flat transaction fee (admins exempt); subscriptions take the
+    platform percentage cut. Returns 400 insufficient_balance with the shortfall
+    so the client can offer to top up the difference or pay the rest by card."""
+    me = await get_current_user(authorization)
+    if body.creator_id == me["user_id"]:
+        raise HTTPException(status_code=400, detail="You can't pay yourself")
+    creator = await db.users.find_one({"user_id": body.creator_id}, {"_id": 0, "user_id": 1, "name": 1, "email": 1})
+    if not creator:
+        raise HTTPException(status_code=404, detail="Creator not found")
+
+    from routes.payments import platform_fee_percent, transaction_fee_cents
+    now = datetime.now(timezone.utc)
+    name = me.get("name", "Someone")
+
+    if body.kind == "subscription":
+        from core import SUBSCRIPTION_TIERS_BY_ID
+        tier = SUBSCRIPTION_TIERS_BY_ID.get(body.tier or "plus")
+        if not tier:
+            raise HTTPException(status_code=400, detail="Choose a valid subscription tier")
+        amount = round(float(tier["price"]), 2)
+        fee = 0.0
+    else:
+        amount = round(float(body.amount or 0), 2)
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+        fee = 0.0 if is_admin(me) else await _fee_dollars()
+
+    total = round(amount + fee, 2)
+    bal = await _wallet_balance(me["user_id"])
+    if bal + 1e-9 < total:
+        raise HTTPException(status_code=400, detail={
+            "code": "insufficient_balance",
+            "message": "Not enough wallet balance.",
+            "balance": round(bal, 2), "amount": amount, "fee": round(fee, 2),
+            "total": total, "short": round(max(0.0, total - bal), 2),
+        })
+
+    if not await _debit_wallet(me["user_id"], total):
+        raise _insufficient()
+
+    # Platform's percentage cut (subscriptions/tips); the creator gets the rest.
+    pct = await platform_fee_percent()
+    creator_net = round(amount * (1 - pct / 100.0), 2)
+    await _credit_wallet(body.creator_id, creator_net)
+    await db.earnings.insert_one({
+        "id": str(uuid.uuid4()), "user_id": body.creator_id, "amount": creator_net,
+        "kind": "subscription" if body.kind == "subscription" else "tip",
+        "from_user_id": me["user_id"], "from_name": name,
+        "message": (body.note or "")[:200] if body.kind != "subscription" else "",
+        "source": "wallet", "created_at": now,
+    })
+    # Platform revenue = flat fee + percentage cut.
+    if body.kind == "subscription":
+        await _record_platform_fee(round(amount - creator_net, 2), "subscription_fee", me["user_id"], body.creator_id)
+        await db.subscriptions.insert_one({
+            "id": str(uuid.uuid4()), "subscriber_id": me["user_id"], "creator_id": body.creator_id,
+            "amount": amount, "tier": (body.tier or "plus"), "status": "active", "source": "wallet",
+            "started_at": now, "renews_at": now + timedelta(days=30), "created_at": now,
+        })
+    else:
+        await _record_platform_fee(fee, "transfer_fee", me["user_id"], body.creator_id)
+        if pct > 0:
+            await _record_platform_fee(round(amount - creator_net, 2), "tip_fee", me["user_id"], body.creator_id)
+        await db.tips.insert_one({
+            "id": str(uuid.uuid4()), "from_user_id": me["user_id"], "from_name": name,
+            "to_user_id": body.creator_id, "amount": amount, "currency": "USD",
+            "message": (body.note or "")[:200], "source": "wallet", "created_at": now,
+        })
+        if body.conversation_id:
+            conv = await db.conversations.find_one({"id": body.conversation_id}, {"_id": 0, "participant_ids": 1})
+            if conv and me["user_id"] in conv.get("participant_ids", []):
+                await db.messages.insert_one({
+                    "id": str(uuid.uuid4()), "conversation_id": body.conversation_id, "sender_id": me["user_id"],
+                    "type": "tip", "text": (body.note or ""), "amount": amount,
+                    "media": [], "reactions": {}, "deleted": False, "created_at": now,
+                })
+                await db.conversations.update_one({"id": body.conversation_id}, {"$set": {"last_message_at": now}})
+
+    await _maybe_payout_nudge(body.creator_id)
+    try:
+        await emit_notification(user_id=body.creator_id, actor_id=me["user_id"],
+                                ntype="subscribe" if body.kind == "subscription" else "tip",
+                                message=f"${amount:.2f} {'subscription' if body.kind == 'subscription' else 'tip'} from your balance")
+    except Exception:
+        pass
+    return {"ok": True, "amount": amount, "balance": await _wallet_balance(me["user_id"])}
+
+
 @router.get("/wallet/balance")
 async def wallet_balance(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)

@@ -50,6 +50,7 @@ export default function UserProfileScreen() {
   const [tipOpen, setTipOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
   const [payEnabled, setPayEnabled] = useState(false);
+  const [walletBal, setWalletBal] = useState<number | null>(null);
   const [tiers, setTiers] = useState<SubTier[]>([]);
   const [tierOpen, setTierOpen] = useState(false);
   const [chosenTier, setChosenTier] = useState<SubTier | null>(null);
@@ -110,6 +111,7 @@ export default function UserProfileScreen() {
       setRefreshing(false);
     }
     try { setPayEnabled((await api.getPaymentsConfig()).enabled); } catch {}
+    try { setWalletBal((await api.getWalletBalance()).balance); } catch {}
     try { setTiers((await api.getSubscriptionTiers()).tiers); } catch {}
   }, [name, me]);
 
@@ -355,6 +357,9 @@ export default function UserProfileScreen() {
               stripeCheckout({ kind: "tip", creator_id: user.user_id, amount: amt, extra: { note } }) : undefined}
             onWalletFallback={(amt, note) =>
               router.push(`/pay/${user.user_id}?amount=${amt}&note=${encodeURIComponent(note || "")}`)}
+            walletBalance={walletBal ?? undefined}
+            onPayWallet={async (amt, note) => { await api.payFromWallet({ kind: "tip", creator_id: user.user_id, amount: amt, note }); }}
+            onTopUp={() => router.push("/wallet")}
             onClose={() => setTipOpen(false)}
             onPaid={async (amount, note) => { await api.tipUser(user.user_id, amount, note); }}
           />
@@ -369,6 +374,12 @@ export default function UserProfileScreen() {
             live={payEnabled}
             onCheckout={payEnabled ? () =>
               stripeCheckout({ kind: "subscription", creator_id: user.user_id, amount: 0, extra: { tier: chosenTier?.id || "plus" } }) : undefined}
+            walletBalance={walletBal ?? undefined}
+            onPayWallet={async () => {
+              await api.payFromWallet({ kind: "subscription", creator_id: user.user_id, tier: chosenTier?.id || "plus" });
+              setUser((p) => (p ? { ...p, is_subscribed: true, subscriber_count: (p.subscriber_count || 0) + 1 } : p));
+            }}
+            onTopUp={() => router.push("/wallet")}
             onClose={() => setSubOpen(false)}
             onPaid={async () => {
               await api.subscribeUser(user.user_id, chosenTier?.id || "plus");

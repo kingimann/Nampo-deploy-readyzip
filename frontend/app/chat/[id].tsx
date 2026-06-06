@@ -89,7 +89,9 @@ export default function ChatScreen() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [peer, setPeer] = useState<{ id: string; name: string } | null>(null);
   const [payEnabled, setPayEnabled] = useState(false);
+  const [walletBal, setWalletBal] = useState<number | null>(null);
   useEffect(() => { api.getPaymentsConfig().then((c) => setPayEnabled(c.enabled)).catch(() => {}); }, []);
+  useEffect(() => { api.getWalletBalance().then((b) => setWalletBal(b.balance)).catch(() => {}); }, []);
   const recordStartRef = useRef<number>(0);
 
   // Generate / load our keypair and publish public key. Then fetch peer's key.
@@ -1156,6 +1158,9 @@ export default function ChatScreen() {
           stripeCheckout({ kind: "tip", creator_id: peer.id, amount: amt, extra: { conversation_id: id, note } }) : undefined}
         onWalletFallback={peer ? (amt, note) =>
           router.push(`/pay/${peer.id}?amount=${amt}&note=${encodeURIComponent(note || "")}`) : undefined}
+        walletBalance={walletBal ?? undefined}
+        onPayWallet={peer ? async (amt, note) => { await api.payFromWallet({ kind: "tip", creator_id: peer.id, amount: amt, note, conversation_id: id }); await load(); } : undefined}
+        onTopUp={() => router.push("/wallet")}
         cta="Send tip"
         successText={`Your tip was sent to ${peer?.name || "them"}.`}
         onClose={() => setTipOpen(false)}

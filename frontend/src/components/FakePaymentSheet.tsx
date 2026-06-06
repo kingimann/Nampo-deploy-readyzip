@@ -31,6 +31,12 @@ type Props = {
   onCheckout?: (amount: number, note: string) => Promise<boolean | string | null | void>;
   /** Offered when a card payment can't start (recipient has no payouts): send from wallet balance. */
   onWalletFallback?: (amount: number, note: string) => void;
+  /** Wallet balance (USD). When provided with onPayWallet, a "pay from balance" option is shown. */
+  walletBalance?: number;
+  /** Pay this amount from the wallet balance. Throws on insufficient funds. */
+  onPayWallet?: (amount: number, note: string) => Promise<void>;
+  /** Open the wallet top-up flow (suggested amount = the shortfall). */
+  onTopUp?: (suggested: number) => void;
   onClose: () => void;
   onPaid: (amount: number, note: string) => Promise<void> | void;
 };
@@ -38,7 +44,7 @@ type Props = {
 const PRESETS = [1, 3, 5, 10, 20, 50];
 
 export default function FakePaymentSheet({
-  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, live, onCheckout, onWalletFallback, onClose, onPaid,
+  visible, title, subtitle, amount, editableAmount, allowNote, cta, successText, appleFee, live, onCheckout, onWalletFallback, walletBalance, onPayWallet, onTopUp, onClose, onPaid,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [amt, setAmt] = useState(String(amount || 0));
@@ -48,9 +54,15 @@ export default function FakePaymentSheet({
   const [cvc, setCvc] = useState("123");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const walletOn = onPayWallet != null && walletBalance != null;
+  const [method, setMethod] = useState<"wallet" | "card">("card");
 
   useEffect(() => {
-    if (visible) { setAmt(String(amount || 0)); setNote(""); setBusy(false); setDone(false); }
+    if (visible) {
+      setAmt(String(amount || 0)); setNote(""); setBusy(false); setDone(false);
+      // Default to wallet when it can cover the amount.
+      setMethod(walletOn && (walletBalance as number) >= (amount || 0) ? "wallet" : "card");
+    }
   }, [visible, amount]);
 
   const value = Math.max(0, Number(amt) || 0);   // net — what the recipient receives
@@ -92,6 +104,28 @@ export default function FakePaymentSheet({
     }
   };
 
+  const offerTopUp = () => {
+    if (!onTopUp) return;
+    const ask = "Payment sent from your balance. Top up your wallet for next time?";
+    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(ask)) onTopUp(0); }
+    else Alert.alert("Done", ask, [{ text: "Not now", style: "cancel" }, { text: "Top up", onPress: () => onTopUp(0) }]);
+  };
+
+  const payWallet = async () => {
+    if (!onPayWallet || value <= 0) return;
+    setBusy(true);
+    try {
+      await onPayWallet(value, note.trim());
+      onClose();
+      offerTopUp();
+    } catch (e: any) {
+      setBusy(false);
+      Alert.alert("Couldn't pay from balance", String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Please try again.");
+    }
+  };
+
+  const short = walletOn ? Math.max(0, Math.round((value - (walletBalance as number)) * 100) / 100) : 0;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.backdrop}>
@@ -113,13 +147,6 @@ export default function FakePaymentSheet({
             <ScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.title}>{title}</Text>
               {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
-
-              <View style={[styles.testBanner, live && styles.liveBanner]}>
-                <Ionicons name="lock-closed" size={13} color={live ? "#16A34A" : theme.primary} />
-                <Text style={[styles.testBannerText, live && { color: "#16A34A" }]}>
-                  {live ? "Secure checkout · powered by Stripe" : "Test mode · no real charge"}
-                </Text>
-              </View>
 
               {editableAmount ? (
                 <>
@@ -169,31 +196,75 @@ export default function FakePaymentSheet({
                 </>
               )}
 
-              {live ? (
-                <Text style={styles.liveNote}>You'll complete payment securely with Stripe — card details are entered on Stripe, never stored here.</Text>
-              ) : (
-                <>
-                  <Text style={styles.label}>Card number</Text>
-                  <View style={styles.inputWrap}>
-                    <Ionicons name="card-outline" size={18} color={theme.textMuted} />
-                    <TextInput style={styles.input} value={card} onChangeText={(t) => setCard(formatCard(t))} keyboardType="number-pad" maxLength={19} editable={!busy} testID="pay-card" />
-                  </View>
-                  <View style={styles.row}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.label}>Expiry</Text>
-                      <View style={styles.inputWrap}><TextInput style={styles.input} value={exp} onChangeText={(t) => setExp(formatExp(t))} keyboardType="number-pad" maxLength={5} editable={!busy} /></View>
+              {walletOn && (
+                <View style={styles.methodRow}>
+                  <TouchableOpacity style={[styles.methodBtn, method === "wallet" && styles.methodOn]} onPress={() => setMethod("wallet")} testID="method-wallet">
+                    <Ionicons name="wallet-outline" size={16} color={method === "wallet" ? theme.primary : theme.textMuted} />
+                    <View>
+                      <Text style={[styles.methodLabel, method === "wallet" && { color: theme.primary }]}>Balance</Text>
+                      <Text style={styles.methodSub}>${(walletBalance as number).toFixed(2)}</Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.label}>CVC</Text>
-                      <View style={styles.inputWrap}><TextInput style={styles.input} value={cvc} onChangeText={(t) => setCvc(t.replace(/\D/g, "").slice(0, 4))} keyboardType="number-pad" maxLength={4} editable={!busy} /></View>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.methodBtn, method === "card" && styles.methodOn]} onPress={() => setMethod("card")} testID="method-card">
+                    <Ionicons name="card-outline" size={16} color={method === "card" ? theme.primary : theme.textMuted} />
+                    <View>
+                      <Text style={[styles.methodLabel, method === "card" && { color: theme.primary }]}>Card</Text>
+                      <Text style={styles.methodSub}>{live ? "Stripe" : "Test"}</Text>
                     </View>
-                  </View>
-                </>
+                  </TouchableOpacity>
+                </View>
               )}
 
-              <TouchableOpacity style={[styles.payBtn, (busy || value <= 0) && { opacity: 0.6 }]} onPress={pay} disabled={busy || value <= 0} testID="pay-submit">
-                {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>{live ? `Continue · $${charged.toFixed(2)}` : `${cta || "Pay"} $${charged.toFixed(2)}`}</Text>}
-              </TouchableOpacity>
+              {walletOn && method === "wallet" ? (
+                short > 0 ? (
+                  <>
+                    <Text style={styles.shortText}>Your balance is ${short.toFixed(2)} short of ${value.toFixed(2)}. Top up the difference, or pay with card.</Text>
+                    <TouchableOpacity style={styles.payBtn} onPress={() => { onClose(); onTopUp && onTopUp(short); }} testID="wallet-topup-diff">
+                      <Text style={styles.payBtnText}>Top up ${short.toFixed(2)} & come back</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.linkBtn} onPress={() => setMethod("card")}>
+                      <Text style={styles.linkText}>Pay with card instead</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity style={[styles.payBtn, (busy || value <= 0) && { opacity: 0.6 }]} onPress={payWallet} disabled={busy || value <= 0} testID="pay-wallet">
+                    {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>Pay ${value.toFixed(2)} from balance</Text>}
+                  </TouchableOpacity>
+                )
+              ) : (
+                <>
+                  <View style={[styles.testBanner, live && styles.liveBanner]}>
+                    <Ionicons name="lock-closed" size={13} color={live ? "#16A34A" : theme.primary} />
+                    <Text style={[styles.testBannerText, live && { color: "#16A34A" }]}>
+                      {live ? "Secure checkout · powered by Stripe" : "Test mode · no real charge"}
+                    </Text>
+                  </View>
+                  {live ? (
+                    <Text style={styles.liveNote}>You'll complete payment securely with Stripe — card details are entered on Stripe, never stored here.</Text>
+                  ) : (
+                    <>
+                      <Text style={styles.label}>Card number</Text>
+                      <View style={styles.inputWrap}>
+                        <Ionicons name="card-outline" size={18} color={theme.textMuted} />
+                        <TextInput style={styles.input} value={card} onChangeText={(t) => setCard(formatCard(t))} keyboardType="number-pad" maxLength={19} editable={!busy} testID="pay-card" />
+                      </View>
+                      <View style={styles.row}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Expiry</Text>
+                          <View style={styles.inputWrap}><TextInput style={styles.input} value={exp} onChangeText={(t) => setExp(formatExp(t))} keyboardType="number-pad" maxLength={5} editable={!busy} /></View>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>CVC</Text>
+                          <View style={styles.inputWrap}><TextInput style={styles.input} value={cvc} onChangeText={(t) => setCvc(t.replace(/\D/g, "").slice(0, 4))} keyboardType="number-pad" maxLength={4} editable={!busy} /></View>
+                        </View>
+                      </View>
+                    </>
+                  )}
+                  <TouchableOpacity style={[styles.payBtn, (busy || value <= 0) && { opacity: 0.6 }]} onPress={pay} disabled={busy || value <= 0} testID="pay-submit">
+                    {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.payBtnText}>{live ? `Continue · $${charged.toFixed(2)}` : `${cta || "Pay"} $${charged.toFixed(2)}`}</Text>}
+                  </TouchableOpacity>
+                </>
+              )}
             </ScrollView>
           )}
         </View>
@@ -212,6 +283,14 @@ const styles = StyleSheet.create({
   testBannerText: { color: theme.primary, fontSize: 12, fontWeight: "700" },
   liveBanner: { borderColor: "#16A34A" },
   liveNote: { color: theme.textMuted, fontSize: 12.5, lineHeight: 18, marginVertical: 10 },
+  methodRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  methodBtn: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 },
+  methodOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  methodLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  methodSub: { color: theme.textMuted, fontSize: 11.5, marginTop: 1 },
+  shortText: { color: "#D97706", fontSize: 12.5, fontWeight: "700", lineHeight: 18, marginTop: 12 },
+  linkBtn: { alignItems: "center", paddingVertical: 10 },
+  linkText: { color: theme.primary, fontSize: 13.5, fontWeight: "800" },
   label: { color: theme.textMuted, fontSize: 12, fontWeight: "700", marginBottom: 6, marginTop: 6 },
   presetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
   preset: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
