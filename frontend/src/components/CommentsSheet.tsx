@@ -181,7 +181,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
         >
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]} testID="comments-sheet">
             <View style={styles.handle} />
-            <Text style={styles.title}>Comments</Text>
+            <Text style={styles.title}>{rows.length > 0 ? `${rows.length} comments` : "Comments"}</Text>
 
             {loading ? (
               <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
@@ -189,9 +189,9 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
               <FlatList
                 data={rows}
                 keyExtractor={(i) => i.c.id}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12, gap: 16 }}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 22 }}
                 keyboardShouldPersistTaps="handled"
-                style={{ flexGrow: 0, maxHeight: 380 }}
+                style={{ flexGrow: 0, maxHeight: 460 }}
                 ListEmptyComponent={
                   <View style={styles.empty}>
                     <Ionicons name="chatbubble-ellipses-outline" size={28} color={theme.textMuted} />
@@ -200,6 +200,9 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                 }
                 renderItem={({ item: row }) => {
                   const item = row.c;
+                  const isMine = item.user_id === user?.user_id;
+                  const isOwner = post?.user_id === user?.user_id;
+                  const im = getInlineImage(item.text);
                   return (
                   <View style={[styles.row, row.depth > 0 && styles.rowNested]}>
                     <TouchableOpacity onPress={() => openProfile(item.author.name)}>
@@ -211,6 +214,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                         )}
                       </View>
                     </TouchableOpacity>
+
                     <View style={{ flex: 1 }}>
                       <View style={styles.rowHead}>
                         <Text style={styles.rowName} numberOfLines={1}>{item.author.name}</Text>
@@ -222,43 +226,41 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                             <Text style={styles.pinnedBadgeText}>Pinned</Text>
                           </View>
                         )}
-                        <Text style={styles.rowTime}>{fmtTime(item.created_at)}</Text>
-                        {!!item.edited_at && <Text style={styles.rowTime}>· edited</Text>}
                       </View>
                       {!!row.replyToName && (
                         <Text style={styles.replyingTo}>Replying to <Text style={{ color: theme.primary }}>@{row.replyToName}</Text></Text>
                       )}
                       {!!item.text && <RichText text={item.text} style={styles.rowText} />}
-                      {(() => { const im = getInlineImage(item.text); return im ? <InlineMedia uri={im} compact /> : null; })()}
-                      <View style={styles.reactRow}>
-                        <TouchableOpacity onPress={() => reactLike(item)} style={styles.reactBtn} testID={`comment-like-${item.id}`}>
-                          <Ionicons name={item.liked_by_me ? "heart" : "heart-outline"} size={14} color={item.liked_by_me ? "#EF4444" : theme.textMuted} />
-                          {!!item.likes_count && item.likes_count > 0 && <Text style={styles.reactText}>{item.likes_count}</Text>}
+                      {im ? <InlineMedia uri={im} compact /> : null}
+                      <View style={styles.metaRow}>
+                        <Text style={styles.metaTime}>{fmtTime(item.created_at)}</Text>
+                        {!!item.edited_at && <Text style={styles.metaTime}>edited</Text>}
+                        <TouchableOpacity onPress={() => beginReply(item)} testID={`comment-reply-${item.id}`}>
+                          <Text style={styles.metaLink}>Reply</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => reactDislike(item)} style={styles.reactBtn} testID={`comment-dislike-${item.id}`}>
-                          <Ionicons name={item.disliked_by_me ? "thumbs-down" : "thumbs-down-outline"} size={13} color={item.disliked_by_me ? "#8696A0" : theme.textMuted} />
-                        </TouchableOpacity>
-                        {post?.user_id === user?.user_id && (
-                          <TouchableOpacity onPress={() => pinComment(item)} style={styles.reactBtn} testID={`comment-pin-${item.id}`}>
-                            <Ionicons name={item.pinned ? "pin" : "pin-outline"} size={13} color={item.pinned ? theme.primary : theme.textMuted} />
+                        {isOwner && (
+                          <TouchableOpacity onPress={() => pinComment(item)} testID={`comment-pin-${item.id}`}>
+                            <Text style={styles.metaLink}>{item.pinned ? "Unpin" : "Pin"}</Text>
                           </TouchableOpacity>
                         )}
-                        <TouchableOpacity onPress={() => beginReply(item)} style={styles.reactBtn} testID={`comment-reply-${item.id}`}>
-                          <Ionicons name="arrow-undo-outline" size={13} color={theme.textMuted} />
-                          <Text style={styles.reactText}>Reply</Text>
-                        </TouchableOpacity>
-                      </View>
-                      {item.user_id === user?.user_id && (
-                        <View style={styles.rowActions}>
+                        {isMine && (
                           <TouchableOpacity onPress={() => beginEdit(item)} testID={`comment-edit-${item.id}`}>
-                            <Text style={styles.rowAction}>Edit</Text>
+                            <Text style={styles.metaLink}>Edit</Text>
                           </TouchableOpacity>
+                        )}
+                        {isMine && (
                           <TouchableOpacity onPress={() => removeComment(item)} testID={`comment-delete-${item.id}`}>
-                            <Text style={[styles.rowAction, { color: theme.error }]}>Delete</Text>
+                            <Text style={[styles.metaLink, { color: theme.error }]}>Delete</Text>
                           </TouchableOpacity>
-                        </View>
-                      )}
+                        )}
+                      </View>
                     </View>
+
+                    {/* Like (heart) + count on the right, TikTok-style */}
+                    <TouchableOpacity style={styles.likeCol} onPress={() => reactLike(item)} testID={`comment-like-${item.id}`}>
+                      <Ionicons name={item.liked_by_me ? "heart" : "heart-outline"} size={19} color={item.liked_by_me ? "#EF4444" : theme.textMuted} />
+                      <Text style={styles.likeCount}>{item.likes_count > 0 ? item.likes_count : ""}</Text>
+                    </TouchableOpacity>
                   </View>
                   );
                 }}
@@ -338,26 +340,25 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingVertical: 40, gap: 10 },
   emptyText: { color: theme.textMuted, fontSize: 13, textAlign: "center", paddingHorizontal: 40 },
 
-  row: { flexDirection: "row", gap: 10 },
-  rowNested: { marginLeft: 30, paddingLeft: 10, borderLeftWidth: 2, borderLeftColor: theme.border },
-  replyingTo: { color: theme.textMuted, fontSize: 11.5, marginBottom: 2 },
+  row: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  rowNested: { marginLeft: 40, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: theme.border },
+  replyingTo: { color: theme.textMuted, fontSize: 12, marginTop: 1, marginBottom: 1 },
   avatar: {
-    width: 34, height: 34, borderRadius: 17, overflow: "hidden",
+    width: 40, height: 40, borderRadius: 20, overflow: "hidden",
     backgroundColor: theme.primary, alignItems: "center", justifyContent: "center",
   },
   avatarImg: { width: "100%", height: "100%" },
-  avatarInit: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  rowHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
-  rowName: { color: theme.textPrimary, fontSize: 13, fontWeight: "800", flexShrink: 1 },
+  avatarInit: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  rowHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 },
+  rowName: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "600", flexShrink: 1 },
   pinnedBadge: { flexDirection: "row", alignItems: "center", gap: 2 },
   pinnedBadgeText: { color: theme.primary, fontSize: 10, fontWeight: "800" },
-  rowTime: { color: theme.textMuted, fontSize: 11 },
-  rowText: { color: theme.textPrimary, fontSize: 14, lineHeight: 19 },
-  reactRow: { flexDirection: "row", gap: 16, marginTop: 6 },
-  reactBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
-  reactText: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
-  rowActions: { flexDirection: "row", gap: 16, marginTop: 5 },
-  rowAction: { color: theme.textMuted, fontSize: 12, fontWeight: "700" },
+  rowText: { color: theme.textPrimary, fontSize: 15, lineHeight: 21 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 8 },
+  metaTime: { color: theme.textMuted, fontSize: 12.5 },
+  metaLink: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
+  likeCol: { alignItems: "center", width: 34, paddingTop: 2, gap: 3 },
+  likeCount: { color: theme.textMuted, fontSize: 11.5, fontWeight: "600" },
 
   editHint: {
     flexDirection: "row", alignItems: "center", gap: 8,
