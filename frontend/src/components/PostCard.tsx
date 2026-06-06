@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image, Modal, Pressable, ActivityIndicator, Share,
+  View, Text, StyleSheet, TouchableOpacity, Image, Modal, Pressable, ActivityIndicator, Share, ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -38,6 +38,15 @@ type Props = {
   /** Fired when the card is opened — used for ad-click tracking. */
   onOpen?: (p: Post) => void;
 };
+
+// A broad, categorized emoji set for the reaction picker.
+const EMOJI_CATEGORIES: { title: string; emojis: string[] }[] = [
+  { title: "Smileys", emojis: ["😀","😃","😄","😁","😆","😅","😂","🤣","🥲","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😋","😛","😜","🤪","🧐","🤓","😎","🥳","🤩","😏","😒","😞","😔","😟","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤬","🤯","😳","🥵","🥶","😱","😨","😰","😥","😓","🤗","🤔","🤭","🤫","😶","😐","😑","😬","🙄","😮","😲","🥱","😴","🤤","🤢","🤮","🤧","😷","🤒"] },
+  { title: "Gestures", emojis: ["👍","👎","👌","🤌","🤏","✌️","🤞","🤟","🤘","🤙","👈","👉","👆","👇","☝️","👋","🤚","🖐️","✋","🖖","👏","🙌","👐","🤲","🙏","🤝","💪","✊","👊","🤛","🤜"] },
+  { title: "Hearts", emojis: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖","💘","💝","💯"] },
+  { title: "Fun", emojis: ["🔥","✨","🎉","🎊","⭐","🌟","💫","⚡","💥","💦","🏆","🥇","🎯","🎵","🎶","👀","🫶","🤌","😈","🤡","💀","👻","🙈"] },
+  { title: "Nature & Food", emojis: ["🐶","🐱","🦄","🐝","🦋","🌸","🌹","🌻","🌈","☀️","🌙","🍕","🍔","🍟","🌮","🍩","🍪","🎂","☕","🍺","🍷","🍾"] },
+];
 
 export function fmtTime(iso: string) {
   const d = new Date(iso); const now = Date.now();
@@ -116,7 +125,6 @@ export default function PostCard({
   const onMenuPress = () => setMenuOpen(true);
 
   // Emoji reactions (unified like/dislike). Optimistic via a local override.
-  const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "😮", "😢", "🎉", "👏", "🙏", "👎"];
   const doReact = async (emoji: string) => {
     setReactOpen(false);
     try {
@@ -371,18 +379,25 @@ export default function PostCard({
                 ))}
               </View>
             )}
-            <View style={styles.reactGrid}>
-              {QUICK_EMOJIS.map((em) => (
-                <TouchableOpacity
-                  key={em}
-                  style={[styles.reactPick, display.my_reaction === em && styles.reactPickMine]}
-                  onPress={() => doReact(em)}
-                  testID={`react-pick-${em}`}
-                >
-                  <Text style={{ fontSize: 28 }}>{em}</Text>
-                </TouchableOpacity>
+            <ScrollView style={styles.reactScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {EMOJI_CATEGORIES.map((cat) => (
+                <View key={cat.title}>
+                  <Text style={styles.reactCatTitle}>{cat.title}</Text>
+                  <View style={styles.reactGrid}>
+                    {cat.emojis.map((em) => (
+                      <TouchableOpacity
+                        key={em}
+                        style={[styles.reactPick, display.my_reaction === em && styles.reactPickMine]}
+                        onPress={() => doReact(em)}
+                        testID={`react-pick-${em}`}
+                      >
+                        <Text style={{ fontSize: 26 }}>{em}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
               ))}
-            </View>
+            </ScrollView>
             {!!display.my_reaction && (
               <TouchableOpacity style={styles.reportCancel} onPress={() => doReact(display.my_reaction!)} testID="react-remove">
                 <Text style={[styles.reportCancelText, { color: theme.error }]}>Remove my reaction</Text>
@@ -586,9 +601,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 18, paddingBottom: 28, gap: 10,
   },
-  reactGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "space-between" },
+  reactScroll: { maxHeight: 340, marginTop: 4 },
+  reactCatTitle: { color: theme.textSecondary, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4, marginTop: 12, marginBottom: 6 },
+  reactGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   reactPick: {
-    width: 52, height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center",
+    width: 46, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center",
     backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: "transparent",
   },
   reactPickMine: { borderColor: theme.primary, backgroundColor: "rgba(0,168,132,0.14)" },
