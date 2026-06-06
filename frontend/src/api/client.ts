@@ -229,6 +229,8 @@ export const api = {
     request<{ ok: boolean; amount: number; gross?: number; fee?: number; balance: number; currency?: string; local_amount?: number }>("/payments/payouts/cashout", { method: "POST", body: JSON.stringify(amount != null ? { amount } : {}) }),
   addDebitCard: (token: string) =>
     request<{ ok: boolean; has_debit_card: boolean; brand?: string; last4?: string }>("/payments/payouts/debit-card", { method: "POST", body: JSON.stringify({ token }) }),
+  addBankAccount: (token: string) =>
+    request<{ ok: boolean; has_bank_account: boolean; bank?: string; last4?: string }>("/payments/payouts/bank-account", { method: "POST", body: JSON.stringify({ token }) }),
 
   listPlaces: () => request<Place[]>("/places"),
   getPlace: (id: string) => request<Place>(`/places/${id}`),

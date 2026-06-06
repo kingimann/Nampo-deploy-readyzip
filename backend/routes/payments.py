@@ -433,6 +433,34 @@ async def add_debit_card(body: DebitCardBody, authorization: Optional[str] = Hea
     return {"ok": True, "has_debit_card": True, "brand": ext.get("brand"), "last4": ext.get("last4")}
 
 
+@router.post("/payments/payouts/bank-account")
+async def add_bank_account(body: DebitCardBody, authorization: Optional[str] = Header(None)):
+    """Attach a bank account (direct deposit) to the user's connected account.
+    The bank details are tokenized in the app via Stripe.js — only the token is
+    sent here, never raw account numbers."""
+    _require_stripe()
+    user = await get_current_user(authorization)
+    acct_id = await _ensure_connect_account(user)
+    if not body.token:
+        raise HTTPException(status_code=400, detail={"code": "no_token", "message": "Bank details were missing — please try again."})
+    try:
+        ext = stripe.Account.create_external_account(
+            acct_id, external_account=body.token, default_for_currency=True,
+        )
+    except Exception as e:
+        msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
+        raise HTTPException(status_code=400, detail={
+            "code": "bank_failed",
+            "message": f"Couldn't add that bank account: {msg}",
+        })
+    if ext.get("object") != "bank_account":
+        raise HTTPException(status_code=400, detail={
+            "code": "not_a_bank",
+            "message": "That wasn't a bank account. Please check the details and try again.",
+        })
+    return {"ok": True, "has_bank_account": True, "bank": ext.get("bank_name"), "last4": ext.get("last4")}
+
+
 @router.post("/payments/checkout")
 async def create_checkout(body: CheckoutCreate, authorization: Optional[str] = Header(None)):
     """Create a Stripe Checkout session and return a hosted checkout URL.

@@ -392,3 +392,77 @@ export async function stripeAddDebitCard(acctId: string, currency?: string): Pro
     return false;
   }
 }
+
+/**
+ * Inline bank-account (direct deposit) entry — a plain in-app form. The numbers
+ * are tokenized client-side by Stripe.js (never sent to our server) and attached
+ * as the connected account's bank payout method. Returns true if added.
+ */
+export async function stripeAddBankAccount(acctId: string, country?: string, currency?: string): Promise<boolean> {
+  if (!isWeb || !PK || !acctId) return false;
+  try {
+    await loadScript("https://js.stripe.com/v3/");
+    const Stripe = (window as any).Stripe;
+    if (!Stripe) return false;
+    const stripe = Stripe(PK, { stripeAccount: acctId });
+    const cc = (country || "US").toUpperCase();
+    const ccy = (currency || (cc === "CA" ? "cad" : "usd")).toLowerCase();
+    const routingLabel = cc === "CA" ? "Transit + institution (e.g. 11000-000)" : cc === "GB" ? "Sort code" : "Routing number";
+
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (v: boolean) => { if (settled) return; settled = true; resolve(v); };
+      const { container, close } = makeOverlay(() => finish(false));
+
+      const title = document.createElement("div");
+      title.textContent = "Add direct deposit (bank account)";
+      title.style.cssText = "font-size:16px;font-weight:800;color:#0b141a;margin:4px 2px 4px;";
+      const sub = document.createElement("div");
+      sub.textContent = "Standard payouts are sent to this bank account on your schedule.";
+      sub.style.cssText = "font-size:12.5px;color:#55636b;line-height:1.45;margin:0 2px 12px;";
+
+      const mkInput = (placeholder: string) => {
+        const i = document.createElement("input");
+        i.placeholder = placeholder;
+        i.style.cssText = "width:100%;box-sizing:border-box;border:1px solid #d6dcd9;border-radius:10px;padding:13px 12px;font-size:15px;color:#0b141a;margin-top:8px;background:#fff;";
+        return i;
+      };
+      const nameI = mkInput("Account holder name");
+      const routingI = mkInput(routingLabel);
+      const acctI = mkInput("Account number");
+      acctI.setAttribute("inputmode", "numeric");
+
+      const err = document.createElement("div");
+      err.style.cssText = "color:#dc2626;font-size:13px;font-weight:600;margin:8px 2px 0;min-height:16px;";
+      const save = document.createElement("button");
+      save.textContent = "Save bank account";
+      save.style.cssText = "width:100%;margin-top:14px;padding:14px;border:0;border-radius:12px;background:#00A884;color:#fff;font-size:15px;font-weight:800;cursor:pointer;";
+      const hint = document.createElement("div");
+      hint.textContent = "🔒 Your bank details are encrypted and tokenized by Stripe.";
+      hint.style.cssText = "color:#7a8a85;font-size:11.5px;text-align:center;margin-top:10px;";
+
+      [title, sub, nameI, routingI, acctI, err, save, hint].forEach((el) => container.appendChild(el));
+
+      save.onclick = async () => {
+        if (!nameI.value.trim() || !routingI.value.trim() || !acctI.value.trim()) { err.textContent = "Please fill in every field."; return; }
+        save.disabled = true; save.textContent = "Saving…"; err.textContent = "";
+        try {
+          const { token, error } = await stripe.createToken("bank_account", {
+            country: cc, currency: ccy,
+            account_holder_name: nameI.value.trim(),
+            account_holder_type: "individual",
+            routing_number: routingI.value.replace(/\s|-/g, ""),
+            account_number: acctI.value.replace(/\s/g, ""),
+          });
+          if (error) { err.textContent = error.message || "Couldn’t read those bank details."; save.disabled = false; save.textContent = "Save bank account"; return; }
+          await api.addBankAccount(token.id);
+          finish(true); close();
+        } catch (e: any) {
+          err.textContent = String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Couldn’t add that account."; save.disabled = false; save.textContent = "Save bank account";
+        }
+      };
+    });
+  } catch {
+    return false;
+  }
+}
