@@ -64,6 +64,9 @@ export default function ChatScreen() {
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
   const [recMs, setRecMs] = useState(0);
   const lastTapRef = useRef<Record<string, number>>({});
+  // Messenger-style: time/read/seen stay hidden until you tap a message.
+  const [revealedId, setRevealedId] = useState<string | null>(null);
+  const tapTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [emojis, setEmojis] = useState<CustomEmoji[]>([]);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const emojiMap = useMemo(
@@ -258,9 +261,6 @@ export default function ChatScreen() {
     }
   };
 
-  // The most recent message I sent (Snapchat shows status only under it).
-  const lastMineId = [...messages].reverse().find((m) => m.sender_id === user?.user_id && !m.deleted)?.id;
-
   // Sent → Delivered → Read, per-member in groups (e.g. "Read by 3").
   const statusFor = (m: Message): { text: string; read: boolean } => {
     if (isGroup) {
@@ -362,13 +362,28 @@ export default function ChatScreen() {
     } catch { load(); }
   };
 
-  // Double-tap a bubble to like it (Instagram/Messenger style).
+  // Single tap reveals the timestamp + read/seen status (Messenger style);
+  // double tap likes the message with ❤️.
+  const toggleRevealed = (mid: string) =>
+    setRevealedId((cur) => (cur === mid ? null : mid));
   const onBubbleTap = (m: Message) => {
-    if (m.deleted) return;
     const now = Date.now();
     const last = lastTapRef.current[m.id] || 0;
     lastTapRef.current[m.id] = now;
-    if (now - last < 300) { toggleReaction(m); lastTapRef.current[m.id] = 0; }
+    if (now - last < 300) {
+      // Second tap within the window → react, and cancel the pending reveal.
+      const t = tapTimerRef.current[m.id];
+      if (t) { clearTimeout(t); delete tapTimerRef.current[m.id]; }
+      lastTapRef.current[m.id] = 0;
+      if (!m.deleted) toggleReaction(m);
+      return;
+    }
+    // First tap → wait briefly to see if a double-tap follows; if not, reveal meta.
+    const t = setTimeout(() => {
+      delete tapTimerRef.current[m.id];
+      toggleRevealed(m.id);
+    }, 300);
+    tapTimerRef.current[m.id] = t;
   };
 
   const beginEdit = (m: Message) => {
@@ -918,36 +933,34 @@ export default function ChatScreen() {
                       </View>
                     )}
                   </TouchableOpacity>
-                  <View style={[styles.metaRow, mine ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
-                    {!!reactionSummary(item) && !item.deleted && (
-                      <TouchableOpacity onPress={() => toggleReaction(item)} testID={`react-chip-${item.id}`}>
-                        <Text style={styles.reactionChip}>{reactionSummary(item)}</Text>
-                      </TouchableOpacity>
-                    )}
-                    <Text style={styles.metaTime}>
-                      {new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                    </Text>
-                    {!!item.edited_at && !item.deleted && (
-                      <TouchableOpacity onPress={() => openHistory(item)} testID={`edited-${item.id}`} hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}>
-                        <Text style={[styles.metaTime, styles.editedLink]}>· edited</Text>
-                      </TouchableOpacity>
-                    )}
-                    {encrypted && !item.deleted && (
-                      <Ionicons name="lock-closed" size={10} color={theme.textMuted} />
-                    )}
-                    {mine && !item.deleted && (
-                      item.id === lastMineId ? (() => {
+                  {!!reactionSummary(item) && !item.deleted && (
+                    <TouchableOpacity
+                      style={[styles.reactionBadge, mine ? styles.reactionBadgeMine : styles.reactionBadgeOther]}
+                      onPress={() => toggleReaction(item)}
+                      testID={`react-chip-${item.id}`}
+                    >
+                      <Text style={styles.reactionBadgeText}>{reactionSummary(item)}</Text>
+                    </TouchableOpacity>
+                  )}
+                  {revealedId === item.id && (
+                    <View style={[styles.metaRow, mine ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
+                      <Text style={styles.metaTime}>
+                        {new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      </Text>
+                      {!!item.edited_at && !item.deleted && (
+                        <TouchableOpacity onPress={() => openHistory(item)} testID={`edited-${item.id}`} hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}>
+                          <Text style={[styles.metaTime, styles.editedLink]}>· edited</Text>
+                        </TouchableOpacity>
+                      )}
+                      {encrypted && !item.deleted && (
+                        <Ionicons name="lock-closed" size={10} color={theme.textMuted} />
+                      )}
+                      {mine && !item.deleted && (() => {
                         const s = statusFor(item);
                         return <Text style={[styles.statusLabel, s.read && { color: "#53BDEB" }]}>{s.text}</Text>;
-                      })() : (
-                        <Ionicons
-                          name={((item.read_by?.length || item.read_at) || (item.delivered_by?.length || item.delivered_at)) ? "checkmark-done" : "checkmark"}
-                          size={14}
-                          color={(item.read_by?.length || item.read_at) ? "#53BDEB" : theme.textMuted}
-                        />
-                      )
-                    )}
-                  </View>
+                      })()}
+                    </View>
+                  )}
                 </View>
               );
             }}
@@ -1313,7 +1326,7 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 60, alignItems: "center" },
   emptyText: { color: theme.textMuted, fontSize: 13 },
 
-  bubbleRow: { flexDirection: "row" },
+  bubbleRow: { flexDirection: "column" },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4, paddingHorizontal: 4 },
   metaTime: { color: theme.textMuted, fontSize: 11, fontWeight: "500" },
   statusLabel: { color: theme.textMuted, fontSize: 10.5, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.3 },
@@ -1325,8 +1338,8 @@ const styles = StyleSheet.create({
   historyRow: { backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 8 },
   historyMeta: { color: theme.textMuted, fontSize: 11, fontWeight: "700", marginBottom: 4 },
   historyText: { color: theme.textPrimary, fontSize: 14, lineHeight: 19 },
-  bubbleRowMine: { justifyContent: "flex-end" },
-  bubbleRowOther: { justifyContent: "flex-start" },
+  bubbleRowMine: { alignItems: "flex-end" },
+  bubbleRowOther: { alignItems: "flex-start" },
   bubble: {
     maxWidth: "78%",
     paddingHorizontal: 15, paddingVertical: 11,
@@ -1354,6 +1367,16 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border,
     borderRadius: 12, overflow: "hidden", paddingHorizontal: 8, paddingVertical: 3,
   },
+  // Reaction "bubble" that overlaps the bottom of the message (Messenger style).
+  reactionBadge: {
+    marginTop: -10, zIndex: 2,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2,
+    shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  },
+  reactionBadgeMine: { marginRight: 8 },
+  reactionBadgeOther: { marginLeft: 8 },
+  reactionBadgeText: { color: theme.textPrimary, fontSize: 12.5, fontWeight: "600" },
   deletedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   deletedText: { color: theme.textMuted, fontSize: 13, fontStyle: "italic" },
   mediaWrap: { width: 250 },
