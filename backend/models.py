@@ -37,6 +37,13 @@ class User(BaseModel):
     created_at: datetime
 
 
+class Badge(BaseModel):
+    id: str
+    label: str = ""
+    icon: str = ""          # an emoji character, or an image URL / data URI
+    color: str = "#3B82F6"
+
+
 class PublicUser(BaseModel):
     user_id: str
     name: str
@@ -45,6 +52,7 @@ class PublicUser(BaseModel):
     bio: Optional[str] = ""
     verified: bool = False
     role: str = "user"
+    badges: List[Badge] = []
     online: bool = False             # active within the presence window
     last_seen: Optional[str] = None  # ISO timestamp of last activity
     sub_price: float = 4.99
@@ -564,6 +572,7 @@ class PostAuthor(BaseModel):
     username: Optional[str] = None
     picture: Optional[str] = None
     verified: bool = False
+    badges: List[Badge] = []
 
 
 class Post(BaseModel):

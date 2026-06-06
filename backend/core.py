@@ -87,6 +87,37 @@ def _norm_dt(dt: datetime) -> datetime:
 ONLINE_WINDOW_SECONDS = 120
 
 
+# Custom badges (admin-defined, assigned to users; render like the verified check).
+_badge_cache: dict = {"at": 0.0, "defs": {}}
+
+
+async def _badge_defs() -> dict:
+    """All badge definitions keyed by id, cached briefly to avoid per-row queries."""
+    import time
+    now = time.time()
+    if now - _badge_cache["at"] > 30:
+        rows = await db.badge_defs.find({}, {"_id": 0}).to_list(200)
+        _badge_cache["defs"] = {r["id"]: r for r in rows}
+        _badge_cache["at"] = now
+    return _badge_cache["defs"]
+
+
+def _invalidate_badge_cache():
+    _badge_cache["at"] = 0.0
+
+
+async def _resolve_badges(badge_ids) -> list:
+    if not badge_ids:
+        return []
+    defs = await _badge_defs()
+    out = []
+    for b in badge_ids:
+        d = defs.get(b)
+        if d:
+            out.append({"id": d["id"], "label": d.get("label", ""), "icon": d.get("icon", ""), "color": d.get("color", "#3B82F6")})
+    return out
+
+
 def _is_online(last_seen) -> bool:
     if not last_seen:
         return False
@@ -471,6 +502,7 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         bio=u.get("bio", ""),
         verified=bool(u.get("verified", False)),
         role=_effective_role(u),
+        badges=await _resolve_badges(u.get("badge_ids")),
         online=_is_online(u.get("last_seen")),
         last_seen=(_norm_dt(u["last_seen"]).isoformat() if u.get("last_seen") else None),
         sub_price=float(u.get("sub_price", 4.99) or 0),

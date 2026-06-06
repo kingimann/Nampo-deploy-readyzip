@@ -10,10 +10,10 @@ from db import DuplicateKeyError
 
 from core import (
     _public_user, db, get_current_user, is_admin, _effective_role, _norm_dt,
-    SUBSCRIPTION_TIERS, SUBSCRIPTION_TIERS_BY_ID,
+    SUBSCRIPTION_TIERS, SUBSCRIPTION_TIERS_BY_ID, _invalidate_badge_cache,
 )
 from services.email import send_email
-from models import AdminUserPatch, PublicUser, Tip, TipCreate, WalletSummary, WalletTxn
+from models import AdminUserPatch, Badge, PublicUser, Tip, TipCreate, WalletSummary, WalletTxn
 
 try:
     from routes.notifications import emit_notification  # type: ignore
@@ -381,6 +381,82 @@ async def admin_remove_user(user_id: str, authorization: Optional[str] = Header(
     await db.users.delete_one({"user_id": user_id})
     await db.user_sessions.delete_many({"user_id": user_id})
     await _audit(me, "removed account", target)
+    return {"ok": True}
+
+
+# ── Custom badges (admin-defined; render next to names like the verified check) ──
+class BadgeCreate(BaseModel):
+    label: str
+    icon: str               # emoji char or image URL / data URI
+    color: Optional[str] = "#3B82F6"
+
+
+class UserBadgeBody(BaseModel):
+    badge_id: str
+    action: str = "add"     # "add" | "remove"
+
+
+@router.get("/badges", response_model=List[Badge])
+async def list_badges(authorization: Optional[str] = Header(None)):
+    """All badge definitions (for display and admin management)."""
+    await get_current_user(authorization)
+    rows = await db.badge_defs.find({}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    return [Badge(id=r["id"], label=r.get("label", ""), icon=r.get("icon", ""), color=r.get("color", "#3B82F6")) for r in rows]
+
+
+@router.post("/admin/badges", response_model=Badge)
+async def create_badge(body: BadgeCreate, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    icon = (body.icon or "").strip()
+    if not body.label.strip() or not icon:
+        raise HTTPException(status_code=400, detail="Label and icon are required")
+    if len(icon) > 1_500_000:
+        raise HTTPException(status_code=413, detail="Badge image too large")
+    doc = {
+        "id": str(uuid.uuid4()), "label": body.label.strip()[:40], "icon": icon,
+        "color": (body.color or "#3B82F6")[:9], "created_at": datetime.now(timezone.utc),
+    }
+    await db.badge_defs.insert_one(doc.copy())
+    _invalidate_badge_cache()
+    await _audit(me, f"created badge · {doc['label']}", {"user_id": "", "name": ""})
+    return Badge(id=doc["id"], label=doc["label"], icon=doc["icon"], color=doc["color"])
+
+
+@router.delete("/admin/badges/{badge_id}")
+async def delete_badge(badge_id: str, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    await db.badge_defs.delete_one({"id": badge_id})
+    await db.users.update_many({"badge_ids": badge_id}, {"$pull": {"badge_ids": badge_id}})
+    _invalidate_badge_cache()
+    await _audit(me, "deleted badge", {"user_id": "", "name": ""})
+    return {"ok": True}
+
+
+@router.post("/admin/users/{user_id}/badge")
+async def set_user_badge(user_id: str, body: UserBadgeBody, authorization: Optional[str] = Header(None)):
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    bdef = await db.badge_defs.find_one({"id": body.badge_id}, {"_id": 0, "id": 1, "label": 1})
+    if not bdef:
+        raise HTTPException(status_code=404, detail="Badge not found")
+    if body.action == "remove":
+        await db.users.update_one({"user_id": user_id}, {"$pull": {"badge_ids": body.badge_id}})
+        await _audit(me, f"removed badge · {bdef.get('label', '')}", target)
+    else:
+        cur = await db.users.find_one({"user_id": user_id}, {"_id": 0, "badge_ids": 1})
+        ids = list((cur or {}).get("badge_ids") or [])
+        if body.badge_id not in ids:
+            ids.append(body.badge_id)
+        await db.users.update_one({"user_id": user_id}, {"$set": {"badge_ids": ids}})
+        await _audit(me, f"gave badge · {bdef.get('label', '')}", target)
     return {"ok": True}
 
 

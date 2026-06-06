@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { api, PublicUser, FriendStatus } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import PresenceDot from "./PresenceDot";
+import UserBadges from "./UserBadges";
 
 const friendLabel = (s?: FriendStatus): string => {
   switch (s) {
@@ -94,7 +95,10 @@ export default function UserRow({
         <PresenceDot online={u.online} size={13} borderColor={theme.surface} style={{ right: 0, bottom: 0 }} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={styles.name} numberOfLines={1}>{u.name}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Text style={styles.name} numberOfLines={1}>{u.name}</Text>
+          <UserBadges badges={u.badges} size={14} />
+        </View>
         {!!u.username && <Text style={styles.handle} numberOfLines={1}>@{u.username}</Text>}
       </View>
       {!isMe && (

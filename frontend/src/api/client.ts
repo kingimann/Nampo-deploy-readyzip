@@ -58,6 +58,13 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<User>("/auth/me"),
   presencePing: () => request<{ ok: boolean }>("/presence/ping", { method: "POST" }),
+  listBadges: () => request<Badge[]>("/badges"),
+  adminCreateBadge: (body: { label: string; icon: string; color?: string }) =>
+    request<Badge>("/admin/badges", { method: "POST", body: JSON.stringify(body) }),
+  adminDeleteBadge: (badgeId: string) =>
+    request<{ ok: boolean }>(`/admin/badges/${badgeId}`, { method: "DELETE" }),
+  adminSetUserBadge: (userId: string, badge_id: string, action: "add" | "remove") =>
+    request<{ ok: boolean }>(`/admin/users/${userId}/badge`, { method: "POST", body: JSON.stringify({ badge_id, action }) }),
   updateMe: (p: ProfilePatch) =>
     request<User>("/auth/me", { method: "PATCH", body: JSON.stringify(p) }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
@@ -805,6 +812,7 @@ export type PublicUser = {
   role?: string;
   online?: boolean;
   last_seen?: string | null;
+  badges?: Badge[];
   sub_price?: number;
   is_subscribed?: boolean;
   subscriber_count?: number;
@@ -981,7 +989,8 @@ export type Poll = {
   closed: boolean;
 };
 export type PollCreate = { options: string[]; duration_hours: number };
-export type PostAuthor = { user_id: string; name: string; username?: string | null; picture?: string | null; verified?: boolean };
+export type Badge = { id: string; label?: string; icon: string; color?: string };
+export type PostAuthor = { user_id: string; name: string; username?: string | null; picture?: string | null; verified?: boolean; badges?: Badge[] };
 export type PostMedia = {
   type: "image" | "video";
   base64?: string;

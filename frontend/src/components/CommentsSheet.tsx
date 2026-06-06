@@ -12,6 +12,7 @@ import { theme } from "@/src/theme";
 import RichText from "./RichText";
 import { fmtTime } from "./PostCard";
 import VerifiedBadge from "./VerifiedBadge";
+import UserBadges from "./UserBadges";
 import InlineMedia from "./InlineMedia";
 import GifPickerSheet from "./GifPickerSheet";
 import { getInlineImage } from "@/src/utils/embeds";
@@ -214,6 +215,7 @@ export default function CommentsSheet({ visible, post, onClose, onCommented }: P
                       <View style={styles.rowHead}>
                         <Text style={styles.rowName} numberOfLines={1}>{item.author.name}</Text>
                         {item.author.verified && <VerifiedBadge size={12} />}
+                        <UserBadges badges={item.author.badges} size={12} />
                         {item.pinned && (
                           <View style={styles.pinnedBadge}>
                             <Ionicons name="pin" size={10} color={theme.primary} />

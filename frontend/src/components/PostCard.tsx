@@ -18,6 +18,7 @@ import LikersModal from "./LikersModal";
 import ShareToChatSheet from "./ShareToChatSheet";
 import PostViewersModal from "./PostViewersModal";
 import VerifiedBadge from "./VerifiedBadge";
+import UserBadges from "./UserBadges";
 
 type Props = {
   post: Post;
@@ -154,6 +155,7 @@ export default function PostCard({
             >
               <Text style={styles.author} numberOfLines={1}>{display.author.name}</Text>
               {display.author.verified && <VerifiedBadge size={14} style={{ marginLeft: -2 }} />}
+              <UserBadges badges={display.author.badges} size={14} />
             </TouchableOpacity>
             <Text style={styles.dot}>·</Text>
             <Text style={styles.time}>{fmtTime(display.created_at)}</Text>

@@ -11,6 +11,7 @@ import { theme } from "@/src/theme";
 import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
 import PresenceDot, { presenceLabel } from "@/src/components/PresenceDot";
+import UserBadges from "@/src/components/UserBadges";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
@@ -192,6 +193,7 @@ export default function UserProfileScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
                 <Text style={styles.name}>{user.name}</Text>
                 {user.verified && <VerifiedBadge size={18} />}
+                <UserBadges badges={user.badges} size={18} />
               </View>
               <Text style={[styles.presence, user.online && { color: "#22C55E" }]}>{presenceLabel(user.online, user.last_seen)}</Text>
               {!!user.role && user.role !== "user" && (

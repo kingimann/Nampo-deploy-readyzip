@@ -213,12 +213,14 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         _c = await db.communities.find_one({"id": doc["community_id"]}, {"_id": 0, "name": 1})
         _community_name = _c.get("name") if _c else None
     author_doc = await db.users.find_one({"user_id": doc["user_id"]}, {"_id": 0})
+    from core import _resolve_badges
     author = PostAuthor(
         user_id=doc["user_id"],
         name=author_doc.get("name", "Unknown") if author_doc else "Unknown",
         username=author_doc.get("username") if author_doc else None,
         picture=author_doc.get("picture") if author_doc else None,
         verified=bool(author_doc.get("verified", False)) if author_doc else False,
+        badges=(await _resolve_badges(author_doc.get("badge_ids")) if author_doc else []),
     )
     liked = False
     disliked = False

@@ -6,7 +6,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, AdminUser, AdminTxn } from "@/src/api/client";
+import { api, AdminUser, AdminTxn, Badge } from "@/src/api/client";
+import UserBadges from "@/src/components/UserBadges";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { useConfirm } from "@/src/context/ConfirmContext";
@@ -51,6 +52,31 @@ export default function AdminUsersScreen() {
   const [txnListUser, setTxnListUser] = useState<AdminUser | null>(null);
   const [txnList, setTxnList] = useState<AdminTxn[]>([]);
   const [txnListBusy, setTxnListBusy] = useState(false);
+
+  // Badges assignment
+  const [badgeUser, setBadgeUser] = useState<AdminUser | null>(null);
+  const [allBadges, setAllBadges] = useState<Badge[]>([]);
+  const [userBadgeIds, setUserBadgeIds] = useState<Set<string>>(new Set());
+  const [badgeBusy, setBadgeBusy] = useState<string | null>(null);
+
+  const openBadges = async (u: AdminUser) => {
+    setSel(null); setBadgeUser(u); setAllBadges([]); setUserBadgeIds(new Set());
+    try {
+      const [defs, pub] = await Promise.all([api.listBadges(), api.getPublicUser(u.user_id)]);
+      setAllBadges(defs);
+      setUserBadgeIds(new Set((pub.badges || []).map((b) => b.id)));
+    } catch (e: any) { Alert.alert("Couldn't load badges", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+  };
+  const toggleBadge = async (b: Badge) => {
+    if (!badgeUser) return;
+    const has = userBadgeIds.has(b.id);
+    setBadgeBusy(b.id);
+    try {
+      await api.adminSetUserBadge(badgeUser.user_id, b.id, has ? "remove" : "add");
+      setUserBadgeIds((prev) => { const n = new Set(prev); if (has) n.delete(b.id); else n.add(b.id); return n; });
+    } catch (e: any) { Alert.alert("Couldn't update", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setBadgeBusy(null); }
+  };
 
   const pad = (n: number) => String(n).padStart(2, "0");
   const partsFromISO = (iso?: string) => {
@@ -254,6 +280,7 @@ export default function AdminUsersScreen() {
               <Action icon="wallet-outline" label="Set wallet balance (USD)…" onPress={() => { const u = sel; setSel(null); setWalletVal(""); setWalletUser(u); }} />
               <Action icon="add-circle-outline" label="Re-add lost transaction…" onPress={() => { const u = sel; openAddTxn(u); }} />
               <Action icon="list-outline" label="View / edit transactions…" onPress={() => loadTxnList(sel)} />
+              <Action icon="ribbon-outline" label="Badges…" onPress={() => openBadges(sel)} />
               <Action icon="trash-outline" label="Remove account" danger onPress={() => confirmRemove(sel)} />
               <TouchableOpacity onPress={() => setSel(null)}><Text style={styles.cancel}>Close</Text></TouchableOpacity>
             </View>
@@ -422,6 +449,37 @@ export default function AdminUsersScreen() {
                 <Text style={styles.modBtnText}>Add a transaction</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setTxnListUser(null)}><Text style={styles.cancel}>Close</Text></TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
+      {/* Assign badges */}
+      <Modal visible={!!badgeUser} transparent animationType="fade" onRequestClose={() => setBadgeUser(null)}>
+        <View style={styles.centerBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setBadgeUser(null)} />
+          {badgeUser && (
+            <View style={[styles.suspendCard, { maxHeight: "82%" }]}>
+              <Text style={styles.suspendTitle}>Badges</Text>
+              <Text style={styles.fieldLabel}>Give {badgeUser.name} custom badges (shown next to their name).</Text>
+              {allBadges.length === 0 ? (
+                <Text style={styles.txnEmpty}>No badges exist yet. Create some in Settings → Custom badges.</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 380 }}>
+                  {allBadges.map((b) => {
+                    const has = userBadgeIds.has(b.id);
+                    return (
+                      <TouchableOpacity key={b.id} style={styles.txnRow} onPress={() => toggleBadge(b)} disabled={badgeBusy === b.id} testID={`assign-badge-${b.id}`}>
+                        <UserBadges badges={[b]} size={20} />
+                        <Text style={[styles.txnRowTitle, { flex: 1 }]} numberOfLines={1}>{b.label || "(no label)"}</Text>
+                        {badgeBusy === b.id ? <ActivityIndicator size="small" color={theme.textMuted} /> : (
+                          <Ionicons name={has ? "checkmark-circle" : "ellipse-outline"} size={22} color={has ? theme.primary : theme.textMuted} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+              <TouchableOpacity onPress={() => setBadgeUser(null)}><Text style={styles.cancel}>Done</Text></TouchableOpacity>
             </View>
           )}
         </View>
