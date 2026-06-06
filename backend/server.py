@@ -169,4 +169,34 @@ async def startup():
         start_bot()                               # @claude replies in-app (if API key set)
     except Exception:
         pass
+    try:
+        asyncio.create_task(_backfill_avatars())  # give pictureless users a default avatar (one-time)
+    except Exception:
+        pass
     logger.info("Startup complete")
+
+
+async def _backfill_avatars():
+    """One-time: give every existing user without a profile picture a default
+    avatar. Idempotent and flagged so it only does work once."""
+    try:
+        from core import db, random_default_avatar
+        done = await db.app_settings.find_one({"key": "avatars_backfilled"}, {"_id": 0, "value": 1})
+        if done and done.get("value"):
+            return
+        users = await db.users.find({}, {"_id": 0, "user_id": 1, "username": 1, "picture": 1}).to_list(100000)
+        n = 0
+        for u in users:
+            if not u.get("picture"):
+                await db.users.update_one(
+                    {"user_id": u["user_id"]},
+                    {"$set": {"picture": random_default_avatar(u.get("username") or u["user_id"])}},
+                )
+                n += 1
+        if done:
+            await db.app_settings.update_one({"key": "avatars_backfilled"}, {"$set": {"value": True}})
+        else:
+            await db.app_settings.insert_one({"key": "avatars_backfilled", "value": True})
+        logger.info("Avatar backfill complete (%d users updated)", n)
+    except Exception as e:
+        logger.warning("Avatar backfill skipped: %s", e)
