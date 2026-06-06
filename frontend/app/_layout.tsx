@@ -1,4 +1,4 @@
-import { Stack, usePathname } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
@@ -26,6 +26,25 @@ function AuthedSidebar() {
   const { user } = useAuth();
   if (!user) return null;
   return <LeftSidebar />;
+}
+
+// Routes a logged-out user is allowed to stay on (everything else bounces to
+// /login). Without this, signing out while on a stacked screen (e.g.
+// Notifications) leaves you stranded there.
+const PUBLIC_PREFIXES = ["/login", "/auth", "/legal", "/oauth", "/eta/"];
+
+function AuthRedirect() {
+  const { user, loading } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  useEffect(() => {
+    if (loading || user) return;
+    const isPublic = PUBLIC_PREFIXES.some((p) =>
+      p.endsWith("/") ? pathname?.startsWith(p) : (pathname === p || pathname?.startsWith(p + "/")),
+    );
+    if (!isPublic) router.replace("/login");
+  }, [user, loading, pathname, router]);
+  return null;
 }
 
 // Hide the bar on these immersive / modal-feel screens.
@@ -114,6 +133,7 @@ export default function RootLayout() {
                     <UsernameGate />
                     <PolicyGate />
                     <PushManager />
+                    <AuthRedirect />
                   </MobileOnlyGate>
                 </ConfirmProvider>
               </SidebarMenuProvider>
