@@ -83,6 +83,25 @@ async def _check_foursquare() -> tuple[bool, str]:
         return False, f"Foursquare call failed: {str(e)[:120]}"
 
 
+async def _check_anthropic() -> tuple[bool, str]:
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return False, "ANTHROPIC_API_KEY not set."
+    model = os.environ.get("CLAUDE_VISION_MODEL", "claude-haiku-4-5")
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": model, "max_tokens": 1, "messages": [{"role": "user", "content": "ping"}]},
+            )
+        if r.status_code == 200:
+            return True, f"Authenticated — {model} ready for the roadside photo check."
+        return False, f"HTTP {r.status_code}: {r.text[:160]}"
+    except Exception as e:
+        return False, f"Anthropic call failed: {str(e)[:120]}"
+
+
 # Each entry: live() is optional (only run when ?live=1).
 _INTEGRATIONS = [
     {
@@ -143,12 +162,12 @@ _INTEGRATIONS = [
         "configured": lambda: _present("LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_URL"), "live": None,
     },
     {
-        "key": "anthropic", "name": "Anthropic (Claude bot)", "category": "AI",
+        "key": "anthropic", "name": "Anthropic (Claude bot + AI checks)", "category": "AI",
         "required": False, "env": ["ANTHROPIC_API_KEY"],
-        "summary": "Powers the in-app Claude assistant/bot features.",
-        "fix": "Set ANTHROPIC_API_KEY from the Anthropic console.",
+        "summary": "Powers the @claude assistant and the roadside photo/document checks + marketplace listing moderation. Without it, photos are accepted with no automotive check.",
+        "fix": "Set ANTHROPIC_API_KEY from the Anthropic console, then run a live check here to confirm.",
         "docs": "https://console.anthropic.com/",
-        "configured": lambda: _present("ANTHROPIC_API_KEY"), "live": None,
+        "configured": lambda: _present("ANTHROPIC_API_KEY"), "live": _check_anthropic,
     },
     {
         "key": "message_encryption", "name": "Message encryption at rest", "category": "Security",

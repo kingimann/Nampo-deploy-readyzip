@@ -33,8 +33,10 @@ services:
       # key, so encryption is always on in production.
       - key: MESSAGE_ENC_KEY
         generateValue: true
-      # Powers the in-app @claude assistant bot (replies to DMs/mentions from
-      # the allowlist). Leave blank to disable. Get a key at console.anthropic.com.
+      # Hosted AI key (console.anthropic.com). Powers BOTH the in-app @claude
+      # assistant bot AND the roadside photo/document checks + marketplace
+      # listing moderation. Set this and the AI checks work with no server to
+      # run. Leave blank to disable (photos are then accepted with no AI check).
       - key: ANTHROPIC_API_KEY
         sync: false
       # Bot model + who it answers (comma-separated usernames). Optional.
@@ -42,6 +44,19 @@ services:
         sync: false
       - key: CLAUDE_BOT_ALLOW
         value: iman
+      # Models for the AI checks. Optional — default to the cheapest vision model.
+      - key: CLAUDE_VISION_MODEL
+        value: claude-haiku-4-5
+      - key: CLAUDE_TEXT_MODEL
+        value: claude-haiku-4-5
+      # Optional alternative: self-host the checks on your own Ollama server
+      # instead of the hosted API. Leave OLLAMA_HOST blank to use Anthropic above.
+      - key: OLLAMA_HOST
+        sync: false
+      - key: OLLAMA_VISION_MODEL
+        value: llama3.2-vision
+      - key: OLLAMA_TEXT_MODEL
+        value: llama3.2
       # Comma-separated emails that are auto-granted the site admin role (can
       # verify users, set mod/admin roles, and moderate posts). Set yours here.
       - key: ADMIN_EMAILS

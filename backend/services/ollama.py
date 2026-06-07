@@ -333,6 +333,24 @@ def _raw_b64(s: str) -> str:
     return s
 
 
+async def _fetch_image_b64(photo: str) -> str:
+    """Ollama can only take inline base64, but captured photos may be a hosted
+    URL (e.g. a Cloudinary upload). If `photo` is an http(s) URL, download it and
+    return a base64 data URI; otherwise return it unchanged (and on any error)."""
+    p = (photo or "").strip()
+    if not (p.startswith("http://") or p.startswith("https://")):
+        return p
+    try:
+        import base64 as _b64
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(p)
+            r.raise_for_status()
+            ctype = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip() or "image/jpeg"
+        return f"data:{ctype};base64," + _b64.b64encode(r.content).decode("ascii")
+    except Exception:
+        return p
+
+
 async def verify_documents(
     insurance_b64: str,
     ownership_b64: str,
@@ -342,11 +360,12 @@ async def verify_documents(
     """Returns {"decision": "approve"|"reject"|"unavailable", "reason": str}.
     `unavailable` means the caller should fall back (e.g. manual review)."""
     if not ollama_enabled():
-        # No local Ollama vision model — fall back to Claude vision (Anthropic),
-        # which returns "unavailable" itself when ANTHROPIC_API_KEY is unset.
+        # No local Ollama model — use the hosted AI verifier (Anthropic).
         from services.claude_ai import verify_documents_claude
         return await verify_documents_claude(insurance_b64, ownership_b64, vehicle, name)
 
+    insurance_b64 = await _fetch_image_b64(insurance_b64)   # download hosted URLs to base64
+    ownership_b64 = await _fetch_image_b64(ownership_b64)
     prompt = (
         "You verify members for a peer-to-peer roadside assistance app, to stop "
         "bots and fraud. Image 1 is the member's AUTO INSURANCE document. Image 2 "
@@ -433,11 +452,11 @@ async def verify_vehicle_photo(b64: str) -> dict:
     if _image_looks_blank(b64):
         return {"ok": False, "reason": "That looks like a blank or all-dark photo. Take a clear photo of your vehicle or the problem."}
     if not ollama_enabled():
-        # No local Ollama vision model — fall back to Claude vision (Anthropic)
-        # so non-automotive photos are still flagged on hosted deployments.
-        # classify_vehicle_photo fails open when ANTHROPIC_API_KEY is also unset.
+        # No local Ollama model — use the hosted AI check (Anthropic). It reads
+        # hosted URLs (e.g. Cloudinary) directly and fails open if unconfigured.
         from services.claude_ai import classify_vehicle_photo
         return await classify_vehicle_photo(b64)
+    b64 = await _fetch_image_b64(b64)   # download hosted URLs (e.g. Cloudinary) to base64
     prompt = (
         "This is a photo from a roadside-assistance request. Does it clearly show a "
         "motor vehicle, or a part of one relevant to the problem (e.g. a flat or "
@@ -530,8 +549,8 @@ async def moderate_listing(title: str, description: str, photos, dup_existing: b
         except Exception:
             pass
     else:
-        # No local Ollama text model — fall back to Claude (Anthropic) for the
-        # spam/scam judgement. No-op when ANTHROPIC_API_KEY is also unset.
+        # No local Ollama model — use the hosted AI (Anthropic) for the spam/scam
+        # judgement. No-op when ANTHROPIC_API_KEY is also unset.
         try:
             from services.claude_ai import classify_listing_spam
             res = await classify_listing_spam(title, description)

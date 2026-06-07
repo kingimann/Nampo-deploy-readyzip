@@ -692,6 +692,114 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
     return await _hydrate(doc, user["user_id"])
 
 
+@router.post("/roadside/requests/{rid}/edit", response_model=RoadsideRequest)
+async def edit_request(rid: str, body: RoadsideCreate, authorization: Optional[str] = Header(None)):
+    """The requester edits their request while it's still OPEN (no helper yet).
+    Re-validates the details, re-prices, and reconciles the wallet hold by
+    refunding or charging only the difference. Once a helper has accepted, the
+    request can no longer be edited — cancel it instead."""
+    user = await get_current_user(authorization)
+    doc = await db.roadside_requests.find_one({"id": rid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if doc["requester_id"] != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the requester can edit this.")
+    if doc["status"] != "open":
+        raise HTTPException(status_code=400, detail={
+            "code": "not_editable",
+            "message": "This request can't be edited — a helper has already accepted it. Cancel it instead.",
+        })
+    # Same validation as creating.
+    svc = (body.service or "").strip().lower()
+    if svc not in SERVICES:
+        raise HTTPException(status_code=400, detail="Pick a valid service: tow, lockout, battery, tire or gas.")
+    dest_name = (body.dest_name or "").strip()[:200]
+    if svc == "tow" and not dest_name:
+        raise HTTPException(status_code=400, detail="Add where you'd like the vehicle towed to.")
+    fuel_type = (body.fuel_type or "").strip().lower() or None
+    fuel_amount = (body.fuel_amount or "").strip()[:40] or None
+    if svc == "gas":
+        if fuel_type == "diesel":
+            raise HTTPException(status_code=400, detail="We don't deliver diesel — choose regular, mid-grade or premium.")
+        if fuel_type not in FUEL_TYPES:
+            raise HTTPException(status_code=400, detail="Choose a fuel type: regular, mid-grade or premium.")
+        if not fuel_amount:
+            raise HTTPException(status_code=400, detail="Tell the driver how much gas you want.")
+    else:
+        fuel_type, fuel_amount = None, None
+    from services.ollama import validate_vehicle
+    vc = await validate_vehicle(body.vehicle_year, body.vehicle_make, body.vehicle_model, body.vehicle_color, body.vehicle_plate)
+    if not vc["valid"]:
+        raise HTTPException(status_code=400, detail={
+            "code": "vehicle_invalid",
+            "message": vc["reason"] or "That doesn't look like a real vehicle — check the year, make and model.",
+        })
+    # Re-price the edited request.
+    method = "cash" if (body.payment_method or "").strip().lower() == "cash" else "wallet"
+    base, tax, _ = _pricing()
+    fuel_cost = _parse_money(fuel_amount) if svc == "gas" else 0.0
+    if method == "cash":
+        tax, new_held = 0.0, False
+        new_total = round(base + fuel_cost, 2)
+    else:
+        new_held = True
+        new_total = round(base + tax + fuel_cost, 2)
+    # Reconcile the wallet against whatever is currently held: charge or refund
+    # only the difference so the user is never double-charged for an edit.
+    old_held_total = round(float(doc.get("total", 0) or 0), 2) if (doc.get("held") and not doc.get("settled") and not doc.get("refunded")) else 0.0
+    new_debit = new_total if new_held else 0.0
+    delta = round(new_debit - old_held_total, 2)
+    if delta > 0:
+        bal = await _wallet_balance(user["user_id"])
+        if bal + 1e-9 < delta or not await _debit_wallet(user["user_id"], delta):
+            raise HTTPException(status_code=400, detail={
+                "code": "insufficient_balance",
+                "message": f"This change needs ${delta:.2f} more in your wallet. Top up, then save again.",
+            })
+    elif delta < 0:
+        await _credit_wallet(user["user_id"], round(-delta, 2))
+    now = datetime.now(timezone.utc)
+    updates = {
+        "service": svc,
+        "longitude": float(body.longitude),
+        "latitude": float(body.latitude),
+        "place_name": (body.place_name or "").strip()[:200] or None,
+        "vehicle_year": (body.vehicle_year or "").strip()[:8] or None,
+        "vehicle_make": (body.vehicle_make or "").strip()[:40] or None,
+        "vehicle_model": (body.vehicle_model or "").strip()[:60] or None,
+        "vehicle_color": (body.vehicle_color or "").strip()[:30] or None,
+        "vehicle_plate": (body.vehicle_plate or "").strip()[:16] or None,
+        "dest_name": dest_name or None,
+        "dest_longitude": body.dest_longitude,
+        "dest_latitude": body.dest_latitude,
+        "fuel_type": fuel_type,
+        "fuel_amount": fuel_amount,
+        "fuel_cost": fuel_cost,
+        "photos": _clean_photos(body.photos),
+        "note": (body.note or "").strip()[:500] or None,
+        "payment_method": method,
+        "price": base,
+        "tax": tax,
+        "total": new_total,
+        "held": new_held,
+        "edited_at": now,
+    }
+    # Guard against a helper accepting in the race window — if they did, undo the
+    # wallet change and tell the user to cancel instead.
+    res = await db.roadside_requests.update_one({"id": rid, "status": "open"}, {"$set": updates})
+    if res.matched_count == 0:
+        if delta > 0:
+            await _credit_wallet(user["user_id"], delta)
+        elif delta < 0:
+            await _debit_wallet(user["user_id"], round(-delta, 2))
+        raise HTTPException(status_code=409, detail={
+            "code": "not_editable",
+            "message": "A helper just accepted this request — it can no longer be edited.",
+        })
+    doc.update(updates)
+    return await _hydrate(doc, user["user_id"])
+
+
 @router.get("/roadside/active")
 async def my_active(authorization: Optional[str] = Header(None)):
     """The viewer's current open/accepted request, or null."""

@@ -134,6 +134,7 @@ export default function RoadsideScreen() {
   const [vPlate, setVPlate] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [note, setNote] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -302,27 +303,53 @@ export default function RoadsideScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service, coords, placeName, destName, fuelType, fuelAmount, vYear, vMake, vModel, vColor, vPlate, note]);
 
+  const resetForm = () => {
+    setService(null); setVModel(""); setVColor(""); setVPlate(""); setVYear(""); setVMake("");
+    setDestName(""); setFuelType(""); setFuelAmount(""); setPhotos([]); setNote("");
+  };
+
+  // Load an open request back into the form to edit it (before a helper accepts).
+  const startEdit = (r: RoadsideRequest) => {
+    setEditingId(r.id);
+    setErr(null); setCheckRes(null);
+    setService(r.service);
+    setCoords([r.longitude, r.latitude]);
+    setPlaceName(r.place_name || "");
+    setDestName(r.dest_name || "");
+    setFuelType(r.fuel_type || "");
+    setFuelAmount(r.fuel_amount || "");
+    setVYear(r.vehicle_year || ""); setVMake(r.vehicle_make || ""); setVModel(r.vehicle_model || "");
+    setVColor(r.vehicle_color || ""); setVPlate(r.vehicle_plate || "");
+    setPhotos(r.photos || []);
+    setNote(r.note || "");
+    setPayMethod(r.payment_method === "cash" ? "cash" : "wallet");
+  };
+
+  const discardEdit = () => { setEditingId(null); setErr(null); resetForm(); };
+
   const submit = async () => {
     if (!service) { setErr("Choose what you need help with."); return; }
     if (!coords) { setErr("Set your location so a helper can reach you."); return; }
     if (service === "tow" && !destName.trim()) { setErr("Add where you'd like the vehicle towed."); return; }
     if (service === "gas" && (!fuelType || !fuelAmount)) { setErr("Choose how much gas you want and the fuel type."); return; }
     setErr(null); setSubmitting(true);
+    const body = {
+      service, longitude: coords[0], latitude: coords[1],
+      payment_method: payMethod,
+      place_name: placeName.trim() || undefined,
+      dest_name: service === "tow" ? destName.trim() : undefined,
+      fuel_type: service === "gas" ? fuelType : undefined,
+      fuel_amount: service === "gas" ? fuelAmount : undefined,
+      vehicle_year: vYear || undefined, vehicle_make: vMake || undefined, vehicle_model: vModel.trim() || undefined,
+      vehicle_color: vColor.trim() || undefined, vehicle_plate: vPlate.trim() || undefined,
+      photos: photos.length ? photos : undefined,
+      note: note.trim() || undefined,
+    };
     try {
-      const r = await api.createRoadside({
-        service, longitude: coords[0], latitude: coords[1],
-        payment_method: payMethod,
-        place_name: placeName.trim() || undefined,
-        dest_name: service === "tow" ? destName.trim() : undefined,
-        fuel_type: service === "gas" ? fuelType : undefined,
-        fuel_amount: service === "gas" ? fuelAmount : undefined,
-        vehicle_year: vYear || undefined, vehicle_make: vMake || undefined, vehicle_model: vModel.trim() || undefined,
-        vehicle_color: vColor.trim() || undefined, vehicle_plate: vPlate.trim() || undefined,
-        photos: photos.length ? photos : undefined,
-        note: note.trim() || undefined,
-      });
+      const r = editingId ? await api.editRoadside(editingId, body) : await api.createRoadside(body);
       setActive(r);
-      setService(null); setVModel(""); setVColor(""); setVPlate(""); setVYear(""); setVMake(""); setDestName(""); setFuelType(""); setFuelAmount(""); setPhotos([]); setNote("");
+      setEditingId(null);
+      resetForm();
     } catch (e: any) {
       const msg = String(e?.message || e).replace(/^\d{3}:\s*/, "");
       setErr(msg);
@@ -648,6 +675,11 @@ export default function RoadsideScreen() {
           {r.status === "accepted" && r.requester_verified && !r.helper_verified && (
             <View style={[styles.actBtn, styles.actGhost]}><Text style={styles.actGhostText}>Verified ✓ — waiting for helper</Text></View>
           )}
+          {r.status === "open" && (
+            <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={() => startEdit(r)} disabled={busyId === r.id} testID="rs-edit">
+              <Text style={styles.actGhostText}>Edit</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={[styles.actBtn, styles.actDanger]} onPress={() => cancelReq(r)} disabled={busyId === r.id} testID="rs-cancel">
             <Text style={styles.actDangerText}>Cancel</Text>
           </TouchableOpacity>
@@ -709,7 +741,11 @@ export default function RoadsideScreen() {
   const cashTotal = baseFee + gasCost;
   const total = payMethod === "cash" ? cashTotal : walletTotal;
   const bal = quote?.wallet_balance ?? 0;
-  const lowFunds = payMethod === "wallet" && !!quote && bal + 1e-9 < walletTotal;
+  // When editing, the original total is already held — only the difference needs
+  // funding, so check the wallet against the extra amount, not the full total.
+  const heldAlready = editingId && active && active.id === editingId && active.held && !active.settled && !active.refunded ? (active.total || 0) : 0;
+  const extraNeeded = payMethod === "wallet" ? Math.max(0, walletTotal - heldAlready) : 0;
+  const lowFunds = payMethod === "wallet" && !!quote && bal + 1e-9 < extraNeeded;
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="roadside-screen">
@@ -741,12 +777,21 @@ export default function RoadsideScreen() {
           {tab === "request" ? (
             <>
               {helping && <HelpingCard r={helping} />}
-              {active ? (
+              {active && !editingId ? (
                 <ActiveCard r={active} />
-              ) : (verif && !verif.verified) ? (
+              ) : (!active && verif && !verif.verified) ? (
                 <VerifyGate />
               ) : (
                 <>
+                  {!!editingId && (
+                    <View style={styles.editBanner}>
+                      <Ionicons name="create-outline" size={16} color={theme.primary} />
+                      <Text style={styles.editBannerText}>Editing your request</Text>
+                      <TouchableOpacity onPress={discardEdit} testID="rs-edit-discard">
+                        <Text style={styles.editBannerDiscard}>Discard</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                   <Text style={styles.sectionLabel}>What do you need?</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 2 }}>
                     {SERVICE_ORDER.map((k) => {
@@ -838,7 +883,7 @@ export default function RoadsideScreen() {
                       {lowFunds && (
                         <TouchableOpacity style={styles.topupBtn} onPress={() => router.push("/wallet")} testID="rs-topup">
                           <Ionicons name="add-circle" size={16} color="#fff" />
-                          <Text style={styles.topupText}>Top up ${(walletTotal - bal).toFixed(2)} more</Text>
+                          <Text style={styles.topupText}>Top up ${(extraNeeded - bal).toFixed(2)} more</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -879,7 +924,7 @@ export default function RoadsideScreen() {
                     const blockVehicle = !!checkRes?.block;
                     return (
                       <TouchableOpacity style={[styles.submit, (!service || !coords || submitting || blockFunds || blockVehicle) && { opacity: 0.5 }]} onPress={submit} disabled={!service || !coords || submitting || blockFunds || blockVehicle} testID="rs-submit">
-                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{blockVehicle ? "Fix the vehicle to continue" : payMethod === "cash" ? `Request help · $${cashTotal.toFixed(2)} cash` : `Request help · $${walletTotal.toFixed(2)}`}</Text>}
+                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{blockVehicle ? "Fix the vehicle to continue" : `${editingId ? "Save changes" : "Request help"} · $${(payMethod === "cash" ? cashTotal : walletTotal).toFixed(2)}${payMethod === "cash" ? " cash" : ""}`}</Text>}
                       </TouchableOpacity>
                     );
                   })()}
@@ -1030,6 +1075,13 @@ const styles = StyleSheet.create({
   checkIssue: { flexDirection: "row", gap: 8, marginTop: 6 },
   checkIssueText: { flex: 1, color: theme.textSecondary, fontSize: 13.5, lineHeight: 18 },
   disclaimer: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 14, textAlign: "center" },
+  editBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: theme.primary + "12", borderWidth: 1, borderColor: theme.primary + "55",
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 4,
+  },
+  editBannerText: { flex: 1, color: theme.textPrimary, fontSize: 13.5, fontWeight: "800" },
+  editBannerDiscard: { color: theme.primary, fontSize: 13.5, fontWeight: "800" },
 
   priceBox: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14, marginTop: 14 },
   priceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },

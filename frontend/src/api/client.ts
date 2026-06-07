@@ -383,6 +383,8 @@ export const api = {
   },
   createRoadside: (body: RoadsideCreate) =>
     request<RoadsideRequest>("/roadside/requests", { method: "POST", body: JSON.stringify(body) }),
+  editRoadside: (id: string, body: RoadsideCreate) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
   getRoadside: (id: string) => request<RoadsideRequest>(`/roadside/requests/${id}`),
   acceptRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/accept`, { method: "POST" }),

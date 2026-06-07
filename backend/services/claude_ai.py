@@ -1,18 +1,17 @@
-"""Claude (Anthropic) AI fallbacks for checks that otherwise need a local Ollama model.
+"""Hosted AI (Anthropic) checks for the roadside + marketplace flows.
 
-These run when no local Ollama model is configured (``OLLAMA_HOST`` unset) so the
-same automated checks still work on hosted deployments where Ollama isn't
-available:
+Runs when no local Ollama model is configured (``OLLAMA_HOST`` unset), which is
+the default on hosted deployments — no AI server to run, just one API key:
   - ``classify_vehicle_photo``  — roadside photo shows a vehicle / the problem
   - ``verify_documents_claude`` — roadside insurance + ownership documents match
   - ``classify_listing_spam``   — marketplace listing is spam / a scam
 
-Disabled unless ``ANTHROPIC_API_KEY`` is set (the same key the Claude bot uses).
+Disabled unless ``ANTHROPIC_API_KEY`` is set (the same key the @claude bot uses).
 Best-effort: each helper fails open / returns "unavailable" when unconfigured or
 on any API/parse error — they never hard-block a user on an AI hiccup.
 
 Configure with:
-  ANTHROPIC_API_KEY     enables these checks
+  ANTHROPIC_API_KEY     enables these checks (set in your host's dashboard)
   CLAUDE_VISION_MODEL   vision model id (default: claude-haiku-4-5 — cheapest)
   CLAUDE_TEXT_MODEL     text model id   (default: claude-haiku-4-5)
 """
@@ -46,7 +45,12 @@ def _raw_b64(s: str) -> str:
 
 
 def _image_block(b64: str) -> dict:
-    return {"type": "image", "source": {"type": "base64", "media_type": _media_type(b64), "data": _raw_b64(b64)}}
+    s = (b64 or "").strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        # A hosted image URL (e.g. a Cloudinary upload) — let Anthropic fetch it
+        # directly instead of trying to read it as base64.
+        return {"type": "image", "source": {"type": "url", "url": s}}
+    return {"type": "image", "source": {"type": "base64", "media_type": _media_type(s), "data": _raw_b64(s)}}
 
 
 def _extract_json(text: str) -> str:
