@@ -23,6 +23,17 @@ except Exception:  # pragma: no cover
 router = APIRouter()
 
 
+def _block_self_funds(user_id: str, me: dict):
+    """No one — not even an admin — may edit their OWN balance or transactions.
+    Otherwise an admin could credit themselves and cash out money that isn't
+    theirs. Managing other users' records stays allowed."""
+    if user_id == me["user_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You can't edit your own balance or transactions — that would let you withdraw money that isn't yours.",
+        )
+
+
 async def _audit(admin: dict, action: str, target: dict, detail: str = ""):
     """Record an admin action to the audit log (best-effort)."""
     try:
@@ -184,6 +195,7 @@ async def admin_set_wallet(user_id: str, body: WalletSet, authorization: Optiona
     me = await get_current_user(authorization)
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
+    _block_self_funds(user_id, me)
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
@@ -209,6 +221,7 @@ async def admin_add_transaction(user_id: str, body: AddTxn, authorization: Optio
     me = await get_current_user(authorization)
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
+    _block_self_funds(user_id, me)
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1, "name": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
@@ -313,6 +326,7 @@ async def admin_edit_transaction(user_id: str, body: EditTxn, authorization: Opt
     me = await get_current_user(authorization)
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
+    _block_self_funds(user_id, me)
     kind, _, rec_id = (body.ref or "").partition(":")
     cfg = _TXN_KINDS.get(kind)
     if not cfg or not rec_id:
@@ -354,6 +368,7 @@ async def admin_delete_transaction(user_id: str, ref: str = Query(...), adjust_b
     me = await get_current_user(authorization)
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
+    _block_self_funds(user_id, me)
     kind, _, rec_id = (ref or "").partition(":")
     cfg = _TXN_KINDS.get(kind)
     if not cfg or not rec_id:
