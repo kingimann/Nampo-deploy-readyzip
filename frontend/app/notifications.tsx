@@ -24,6 +24,7 @@ const ICON: Record<Notification["type"], { name: any; color: string }> = {
   like:          { name: "heart",            color: "#EF4444" },
   repost:        { name: "repeat",           color: "#22C55E" },
   reply:         { name: "chatbubble",       color: "#3B82F6" },
+  tag:           { name: "pricetag",         color: "#00A884" },
   message:       { name: "mail",             color: "#3B82F6" },
   group_invite:  { name: "people",           color: "#7C3AED" },
   group_message: { name: "chatbubbles",      color: "#7C3AED" },
@@ -43,6 +44,7 @@ const VERB: Record<Notification["type"], string> = {
   like: "liked your post",
   repost: "reposted your post",
   reply: "replied to your post",
+  tag: "tagged you in a post",
   message: "sent you a message",
   group_invite: "added you to a group",
   group_message: "messaged a group",
@@ -114,6 +116,8 @@ export default function NotificationsScreen() {
       router.push({ pathname: "/chat/[id]", params: { id: n.conversation_id } });
     } else if ((n.type === "poke" || n.type === "follow") && n.actor_name) {
       router.push({ pathname: "/user/[name]", params: { name: n.actor_name } });
+    } else if (n.type === "tag" && n.post_id) {
+      router.push({ pathname: "/post/[id]", params: { id: n.post_id } });
     } else if (n.post_id) {
       router.push({ pathname: "/(tabs)/feed" });
     }

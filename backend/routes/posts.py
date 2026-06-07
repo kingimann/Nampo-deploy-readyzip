@@ -11,6 +11,7 @@ from core import db, get_current_user, is_mod, is_admin
 from models import (
     LinkPreview, Poll, PollOption, Post, PostAuthor, PostCreate, PostMedia,
     PostPatch, PostPrivacyPatch, PublicUser, ReactionCount, ReportCreate, PromoteCreate,
+    TaggedUser,
 )
 from routes.notifications import emit_notification
 from services.link_preview import fetch_link_preview, first_url
@@ -241,6 +242,47 @@ async def _viewer_sub_level(viewer_id: Optional[str], creator_id: str) -> int:
     return 0
 
 
+async def _hydrate_tagged(ids: Optional[list]) -> List[TaggedUser]:
+    """Resolve stored tagged user-ids into display objects (name + avatar).
+    Silently drops ids that no longer map to a user."""
+    out: List[TaggedUser] = []
+    for uid in (ids or [])[:30]:
+        if not isinstance(uid, str):
+            continue
+        u = await db.users.find_one(
+            {"user_id": uid}, {"_id": 0, "user_id": 1, "name": 1, "username": 1, "picture": 1}
+        )
+        if u:
+            out.append(TaggedUser(
+                user_id=u["user_id"], name=u.get("name", "Unknown"),
+                username=u.get("username"), picture=u.get("picture"),
+            ))
+    return out
+
+
+async def _clean_tag_ids(ids: Optional[list], exclude: Optional[str] = None) -> list:
+    """Dedupe, drop self/unknown ids, and cap how many people can be tagged."""
+    out: list = []
+    seen: set = set()
+    for uid in (ids or []):
+        if not isinstance(uid, str) or uid in seen or uid == exclude:
+            continue
+        if await db.users.find_one({"user_id": uid}, {"_id": 0, "user_id": 1}):
+            seen.add(uid)
+            out.append(uid)
+        if len(out) >= 20:
+            break
+    return out
+
+
+async def _notify_tags(tagged_ids: list, actor_id: str, post_id: str, preview: str) -> None:
+    for uid in tagged_ids:
+        await emit_notification(
+            user_id=uid, actor_id=actor_id, ntype="tag",
+            post_id=post_id, message=preview,
+        )
+
+
 async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
     _community_name = None
     if doc.get("community_id"):
@@ -321,6 +363,7 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         place_longitude=None if locked else doc.get("place_longitude"),
         place_latitude=None if locked else doc.get("place_latitude"),
         media=[] if locked else (doc.get("media", []) or []),
+        tagged_users=[] if locked else (await _hydrate_tagged(doc.get("tagged_user_ids"))),
         link_preview=None if locked else link_prev_obj,
         poll=None if locked else poll_obj,
         hashtags=[] if locked else (doc.get("hashtags", []) or []),
@@ -431,6 +474,8 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
     if min_sub_tier not in (0, 1, 2, 3) or parent_id:
         min_sub_tier = 0
 
+    tagged_ids = await _clean_tag_ids(body.tagged_user_ids, exclude=user["user_id"])
+
     hashtags = _extract_hashtags(text)
     poll_doc = None
     if has_poll:
@@ -465,6 +510,7 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         "likes_disabled": likes_disabled,
         "comment_policy": comment_policy,
         "min_sub_tier": min_sub_tier,
+        "tagged_user_ids": tagged_ids,
         "likes_count": 0,
         "replies_count": 0,
         "reposts_count": 0,
@@ -515,6 +561,9 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         except Exception:
             pass
 
+    if tagged_ids:
+        await _notify_tags(tagged_ids, user["user_id"], doc["id"], (text or "📷 tagged you")[:140])
+
     return await _hydrate_post(doc, user["user_id"])
 
 
@@ -531,6 +580,25 @@ async def edit_post(
         patch["text"] = body.text.strip()[:500]
     if body.media is not None:
         patch["media"] = _normalize_media(body.media)
+    if body.place_name is not None:
+        name = body.place_name.strip()[:120]
+        if name:
+            patch["place_name"] = name
+            patch["place_longitude"] = body.place_longitude
+            patch["place_latitude"] = body.place_latitude
+        else:
+            # Empty name = remove location entirely (name + coords).
+            patch["place_name"] = None
+            patch["place_longitude"] = None
+            patch["place_latitude"] = None
+    if body.comment_policy is not None:
+        patch["comment_policy"] = (
+            body.comment_policy if body.comment_policy in COMMENT_POLICIES else "everyone"
+        )
+    new_tag_ids = None
+    if body.tagged_user_ids is not None:
+        new_tag_ids = await _clean_tag_ids(body.tagged_user_ids, exclude=user["user_id"])
+        patch["tagged_user_ids"] = new_tag_ids
     if not patch:
         return await _hydrate_post(doc, user["user_id"])
     new_text = patch.get("text", doc.get("text", ""))
@@ -539,6 +607,11 @@ async def edit_post(
         raise HTTPException(status_code=400, detail="Post cannot be empty")
     patch["edited_at"] = datetime.now(timezone.utc)
     await db.posts.update_one({"id": post_id}, {"$set": patch})
+    # Notify anyone newly tagged in this edit.
+    if new_tag_ids:
+        prev = set(doc.get("tagged_user_ids") or [])
+        added = [uid for uid in new_tag_ids if uid not in prev]
+        await _notify_tags(added, user["user_id"], post_id, (new_text or "📷 tagged you")[:140])
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, user["user_id"])
 

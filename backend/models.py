@@ -594,6 +594,7 @@ class PostCreate(BaseModel):
     likes_disabled: Optional[bool] = None              # turn off likes for this post
     comment_policy: Optional[str] = None               # everyone | followers | friends | nobody
     min_sub_tier: Optional[int] = None                 # 0 = public; 1-3 = subscribers-only (Twitch-style)
+    tagged_user_ids: Optional[List[str]] = None        # people tagged in this post
 
 
 class CommunityCreate(BaseModel):
@@ -622,6 +623,11 @@ class Community(BaseModel):
 class PostPatch(BaseModel):
     text: Optional[str] = None
     media: Optional[List[PostMedia]] = None
+    place_name: Optional[str] = None
+    place_longitude: Optional[float] = None
+    place_latitude: Optional[float] = None
+    comment_policy: Optional[str] = None               # everyone | followers | friends | nobody
+    tagged_user_ids: Optional[List[str]] = None        # full replacement of tagged people
 
 
 class PostPrivacyPatch(BaseModel):
@@ -643,6 +649,13 @@ class PostAuthor(BaseModel):
     email_verified: bool = False
 
 
+class TaggedUser(BaseModel):
+    user_id: str
+    name: str
+    username: Optional[str] = None
+    picture: Optional[str] = None
+
+
 class ReactionCount(BaseModel):
     emoji: str
     count: int = 0
@@ -662,6 +675,7 @@ class Post(BaseModel):
     place_longitude: Optional[float] = None
     place_latitude: Optional[float] = None
     media: List[PostMedia] = []
+    tagged_users: List[TaggedUser] = []
     link_preview: Optional[LinkPreview] = None
     poll: Optional[Poll] = None
     hashtags: List[str] = []

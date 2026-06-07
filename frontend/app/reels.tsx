@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
   Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert, Linking, Animated,
-  Modal, KeyboardAvoidingView, TextInput,
+  Modal, KeyboardAvoidingView, TextInput, ScrollView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, Post, mediaUri } from "@/src/api/client";
+import { api, Post, PublicUser, TaggedUser, mediaUri } from "@/src/api/client";
 import { pickThumbnailUri } from "@/src/utils/thumbnail";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
@@ -42,6 +43,15 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const [editText, setEditText] = useState(content.text || "");
   const [editCover, setEditCover] = useState<string | null>(video?.thumbnail || null);
   const [coverBusy, setCoverBusy] = useState(false);
+  const [editCommentsOff, setEditCommentsOff] = useState(content.comment_policy === "nobody");
+  const [editPlaceName, setEditPlaceName] = useState(content.place_name || "");
+  const [editPlaceLng, setEditPlaceLng] = useState<number | null>(content.place_longitude ?? null);
+  const [editPlaceLat, setEditPlaceLat] = useState<number | null>(content.place_latitude ?? null);
+  const [locBusy, setLocBusy] = useState(false);
+  const [editTags, setEditTags] = useState<TaggedUser[]>(content.tagged_users || []);
+  const [tagQuery, setTagQuery] = useState("");
+  const [tagResults, setTagResults] = useState<PublicUser[]>([]);
+  const [tagSearching, setTagSearching] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const isOwner = !!myId && content.user_id === myId;
 
@@ -81,11 +91,86 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
     }
   };
 
+  const useCurrentLocation = async () => {
+    setLocBusy(true);
+    try {
+      let { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") {
+        const r = await Location.requestForegroundPermissionsAsync();
+        status = r.status;
+      }
+      if (status !== "granted") {
+        Alert.alert("Location off", "Enable location access to tag where this reel was made.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      let name = "";
+      try {
+        const places = await Location.reverseGeocodeAsync({
+          latitude: pos.coords.latitude, longitude: pos.coords.longitude,
+        });
+        const p = places?.[0];
+        if (p) name = [p.name, p.city, p.region].filter(Boolean).join(", ");
+      } catch {}
+      setEditPlaceLng(pos.coords.longitude);
+      setEditPlaceLat(pos.coords.latitude);
+      if (name) setEditPlaceName(name);
+    } catch (e: any) {
+      Alert.alert("Couldn't get location", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally {
+      setLocBusy(false);
+    }
+  };
+  const clearLocation = () => { setEditPlaceName(""); setEditPlaceLng(null); setEditPlaceLat(null); };
+
+  const addTag = (u: PublicUser) => {
+    setEditTags((arr) =>
+      arr.find((t) => t.user_id === u.user_id)
+        ? arr
+        : [...arr, { user_id: u.user_id, name: u.name, username: u.username, picture: u.picture }]
+    );
+    setTagQuery(""); setTagResults([]);
+  };
+  const removeTag = (uid: string) => setEditTags((arr) => arr.filter((t) => t.user_id !== uid));
+
+  // Debounced people search for the tag picker (only runs while editing).
+  useEffect(() => {
+    const q = tagQuery.trim();
+    if (!q) { setTagResults([]); return; }
+    let alive = true;
+    setTagSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.searchUsers(q);
+        if (alive) setTagResults(res);
+      } catch {} finally {
+        if (alive) setTagSearching(false);
+      }
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [tagQuery]);
+
+  const openEdit = () => {
+    setEditText(caption);
+    setEditCover(video?.thumbnail || null);
+    setEditCommentsOff(content.comment_policy === "nobody");
+    setEditPlaceName(content.place_name || "");
+    setEditPlaceLng(content.place_longitude ?? null);
+    setEditPlaceLat(content.place_latitude ?? null);
+    setEditTags(content.tagged_users || []);
+    setTagQuery(""); setTagResults([]);
+    setEditOpen(true);
+  };
+
   const saveEdit = async () => {
     setSavingEdit(true);
     try {
       const coverChanged = (editCover || null) !== (video?.thumbnail || null);
-      const body: { text: string; media?: any[] } = { text: editText.trim() };
+      const body: {
+        text: string; media?: any[];
+        place_name?: string | null; place_longitude?: number | null; place_latitude?: number | null;
+        comment_policy?: string; tagged_user_ids?: string[];
+      } = { text: editText.trim() };
       // Only resend media when the cover actually changed (a base64 reel's media
       // can be large; text-only edits stay lightweight).
       if (coverChanged) {
@@ -93,6 +178,15 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           m.type === "video" ? { ...m, thumbnail: editCover || null } : m
         );
       }
+      // Only touch comment_policy when the switch was actually flipped, so we
+      // never clobber a granular (followers/friends) policy.
+      if (editCommentsOff !== (content.comment_policy === "nobody")) {
+        body.comment_policy = editCommentsOff ? "nobody" : "everyone";
+      }
+      body.place_name = editPlaceName.trim();
+      body.place_longitude = editPlaceLng;
+      body.place_latitude = editPlaceLat;
+      body.tagged_user_ids = editTags.map((t) => t.user_id);
       const updated = await api.editPost(content.id, body);
       setCaption(updated.text || "");
       setEditOpen(false);
@@ -317,7 +411,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         </View>
         {isOwner ? (
           <>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => { setEditText(caption); setEditCover(video?.thumbnail || null); setEditOpen(true); }} testID={`reel-edit-${post.id}`}>
+            <TouchableOpacity style={styles.iconBtn} onPress={openEdit} testID={`reel-edit-${post.id}`}>
               <Ionicons name="create-outline" size={25} color="#fff" />
               <Text style={styles.metric}>Edit</Text>
             </TouchableOpacity>
@@ -345,6 +439,24 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           {content.author.verified && <VerifiedBadge size={15} />}
           <UserBadges badges={content.author.badges} size={15} />
         </TouchableOpacity>
+        {!!content.place_name && (videoUri || imageUri) && (
+          <View style={styles.metaRow}>
+            <Ionicons name="location" size={13} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.metaText} numberOfLines={1}>{content.place_name}</Text>
+          </View>
+        )}
+        {!!content.tagged_users?.length && (videoUri || imageUri) && (
+          <TouchableOpacity
+            style={styles.metaRow}
+            activeOpacity={0.8}
+            onPress={() => router.push({ pathname: "/user/[name]", params: { name: content.tagged_users![0].name } })}
+          >
+            <Ionicons name="pricetag" size={12} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.metaText} numberOfLines={1}>
+              with {content.tagged_users!.map((t) => "@" + (t.username || t.name)).join(", ")}
+            </Text>
+          </TouchableOpacity>
+        )}
         {!!caption && (videoUri || imageUri) && (
           <TouchableOpacity activeOpacity={0.9} onPress={() => setCaptionOpen((o) => !o)}>
             <Text style={styles.caption} numberOfLines={captionOpen ? undefined : 2}>{caption}</Text>
@@ -360,39 +472,134 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditOpen(false)} />
           <View style={styles.editCard}>
             <Text style={styles.editTitle}>Edit reel</Text>
-            {!!videoUri && (
-              <View style={styles.coverRow}>
-                <View style={styles.coverPreview}>
-                  <ReelPoster uri={editCover} compact />
+            <ScrollView
+              style={{ maxHeight: Math.min(460, screenH * 0.58) }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {!!videoUri && (
+                <View style={styles.coverRow}>
+                  <View style={styles.coverPreview}>
+                    <ReelPoster uri={editCover} compact />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.coverLabel}>Cover</Text>
+                    <Text style={styles.coverHint} numberOfLines={1}>
+                      {editCover ? "Custom thumbnail" : "Default “Nami Social” cover"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={pickCover} disabled={coverBusy} style={styles.coverBtn} testID="reel-edit-cover">
+                    {coverBusy
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.coverBtnText}>{editCover ? "Change" : "Add"}</Text>}
+                  </TouchableOpacity>
+                  {!!editCover && (
+                    <TouchableOpacity onPress={() => setEditCover(null)} style={styles.coverClear} testID="reel-edit-cover-clear">
+                      <Ionicons name="close" size={16} color="rgba(255,255,255,0.7)" />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.coverLabel}>Cover</Text>
-                  <Text style={styles.coverHint} numberOfLines={1}>
-                    {editCover ? "Custom thumbnail" : "Default “Nami Social” cover"}
+              )}
+              <TextInput
+                style={styles.editInput}
+                value={editText}
+                onChangeText={setEditText}
+                placeholder="Write a description…"
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                multiline
+                maxLength={500}
+                testID="reel-edit-input"
+              />
+
+              {/* Comments */}
+              <View style={styles.editToggleRow}>
+                <View style={styles.editToggleLabel}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={18} color="#fff" />
+                  <Text style={styles.editToggleText}>Allow comments</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setEditCommentsOff((v) => !v)}
+                  style={[styles.miniToggle, !editCommentsOff && styles.miniToggleOn]}
+                  testID="reel-edit-comments"
+                >
+                  <Text style={[styles.miniToggleText, !editCommentsOff && { color: "#fff" }]}>
+                    {editCommentsOff ? "Off" : "On"}
                   </Text>
-                </View>
-                <TouchableOpacity onPress={pickCover} disabled={coverBusy} style={styles.coverBtn} testID="reel-edit-cover">
-                  {coverBusy
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.coverBtnText}>{editCover ? "Change" : "Add"}</Text>}
                 </TouchableOpacity>
-                {!!editCover && (
-                  <TouchableOpacity onPress={() => setEditCover(null)} style={styles.coverClear} testID="reel-edit-cover-clear">
-                    <Ionicons name="close" size={16} color="rgba(255,255,255,0.7)" />
+              </View>
+
+              {/* Location */}
+              <Text style={styles.editSectionLabel}>Location</Text>
+              <View style={styles.locInputRow}>
+                <Ionicons name="location-outline" size={16} color="rgba(255,255,255,0.6)" />
+                <TextInput
+                  style={styles.locInput}
+                  value={editPlaceName}
+                  onChangeText={setEditPlaceName}
+                  placeholder="Add a location"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  maxLength={120}
+                  testID="reel-edit-location-input"
+                />
+                {!!editPlaceName && (
+                  <TouchableOpacity onPress={clearLocation} testID="reel-edit-location-clear">
+                    <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.5)" />
                   </TouchableOpacity>
                 )}
               </View>
-            )}
-            <TextInput
-              style={styles.editInput}
-              value={editText}
-              onChangeText={setEditText}
-              placeholder="Write a description…"
-              placeholderTextColor="rgba(255,255,255,0.4)"
-              multiline
-              maxLength={500}
-              testID="reel-edit-input"
-            />
+              <TouchableOpacity onPress={useCurrentLocation} disabled={locBusy} style={styles.locBtn} testID="reel-edit-location-current">
+                {locBusy ? (
+                  <ActivityIndicator color={theme.primary} size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="navigate" size={14} color={theme.primary} />
+                    <Text style={styles.locBtnText}>Use current location</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Tag people */}
+              <Text style={styles.editSectionLabel}>Tag people</Text>
+              {editTags.length > 0 && (
+                <View style={styles.tagChips}>
+                  {editTags.map((t) => (
+                    <View key={t.user_id} style={styles.tagChip}>
+                      <Text style={styles.tagChipText} numberOfLines={1}>@{t.username || t.name}</Text>
+                      <TouchableOpacity onPress={() => removeTag(t.user_id)} testID={`reel-edit-untag-${t.user_id}`}>
+                        <Ionicons name="close" size={13} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <View style={styles.locInputRow}>
+                <Ionicons name="search" size={15} color="rgba(255,255,255,0.6)" />
+                <TextInput
+                  style={styles.locInput}
+                  value={tagQuery}
+                  onChangeText={setTagQuery}
+                  placeholder="Search people to tag"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  autoCapitalize="none"
+                  testID="reel-edit-tag-input"
+                />
+                {tagSearching && <ActivityIndicator color="rgba(255,255,255,0.6)" size="small" />}
+              </View>
+              {tagResults.filter((u) => !editTags.find((t) => t.user_id === u.user_id)).slice(0, 6).map((u) => (
+                <TouchableOpacity key={u.user_id} style={styles.tagResult} onPress={() => addTag(u)} testID={`reel-edit-tag-${u.user_id}`}>
+                  <View style={styles.tagAvatar}>
+                    {u.picture
+                      ? <Image source={{ uri: u.picture }} style={styles.tagAvatarImg} />
+                      : <Text style={styles.tagAvatarInit}>{(u.name?.[0] || "?").toUpperCase()}</Text>}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.tagResultName} numberOfLines={1}>{u.name}</Text>
+                    {!!u.username && <Text style={styles.tagResultHandle} numberOfLines={1}>@{u.username}</Text>}
+                  </View>
+                  <Ionicons name="add-circle" size={20} color={theme.primary} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             <View style={styles.editBtns}>
               <TouchableOpacity onPress={() => setEditOpen(false)} style={styles.editCancel}>
                 <Text style={styles.editCancelText}>Cancel</Text>
@@ -531,10 +738,16 @@ export default function ReelsScreen() {
   }, [focus, scope]);
 
   const onReelEdited = useCallback((u: Post) => {
+    const merge = (base: any) => ({
+      ...base,
+      text: u.text, edited_at: u.edited_at, media: u.media,
+      place_name: u.place_name, place_longitude: u.place_longitude, place_latitude: u.place_latitude,
+      comment_policy: u.comment_policy, tagged_users: u.tagged_users,
+    });
     setItems((arr) => arr.map((it) => {
-      if (it.id === u.id) return { ...it, text: u.text, edited_at: u.edited_at, media: u.media };
+      if (it.id === u.id) return merge(it);
       if (it.reposted_post && it.reposted_post.id === u.id) {
-        return { ...it, reposted_post: { ...it.reposted_post, text: u.text, edited_at: u.edited_at, media: u.media } };
+        return { ...it, reposted_post: merge(it.reposted_post) };
       }
       return it;
     }));
@@ -762,6 +975,28 @@ const styles = StyleSheet.create({
   coverBtn: { backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, minWidth: 64, alignItems: "center" },
   coverBtnText: { color: "#fff", fontSize: 13.5, fontWeight: "800" },
   coverClear: { width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  editToggleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14 },
+  editToggleLabel: { flexDirection: "row", alignItems: "center", gap: 8 },
+  editToggleText: { color: "#fff", fontSize: 14.5, fontWeight: "700" },
+  miniToggle: { paddingHorizontal: 16, height: 32, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" },
+  miniToggleOn: { backgroundColor: theme.primary, borderColor: theme.primary },
+  miniToggleText: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "800" },
+  editSectionLabel: { color: "rgba(255,255,255,0.55)", fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 18, marginBottom: 8 },
+  locInputRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, height: 46 },
+  locInput: { flex: 1, color: "#fff", fontSize: 15, height: "100%", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  locBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginTop: 8, paddingVertical: 6, paddingHorizontal: 4 },
+  locBtnText: { color: theme.primary, fontSize: 13.5, fontWeight: "800" },
+  tagChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+  tagChip: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.primary, borderRadius: 999, paddingLeft: 12, paddingRight: 8, paddingVertical: 6, maxWidth: 200 },
+  tagChipText: { color: "#fff", fontSize: 13, fontWeight: "800", flexShrink: 1 },
+  tagResult: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9 },
+  tagAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  tagAvatarImg: { width: "100%", height: "100%" },
+  tagAvatarInit: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  tagResultName: { color: "#fff", fontSize: 14.5, fontWeight: "700" },
+  tagResultHandle: { color: "rgba(255,255,255,0.55)", fontSize: 12.5, marginTop: 1 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
+  metaText: { color: "rgba(255,255,255,0.92)", fontSize: 13, fontWeight: "600", flexShrink: 1, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   editBtns: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 16 },
   editCancel: { paddingHorizontal: 16, paddingVertical: 11 },
   editCancelText: { color: "rgba(255,255,255,0.7)", fontSize: 15, fontWeight: "700" },

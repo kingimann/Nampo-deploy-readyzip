@@ -488,8 +488,18 @@ export const api = {
   // Posts / Feed / Follows
   createPost: (body: PostCreate) =>
     request<Post>("/posts", { method: "POST", body: JSON.stringify(body) }),
-  editPost: (id: string, body: { text?: string; media?: PostMedia[] }) =>
-    request<Post>(`/posts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  editPost: (
+    id: string,
+    body: {
+      text?: string;
+      media?: PostMedia[];
+      place_name?: string | null;
+      place_longitude?: number | null;
+      place_latitude?: number | null;
+      comment_policy?: string;
+      tagged_user_ids?: string[];
+    },
+  ) => request<Post>(`/posts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   editPostPrivacy: (id: string, body: { likes_disabled?: boolean; comment_policy?: string; min_sub_tier?: number }) =>
     request<Post>(`/posts/${id}/privacy`, { method: "PATCH", body: JSON.stringify(body) }),
   reportPost: (id: string, reason?: string) =>
@@ -1272,6 +1282,12 @@ export type PostMedia = {
 /** The source URI for a media item — prefers the CDN url, falls back to inline base64. */
 export const mediaUri = (m?: { url?: string | null; base64?: string | null } | null): string =>
   (m?.url || m?.base64 || "") as string;
+export type TaggedUser = {
+  user_id: string;
+  name: string;
+  username?: string | null;
+  picture?: string | null;
+};
 export type Post = {
   id: string; user_id: string; author: PostAuthor; text: string;
   parent_id?: string | null;
@@ -1281,6 +1297,7 @@ export type Post = {
   quoted_post?: Post | null;
   place_name?: string | null; place_longitude?: number | null; place_latitude?: number | null;
   media?: PostMedia[];
+  tagged_users?: TaggedUser[];
   link_preview?: LinkPreview | null;
   poll?: Poll | null;
   hashtags?: string[];
@@ -1334,6 +1351,7 @@ export type PostCreate = {
   likes_disabled?: boolean;
   comment_policy?: string;
   min_sub_tier?: number;   // 0 = public; 1-3 = subscribers-only
+  tagged_user_ids?: string[];
 };
 
 export type Community = {
