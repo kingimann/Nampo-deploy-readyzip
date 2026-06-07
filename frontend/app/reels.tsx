@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
   Image, useWindowDimensions, Platform, RefreshControl, Pressable, Alert, Linking, Animated,
+  Modal, KeyboardAvoidingView, TextInput,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,9 +17,10 @@ import VerifiedBadge from "@/src/components/VerifiedBadge";
 import UserBadges from "@/src/components/UserBadges";
 import { useAuth } from "@/src/context/AuthContext";
 
-function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH, myId }: {
+function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, screenH, myId, onEdited }: {
   post: Post; active: boolean; muted: boolean; onToggleMute: () => void;
   onOpenComments: (p: Post) => void; screenW: number; screenH: number; myId?: string;
+  onEdited?: (updated: Post) => void;
 }) {
   // A repost of a reel carries its media/author/text on reposted_post.
   const isRepost = !!post.repost_of && !!post.reposted_post;
@@ -32,6 +34,12 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const [fastFwd, setFastFwd] = useState(false); // hold-to-2x
   const [reactOpen, setReactOpen] = useState(false);
   const [captionOpen, setCaptionOpen] = useState(false);
+  // Caption editing (owner only). `caption` is the live, editable text.
+  const [caption, setCaption] = useState(content.text || "");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editText, setEditText] = useState(content.text || "");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const isOwner = !!myId && content.user_id === myId;
 
   // Resume from paused whenever the reel becomes active again.
   React.useEffect(() => { if (active) { setPaused(false); setRate(1); setFastFwd(false); } }, [active]);
@@ -53,8 +61,23 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
     setReactionTotal(content.reactions_total ?? content.likes_count ?? 0);
     setReposted(!!content.reposted_by_me);
     setRepostCount(content.reposts_count || 0);
+    setCaption(content.text || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id]);
+
+  const saveEdit = async () => {
+    setSavingEdit(true);
+    try {
+      const updated = await api.editPost(content.id, { text: editText.trim() });
+      setCaption(updated.text || "");
+      setEditOpen(false);
+      onEdited?.(updated);
+    } catch (e: any) {
+      Alert.alert("Couldn't save", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const doReact = async (emoji: string) => {
     setReactOpen(false);
@@ -247,11 +270,17 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           <Ionicons name="eye-outline" size={26} color="#fff" />
           <Text style={styles.metric}>{content.views_count || 0}</Text>
         </View>
-        {myId && content.user_id === myId ? (
-          <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: "/advertise", params: { post: content.id } })} testID={`reel-promote-${post.id}`}>
-            <Ionicons name="megaphone" size={23} color="#fff" />
-            <Text style={styles.metric}>Promote</Text>
-          </TouchableOpacity>
+        {isOwner ? (
+          <>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => { setEditText(caption); setEditOpen(true); }} testID={`reel-edit-${post.id}`}>
+              <Ionicons name="create-outline" size={25} color="#fff" />
+              <Text style={styles.metric}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => router.push({ pathname: "/advertise", params: { post: content.id } })} testID={`reel-promote-${post.id}`}>
+              <Ionicons name="megaphone" size={23} color="#fff" />
+              <Text style={styles.metric}>Promote</Text>
+            </TouchableOpacity>
+          </>
         ) : (
           <TouchableOpacity style={styles.iconBtn} onPress={onReport} testID={`reel-report-${post.id}`}>
             <Ionicons name="flag-outline" size={24} color="#fff" />
@@ -271,15 +300,43 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           {content.author.verified && <VerifiedBadge size={15} />}
           <UserBadges badges={content.author.badges} size={15} />
         </TouchableOpacity>
-        {!!content.text && (videoUri || imageUri) && (
+        {!!caption && (videoUri || imageUri) && (
           <TouchableOpacity activeOpacity={0.9} onPress={() => setCaptionOpen((o) => !o)}>
-            <Text style={styles.caption} numberOfLines={captionOpen ? undefined : 2}>{content.text}</Text>
-            {!captionOpen && content.text.length > 80 && (
+            <Text style={styles.caption} numberOfLines={captionOpen ? undefined : 2}>{caption}</Text>
+            {!captionOpen && caption.length > 80 && (
               <Text style={styles.captionMore}>more</Text>
             )}
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal visible={editOpen} transparent animationType="fade" onRequestClose={() => setEditOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.editBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditOpen(false)} />
+          <View style={styles.editCard}>
+            <Text style={styles.editTitle}>Edit reel description</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editText}
+              onChangeText={setEditText}
+              placeholder="Write a description…"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              multiline
+              maxLength={500}
+              autoFocus
+              testID="reel-edit-input"
+            />
+            <View style={styles.editBtns}>
+              <TouchableOpacity onPress={() => setEditOpen(false)} style={styles.editCancel}>
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveEdit} disabled={savingEdit} style={[styles.editSave, savingEdit && { opacity: 0.6 }]} testID="reel-edit-save">
+                <Text style={styles.editSaveText}>{savingEdit ? "Saving…" : "Save"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -402,6 +459,16 @@ export default function ReelsScreen() {
     } catch {} finally { setLoading(false); setRefreshing(false); }
   }, [focus, scope]);
 
+  const onReelEdited = useCallback((u: Post) => {
+    setItems((arr) => arr.map((it) => {
+      if (it.id === u.id) return { ...it, text: u.text, edited_at: u.edited_at };
+      if (it.reposted_post && it.reposted_post.id === u.id) {
+        return { ...it, reposted_post: { ...it.reposted_post, text: u.text, edited_at: u.edited_at } };
+      }
+      return it;
+    }));
+  }, []);
+
   const switchScope = useCallback((s: "explore" | "following") => {
     setScope((cur) => {
       if (cur === s) return cur;
@@ -501,6 +568,7 @@ export default function ReelsScreen() {
                 screenW={screenW}
                 screenH={screenH}
                 myId={user?.user_id}
+                onEdited={onReelEdited}
               />
             )
           )}
@@ -612,6 +680,15 @@ const styles = StyleSheet.create({
   repostHintText: { color: "rgba(255,255,255,0.85)", fontSize: 12.5, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   authorRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   author: { color: "#fff", fontSize: 16, fontWeight: "800", flexShrink: 1, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
+  editBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", paddingHorizontal: 22 },
+  editCard: { backgroundColor: "#161616", borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 18 },
+  editTitle: { color: "#fff", fontSize: 17, fontWeight: "800", marginBottom: 12 },
+  editInput: { color: "#fff", fontSize: 15, lineHeight: 21, minHeight: 90, maxHeight: 200, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", padding: 12, textAlignVertical: "top", ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  editBtns: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 16 },
+  editCancel: { paddingHorizontal: 16, paddingVertical: 11 },
+  editCancelText: { color: "rgba(255,255,255,0.7)", fontSize: 15, fontWeight: "700" },
+  editSave: { backgroundColor: theme.primary, borderRadius: 12, paddingHorizontal: 22, paddingVertical: 11 },
+  editSaveText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   caption: { color: "rgba(255,255,255,0.9)", fontSize: 14, marginTop: 6, lineHeight: 20, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   captionMore: { color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: "700", marginTop: 2 },
 });
