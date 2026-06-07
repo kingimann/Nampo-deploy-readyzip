@@ -29,6 +29,7 @@ from routes import (
     posts as posts_routes,
     push as push_routes,
     reviews as reviews_routes,
+    roadside as roadside_routes,
     stories as stories_routes,
     support as support_routes,
     transit as transit_routes,
@@ -137,6 +138,7 @@ api_router.include_router(transit_routes.router)
 api_router.include_router(integrations_routes.router)
 api_router.include_router(calls_routes.router)
 api_router.include_router(push_routes.router)
+api_router.include_router(roadside_routes.router)
 api_router.include_router(support_routes.router)
 
 app.include_router(api_router)

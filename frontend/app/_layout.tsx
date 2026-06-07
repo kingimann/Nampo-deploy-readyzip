@@ -61,6 +61,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/story/",
   "/listing/", // marketplace listing detail
   "/my-listings", // seller's own listings manager
+  "/roadside", // roadside assistance request flow
   "/seller/",  // marketplace seller profile
   "/advertise",
   "/wallet",

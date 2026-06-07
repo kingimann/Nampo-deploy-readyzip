@@ -360,6 +360,25 @@ export const api = {
       method: "POST", body: JSON.stringify({ recipient_user_id }),
     }),
   listConversations: () => request<ConversationView[]>("/conversations"),
+
+  // ── Roadside assistance ──────────────────────────────────────────────────
+  roadsideActive: () => request<RoadsideRequest | null>("/roadside/active"),
+  roadsideHelping: () => request<RoadsideRequest | null>("/roadside/helping"),
+  roadsideMine: () => request<RoadsideRequest[]>("/roadside/mine"),
+  roadsideNearby: (p: { lat: number; lng: number; radius_km?: number }) => {
+    const qs = new URLSearchParams({ lat: String(p.lat), lng: String(p.lng) });
+    if (p.radius_km != null) qs.set("radius_km", String(p.radius_km));
+    return request<RoadsideRequest[]>(`/roadside/nearby?${qs.toString()}`);
+  },
+  createRoadside: (body: RoadsideCreate) =>
+    request<RoadsideRequest>("/roadside/requests", { method: "POST", body: JSON.stringify(body) }),
+  getRoadside: (id: string) => request<RoadsideRequest>(`/roadside/requests/${id}`),
+  acceptRoadside: (id: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/accept`, { method: "POST" }),
+  cancelRoadside: (id: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/cancel`, { method: "POST" }),
+  completeRoadside: (id: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/complete`, { method: "POST" }),
   // Voice calls (LiveKit). token → join the room; ring → notify the other side.
   callToken: (conversationId: string) =>
     request<{ token: string; url: string; room: string; identity: string }>(
@@ -1157,11 +1176,48 @@ export type SupportTicket = {
   messages?: SupportMessage[];
 };
 
+export type RoadsideService = "tow" | "lockout" | "battery" | "tire";
+export type RoadsideStatus = "open" | "accepted" | "completed" | "cancelled";
+export type RoadsideParty = {
+  user_id: string;
+  name: string;
+  picture?: string | null;
+  phone?: string | null;
+};
+export type RoadsideRequest = {
+  id: string;
+  requester_id: string;
+  requester?: RoadsideParty | null;
+  helper_id?: string | null;
+  helper?: RoadsideParty | null;
+  service: RoadsideService;
+  status: RoadsideStatus;
+  longitude: number;
+  latitude: number;
+  place_name?: string | null;
+  vehicle?: string | null;
+  note?: string | null;
+  distance_km?: number | null;
+  mine?: boolean;
+  helping?: boolean;
+  created_at: string;
+  accepted_at?: string | null;
+  completed_at?: string | null;
+};
+export type RoadsideCreate = {
+  service: RoadsideService;
+  longitude: number;
+  latitude: number;
+  place_name?: string;
+  vehicle?: string;
+  note?: string;
+};
+
 export type Notification = {
   id: string;
   user_id: string;
-  type: "like" | "repost" | "reply" | "message" | "group_invite" | "group_message" | "follow" | "poke"
-    | "call" | "support"
+  type: "like" | "repost" | "reply" | "tag" | "message" | "group_invite" | "group_message" | "follow" | "poke"
+    | "call" | "support" | "roadside"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;

@@ -649,6 +649,14 @@ export default function MapScreen() {
 
       {/* Apple-Maps-style grouped control stack (bottom-right) */}
       <View style={[styles.fabStack, { bottom: insets.bottom + 24 }]} pointerEvents="box-none">
+        <TouchableOpacity
+          style={[styles.fab, styles.fabSolo]}
+          onPress={() => router.push("/roadside")}
+          testID="roadside-fab"
+          activeOpacity={0.85}
+        >
+          <Ionicons name="construct" size={21} color="#F59E0B" />
+        </TouchableOpacity>
         {compassVisible && (
           <TouchableOpacity
             style={[styles.fab, styles.fabSolo]}
