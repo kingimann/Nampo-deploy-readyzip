@@ -287,9 +287,10 @@ async def _party(uid: Optional[str], reveal_phone: bool = False) -> Optional[Roa
     return RoadsideParty(user_id=uid, name=u.get("name") or "Member", picture=u.get("picture"), phone=phone)
 
 
-async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[float, float]] = None) -> RoadsideRequest:
-    # Phone numbers are only shared once two members are matched (accepted) and
-    # only with each other, so a helper can call the stranded member (and back).
+async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[float, float]] = None, reveal_requester_phone: bool = False) -> RoadsideRequest:
+    # Phone numbers are shared once two members are matched (accepted, both ways),
+    # and the requester's number is also shown to eligible helpers browsing nearby
+    # open calls so they can reach the stranded member (gated by reveal_requester_phone).
     reveal = doc["status"] == "accepted" and viewer_id in (doc["requester_id"], doc.get("helper_id"))
     dist = None
     c = _doc_coords(doc)
@@ -298,7 +299,7 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
     return RoadsideRequest(
         id=doc["id"],
         requester_id=doc["requester_id"],
-        requester=await _party(doc["requester_id"], reveal_phone=reveal),
+        requester=await _party(doc["requester_id"], reveal_phone=reveal or reveal_requester_phone),
         helper_id=doc.get("helper_id"),
         helper=await _party(doc.get("helper_id"), reveal_phone=reveal),
         service=doc["service"],
@@ -855,7 +856,9 @@ async def nearby(
         if dist <= float(radius_km):
             scored.append((dist, d))
     scored.sort(key=lambda x: x[0])
-    return [await _hydrate(d, user["user_id"], viewer_coords=coords) for _, d in scored[:50]]
+    # Show the requester's phone to eligible helpers so they can call the member.
+    eligible = bool(_helper_eligibility(user).get("eligible"))
+    return [await _hydrate(d, user["user_id"], viewer_coords=coords, reveal_requester_phone=eligible) for _, d in scored[:50]]
 
 
 @router.get("/roadside/requests/{rid}", response_model=RoadsideRequest)

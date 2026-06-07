@@ -99,6 +99,8 @@ export default function RoadsideScreen() {
   const [active, setActive] = useState<RoadsideRequest | null>(null);
   const [helping, setHelping] = useState<RoadsideRequest | null>(null);
   const [nearby, setNearby] = useState<RoadsideRequest[]>([]);
+  const [callDetail, setCallDetail] = useState<RoadsideRequest | null>(null);  // open accept/decline screen
+  const [declined, setDeclined] = useState<Set<string>>(new Set());            // hidden nearby calls
   const [hist, setHist] = useState<RoadsideRequest[]>([]);
   const [payMethod, setPayMethod] = useState<"wallet" | "cash">("wallet");
   const [reviewing, setReviewing] = useState<RoadsideRequest | null>(null);
@@ -419,11 +421,19 @@ export default function RoadsideScreen() {
       const updated = await api.acceptRoadside(r.id);
       setHelping(updated);
       setNearby((arr) => arr.filter((x) => x.id !== r.id));
+      setCallDetail(null);
       setTab("request");
     } catch (e: any) {
       Alert.alert("Couldn't accept", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
       loadNearby(coords);
     } finally { setBusyId(null); }
+  };
+
+  // Decline a service call: hide it from this helper's nearby list (this session).
+  const decline = (r: RoadsideRequest) => {
+    setDeclined((s) => new Set(s).add(r.id));
+    setNearby((arr) => arr.filter((x) => x.id !== r.id));
+    setCallDetail(null);
   };
 
   const openReview = (r: RoadsideRequest) => { setReviewing(r); setReviewRating(5); setReviewText(""); };
@@ -938,25 +948,35 @@ export default function RoadsideScreen() {
               ) : (
                 <>
                   {elig && !elig.eligible && <EligibilityCard e={elig} />}
-                  {nearby.length === 0 ? (
+                  {nearby.filter((r) => !declined.has(r.id)).length === 0 ? (
                     <View style={styles.empty}><Ionicons name="checkmark-done-outline" size={36} color={theme.textMuted} /><Text style={styles.emptyText}>No one needs roadside help near you right now.</Text></View>
                   ) : (
-                    nearby.map((r) => {
-                      const blocked = !!elig && !elig.eligible;
-                      return (
-                        <View key={r.id} style={styles.card}>
-                          <View style={styles.cardHead}>
-                            <ServicePill svc={r.service} />
-                            {r.distance_km != null && <Text style={styles.dist}>{r.distance_km} km away</Text>}
-                          </View>
-                          <PartyRow p={r.requester} role="Needs a hand" />
-                          <Meta r={r} />
-                          <TouchableOpacity style={[styles.actBtn, styles.actPrimary, { marginTop: 12 }, blocked && { opacity: 0.5 }]} onPress={() => accept(r)} disabled={busyId === r.id || blocked} testID={`rs-accept-${r.id}`}>
-                            <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : blocked ? "Verify to help" : `Accept & help · earn $${((r.price || 80) + (r.fuel_cost || 0)).toFixed(2)}`}</Text>
-                          </TouchableOpacity>
+                    nearby.filter((r) => !declined.has(r.id)).map((r) => (
+                      <TouchableOpacity key={r.id} style={styles.card} activeOpacity={0.85} onPress={() => setCallDetail(r)} testID={`rs-call-${r.id}`}>
+                        <View style={styles.cardHead}>
+                          <ServicePill svc={r.service} />
+                          {r.distance_km != null && <Text style={styles.dist}>{r.distance_km} km away</Text>}
                         </View>
-                      );
-                    })
+                        <View style={styles.callRow}>
+                          <View style={styles.avatar}>
+                            {r.requester?.picture ? <Image source={{ uri: r.requester.picture }} style={styles.avatarImg} /> : <Text style={styles.avatarInit}>{(r.requester?.name?.[0] || "?").toUpperCase()}</Text>}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.partyName} numberOfLines={1}>{r.requester?.name || "Member"}</Text>
+                            {!!r.vehicle && <Text style={styles.metaText} numberOfLines={1}>{r.vehicle}</Text>}
+                            {!!r.place_name && <Text style={styles.metaText} numberOfLines={1}>{r.place_name}</Text>}
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                        </View>
+                        <View style={styles.callFoot}>
+                          <Text style={styles.earnHint}>Earn ${((r.price || 80) + (r.fuel_cost || 0)).toFixed(2)}</Text>
+                          {!!(r.photos && r.photos.length) && (
+                            <View style={styles.photoCount}><Ionicons name="image-outline" size={13} color={theme.textMuted} /><Text style={styles.photoCountText}>{r.photos.length}</Text></View>
+                          )}
+                          <Text style={styles.tapHint}>Tap to respond</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))
                   )}
                 </>
               )}
@@ -1013,6 +1033,56 @@ export default function RoadsideScreen() {
             <TouchableOpacity style={styles.vehDone} onPress={() => setVehicleOpen(false)} testID="rs-vehicle-done"><Text style={styles.vehDoneText}>Done</Text></TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Accept / decline a service call (helper) */}
+      <Modal visible={!!callDetail} transparent animationType="slide" onRequestClose={() => setCallDetail(null)}>
+        <View style={styles.vehBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCallDetail(null)} />
+          <View style={[styles.detailSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.vehHead}>
+              <Text style={styles.vehTitle}>Service call</Text>
+              <TouchableOpacity onPress={() => setCallDetail(null)} testID="rs-detail-close"><Ionicons name="close" size={22} color={theme.textPrimary} /></TouchableOpacity>
+            </View>
+            {!!callDetail && (() => {
+              const r = callDetail;
+              const blocked = !!elig && !elig.eligible;
+              const earn = ((r.price || 80) + (r.fuel_cost || 0)).toFixed(2);
+              return (
+                <>
+                  <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+                    <View style={[styles.cardHead, { marginTop: 2 }]}>
+                      <ServicePill svc={r.service} />
+                      {r.distance_km != null && <Text style={styles.dist}>{r.distance_km} km away</Text>}
+                    </View>
+                    <PartyRow p={r.requester} role="Needs a hand" />
+                    {!!r.requester?.phone ? (
+                      <TouchableOpacity style={styles.contactLine} onPress={() => callUser(r.requester?.phone)} testID="rs-detail-call">
+                        <Ionicons name="call-outline" size={16} color={theme.primary} />
+                        <Text style={styles.contactLineText}>{r.requester.phone}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <Text style={styles.phoneNote}>Their phone shows here once you're verified to help.</Text>
+                    )}
+                    <Meta r={r} />
+                    <View style={styles.earnBox}>
+                      <Text style={styles.earnBoxText}>You earn ${earn}</Text>
+                      <Text style={styles.earnBoxSub}>{r.payment_method === "cash" ? "Paid in cash on completion" : "Released from escrow once you both verify"}</Text>
+                    </View>
+                  </ScrollView>
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity style={[styles.actBtn, styles.actDanger]} onPress={() => decline(r)} testID="rs-decline">
+                      <Text style={styles.actDangerText}>Decline</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actBtn, styles.actPrimary, blocked && { opacity: 0.5 }]} onPress={() => accept(r)} disabled={busyId === r.id || blocked} testID="rs-accept">
+                      <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : blocked ? "Verify to help" : "Accept & help"}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
       </Modal>
 
       <CameraCapture visible={camOpen} onClose={() => handleCaptured(null)} onCaptured={handleCaptured} />
@@ -1117,6 +1187,24 @@ const styles = StyleSheet.create({
   partyName: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
   partyRole: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
   contactBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+
+  // Nearby service-call summary card + accept/decline detail sheet
+  callRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4 },
+  callFoot: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12 },
+  earnHint: { color: theme.primary, fontSize: 13.5, fontWeight: "800" },
+  photoCount: { flexDirection: "row", alignItems: "center", gap: 4 },
+  photoCountText: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
+  tapHint: { marginLeft: "auto", color: theme.textMuted, fontSize: 12, fontWeight: "700" },
+  detailSheet: {
+    backgroundColor: theme.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    borderTopWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingTop: 14, maxHeight: "88%",
+  },
+  contactLine: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, backgroundColor: theme.surfaceAlt, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  contactLineText: { color: theme.primary, fontSize: 14.5, fontWeight: "700" },
+  phoneNote: { color: theme.textMuted, fontSize: 12, marginTop: 10 },
+  earnBox: { marginTop: 14, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12 },
+  earnBoxText: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  earnBoxSub: { color: theme.textMuted, fontSize: 12, marginTop: 2 },
 
   cardActions: { flexDirection: "row", gap: 10, marginTop: 14 },
   actBtn: { flex: 1, borderRadius: 12, paddingVertical: 12, alignItems: "center" },
