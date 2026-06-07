@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,7 @@ export default function BookmarksScreen() {
   const { user } = useAuth();
   const [items, setItems] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -24,6 +25,7 @@ export default function BookmarksScreen() {
       setItems(r);
     } catch {} finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -62,6 +64,9 @@ export default function BookmarksScreen() {
           data={items}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24, gap: 10 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
+          }
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>

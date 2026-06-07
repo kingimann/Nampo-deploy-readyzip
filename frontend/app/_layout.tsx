@@ -12,6 +12,8 @@ import { SidebarProvider } from "@/src/context/SidebarContext";
 import { SidebarMenuProvider } from "@/src/context/SidebarMenuContext";
 import { NavBarProvider } from "@/src/context/NavBarContext";
 import { ConfirmProvider } from "@/src/context/ConfirmContext";
+import { NavHistoryProvider } from "@/src/context/NavHistoryContext";
+import EdgeSwipe from "@/src/components/EdgeSwipe";
 import WebNavGuard from "@/src/components/WebNavGuard";
 import MobileOnlyGate from "@/src/components/MobileOnlyGate";
 import LeftSidebar from "@/src/components/LeftSidebar";
@@ -125,19 +127,22 @@ export default function RootLayout() {
             <NavBarProvider>
               <SidebarMenuProvider>
                 <ConfirmProvider>
-                  <WebNavGuard />
-                  <MobileOnlyGate>
-                    <StatusBar style="light" />
-                    <View style={{ flex: 1 }}>
-                      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0A0A" } }} />
-                    </View>
-                    <GlobalTabBar />
-                    <AuthedSidebar />
-                    <UsernameGate />
-                    <PolicyGate />
-                    <PushManager />
-                    <AuthRedirect />
-                  </MobileOnlyGate>
+                  <NavHistoryProvider>
+                    <WebNavGuard />
+                    <MobileOnlyGate>
+                      <StatusBar style="light" />
+                      <View style={{ flex: 1 }}>
+                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0A0A" } }} />
+                        <EdgeSwipe />
+                      </View>
+                      <GlobalTabBar />
+                      <AuthedSidebar />
+                      <UsernameGate />
+                      <PolicyGate />
+                      <PushManager />
+                      <AuthRedirect />
+                    </MobileOnlyGate>
+                  </NavHistoryProvider>
                 </ConfirmProvider>
               </SidebarMenuProvider>
             </NavBarProvider>
