@@ -1255,18 +1255,30 @@ def _has_playable_video(doc: dict) -> bool:
 
 @router.get("/feed/reels", response_model=List[Post])
 async def reels_feed(
-    focus: Optional[str] = Query(None), authorization: Optional[str] = Header(None)
+    focus: Optional[str] = Query(None),
+    scope: str = Query("explore"),
+    authorization: Optional[str] = Header(None),
 ):
     """Vertical video feed: every playable video post (watched or not),
-    de-duplicated and personalized. A `focus` post is pinned first."""
+    de-duplicated and personalized. A `focus` post is pinned first.
+
+    `scope=following` limits the feed to reels from accounts you follow;
+    `scope=explore` (default) is the full personalized feed.
+    """
     user = await get_current_user(authorization)
     uid = user["user_id"]
+    query: dict = {"parent_id": None,
+                   "$or": [{"media": {"$elemMatch": {"type": "video"}}}, {"repost_is_video": True}]}
+    if scope == "following":
+        followees = await db.follows.find(
+            {"follower_id": uid}, {"_id": 0, "followee_id": 1}
+        ).to_list(2000)
+        ids = [f["followee_id"] for f in followees]
+        if not ids:
+            return []
+        query["user_id"] = {"$in": ids}
     cursor = (
-        db.posts.find(
-            {"parent_id": None,
-             "$or": [{"media": {"$elemMatch": {"type": "video"}}}, {"repost_is_video": True}]},
-            {"_id": 0},
-        ).sort("created_at", -1).limit(250)
+        db.posts.find(query, {"_id": 0}).sort("created_at", -1).limit(250)
     )
     docs = await cursor.to_list(250)
     seen: set = set()

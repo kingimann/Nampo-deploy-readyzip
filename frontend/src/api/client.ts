@@ -164,8 +164,13 @@ export const api = {
     request<{ viewed: boolean }>(`/posts/${id}/view`, { method: "POST" }),
   resolveVideoLink: (url: string) =>
     request<{ url: string; thumbnail?: string | null; embed?: string | null }>("/media/resolve-video", { method: "POST", body: JSON.stringify({ url }) }),
-  reelsFeed: (focus?: string) =>
-    request<Post[]>(`/feed/reels${focus ? `?focus=${encodeURIComponent(focus)}` : ""}`),
+  reelsFeed: (focus?: string, scope?: "explore" | "following") => {
+    const qs = new URLSearchParams();
+    if (focus) qs.set("focus", focus);
+    if (scope) qs.set("scope", scope);
+    const s = qs.toString();
+    return request<Post[]>(`/feed/reels${s ? `?${s}` : ""}`);
+  },
   listUserPostsAll: (uid: string) => request<Post[]>(`/posts/user/${uid}/all`),
 
   searchUsers: (q: string) => request<PublicUser[]>(`/users/search?q=${encodeURIComponent(q)}`),

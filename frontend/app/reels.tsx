@@ -359,6 +359,7 @@ export default function ReelsScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [scope, setScope] = useState<"explore" | "following">("explore");
   const [activeIdx, setActiveIdx] = useState(0);
   const [muted, setMuted] = useState(false);
   const [focused, setFocused] = useState(true);
@@ -374,7 +375,7 @@ export default function ReelsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const list = await api.reelsFeed(focus);
+      const list = await api.reelsFeed(focus, scope);
       // Keep only reels with a genuinely playable video (no black screens), de-duped.
       const seen = new Set<string>();
       const valid = list.filter((p) => {
@@ -399,7 +400,15 @@ export default function ReelsScreen() {
       // in-screen empty state below — never yank the user off to another tab.
       setItems(merged);
     } catch {} finally { setLoading(false); setRefreshing(false); }
-  }, [focus]);
+  }, [focus, scope]);
+
+  const switchScope = useCallback((s: "explore" | "following") => {
+    setScope((cur) => {
+      if (cur === s) return cur;
+      setLoading(true); setItems([]); setActiveIdx(0);
+      return s;
+    });
+  }, []);
   // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
   useFocusEffect(useCallback(() => {
     setFocused(true);
@@ -428,7 +437,16 @@ export default function ReelsScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.topBar, { paddingTop: insets.top + 4 }]}>
         <SidebarMenuButton light />
-        <Text style={styles.title}>Reels</Text>
+        <View style={styles.scopeTabs}>
+          <TouchableOpacity onPress={() => switchScope("explore")} style={styles.scopeTab} testID="reels-tab-explore">
+            <Text style={[styles.scopeText, scope === "explore" && styles.scopeTextActive]}>Explore</Text>
+            {scope === "explore" && <View style={styles.scopeUnderline} />}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => switchScope("following")} style={styles.scopeTab} testID="reels-tab-following">
+            <Text style={[styles.scopeText, scope === "following" && styles.scopeTextActive]}>Following</Text>
+            {scope === "following" && <View style={styles.scopeUnderline} />}
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn}>
           <Ionicons name="close" size={22} color="#fff" />
         </TouchableOpacity>
@@ -437,9 +455,16 @@ export default function ReelsScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : items.length === 0 ? (
         <View style={styles.center}>
-          <Ionicons name="videocam-outline" size={52} color={theme.textMuted} />
-          <Text style={styles.empty}>No reels yet.</Text>
-          <Text style={[styles.empty, { fontSize: 13, marginTop: 4 }]}>Post a video to the feed and it'll show up here.</Text>
+          <Ionicons name={scope === "following" ? "people-outline" : "videocam-outline"} size={52} color={theme.textMuted} />
+          <Text style={styles.empty}>{scope === "following" ? "No reels from people you follow." : "No reels yet."}</Text>
+          <Text style={[styles.empty, { fontSize: 13, marginTop: 4 }]}>
+            {scope === "following" ? "Follow some creators, or check out Explore." : "Post a video to the feed and it'll show up here."}
+          </Text>
+          {scope === "following" && (
+            <TouchableOpacity onPress={() => switchScope("explore")} style={styles.emptyCta} testID="reels-empty-explore">
+              <Text style={styles.emptyCtaText}>Go to Explore</Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <FlatList
@@ -503,8 +528,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center",
   },
   title: { color: "#fff", fontSize: 17, fontWeight: "800" },
+  scopeTabs: { flexDirection: "row", alignItems: "center", gap: 22 },
+  scopeTab: { alignItems: "center", paddingVertical: 2 },
+  scopeText: { color: "rgba(255,255,255,0.6)", fontSize: 16, fontWeight: "700" },
+  scopeTextActive: { color: "#fff", fontWeight: "800" },
+  scopeUnderline: { marginTop: 3, width: 20, height: 3, borderRadius: 2, backgroundColor: "#fff" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
   empty: { color: theme.textMuted, fontSize: 15, textAlign: "center", paddingHorizontal: 40 },
+  emptyCta: { marginTop: 14, backgroundColor: theme.primary, borderRadius: 22, paddingHorizontal: 22, paddingVertical: 11 },
+  emptyCtaText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.15)" },
   centerPlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   adProgressTrack: { position: "absolute", top: 56, left: 12, right: 12, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.25)" },
