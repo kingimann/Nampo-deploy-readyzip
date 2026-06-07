@@ -658,9 +658,9 @@ export const api = {
     request<SellerProfile>(`/marketplace/users/${userId}`),
   listSellerReviews: (userId: string) =>
     request<MarketplaceReview[]>(`/marketplace/users/${userId}/reviews`),
-  addSellerReview: (userId: string, rating: number, text: string) =>
+  addSellerReview: (userId: string, ratings: Record<string, number>, text: string) =>
     request<MarketplaceReview>(`/marketplace/users/${userId}/reviews`, {
-      method: "POST", body: JSON.stringify({ rating, text }),
+      method: "POST", body: JSON.stringify({ ratings, text }),
     }),
   startTrade: (listingId: string) =>
     request<{ code: string; status: string }>(`/listings/${listingId}/trade/start`, { method: "POST" }),
@@ -786,11 +786,11 @@ export type ListingCreate = {
 export type MarketplaceReview = {
   id: string; subject_user_id: string;
   reviewer: PostAuthor;
-  rating: number; text?: string | null; created_at: string;
+  rating: number; ratings?: Record<string, number>; text?: string | null; created_at: string;
 };
 export type SellerProfile = {
   user: PublicUser;
-  rating: number; review_count: number; listing_count: number;
+  rating: number; review_count: number; category_ratings?: Record<string, number>; listing_count: number;
   listings: Listing[]; reviewed_by_me: boolean; can_review?: boolean;
 };
 

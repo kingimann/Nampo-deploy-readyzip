@@ -489,7 +489,8 @@ class ListingComment(BaseModel):
 
 
 class MarketplaceReviewCreate(BaseModel):
-    rating: int = 5
+    rating: Optional[int] = None
+    ratings: Optional[dict] = None   # granular per-category stars (1-5 each)
     text: Optional[str] = ""
 
 
@@ -498,6 +499,7 @@ class MarketplaceReview(BaseModel):
     subject_user_id: str
     reviewer: "PostAuthor"
     rating: int
+    ratings: dict = {}               # granular per-category stars
     text: Optional[str] = ""
     created_at: datetime
 
@@ -506,6 +508,7 @@ class SellerProfile(BaseModel):
     user: PublicUser
     rating: float = 0.0
     review_count: int = 0
+    category_ratings: dict = {}      # avg stars per granular category
     listing_count: int = 0
     listings: List[Listing] = []
     reviewed_by_me: bool = False
