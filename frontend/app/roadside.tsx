@@ -34,7 +34,7 @@ const NEARBY_POLL_MS = 12000;    // refresh nearby calls so taken ones drop off
 
 const STATUS_LABEL = (r: RoadsideRequest) =>
   r.status === "open" ? { label: "Searching for help", color: theme.warning }
-  : r.status === "accepted" ? (r.en_route ? { label: "Helper en route", color: theme.primary } : { label: "Helper assigned", color: theme.primary })
+  : r.status === "accepted" ? (r.arrived ? { label: "Helper on location", color: theme.success } : r.en_route ? { label: "Helper en route", color: theme.primary } : { label: "Helper assigned", color: theme.primary })
   : r.status === "completed" ? { label: "Completed", color: theme.success }
   : { label: "Cancelled", color: theme.textMuted };
 
@@ -97,7 +97,7 @@ export default function RoadsideScreen() {
   const router = useRouter();
   const confirm = useConfirm();
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<"request" | "nearby" | "history">("request");
+  const [tab, setTab] = useState<"request" | "nearby" | "helping" | "history">("request");
   const [active, setActive] = useState<RoadsideRequest | null>(null);
   const [helping, setHelping] = useState<RoadsideRequest | null>(null);
   const [nearby, setNearby] = useState<RoadsideRequest[]>([]);
@@ -400,6 +400,12 @@ export default function RoadsideScreen() {
     finally { setBusyId(null); }
   };
 
+  const goArrived = async (r: RoadsideRequest) => {
+    setBusyId(r.id);
+    try { setHelping(await api.arrivedRoadside(r.id)); } catch (e: any) { Alert.alert("Couldn't update", String(e?.message || e)); }
+    finally { setBusyId(null); }
+  };
+
   const cancelReq = async (r: RoadsideRequest) => {
     const fee = r.en_route && r.status === "accepted" ? (r.price || 80) / 2 : 0;
     const body = fee > 0
@@ -425,7 +431,7 @@ export default function RoadsideScreen() {
       setHelping(updated);
       setNearby((arr) => arr.filter((x) => x.id !== r.id));
       setCallDetail(null);
-      setTab("request");
+      setTab("helping");
     } catch (e: any) {
       Alert.alert("Couldn't accept", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
       loadNearby(coords);
@@ -470,6 +476,11 @@ export default function RoadsideScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nearby]);
+
+  // When your helping job ends (completed/cancelled), leave the "Your job" tab.
+  useEffect(() => {
+    if (tab === "helping" && !helping) setTab("nearby");
+  }, [tab, helping]);
 
   const openReview = (r: RoadsideRequest) => { setReviewing(r); setReviewRating(5); setReviewText(""); };
   const submitReview = async () => {
@@ -698,7 +709,7 @@ export default function RoadsideScreen() {
         <Meta r={r} />
         <Text style={styles.priceLine}>You paid ${(r.total || 0).toFixed(2)} (held) · helper earns ${((r.price || 0) + (r.fuel_cost || 0)).toFixed(2)} on completion</Text>
         {r.status === "open" && <Text style={styles.hint}>Notifying nearby members. You'll hear the moment someone accepts.</Text>}
-        {r.status === "accepted" && <PartyRow p={r.helper} role={r.en_route ? "On the way to you" : "Assigned — getting ready"} />}
+        {r.status === "accepted" && <PartyRow p={r.helper} role={r.arrived ? "On location" : r.en_route ? "On the way to you" : "Assigned — getting ready"} />}
         {!!(r.before_photos?.length || r.after_photos?.length) && (
           <>
             {!!r.before_photos?.length && <><Text style={styles.photoLabel}>Before</Text><Photos uris={r.before_photos} /></>}
@@ -706,8 +717,11 @@ export default function RoadsideScreen() {
           </>
         )}
         {r.status === "accepted" && <VerifyState r={r} />}
+        {r.status === "accepted" && r.en_route && !r.arrived && (
+          <Text style={styles.hint}>Your helper is on the way. You can confirm the job once they're on location.</Text>
+        )}
         <View style={styles.cardActions}>
-          {r.status === "accepted" && !r.requester_verified && (
+          {r.status === "accepted" && r.arrived && !r.requester_verified && (
             <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={() => doVerify(r, () => setActive(null))} disabled={busyId === r.id} testID="rs-verify">
               <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : "Take ‘after’ photo & verify"}</Text>
             </TouchableOpacity>
@@ -737,6 +751,12 @@ export default function RoadsideScreen() {
         <ServicePill svc={r.service} />
       </View>
       <PartyRow p={r.requester} role="Stranded member" />
+      <View style={styles.phaseRow}>
+        <Ionicons name={r.arrived ? "location" : r.en_route ? "navigate" : "time-outline"} size={14} color={r.arrived ? theme.success : theme.primary} />
+        <Text style={[styles.phaseText, r.arrived && { color: theme.success }]}>
+          {r.arrived ? "You're on location" : r.en_route ? "En route to the member" : "Accepted — set off when you're ready"}
+        </Text>
+      </View>
       <Meta r={r} />
       {!!r.before_photos?.length && <><Text style={styles.photoLabel}>Before</Text><Photos uris={r.before_photos} /></>}
       {!!r.after_photos?.length && <><Text style={styles.photoLabel}>After</Text><Photos uris={r.after_photos} /></>}
@@ -749,9 +769,13 @@ export default function RoadsideScreen() {
           <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={() => goEnroute(r)} disabled={busyId === r.id} testID="rs-enroute">
             <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : "I'm on my way"}</Text>
           </TouchableOpacity>
+        ) : !r.arrived ? (
+          <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={() => goArrived(r)} disabled={busyId === r.id} testID="rs-arrived">
+            <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : "I'm on location"}</Text>
+          </TouchableOpacity>
         ) : null}
       </View>
-      {r.en_route && (
+      {r.arrived && (
         <View style={styles.cardActions}>
           <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={() => addServicePhotos(r, "before")} disabled={busyId === r.id} testID="rs-before">
             <Text style={styles.actGhostText}>{r.before_photos?.length ? "Add before photo" : "Add ‘before’ photo"}</Text>
@@ -799,9 +823,14 @@ export default function RoadsideScreen() {
       </View>
 
       <View style={styles.tabs}>
-        {(["request", "nearby", "history"] as const).map((t) => (
+        {(helping
+          ? (["request", "nearby", "helping", "history"] as const)
+          : (["request", "nearby", "history"] as const)
+        ).map((t) => (
           <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => setTab(t)} testID={`roadside-tab-${t}`}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t === "request" ? "Get help" : t === "nearby" ? "Help others" : "History"}</Text>
+            <Text style={[styles.tabText, tab === t && styles.tabTextOn]} numberOfLines={1}>
+              {t === "request" ? "Get help" : t === "nearby" ? "Help others" : t === "helping" ? "Your job" : "History"}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -816,7 +845,6 @@ export default function RoadsideScreen() {
         >
           {tab === "request" ? (
             <>
-              {helping && <HelpingCard r={helping} />}
               {active && !editingId ? (
                 <ActiveCard r={active} />
               ) : (!active && verif && !verif.verified) ? (
@@ -972,6 +1000,15 @@ export default function RoadsideScreen() {
                 </>
               )}
             </>
+          ) : tab === "helping" ? (
+            helping ? (
+              <HelpingCard r={helping} />
+            ) : (
+              <View style={styles.empty}>
+                <Ionicons name="construct-outline" size={36} color={theme.textMuted} />
+                <Text style={styles.emptyText}>You're not helping anyone right now. Accept a call from "Help others".</Text>
+              </View>
+            )
           ) : tab === "nearby" ? (
             <>
               {noLocation ? (
@@ -1212,6 +1249,8 @@ const styles = StyleSheet.create({
   hint: { color: theme.textMuted, fontSize: 13, lineHeight: 18, marginTop: 12 },
   priceLine: { color: theme.textMuted, fontSize: 12.5, marginTop: 12, fontWeight: "600" },
   refundNote: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 12 },
+  phaseRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 10 },
+  phaseText: { color: theme.primary, fontSize: 13, fontWeight: "800" },
   photoLabel: { color: theme.textMuted, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 12 },
   photoWrap: { width: 78, height: 78, borderRadius: 10, overflow: "hidden", position: "relative", backgroundColor: theme.surfaceAlt },
   photo: { width: "100%", height: "100%" },

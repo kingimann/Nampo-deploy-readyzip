@@ -390,6 +390,8 @@ export const api = {
     request<RoadsideRequest>(`/roadside/requests/${id}/accept`, { method: "POST" }),
   enrouteRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/enroute`, { method: "POST" }),
+  arrivedRoadside: (id: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/arrived`, { method: "POST" }),
   addRoadsidePhotos: (id: string, phase: "before" | "after", photos: string[]) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/photos`, { method: "POST", body: JSON.stringify({ phase, photos }) }),
   verifyRoadside: (id: string, photos: string[]) =>
@@ -1227,6 +1229,8 @@ export type RoadsideRequest = {
   helper?: RoadsideParty | null;
   service: RoadsideService;
   status: RoadsideStatus;
+  en_route?: boolean;
+  arrived?: boolean;
   longitude: number;
   latitude: number;
   place_name?: string | null;

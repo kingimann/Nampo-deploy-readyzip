@@ -232,6 +232,7 @@ class RoadsideRequest(BaseModel):
     service: str
     status: str                              # open | accepted | completed | cancelled
     en_route: bool = False
+    arrived: bool = False                     # helper is on location
     longitude: float
     latitude: float
     place_name: Optional[str] = None
@@ -304,6 +305,7 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
         service=doc["service"],
         status=doc["status"],
         en_route=bool(doc.get("en_route", False)),
+        arrived=bool(doc.get("arrived", False)),
         longitude=doc["longitude"],
         latitude=doc["latitude"],
         place_name=doc.get("place_name"),
@@ -657,6 +659,7 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
         "service": svc,
         "status": "open",
         "en_route": False,
+        "arrived": False,
         "longitude": float(body.longitude),
         "latitude": float(body.latitude),
         "place_name": (body.place_name or "").strip()[:200] or None,
@@ -919,6 +922,29 @@ async def enroute(rid: str, authorization: Optional[str] = Header(None)):
         await emit_notification(
             user_id=doc["requester_id"], actor_id=user["user_id"], ntype="roadside",
             message=f"{user.get('name') or 'Your helper'} is now en route to you.",
+        )
+    return await _hydrate(doc, user["user_id"])
+
+
+@router.post("/roadside/requests/{rid}/arrived", response_model=RoadsideRequest)
+async def arrived(rid: str, authorization: Optional[str] = Header(None)):
+    """The assigned helper marks that they're on location (arrived)."""
+    user = await get_current_user(authorization)
+    doc = await db.roadside_requests.find_one({"id": rid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if doc.get("helper_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the assigned helper can do this.")
+    if doc["status"] != "accepted":
+        raise HTTPException(status_code=400, detail="This job isn't active.")
+    if not doc.get("arrived"):
+        now = datetime.now(timezone.utc)
+        await db.roadside_requests.update_one({"id": rid}, {"$set": {"en_route": True, "arrived": True, "arrived_at": now}})
+        doc["en_route"] = True
+        doc["arrived"] = True
+        await emit_notification(
+            user_id=doc["requester_id"], actor_id=user["user_id"], ntype="roadside",
+            message=f"{user.get('name') or 'Your helper'} is on location.",
         )
     return await _hydrate(doc, user["user_id"])
 
