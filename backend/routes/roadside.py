@@ -17,6 +17,7 @@ Money (wallet escrow):
 """
 import math
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
@@ -83,6 +84,15 @@ def _pricing() -> Tuple[float, float, float]:
     base = round(ROADSIDE_BASE, 2)
     tax = round(base * ROADSIDE_TAX_RATE, 2)
     return base, tax, round(base + tax, 2)
+
+
+def _parse_money(s: Optional[str]) -> float:
+    """Parse a dollar string like "$20" into a number, capped to sane bounds."""
+    try:
+        v = float(re.sub(r"[^0-9.]", "", str(s or "")) or 0)
+        return round(max(0.0, min(v, 500.0)), 2)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _haversine_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
@@ -232,6 +242,7 @@ class RoadsideRequest(BaseModel):
     dest_latitude: Optional[float] = None
     fuel_type: Optional[str] = None
     fuel_amount: Optional[str] = None
+    fuel_cost: float = 0.0
     photos: List[str] = []
     before_photos: List[str] = []
     after_photos: List[str] = []
@@ -303,6 +314,7 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
         dest_latitude=doc.get("dest_latitude"),
         fuel_type=doc.get("fuel_type"),
         fuel_amount=doc.get("fuel_amount"),
+        fuel_cost=round(float(doc.get("fuel_cost", 0) or 0), 2),
         photos=doc.get("photos") or [],
         before_photos=doc.get("before_photos") or [],
         after_photos=doc.get("after_photos") or [],
@@ -333,12 +345,14 @@ async def _settle(doc: dict) -> None:
         return
     base = round(float(doc.get("price", ROADSIDE_BASE) or 0), 2)
     tax = round(float(doc.get("tax", 0) or 0), 2)
+    fuel_cost = round(float(doc.get("fuel_cost", 0) or 0), 2)
+    payout = round(base + fuel_cost, 2)   # service fee + any fuel the helper bought
     helper_id = doc.get("helper_id")
     now = datetime.now(timezone.utc)
     if helper_id and doc.get("held"):
-        await _credit_wallet(helper_id, base)
+        await _credit_wallet(helper_id, payout)
         await db.earnings.insert_one({
-            "id": str(uuid.uuid4()), "user_id": helper_id, "amount": base, "kind": "roadside",
+            "id": str(uuid.uuid4()), "user_id": helper_id, "amount": payout, "kind": "roadside",
             "from_user_id": doc["requester_id"], "from_name": "Roadside",
             "message": f"Roadside {_label(doc['service'])}", "source": "roadside",
             "created_at": now,
@@ -352,8 +366,8 @@ async def _settle(doc: dict) -> None:
     if helper_id:
         await emit_notification(
             user_id=helper_id, actor_id=doc["requester_id"], ntype="roadside",
-            message=(f"Job complete — collect ${base:.2f} cash from the member."
-                     if cash else f"Job complete — ${base:.2f} was added to your wallet."),
+            message=(f"Job complete — collect ${payout:.2f} cash from the member."
+                     if cash else f"Job complete — ${payout:.2f} was added to your wallet."),
         )
     await emit_notification(
         user_id=doc["requester_id"], actor_id=helper_id, ntype="roadside",
@@ -592,12 +606,16 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
             "message": "You already have an active roadside request. Cancel it before starting a new one.",
         })
     method = "cash" if (body.payment_method or "").strip().lower() == "cash" else "wallet"
-    base, tax, total = _pricing()
+    base, tax, _ = _pricing()
+    # Gas delivery adds the cost of the fuel itself to the total (paid to the helper).
+    fuel_cost = _parse_money(fuel_amount) if svc == "gas" else 0.0
     if method == "cash":
-        # Pay the helper $80 in person — no platform hold, no tax.
-        tax, total, held = 0.0, base, False
+        # Pay the helper ($80 + any fuel) in person — no platform hold, no tax.
+        tax, held = 0.0, False
+        total = round(base + fuel_cost, 2)
     else:
         held = True
+        total = round(base + tax + fuel_cost, 2)
         bal = await _wallet_balance(user["user_id"])
         if bal + 1e-9 < total:
             raise HTTPException(status_code=400, detail={
@@ -631,6 +649,7 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
         "dest_latitude": body.dest_latitude,
         "fuel_type": fuel_type,
         "fuel_amount": fuel_amount,
+        "fuel_cost": fuel_cost,
         "photos": _clean_photos(body.photos),
         "before_photos": [],
         "after_photos": [],

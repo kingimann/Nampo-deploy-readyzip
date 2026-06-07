@@ -1233,6 +1233,7 @@ export type RoadsideRequest = {
   dest_latitude?: number | null;
   fuel_type?: string | null;
   fuel_amount?: string | null;
+  fuel_cost?: number;
   photos?: string[];
   before_photos?: string[];
   after_photos?: string[];
