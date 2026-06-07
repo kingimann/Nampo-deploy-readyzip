@@ -147,9 +147,14 @@ export default function ListingDetailScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{listing?.title || "Listing"}</Text>
         {mine ? (
-          <TouchableOpacity onPress={remove} style={styles.iconBtn} testID="listing-delete">
-            <Ionicons name="trash-outline" size={20} color={theme.error} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row" }}>
+            <TouchableOpacity onPress={() => router.push({ pathname: "/(tabs)/marketplace", params: { edit: listing!.id } })} style={styles.iconBtn} testID="listing-edit">
+              <Ionicons name="create-outline" size={21} color={theme.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={remove} style={styles.iconBtn} testID="listing-delete">
+              <Ionicons name="trash-outline" size={20} color={theme.error} />
+            </TouchableOpacity>
+          </View>
         ) : (
           <View style={{ flexDirection: "row" }}>
             <TouchableOpacity onPress={() => setReportOpen(true)} style={styles.iconBtn} testID="listing-report">

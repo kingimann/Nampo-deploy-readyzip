@@ -630,6 +630,7 @@ export const api = {
     return request<Listing[]>(`/listings${qs.toString() ? "?" + qs.toString() : ""}`);
   },
   listSavedListings: () => request<Listing[]>("/listings/saved"),
+  userListings: (userId: string) => request<Listing[]>(`/listings/user/${userId}`),
   getListing: (id: string) => request<Listing>(`/listings/${id}`),
   createListing: (body: ListingCreate) =>
     request<Listing>("/listings", { method: "POST", body: JSON.stringify(body) }),
