@@ -32,6 +32,7 @@ export default function DocumentsScreen() {
   const [ownershipDoc, setOwnershipDoc] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [openGuide, setOpenGuide] = useState<number | null>(null);
+  const [preview, setPreview] = useState(false);
 
   const load = useCallback(async () => {
     try { setVerif(await api.roadsideVerification()); } catch {} finally { setLoading(false); }
@@ -52,6 +53,7 @@ export default function DocumentsScreen() {
     try {
       const r = await api.submitRoadsideVerification({ insurance_photo: insuranceDoc, ownership_photo: ownershipDoc });
       setInsuranceDoc(null); setOwnershipDoc(null);
+      setPreview(false);
       await load();
       if (r.status === "approved") Alert.alert("Verified ✓", "You're cleared for roadside help.");
       else if (r.status === "rejected") Alert.alert("Couldn't verify", r.reason || "The documents didn't match. Use clearer photos.");
@@ -94,6 +96,7 @@ export default function DocumentsScreen() {
     </TouchableOpacity>
   );
 
+  const isAdmin = user?.role === "admin";
   const eligible = !!verif?.eligibility?.eligible;
   const rsStatus = verif?.verified ? "approved" : verif?.status || "none";
 
@@ -127,23 +130,37 @@ export default function DocumentsScreen() {
 
           {/* Roadside documents */}
           <Text style={styles.sectionLabel}>Roadside documents</Text>
-          {verif?.verified ? (
+          {verif?.verified && !preview ? (
             <View style={styles.infoCard}>
               <Ionicons name="shield-checkmark" size={20} color={theme.success} />
-              <Text style={styles.infoText}>You're verified for roadside help. Re-submit any time your insurance changes.</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoText}>{isAdmin ? "Admins are verified automatically and bypass roadside verification." : "You're verified for roadside help. Re-submit any time your insurance changes."}</Text>
+                {isAdmin && (
+                  <TouchableOpacity onPress={() => setPreview(true)} testID="doc-admin-preview">
+                    <Text style={styles.previewLink}>Preview the document upload →</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
-          ) : !eligible ? (
+          ) : !eligible && !preview ? (
             <View style={styles.infoCard}>
               <Ionicons name="information-circle" size={20} color={theme.warning} />
               <Text style={styles.infoText}>Finish ID, email and phone verification above first — then you can upload your roadside documents.</Text>
             </View>
-          ) : rsStatus === "pending" ? (
+          ) : rsStatus === "pending" && !preview ? (
             <View style={styles.infoCard}>
               <Ionicons name="hourglass" size={20} color={theme.warning} />
               <Text style={styles.infoText}>Your insurance and ownership are under review. You'll be notified once approved.</Text>
             </View>
           ) : (
             <View style={styles.card}>
+              {preview && (
+                <View style={styles.previewNote}>
+                  <Ionicons name="eye-outline" size={14} color={theme.warning} />
+                  <Text style={styles.previewNoteText}>Admin preview — submitting still runs the real check.</Text>
+                  <TouchableOpacity onPress={() => setPreview(false)} testID="doc-preview-exit"><Text style={styles.previewExit}>Exit</Text></TouchableOpacity>
+                </View>
+              )}
               <Text style={styles.cardText}>
                 Upload your auto insurance and proof of ownership (registration or title). An AI check confirms they match your vehicle, then the documents are deleted — we don't keep them.
               </Text>
@@ -223,6 +240,10 @@ const styles = StyleSheet.create({
   rowBtnText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   card: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 16 },
   cardText: { color: theme.textSecondary, fontSize: 13.5, lineHeight: 19 },
+  previewLink: { color: theme.primary, fontSize: 13.5, fontWeight: "800", marginTop: 8 },
+  previewNote: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: theme.warning + "1a", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 12 },
+  previewNoteText: { flex: 1, color: theme.textSecondary, fontSize: 12, fontWeight: "600" },
+  previewExit: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
   infoCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 14 },
   infoText: { flex: 1, color: theme.textSecondary, fontSize: 13.5, lineHeight: 19 },
   err: { color: theme.error, fontSize: 13, marginTop: 10 },
