@@ -1203,7 +1203,7 @@ export type SupportTicket = {
   messages?: SupportMessage[];
 };
 
-export type RoadsideCheckResult = { ok: boolean; issues: { field: string; message: string }[]; source?: string };
+export type RoadsideCheckResult = { ok: boolean; issues: { field: string; message: string }[]; block?: boolean; source?: string };
 export type RoadsideService = "tow" | "lockout" | "battery" | "tire" | "gas";
 export type RoadsideStatus = "open" | "accepted" | "completed" | "cancelled";
 export type RoadsideParty = {

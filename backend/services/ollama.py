@@ -70,10 +70,14 @@ def _rule_issues(d: dict) -> list:
 async def review_form(d: dict) -> dict:
     """Check a roadside request form is filled out correctly and suggest fixes.
     Always returns the deterministic checks; the AI (when configured) adds extra
-    clarity/quality suggestions on top. Shape: {ok, issues:[{field,message}]}."""
+    clarity/quality suggestions plus a real-vehicle check. Shape:
+    {ok, issues:[{field,message}], block}. `block` is true when the entered
+    vehicle is clearly not a real make/model/year — the caller must not proceed."""
     issues = _rule_issues(d)
+    make = (d.get("vehicle_make") or "").strip()
+    model = (d.get("vehicle_model") or "").strip()
     if not ollama_enabled():
-        return {"ok": len(issues) == 0, "issues": issues, "source": "rules"}
+        return {"ok": len(issues) == 0, "issues": issues, "block": False, "source": "rules"}
 
     safe = {k: d.get(k) for k in (
         "service", "place_name", "dest_name", "fuel_type", "fuel_amount",
@@ -86,9 +90,15 @@ async def review_form(d: dict) -> dict:
         "Don't invent problems with fields that look fine. Service types: tow, lockout, "
         "battery, tire, gas. Gas needs a fuel type (regular/midgrade/premium — never diesel) "
         "and an amount. A tow needs a destination.\n"
+        "ALSO verify the vehicle: if a make and model are given, is it a REAL production "
+        "vehicle (the model belongs to that make, and exists around that year)? Set "
+        "vehicle_real to false for made-up or mismatched vehicles (e.g. 'Tesla Mustang', "
+        "'Honda Xyz'). If only one of make/model is given, leave vehicle_real true.\n"
         f"Form: {json.dumps(safe)}\n"
-        'Reply with ONLY JSON: {"issues":[{"field":"<name>","message":"<short fix>"}]}'
+        'Reply with ONLY JSON: {"issues":[{"field":"<name>","message":"<short fix>"}], "vehicle_real": true|false}'
     )
+    ai = None
+    vehicle_real = True
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(f"{OLLAMA_HOST}/api/chat", json={
@@ -99,7 +109,9 @@ async def review_form(d: dict) -> dict:
             resp.raise_for_status()
             content = ((resp.json() or {}).get("message") or {}).get("content") or ""
         parsed = json.loads(content)
-        ai = parsed.get("issues") if isinstance(parsed, dict) else None
+        if isinstance(parsed, dict):
+            ai = parsed.get("issues")
+            vehicle_real = parsed.get("vehicle_real", True) is not False
     except Exception:
         ai = None
 
@@ -113,7 +125,43 @@ async def review_form(d: dict) -> dict:
             if msg and (field, msg) not in seen:
                 issues.append({"field": field, "message": msg})
                 seen.add((field, msg))
-    return {"ok": len(issues) == 0, "issues": issues, "source": "ai" if ai is not None else "rules"}
+
+    block = bool(make and model and not vehicle_real)
+    if block and not any("real vehicle" in (i.get("message") or "").lower() for i in issues):
+        issues.append({"field": "vehicle", "message": f"“{d.get('vehicle_year') or ''} {make} {model}”".strip() + " doesn't look like a real vehicle — fix the year, make and model to continue."})
+    return {"ok": len(issues) == 0, "issues": issues, "block": block, "source": "ai" if ai is not None else "rules"}
+
+
+async def validate_vehicle(year: Optional[str], make: Optional[str], model: Optional[str]) -> dict:
+    """Authoritative real-vehicle check for blocking on submit. Returns
+    {valid, reason}. Fails open (valid) when make/model are absent or the AI
+    isn't configured/reachable — we only block on a confident 'not real'."""
+    make = (make or "").strip()
+    model = (model or "").strip()
+    year = (year or "").strip()
+    if not (make and model) or not ollama_enabled():
+        return {"valid": True, "reason": ""}
+    prompt = (
+        "Is this a REAL production motor vehicle that actually exists? The model must belong "
+        "to the make, and should exist around the given year (a year or two off is fine).\n"
+        f"Year: {year or 'unspecified'}\nMake: {make}\nModel: {model}\n"
+        'Reply with ONLY JSON: {"real": true|false, "reason": "<one short sentence>"}'
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(f"{OLLAMA_HOST}/api/chat", json={
+                "model": OLLAMA_TEXT_MODEL, "stream": False, "format": "json",
+                "options": {"temperature": 0},
+                "messages": [{"role": "user", "content": prompt}],
+            })
+            resp.raise_for_status()
+            content = ((resp.json() or {}).get("message") or {}).get("content") or ""
+        parsed = json.loads(content)
+    except Exception:
+        return {"valid": True, "reason": ""}
+    if isinstance(parsed, dict) and parsed.get("real") is False:
+        return {"valid": False, "reason": str(parsed.get("reason") or "").strip()[:200]}
+    return {"valid": True, "reason": ""}
 
 
 def _raw_b64(s: str) -> str:
