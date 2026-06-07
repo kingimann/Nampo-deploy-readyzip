@@ -123,11 +123,22 @@ export default function SellerProfileScreen() {
             </View>
             <Text style={styles.name}>{profile.user.name}</Text>
             {!!profile.user.username && <Text style={styles.handle}>@{profile.user.username}</Text>}
-            <View style={styles.ratingRow}>
-              <Stars value={profile.rating} size={16} />
-              <Text style={styles.ratingText}>
-                {profile.review_count > 0 ? `${profile.rating.toFixed(1)} · ${profile.review_count} review${profile.review_count === 1 ? "" : "s"}` : "No reviews yet"}
-              </Text>
+            <View style={styles.dualRating}>
+              <View style={styles.dualCol}>
+                <Text style={styles.dualLabel}>As a seller</Text>
+                <Stars value={profile.seller_rating || 0} size={15} />
+                <Text style={styles.dualCount}>
+                  {(profile.seller_review_count || 0) > 0 ? `${(profile.seller_rating || 0).toFixed(1)} · ${profile.seller_review_count}` : "No reviews"}
+                </Text>
+              </View>
+              <View style={styles.dualDivider} />
+              <View style={styles.dualCol}>
+                <Text style={styles.dualLabel}>As a buyer</Text>
+                <Stars value={profile.buyer_rating || 0} size={15} />
+                <Text style={styles.dualCount}>
+                  {(profile.buyer_review_count || 0) > 0 ? `${(profile.buyer_rating || 0).toFixed(1)} · ${profile.buyer_review_count}` : "No reviews"}
+                </Text>
+              </View>
             </View>
 
             <View style={{ marginTop: 10 }}>
@@ -220,7 +231,10 @@ export default function SellerProfileScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.reviewName}>{r.reviewer.name}</Text>
-                      <Stars value={r.rating} />
+                      <View style={styles.reviewSub}>
+                        <Stars value={r.rating} />
+                        <Text style={styles.roleTag}>· {r.role === "buyer" ? "as a buyer" : "as a seller"}</Text>
+                      </View>
                     </View>
                     <View style={[styles.verTag, r.verified ? styles.verTagOn : styles.verTagOff]}>
                       <Ionicons name={r.verified ? "shield-checkmark" : "shield-outline"} size={11} color={r.verified ? "#22C55E" : theme.textMuted} />
@@ -407,6 +421,13 @@ const styles = StyleSheet.create({
   verTagOn: { borderColor: "rgba(34,197,94,0.45)", backgroundColor: "rgba(34,197,94,0.10)" },
   verTagOff: { borderColor: theme.border, backgroundColor: theme.surfaceAlt },
   verTagText: { fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
+  dualRating: { flexDirection: "row", alignItems: "center", alignSelf: "stretch", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingVertical: 12, marginTop: 8 },
+  dualCol: { flex: 1, alignItems: "center", gap: 3 },
+  dualDivider: { width: StyleSheet.hairlineWidth, alignSelf: "stretch", backgroundColor: theme.border },
+  dualLabel: { color: theme.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  dualCount: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "600", marginTop: 1 },
+  reviewSub: { flexDirection: "row", alignItems: "center", gap: 6 },
+  roleTag: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
   reviewInput: {
     backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 12, minHeight: 90, textAlignVertical: "top",

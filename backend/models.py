@@ -511,6 +511,7 @@ class MarketplaceReview(BaseModel):
     rating: int
     ratings: dict = {}               # granular per-category stars
     verified: bool = True            # backed by a verified trade between the two
+    role: str = "seller"             # subject's role in the trade: "seller" | "buyer"
     text: Optional[str] = ""
     created_at: datetime
 
@@ -519,6 +520,10 @@ class SellerProfile(BaseModel):
     user: PublicUser
     rating: float = 0.0
     review_count: int = 0
+    seller_rating: float = 0.0       # rating earned acting as a seller
+    seller_review_count: int = 0
+    buyer_rating: float = 0.0        # rating earned acting as a buyer
+    buyer_review_count: int = 0
     category_ratings: dict = {}      # avg stars per granular category
     listing_count: int = 0
     listings: List[Listing] = []

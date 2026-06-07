@@ -801,11 +801,14 @@ export type ListingCreate = {
 export type MarketplaceReview = {
   id: string; subject_user_id: string;
   reviewer: PostAuthor;
-  rating: number; ratings?: Record<string, number>; verified?: boolean; text?: string | null; created_at: string;
+  rating: number; ratings?: Record<string, number>; verified?: boolean; role?: "seller" | "buyer"; text?: string | null; created_at: string;
 };
 export type SellerProfile = {
   user: PublicUser;
-  rating: number; review_count: number; category_ratings?: Record<string, number>; listing_count: number;
+  rating: number; review_count: number; category_ratings?: Record<string, number>;
+  seller_rating?: number; seller_review_count?: number;
+  buyer_rating?: number; buyer_review_count?: number;
+  listing_count: number;
   listings: Listing[]; reviewed_by_me: boolean; can_review?: boolean;
 };
 

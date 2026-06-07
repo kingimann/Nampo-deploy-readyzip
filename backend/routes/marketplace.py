@@ -36,6 +36,21 @@ async def _has_verified_trade(a: str, b: str) -> bool:
     return bool(doc)
 
 
+async def _subject_trade_role(reviewer_id: str, subject_id: str) -> str:
+    """In the verified trade between these two, was `subject_id` acting as the
+    'seller' (the listing's owner) or the 'buyer'? Defaults to 'seller'."""
+    trade = await db.marketplace_trades.find_one(
+        {"status": "confirmed", "party_ids": {"$all": [reviewer_id, subject_id]}},
+        {"_id": 0, "listing_id": 1}, sort=[("created_at", -1)],
+    )
+    if trade:
+        listing = await db.listings.find_one({"id": trade.get("listing_id")}, {"_id": 0, "user_id": 1})
+        seller_id = (listing or {}).get("user_id")
+        if seller_id == reviewer_id:
+            return "buyer"   # the reviewer was the seller, so the subject is the buyer
+    return "seller"
+
+
 def _gen_trade_code() -> str:
     # Unambiguous 6-char code (no 0/O/1/I).
     import secrets
@@ -447,7 +462,7 @@ async def _hydrate_review(doc: dict) -> MarketplaceReview:
     return MarketplaceReview(
         id=doc["id"], subject_user_id=doc["subject_user_id"], reviewer=reviewer,
         rating=doc.get("rating", 5), ratings=doc.get("ratings") or {},
-        verified=verified,
+        verified=verified, role=doc.get("role", "seller"),
         text=doc.get("text", ""), created_at=doc["created_at"],
     )
 
@@ -460,10 +475,17 @@ async def seller_profile(user_id: str, authorization: Optional[str] = Header(Non
         raise HTTPException(status_code=404, detail="User not found")
     pu = await _public_user(user_id)
     ratings = await db.marketplace_reviews.find(
-        {"subject_user_id": user_id}, {"_id": 0, "rating": 1, "ratings": 1}
+        {"subject_user_id": user_id}, {"_id": 0, "rating": 1, "ratings": 1, "role": 1}
     ).to_list(2000)
     count = len(ratings)
     rating = round(sum(r.get("rating", 0) for r in ratings) / count, 1) if count else 0.0
+    # Split into the user's seller-side and buyer-side reputations.
+    def _avg(rows):
+        return round(sum(r.get("rating", 0) for r in rows) / len(rows), 1) if rows else 0.0
+    seller_rows = [r for r in ratings if r.get("role", "seller") == "seller"]
+    buyer_rows = [r for r in ratings if r.get("role") == "buyer"]
+    seller_rating, seller_review_count = _avg(seller_rows), len(seller_rows)
+    buyer_rating, buyer_review_count = _avg(buyer_rows), len(buyer_rows)
     # Average each granular category across all reviews that scored it.
     category_ratings: dict = {}
     for cat in REVIEW_CATEGORIES:
@@ -483,6 +505,8 @@ async def seller_profile(user_id: str, authorization: Optional[str] = Header(Non
     can_review = me["user_id"] != user_id and await _has_verified_trade(me["user_id"], user_id)
     return SellerProfile(
         user=pu, rating=rating, review_count=count, category_ratings=category_ratings,
+        seller_rating=seller_rating, seller_review_count=seller_review_count,
+        buyer_rating=buyer_rating, buyer_review_count=buyer_review_count,
         listing_count=listing_count, listings=listings, reviewed_by_me=reviewed_by_me,
         can_review=can_review,
     )
@@ -600,6 +624,8 @@ async def add_seller_review(
     else:
         rating = max(1, min(5, int(body.rating or 5)))
     text = (body.text or "")[:1000]
+    # Was the person being reviewed the seller or the buyer in their trade?
+    role = await _subject_trade_role(me["user_id"], user_id)
     now = datetime.now(timezone.utc)
     existing = await db.marketplace_reviews.find_one(
         {"subject_user_id": user_id, "reviewer_id": me["user_id"]}, {"_id": 0}
@@ -607,14 +633,14 @@ async def add_seller_review(
     if existing:
         await db.marketplace_reviews.update_one(
             {"id": existing["id"]},
-            {"$set": {"rating": rating, "ratings": cats, "text": text, "created_at": now}},
+            {"$set": {"rating": rating, "ratings": cats, "text": text, "role": role, "created_at": now}},
         )
         rid = existing["id"]
     else:
         rid = str(uuid.uuid4())
         await db.marketplace_reviews.insert_one({
             "id": rid, "subject_user_id": user_id, "reviewer_id": me["user_id"],
-            "rating": rating, "ratings": cats, "text": text, "created_at": now,
+            "rating": rating, "ratings": cats, "text": text, "role": role, "created_at": now,
         })
     doc = await db.marketplace_reviews.find_one({"id": rid}, {"_id": 0})
     return await _hydrate_review(doc)
