@@ -29,6 +29,8 @@ const FUEL_TYPES: { k: string; label: string }[] = [
   { k: "premium", label: "Premium" },
 ];
 const GAS_AMOUNTS = ["$10", "$20", "$30", "$40", "$50"];
+const AUTO_DECLINE_SECS = 120;   // a helper has 2 min to accept/decline a call
+const NEARBY_POLL_MS = 12000;    // refresh nearby calls so taken ones drop off
 
 const STATUS_LABEL = (r: RoadsideRequest) =>
   r.status === "open" ? { label: "Searching for help", color: theme.warning }
@@ -100,6 +102,7 @@ export default function RoadsideScreen() {
   const [helping, setHelping] = useState<RoadsideRequest | null>(null);
   const [nearby, setNearby] = useState<RoadsideRequest[]>([]);
   const [callDetail, setCallDetail] = useState<RoadsideRequest | null>(null);  // open accept/decline screen
+  const [countdown, setCountdown] = useState(AUTO_DECLINE_SECS);               // seconds left to respond
   const [declined, setDeclined] = useState<Set<string>>(new Set());            // hidden nearby calls
   const [hist, setHist] = useState<RoadsideRequest[]>([]);
   const [payMethod, setPayMethod] = useState<"wallet" | "cash">("wallet");
@@ -435,6 +438,38 @@ export default function RoadsideScreen() {
     setNearby((arr) => arr.filter((x) => x.id !== r.id));
     setCallDetail(null);
   };
+
+  // 2-minute response timer on the accept/decline screen — auto-declines on expiry.
+  useEffect(() => {
+    if (!callDetail) return;
+    const call = callDetail;
+    const started = Date.now();
+    setCountdown(AUTO_DECLINE_SECS);
+    const t = setInterval(() => {
+      const left = AUTO_DECLINE_SECS - Math.floor((Date.now() - started) / 1000);
+      if (left <= 0) { clearInterval(t); decline(call); }
+      else setCountdown(left);
+    }, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callDetail]);
+
+  // Keep the nearby list fresh while helping, so calls others accept drop off.
+  useEffect(() => {
+    if (tab !== "nearby" || !coords) return;
+    const t = setInterval(() => { loadNearby(coords); }, NEARBY_POLL_MS);
+    return () => clearInterval(t);
+  }, [tab, coords, loadNearby]);
+
+  // If the open call gets taken by another helper, close the screen and say so.
+  useEffect(() => {
+    if (!callDetail) return;
+    if (!nearby.some((r) => r.id === callDetail.id)) {
+      setCallDetail(null);
+      Alert.alert("Call taken", "Another helper just accepted this request.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearby]);
 
   const openReview = (r: RoadsideRequest) => { setReviewing(r); setReviewRating(5); setReviewText(""); };
   const submitReview = async () => {
@@ -1044,6 +1079,12 @@ export default function RoadsideScreen() {
               <Text style={styles.vehTitle}>Service call</Text>
               <TouchableOpacity onPress={() => setCallDetail(null)} testID="rs-detail-close"><Ionicons name="close" size={22} color={theme.textPrimary} /></TouchableOpacity>
             </View>
+            <View style={[styles.timerPill, countdown <= 30 && styles.timerPillUrgent]}>
+              <Ionicons name="time-outline" size={14} color={countdown <= 30 ? theme.error : theme.warning} />
+              <Text style={[styles.timerText, countdown <= 30 && { color: theme.error }]}>
+                Respond within {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")} — auto-declines
+              </Text>
+            </View>
             {!!callDetail && (() => {
               const r = callDetail;
               const blocked = !!elig && !elig.eligible;
@@ -1199,6 +1240,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22,
     borderTopWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingTop: 14, maxHeight: "88%",
   },
+  timerPill: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "center", backgroundColor: theme.warning + "1f", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 10 },
+  timerPillUrgent: { backgroundColor: theme.error + "1f" },
+  timerText: { color: theme.warning, fontSize: 12.5, fontWeight: "800" },
   contactLine: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, backgroundColor: theme.surfaceAlt, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },
   contactLineText: { color: theme.primary, fontSize: 14.5, fontWeight: "700" },
   phoneNote: { color: theme.textMuted, fontSize: 12, marginTop: 10 },
