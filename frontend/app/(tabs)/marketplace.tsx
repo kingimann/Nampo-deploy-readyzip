@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
   ActivityIndicator, RefreshControl, Modal, KeyboardAvoidingView,
-  Platform, Image, ScrollView,
+  Platform, Image, ScrollView, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -79,6 +79,36 @@ const EMPTY_DRAFT = {
   contactEmail: "", contactPhone: "",
 };
 
+// Shimmering placeholder grid shown while listings load — keeps the layout
+// stable instead of flashing a bare spinner.
+function SkeletonTiles() {
+  const pulse = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 750, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 750, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+  return (
+    <View style={styles.skelWrap}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Animated.View key={i} style={[styles.skelTile, { opacity: pulse }]}>
+          <View style={styles.skelImg} />
+          <View style={styles.skelBody}>
+            <View style={[styles.skelLine, { width: "42%", height: 16 }]} />
+            <View style={[styles.skelLine, { width: "88%" }]} />
+            <View style={[styles.skelLine, { width: "55%" }]} />
+          </View>
+        </Animated.View>
+      ))}
+    </View>
+  );
+}
+
 export default function MarketplaceScreen() {
   const router = useRouter();
   const { user } = useAuth();
@@ -108,6 +138,12 @@ export default function MarketplaceScreen() {
   const [locating, setLocating] = useState(false);
 
   const filtersActive = cat !== "all" || condFilter !== "all" || sort !== "recent" || !!minPrice || !!maxPrice || (!!coords && radius > 0);
+  const activeFilterCount =
+    (cat !== "all" ? 1 : 0) +
+    (condFilter !== "all" ? 1 : 0) +
+    (sort !== "recent" ? 1 : 0) +
+    (minPrice || maxPrice ? 1 : 0) +
+    (coords && radius > 0 ? 1 : 0);
 
   // Resolve the device location + a human-readable locality.
   const detectLocation = useCallback(async (prompt = true): Promise<{ coords: [number, number]; locality: string } | null> => {
@@ -328,13 +364,41 @@ export default function MarketplaceScreen() {
             testID="market-filters"
           >
             <Ionicons name="options-outline" size={20} color={filtersActive ? theme.primary : theme.textSecondary} />
-            {filtersActive && <View style={styles.filterDot} />}
+            {activeFilterCount > 0 && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         )}
       </View>
 
+      {!savedView && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chipRow}
+        >
+          {CATEGORIES.map((c) => {
+            const active = c.key === cat;
+            return (
+              <TouchableOpacity
+                key={c.key}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setCat(c.key)}
+                activeOpacity={0.8}
+                testID={`market-chip-${c.key}`}
+              >
+                <Text style={[styles.chipText, { color: active ? "#fff" : theme.textSecondary }]}>{c.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
       {loading ? (
-        <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
+        <SkeletonTiles />
       ) : (
         <FlatList
           data={listings}
@@ -346,11 +410,33 @@ export default function MarketplaceScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="storefront-outline" size={40} color={theme.textMuted} />
-              <Text style={styles.emptyTitle}>No listings yet</Text>
-              <Text style={styles.emptySub}>Tap the + button to post the first one.</Text>
-            </View>
+            savedView ? (
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}><Ionicons name="bookmark-outline" size={30} color={theme.textMuted} /></View>
+                <Text style={styles.emptyTitle}>No saved listings</Text>
+                <Text style={styles.emptySub}>Tap the bookmark on any listing to keep it here for later.</Text>
+              </View>
+            ) : (filtersActive || !!q) ? (
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}><Ionicons name="search-outline" size={30} color={theme.textMuted} /></View>
+                <Text style={styles.emptyTitle}>No matches</Text>
+                <Text style={styles.emptySub}>Try a different search or widen your filters.</Text>
+                <TouchableOpacity style={styles.emptyBtn} onPress={() => { resetFilters(); setQ(""); }} testID="market-empty-clear">
+                  <Text style={styles.emptyBtnText}>Clear filters</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}><Ionicons name="storefront-outline" size={30} color={theme.textMuted} /></View>
+                <Text style={styles.emptyTitle}>No listings yet</Text>
+                <Text style={styles.emptySub}>Be the first to sell something in your area.</Text>
+                {!marketOff && (
+                  <TouchableOpacity style={styles.emptyBtn} onPress={openCompose} testID="market-empty-create">
+                    <Text style={styles.emptyBtnText}>Create a listing</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )
           }
           renderItem={({ item }) => (
             <TouchableOpacity
@@ -753,6 +839,8 @@ const styles = StyleSheet.create({
   tile: {
     flex: 1, borderRadius: 18, overflow: "hidden",
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 7, shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   tileImg: { width: "100%", aspectRatio: 1, backgroundColor: theme.surfaceAlt },
   tileImgPlaceholder: { alignItems: "center", justifyContent: "center" },
@@ -780,7 +868,14 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   filterBtnActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
-  filterDot: { position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.primary },
+  filterBadge: {
+    position: "absolute", top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9,
+    paddingHorizontal: 4, backgroundColor: theme.primary,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: theme.bg,
+  },
+  filterBadgeText: { color: "#fff", fontSize: 10.5, fontWeight: "900" },
+  chipScroll: { flexGrow: 0 },
   filterHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   resetText: { color: theme.primary, fontSize: 14, fontWeight: "700" },
   priceRow: { flexDirection: "row", alignItems: "center", gap: 12 },
@@ -849,10 +944,29 @@ const styles = StyleSheet.create({
   },
   chipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
   chipText: { fontSize: 13, fontWeight: "700" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  empty: { paddingTop: 80, alignItems: "center", gap: 10 },
-  emptyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "700" },
-  emptySub: { color: theme.textSecondary, fontSize: 13 },
+  empty: { paddingTop: 90, paddingHorizontal: 40, alignItems: "center", gap: 8 },
+  emptyIcon: {
+    width: 64, height: 64, borderRadius: 32, marginBottom: 6,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    alignItems: "center", justifyContent: "center",
+  },
+  emptyTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  emptySub: { color: theme.textMuted, fontSize: 13.5, textAlign: "center", lineHeight: 19 },
+  emptyBtn: { marginTop: 12, backgroundColor: theme.primary, borderRadius: 12, paddingHorizontal: 22, paddingVertical: 11 },
+  emptyBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
+
+  // Loading skeletons
+  skelWrap: {
+    flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingTop: 8, rowGap: 18,
+  },
+  skelTile: {
+    width: "47%", borderRadius: 18, overflow: "hidden",
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+  },
+  skelImg: { width: "100%", aspectRatio: 1, backgroundColor: theme.surfaceAlt },
+  skelBody: { paddingHorizontal: 13, paddingVertical: 13, gap: 9 },
+  skelLine: { height: 12, borderRadius: 6, backgroundColor: theme.surfaceAlt },
   fab: {
     position: "absolute", right: 20,
     width: 60, height: 60, borderRadius: 30,

@@ -137,7 +137,10 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   headerTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  card: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, overflow: "hidden" },
+  card: {
+    backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2,
+  },
   cardMain: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
   thumb: { width: 64, height: 64, borderRadius: 12, overflow: "hidden", backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" },
   soldOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
