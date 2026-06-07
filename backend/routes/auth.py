@@ -200,7 +200,25 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
             patch["payout_frequency"] = body.payout_frequency
             patch["payout_frequency_changed_at"] = datetime.now(timezone.utc)
     if body.payout_threshold is not None:
-        patch["payout_threshold"] = max(0.0, round(float(body.payout_threshold), 2))
+        new_thr = max(0.0, round(float(body.payout_threshold), 2))
+        current_thr = float(user.get("payout_threshold", 0) or 0)
+        if new_thr != current_thr:
+            # The minimum payout balance can only be changed once a month.
+            last_thr = user.get("payout_threshold_changed_at")
+            if last_thr:
+                try:
+                    nxt = _norm_dt(last_thr) + timedelta(days=30)
+                    if datetime.now(timezone.utc) < nxt:
+                        raise HTTPException(status_code=400, detail={
+                            "code": "threshold_locked",
+                            "message": f"You can only change your minimum payout balance once a month. You can change it again on {nxt.date().isoformat()}.",
+                        })
+                except HTTPException:
+                    raise
+                except Exception:
+                    pass
+            patch["payout_threshold"] = new_thr
+            patch["payout_threshold_changed_at"] = datetime.now(timezone.utc)
     if body.default_comment_policy in ("everyone", "followers", "friends", "nobody"):
         patch["default_comment_policy"] = body.default_comment_policy
     if body.default_likes_disabled is not None:

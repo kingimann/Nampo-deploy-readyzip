@@ -88,6 +88,7 @@ export default function WalletScreen() {
   const [payoutInfo, setPayoutInfo] = useState<Awaited<ReturnType<typeof api.getPayouts>> | null>(null);
   const [runningPayout, setRunningPayout] = useState(false);
   const [threshold, setThreshold] = useState("");
+  const [freqPickerOpen, setFreqPickerOpen] = useState(false);
   const [savingThreshold, setSavingThreshold] = useState(false);
   const [bal, setBal] = useState<WalletBalance | null>(null);
   const [topupOpen, setTopupOpen] = useState(false);
@@ -180,8 +181,13 @@ export default function WalletScreen() {
 
   const saveThreshold = async () => {
     setSavingThreshold(true);
-    try { await api.updateMe({ payout_threshold: Math.max(0, Number(threshold) || 0) }); if (typeof refresh === "function") await refresh(); }
-    catch {} finally { setSavingThreshold(false); }
+    try {
+      await api.updateMe({ payout_threshold: Math.max(0, Number(threshold) || 0) });
+      if (typeof refresh === "function") await refresh();
+      Alert.alert("Saved", "Your minimum payout balance was updated.");
+    } catch (e: any) {
+      Alert.alert("Couldn't change minimum", String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Try again later.");
+    } finally { setSavingThreshold(false); }
   };
   const fmtDay = (iso?: string | null) => {
     if (!iso) return "—";
@@ -357,8 +363,11 @@ export default function WalletScreen() {
             </View>
             {payout?.payouts_enabled ? (() => {
               const balNow = bal?.balance ?? w?.balance ?? 0;
-              const cashoutDisabled = !payout?.has_debit_card || balNow < cashoutMin;
-              const reason = !payout?.has_debit_card
+              const onHold = !!payout?.hold_until && new Date(payout.hold_until) > new Date();
+              const cashoutDisabled = onHold || !payout?.has_debit_card || balNow < cashoutMin;
+              const reason = onHold
+                ? `Cash-out is paused for your security until ${new Date(payout.hold_until).toLocaleDateString()} — 7 business days after changing direct deposit.`
+                : !payout?.has_debit_card
                 ? "Add a debit card in Manage payouts to cash out."
                 : balNow < cashoutMin ? `Minimum cash-out is $${cashoutMin.toFixed(0)}.` : "";
               return (
@@ -448,30 +457,50 @@ export default function WalletScreen() {
           </View>
 
           <Text style={styles.section}>Payout frequency</Text>
-          <View style={styles.freqRow}>
-            {(["weekly", "biweekly", "monthly"] as const).map((f) => {
-              const on = (user?.payout_frequency || "weekly") === f;
-              const locked = !!freqLockedUntil && !on;
-              const label = f === "weekly" ? "Weekly" : f === "biweekly" ? "Bi-weekly" : "Monthly";
-              return (
-                <TouchableOpacity
-                  key={f}
-                  style={[styles.freqChip, on && styles.freqChipOn, locked && { opacity: 0.5 }]}
-                  onPress={() => changeFrequency(f)}
-                  disabled={locked}
-                  testID={`freq-${f}`}
-                >
-                  <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={16} color={on ? theme.primary : theme.textMuted} />
-                  <Text style={[styles.freqText, on && { color: theme.primary }]}>{label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {(() => {
+            const cur = (user?.payout_frequency || "weekly");
+            const label = cur === "weekly" ? "Weekly" : cur === "biweekly" ? "Bi-weekly" : "Monthly";
+            return (
+              <TouchableOpacity
+                style={[styles.freqDropdown, !!freqLockedUntil && { opacity: 0.6 }]}
+                onPress={() => setFreqPickerOpen(true)}
+                disabled={!!freqLockedUntil}
+                testID="freq-dropdown"
+              >
+                <Ionicons name="time-outline" size={16} color={theme.textMuted} />
+                <Text style={styles.freqDropdownText}>{label}</Text>
+                <Ionicons name="chevron-down" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
+            );
+          })()}
           <Text style={styles.freqNote}>
             {freqLockedUntil
               ? `You can change your payout frequency again on ${new Date(freqLockedUntil).toLocaleDateString()}.`
               : "You can change your payout frequency once a month."}
           </Text>
+
+          <Modal visible={freqPickerOpen} transparent animationType="fade" onRequestClose={() => setFreqPickerOpen(false)}>
+            <TouchableOpacity style={styles.freqPickBackdrop} activeOpacity={1} onPress={() => setFreqPickerOpen(false)}>
+              <View style={styles.freqPickCard}>
+                <Text style={styles.freqPickTitle}>Payout frequency</Text>
+                {(["weekly", "biweekly", "monthly"] as const).map((f) => {
+                  const on = (user?.payout_frequency || "weekly") === f;
+                  const label = f === "weekly" ? "Weekly" : f === "biweekly" ? "Bi-weekly" : "Monthly";
+                  return (
+                    <TouchableOpacity
+                      key={f}
+                      style={styles.freqPickRow}
+                      onPress={() => { setFreqPickerOpen(false); if (!on) changeFrequency(f); }}
+                      testID={`freq-${f}`}
+                    >
+                      <Text style={[styles.freqPickText, on && { color: theme.primary, fontWeight: "800" }]}>{label}</Text>
+                      {on && <Ionicons name="checkmark" size={18} color={theme.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </TouchableOpacity>
+          </Modal>
 
           <Text style={styles.section}>Getting paid</Text>
           {payEnabled ? (() => {
@@ -590,6 +619,7 @@ export default function WalletScreen() {
                 {savingThreshold ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.thresholdBtnText}>Save</Text>}
               </TouchableOpacity>
             </View>
+            <Text style={styles.payoutsNote}>The minimum payout balance can only be changed once a month.</Text>
             {(payoutInfo?.history || []).slice(0, 6).map((p) => (
               <View key={p.id} style={styles.payoutRow}>
                 <Ionicons name={p.status === "paid" ? "checkmark-circle" : p.status === "failed" ? "alert-circle" : "time-outline"} size={15} color={p.status === "failed" ? theme.error : theme.primary} />
@@ -847,6 +877,13 @@ export default function WalletScreen() {
               </TouchableOpacity>
             </View>
 
+            <View style={styles.holdBanner}>
+              <Ionicons name="shield-checkmark-outline" size={16} color="#F5A623" />
+              <Text style={styles.holdBannerText}>
+                For your security, changing your bank account or debit card pauses cash-out and sending money for 7 business days.
+              </Text>
+            </View>
+
             <TouchableOpacity style={styles.detailClose} onPress={() => setManageOpen(false)}>
               <Text style={styles.detailCloseText}>Done</Text>
             </TouchableOpacity>
@@ -992,6 +1029,15 @@ const styles = StyleSheet.create({
   sheetTitle: { color: theme.textPrimary, fontSize: 19, fontWeight: "900" },
   sheetSub: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },
   freqNote: { color: theme.textMuted, fontSize: 12, marginTop: 8, lineHeight: 16 },
+  freqDropdown: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  freqDropdownText: { flex: 1, color: theme.textPrimary, fontSize: 14.5, fontWeight: "700" },
+  freqPickBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  freqPickCard: { width: "100%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
+  freqPickTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
+  freqPickRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12 },
+  freqPickText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
+  holdBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "rgba(245,166,35,0.10)", borderWidth: 1, borderColor: "rgba(245,166,35,0.4)", borderRadius: 12, padding: 12, marginBottom: 12 },
+  holdBannerText: { flex: 1, color: theme.textSecondary, fontSize: 12.5, lineHeight: 18 },
   cashoutNet: { color: theme.textSecondary, fontSize: 12.5, textAlign: "center", marginTop: 10 },
   cashoutHint: { color: theme.textMuted, fontSize: 12, textAlign: "center", marginTop: 7 },
   mpMethod: { flexDirection: "row", alignItems: "center", gap: 12, alignSelf: "stretch", backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 14, marginTop: 12 },

@@ -233,6 +233,14 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
     amount = round(float(body.amount or 0), 2)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    # Anti-fraud: block outgoing transfers during the post-direct-deposit-change hold.
+    from routes.payments import payout_hold_until, DD_HOLD_BUSINESS_DAYS
+    hold = payout_hold_until(me)
+    if hold:
+        raise HTTPException(status_code=403, detail={
+            "code": "payout_hold",
+            "message": f"For your security, sending money is paused until {hold.date().isoformat()} ({DD_HOLD_BUSINESS_DAYS} business days after changing your direct-deposit details).",
+        })
     await _require_answer(me, body.answer)
     # The payer covers a flat transaction fee; the recipient gets the full amount.
     fee = await _fee_dollars()

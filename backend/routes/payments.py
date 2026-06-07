@@ -22,8 +22,34 @@ from pydantic import BaseModel
 
 from core import (
     db, get_current_user, API_PLANS, API_PLANS_BY_ID, _active_plan,
-    API_OVERAGE_PACKS, API_OVERAGE_BY_ID, USAGE_PERIOD_DAYS,
+    API_OVERAGE_PACKS, API_OVERAGE_BY_ID, USAGE_PERIOD_DAYS, _norm_dt,
 )
+
+# Anti-fraud: after changing direct-deposit (bank/debit card), hold withdrawals
+# and outgoing money transfers for this many business days.
+DD_HOLD_BUSINESS_DAYS = 7
+
+
+def _add_business_days(start: datetime, n: int) -> datetime:
+    d = start
+    added = 0
+    while added < n:
+        d = d + timedelta(days=1)
+        if d.weekday() < 5:   # Mon–Fri
+            added += 1
+    return d
+
+
+def payout_hold_until(user: dict):
+    """When the post-direct-deposit-change hold lifts, or None if not on hold."""
+    changed = user.get("direct_deposit_changed_at")
+    if not changed:
+        return None
+    try:
+        until = _add_business_days(_norm_dt(changed), DD_HOLD_BUSINESS_DAYS)
+    except Exception:
+        return None
+    return until if until > datetime.now(timezone.utc) else None
 
 try:  # Stripe is optional — the app runs fine without it (test payments only).
     import stripe  # type: ignore
@@ -285,6 +311,7 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
         "connected": True,
         "payouts_enabled": payouts_enabled,
         "id_verified": id_verified,
+        "hold_until": (lambda h: h.isoformat() if h else None)(payout_hold_until(user)),
         "charges_enabled": bool(acct.get("charges_enabled")),
         "details_submitted": bool(acct.get("details_submitted")),
         "has_external_account": has_external,
@@ -322,6 +349,12 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
     if await test_payments_on():
         raise HTTPException(status_code=400, detail={"code": "test_mode", "message": "Cash out isn't available in test mode."})
     user = await get_current_user(authorization)
+    hold = payout_hold_until(user)
+    if hold:
+        raise HTTPException(status_code=403, detail={
+            "code": "payout_hold",
+            "message": f"For your security, cash-out is paused until {hold.date().isoformat()} ({DD_HOLD_BUSINESS_DAYS} business days after changing your direct-deposit details).",
+        })
     acct_id = user.get("stripe_account_id")
     if not acct_id:
         raise HTTPException(status_code=400, detail={"code": "no_payout_account", "message": "Set up payouts first to cash out."})
@@ -442,7 +475,11 @@ async def add_debit_card(body: DebitCardBody, authorization: Optional[str] = Hea
             "code": "not_a_card",
             "message": "That wasn't a debit card. Please add a debit card for instant cash-out.",
         })
-    return {"ok": True, "has_debit_card": True, "brand": ext.get("brand"), "last4": ext.get("last4")}
+    # Start the anti-fraud hold on withdrawals/transfers.
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"direct_deposit_changed_at": datetime.now(timezone.utc)}})
+    hold = payout_hold_until({"direct_deposit_changed_at": datetime.now(timezone.utc)})
+    return {"ok": True, "has_debit_card": True, "brand": ext.get("brand"), "last4": ext.get("last4"),
+            "hold_until": hold.isoformat() if hold else None, "hold_days": DD_HOLD_BUSINESS_DAYS}
 
 
 @router.post("/payments/payouts/bank-account")
@@ -470,7 +507,10 @@ async def add_bank_account(body: DebitCardBody, authorization: Optional[str] = H
             "code": "not_a_bank",
             "message": "That wasn't a bank account. Please check the details and try again.",
         })
-    return {"ok": True, "has_bank_account": True, "bank": ext.get("bank_name"), "last4": ext.get("last4")}
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"direct_deposit_changed_at": datetime.now(timezone.utc)}})
+    hold = payout_hold_until({"direct_deposit_changed_at": datetime.now(timezone.utc)})
+    return {"ok": True, "has_bank_account": True, "bank": ext.get("bank_name"), "last4": ext.get("last4"),
+            "hold_until": hold.isoformat() if hold else None, "hold_days": DD_HOLD_BUSINESS_DAYS}
 
 
 # ── Standalone ID verification via Stripe Identity (not tied to payouts) ──────
