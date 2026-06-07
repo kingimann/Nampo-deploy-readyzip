@@ -103,19 +103,69 @@ def _year_problem(year: str) -> Optional[str]:
     return None
 
 
-def _vehicle_rule_problems(year, make, model, color) -> list:
+# Obvious keyboard-mash / placeholder model entries.
+_MODEL_JUNK = {
+    "asdf", "asdfgh", "asdfghjkl", "qwer", "qwerty", "zxcv", "zxcvbn", "test",
+    "testing", "none", "na", "nil", "null", "abc", "abcd", "xxx", "xxxx",
+    "aaa", "aaaa", "1234", "12345", "0000", "idk", "unknown", "vehicle", "car",
+}
+
+
+def _model_looks_fake(model: str) -> bool:
+    """Heuristic gibberish check for the model — we can't list every model, but
+    we can catch placeholder/keyboard-mash junk without rejecting real
+    alphanumeric model codes (X5, CX-5, GT-R, Q7, RAV4, 911…)."""
+    m = (model or "").strip()
+    if not m:
+        return False
+    n = _norm(m)
+    if not n:                                   # only symbols
+        return True
+    if n in _MODEL_JUNK:
+        return True
+    if re.search(r"(.)\1{3,}", n):              # 4+ of the same char in a row
+        return True
+    # A long run of letters with no vowel is gibberish; short codes are fine.
+    letters = re.sub(r"[^a-z]", "", n)
+    if len(letters) >= 5 and not re.search(r"[aeiouy]", letters):
+        return True
+    return False
+
+
+def _plate_problem(plate: str) -> Optional[str]:
+    """Basic licence-plate format sanity. Plate formats vary worldwide, so we
+    only reject clearly-malformed entries: must be letters/numbers (spaces or
+    hyphens allowed) and 2–8 characters once separators are removed."""
+    p = (plate or "").strip()
+    if not p:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9 \-]*[A-Za-z0-9])?", p):
+        return f'"{p}" isn\'t a valid plate — use only letters, numbers, spaces or hyphens.'
+    core = re.sub(r"[ \-]", "", p)
+    if not (2 <= len(core) <= 8):
+        return f'"{p}" doesn\'t look like a valid licence plate — most plates are 2–8 letters and numbers.'
+    return None
+
+
+def _vehicle_rule_problems(year, make, model, color, plate=None) -> list:
     """Deterministic real-vehicle problems (no AI needed). Each item is
     {field, message}. Only checks fields that are actually filled in."""
     out = []
     make = (make or "").strip()
+    model = (model or "").strip()
     color = (color or "").strip()
     if make and not _make_is_real(make):
         out.append({"field": "vehicle", "message": f'"{make}" isn\'t a make we recognise — enter a real vehicle manufacturer.'})
+    if model and _model_looks_fake(model):
+        out.append({"field": "vehicle", "message": f'"{model}" doesn\'t look like a real model — enter the vehicle\'s model.'})
     yp = _year_problem(year)
     if yp:
         out.append({"field": "vehicle", "message": yp})
     if color and not _color_is_real(color):
         out.append({"field": "vehicle_color", "message": f'"{color}" isn\'t a colour we recognise — enter a real vehicle colour.'})
+    pp = _plate_problem(plate)
+    if pp:
+        out.append({"field": "vehicle_plate", "message": pp})
     return out
 
 
@@ -171,7 +221,7 @@ async def review_form(d: dict) -> dict:
     # Deterministic real-vehicle checks — these always run and can block on
     # their own, so a fake make/year/colour is caught even without the AI.
     veh_problems = _vehicle_rule_problems(
-        d.get("vehicle_year"), make, model, d.get("vehicle_color"))
+        d.get("vehicle_year"), make, model, d.get("vehicle_color"), d.get("vehicle_plate"))
     seen0 = {(i.get("field"), i.get("message")) for i in issues}
     for p in veh_problems:
         if (p["field"], p["message"]) not in seen0:
@@ -235,18 +285,19 @@ async def review_form(d: dict) -> dict:
 
 
 async def validate_vehicle(year: Optional[str], make: Optional[str], model: Optional[str],
-                           color: Optional[str] = None) -> dict:
+                           color: Optional[str] = None, plate: Optional[str] = None) -> dict:
     """Authoritative real-vehicle check for blocking on submit. Returns
     {valid, reason}. Deterministic checks (real make, plausible year, real
-    colour) always run; the AI adds a make↔model match check when configured.
-    Fails open only on the AI portion — a bad make/year/colour blocks even
-    without Ollama."""
+    colour, sane model & plate format) always run; the AI adds a make↔model
+    match check when configured. Fails open only on the AI portion — a bad
+    make/year/colour/model/plate blocks even without Ollama."""
     make = (make or "").strip()
     model = (model or "").strip()
     year = (year or "").strip()
     color = (color or "").strip()
+    plate = (plate or "").strip()
     # Deterministic gate first — works with or without the AI.
-    problems = _vehicle_rule_problems(year, make, model, color)
+    problems = _vehicle_rule_problems(year, make, model, color, plate)
     if problems:
         return {"valid": False, "reason": problems[0]["message"]}
     if not (make and model) or not ollama_enabled():
