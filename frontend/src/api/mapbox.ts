@@ -39,6 +39,46 @@ export async function forwardGeocode(
   }));
 }
 
+/**
+ * Reverse-geocode coordinates to a precise street address via Mapbox. Works on
+ * web (where expo-location's reverseGeocodeAsync is unsupported) and native.
+ * Returns `null` on failure.
+ */
+export async function reverseGeocode(
+  lng: number,
+  lat: number,
+): Promise<GeocodeFeature | null> {
+  if (!MAPBOX_TOKEN) return null;
+  const params = new URLSearchParams({
+    longitude: String(lng),
+    latitude: String(lat),
+    limit: "1",
+    access_token: MAPBOX_TOKEN,
+  });
+  const url = `https://api.mapbox.com/search/geocode/v6/reverse?${params.toString()}`;
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  const json = await res.json();
+  const f = (json.features || [])[0];
+  if (!f) return null;
+  return {
+    id: f.id || `${lng},${lat}`,
+    name: f.properties?.name || f.properties?.full_address || "",
+    full_address:
+      f.properties?.full_address ||
+      f.properties?.place_formatted ||
+      f.properties?.name ||
+      "",
+    longitude: f.geometry?.coordinates?.[0] ?? lng,
+    latitude: f.geometry?.coordinates?.[1] ?? lat,
+  };
+}
+
 export async function categorySearch(
   category: string,
   proximity: [number, number],

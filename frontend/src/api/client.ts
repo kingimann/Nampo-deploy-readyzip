@@ -363,6 +363,7 @@ export const api = {
 
   // ── Roadside assistance ──────────────────────────────────────────────────
   roadsideQuote: () => request<RoadsideQuote>("/roadside/quote"),
+  roadsideEligibility: () => request<RoadsideEligibility>("/roadside/eligibility"),
   roadsideActive: () => request<RoadsideRequest | null>("/roadside/active"),
   roadsideHelping: () => request<RoadsideRequest | null>("/roadside/helping"),
   roadsideMine: () => request<RoadsideRequest[]>("/roadside/mine"),
@@ -1249,6 +1250,13 @@ export type RoadsideQuote = {
   total: number;
   tax_rate: number;
   wallet_balance: number;
+};
+export type RoadsideRequirement = { key: string; label: string; met: boolean };
+export type RoadsideEligibility = {
+  eligible: boolean;
+  requirements: RoadsideRequirement[];
+  missing: string[];
+  min_age_days: number;
 };
 
 export type Notification = {
