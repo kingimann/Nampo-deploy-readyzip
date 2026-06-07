@@ -445,7 +445,7 @@ export const api = {
 
   // Notifications
   listNotifications: () => request<Notification[]>("/notifications"),
-  listActivity: () => request<ActivityItem[]>("/notifications/activity"),
+  listActivity: () => request<NetworkActivity[]>("/notifications/activity"),
   unreadNotificationsCount: () =>
     request<{ count: number }>("/notifications/unread"),
   markNotificationRead: (id: string) =>
@@ -1162,7 +1162,7 @@ export type Notification = {
   created_at: string;
 };
 
-export type ActivityItem = {
+export type NetworkActivity = {
   id: string;
   actor_id: string;
   actor_name: string;

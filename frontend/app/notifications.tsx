@@ -6,16 +6,16 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, Stack } from "expo-router";
-import { api, Notification, ActivityItem } from "@/src/api/client";
+import { api, Notification, NetworkActivity } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { safeBack } from "@/src/utils/nav";
 
-const ACT_ICON: Record<ActivityItem["type"], { name: any; color: string }> = {
+const ACT_ICON: Record<NetworkActivity["type"], { name: any; color: string }> = {
   like:    { name: "heart",      color: "#EF4444" },
   comment: { name: "chatbubble", color: "#3B82F6" },
   repost:  { name: "repeat",     color: "#22C55E" },
 };
-const actVerb = (a: ActivityItem) =>
+const actVerb = (a: NetworkActivity) =>
   a.type === "like" ? `liked a ${a.target_kind}`
   : a.type === "comment" ? `commented on a ${a.target_kind}`
   : `reposted a ${a.target_kind}`;
@@ -65,7 +65,7 @@ export default function NotificationsScreen() {
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [activity, setActivity] = useState<NetworkActivity[]>([]);
   const [actLoading, setActLoading] = useState(false);
   const [actLoaded, setActLoaded] = useState(false);
 
@@ -92,7 +92,7 @@ export default function NotificationsScreen() {
     if (t === "activity" && !actLoaded) loadActivity();
   };
 
-  const onActivityTap = (a: ActivityItem) => {
+  const onActivityTap = (a: NetworkActivity) => {
     if (!a.post_id) return;
     if (a.target_kind === "video") router.push({ pathname: "/reels", params: { focus: a.post_id } });
     else router.push({ pathname: "/post/[id]", params: { id: a.post_id } });
