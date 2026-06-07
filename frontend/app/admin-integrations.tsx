@@ -53,6 +53,8 @@ export default function AdminIntegrationsScreen() {
   const [items, setItems] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [testingKey, setTestingKey] = useState<string | null>(null);
+  const [onlyProblems, setOnlyProblems] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async (live: boolean) => {
@@ -69,6 +71,18 @@ export default function AdminIntegrationsScreen() {
   }, []);
   useFocusEffect(useCallback(() => { load(false); }, [load]));
 
+  // Live-test a single integration and merge just that card's result.
+  const testOne = useCallback(async (key: string) => {
+    setErr(null); setTestingKey(key);
+    try {
+      const r = await api.adminIntegrations(false, key);
+      const updated = r.integrations.find((i) => i.key === key);
+      if (updated) setItems((prev) => prev.map((i) => (i.key === key ? updated : i)));
+    } catch (e: any) {
+      setErr(String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setTestingKey(null); }
+  }, []);
+
   // Merge backend + client-checked SDKs, grouped by category.
   const clientAsIntegration: Integration[] = CLIENT_SDKS.map((s) => ({
     key: s.name, name: s.name, category: s.category, required: false, env: s.env,
@@ -76,7 +90,10 @@ export default function AdminIntegrationsScreen() {
     status: s.configured ? "configured" : "not_configured", detail: s.configured ? "Configured (client)." : "Not configured.",
   }));
   const all = [...items, ...clientAsIntegration];
-  const categories = Array.from(new Set(all.map((i) => i.category)));
+  const needsAttention = (i: Integration) => i.status === "not_configured" || i.status === "error";
+  const problems = all.filter(needsAttention).length;
+  const visible = onlyProblems ? all.filter(needsAttention) : all;
+  const categories = Array.from(new Set(visible.map((i) => i.category)));
   const okCount = all.filter((i) => i.status === "operational" || i.status === "configured").length;
 
   return (
@@ -107,15 +124,30 @@ export default function AdminIntegrationsScreen() {
           </View>
           {!!err && <Text style={styles.err}>{err}</Text>}
           <Text style={styles.note}>
-            “Run live tests” calls each backend service to confirm the credentials actually work. Client SDKs (Mapbox, Cloudinary, Tenor) are checked in this app build.
+            “Run live tests” calls each backend service to confirm the credentials actually work, or tap “Test” on a single card. Client SDKs (Mapbox, Cloudinary, Tenor) are checked in this app build.
           </Text>
+          <TouchableOpacity
+            style={[styles.filterChip, onlyProblems && styles.filterChipOn]}
+            onPress={() => setOnlyProblems((v) => !v)}
+            testID="filter-problems"
+          >
+            <Ionicons name={onlyProblems ? "funnel" : "funnel-outline"} size={13} color={onlyProblems ? theme.primary : theme.textMuted} />
+            <Text style={[styles.filterText, onlyProblems && { color: theme.primary }]}>
+              {onlyProblems ? "Showing only issues" : `Show only issues${problems ? ` (${problems})` : ""}`}
+            </Text>
+          </TouchableOpacity>
+
+          {categories.length === 0 && (
+            <Text style={styles.allGood}>All integrations are configured. 🎉</Text>
+          )}
 
           {categories.map((cat) => (
             <View key={cat}>
               <Text style={styles.section}>{cat}</Text>
-              {all.filter((i) => i.category === cat).map((it) => {
+              {visible.filter((i) => i.category === cat).map((it) => {
                 const m = statusMeta(it.status, it.configured);
                 const needsAction = it.status === "not_configured" || it.status === "error";
+                const envList = it.env_detail ?? it.env.map((n) => ({ name: n, set: it.configured }));
                 return (
                   <View key={it.key} style={styles.card} testID={`integration-${it.key}`}>
                     <View style={styles.cardTop}>
@@ -127,11 +159,16 @@ export default function AdminIntegrationsScreen() {
                     </View>
                     <Text style={styles.intSummary}>{it.summary}</Text>
                     {it.tested && !!it.detail && (
-                      <Text style={[styles.intDetail, { color: it.status === "operational" ? "#22C55E" : theme.error }]}>{it.detail}</Text>
+                      <Text style={[styles.intDetail, { color: it.status === "operational" ? "#22C55E" : theme.error }]}>
+                        {it.detail}{typeof it.latency_ms === "number" ? `  ·  ${it.latency_ms}ms` : ""}
+                      </Text>
                     )}
                     <View style={styles.envRow}>
-                      {it.env.map((e) => (
-                        <View key={e} style={styles.envChip}><Text style={styles.envText}>{e}</Text></View>
+                      {envList.map((e) => (
+                        <View key={e.name} style={[styles.envChip, e.set && styles.envChipSet]}>
+                          <Ionicons name={e.set ? "checkmark-circle" : "ellipse-outline"} size={11} color={e.set ? "#22C55E" : theme.textMuted} />
+                          <Text style={[styles.envText, e.set && { color: "#22C55E" }]}>{e.name}</Text>
+                        </View>
                       ))}
                     </View>
                     {needsAction && (
@@ -140,11 +177,25 @@ export default function AdminIntegrationsScreen() {
                         <Text style={styles.fixText}>{it.fix}</Text>
                       </View>
                     )}
-                    {!!it.docs && (
-                      <TouchableOpacity onPress={() => Linking.openURL(it.docs)} testID={`docs-${it.key}`}>
-                        <Text style={styles.docsLink}>Open docs ↗</Text>
-                      </TouchableOpacity>
-                    )}
+                    <View style={styles.cardActions}>
+                      {it.can_test && (
+                        <TouchableOpacity
+                          style={styles.cardTestBtn}
+                          onPress={() => testOne(it.key)}
+                          disabled={testingKey === it.key}
+                          testID={`test-${it.key}`}
+                        >
+                          {testingKey === it.key
+                            ? <ActivityIndicator size="small" color={theme.primary} />
+                            : <><Ionicons name="pulse-outline" size={13} color={theme.primary} /><Text style={styles.cardTestText}>Test</Text></>}
+                        </TouchableOpacity>
+                      )}
+                      {!!it.docs && (
+                        <TouchableOpacity onPress={() => Linking.openURL(it.docs)} testID={`docs-${it.key}`}>
+                          <Text style={styles.docsLink}>Open docs ↗</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 );
               })}
@@ -174,6 +225,14 @@ const styles = StyleSheet.create({
   },
   testBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   note: { color: theme.textMuted, fontSize: 12, lineHeight: 17, marginBottom: 8 },
+  filterChip: {
+    flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 4,
+  },
+  filterChipOn: { borderColor: theme.primary, backgroundColor: "rgba(0,168,132,0.10)" },
+  filterText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
+  allGood: { color: "#22C55E", fontSize: 13.5, fontWeight: "700", marginTop: 18, textAlign: "center" },
   err: { color: theme.error, fontSize: 13, marginBottom: 8 },
   section: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
   card: {
@@ -187,8 +246,12 @@ const styles = StyleSheet.create({
   intSummary: { color: theme.textSecondary, fontSize: 13, lineHeight: 18 },
   intDetail: { fontSize: 12, fontWeight: "600" },
   envRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  envChip: { backgroundColor: theme.surfaceAlt, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  envChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: theme.surfaceAlt, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  envChipSet: { backgroundColor: "rgba(34,197,94,0.12)" },
   envText: { color: theme.textSecondary, fontSize: 11, fontWeight: "600", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  cardActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  cardTestBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: theme.surfaceAlt, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, minWidth: 60, justifyContent: "center" },
+  cardTestText: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
   fixBox: {
     flexDirection: "row", alignItems: "flex-start", gap: 8,
     backgroundColor: "rgba(246,196,85,0.12)", borderRadius: 10, padding: 10,

@@ -65,8 +65,8 @@ export const api = {
     request<{ ok: boolean }>(`/admin/badges/${badgeId}`, { method: "DELETE" }),
   adminSetUserBadge: (userId: string, badge_id: string, action: "add" | "remove") =>
     request<{ ok: boolean }>(`/admin/users/${userId}/badge`, { method: "POST", body: JSON.stringify({ badge_id, action }) }),
-  adminIntegrations: (live = false) =>
-    request<IntegrationsReport>(`/admin/integrations${live ? "?live=1" : ""}`),
+  adminIntegrations: (live = false, only?: string) =>
+    request<IntegrationsReport>(`/admin/integrations${only ? `?only=${encodeURIComponent(only)}` : live ? "?live=1" : ""}`),
   updateMe: (p: ProfilePatch) =>
     request<User>("/auth/me", { method: "PATCH", body: JSON.stringify(p) }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
@@ -989,6 +989,7 @@ export type Integration = {
   category: string;
   required: boolean;
   env: string[];
+  env_detail?: { name: string; set: boolean }[];
   summary: string;
   fix: string;
   docs: string;
@@ -997,11 +998,13 @@ export type Integration = {
   status: "operational" | "configured" | "not_configured" | "optional_off" | "error";
   detail: string;
   tested?: boolean;
+  latency_ms?: number;
 };
 export type IntegrationsReport = {
   integrations: Integration[];
-  summary: { total: number; configured: number; needs_setup: number };
+  summary: { total: number; configured: number; needs_setup: number; operational?: number; errors?: number };
   live: boolean;
+  only?: string | null;
 };
 export type SubTier = { id: string; name: string; price: number };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; message?: string; created_at: string };
