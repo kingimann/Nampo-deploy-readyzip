@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, PanResponder, LayoutChangeEvent } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, PanResponder, LayoutChangeEvent, Platform } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { theme } from "@/src/theme";
 
@@ -75,15 +75,25 @@ export default function SignaturePad({ onChange, height = 170 }: { onChange: (da
 
   return (
     <View>
-      <View style={[styles.box, { height }]} onLayout={onLayout} {...responder.panHandlers} testID="sig-pad">
-        <Svg width="100%" height="100%">
-          {paths.map((d, i) => (
-            <Path key={i} d={d} stroke={theme.textPrimary} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-          ))}
-          {current ? (
-            <Path d={current} stroke={theme.textPrimary} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-          ) : null}
-        </Svg>
+      <View
+        style={[styles.box, { height }, webNoScroll]}
+        onLayout={onLayout}
+        {...responder.panHandlers}
+        testID="sig-pad"
+      >
+        {/* The SVG is purely visual — pointerEvents="none" so every touch/mouse
+            event reaches the responder View above (and locationX/Y stay relative
+            to the pad, not to a drawn path). */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Svg width="100%" height="100%">
+            {paths.map((d, i) => (
+              <Path key={i} d={d} stroke={theme.textPrimary} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            ))}
+            {current ? (
+              <Path d={current} stroke={theme.textPrimary} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            ) : null}
+          </Svg>
+        </View>
       </View>
       <TouchableOpacity style={styles.clear} onPress={clear} testID="sig-clear">
         <Text style={styles.clearText}>Clear</Text>
@@ -91,6 +101,10 @@ export default function SignaturePad({ onChange, height = 170 }: { onChange: (da
     </View>
   );
 }
+
+// On web, stop the browser from scrolling/zooming the page while the finger is
+// drawing on the pad (otherwise a touch-drag scrolls instead of signing).
+const webNoScroll = Platform.OS === "web" ? ({ touchAction: "none" } as any) : null;
 
 const styles = StyleSheet.create({
   box: { borderWidth: 1, borderColor: theme.border, borderRadius: 12, overflow: "hidden", backgroundColor: theme.surface },
