@@ -197,6 +197,45 @@ def _listing_json(doc: dict, seller: dict) -> dict:
     }
 
 
+async def _load_public_guide(slug: str):
+    """Return (guide_doc, owner_doc) for a public guide, else None."""
+    guide = await db.guides.find_one({"slug": slug, "is_public": True}, {"_id": 0})
+    if not guide:
+        return None
+    owner = await db.users.find_one({"user_id": guide.get("user_id")}, {"_id": 0})
+    if not _author_ok(owner):
+        return None
+    return guide, owner
+
+
+async def _guide_places(guide: dict, limit: int = 50) -> list:
+    pids = guide.get("place_ids") or []
+    if not pids:
+        return []
+    docs = await db.places.find({"id": {"$in": pids}}, {"_id": 0}).to_list(200)
+    order = {pid: i for i, pid in enumerate(pids)}
+    docs.sort(key=lambda p: order.get(p["id"], 0))
+    return docs[:limit]
+
+
+def _guide_json(guide: dict, owner: dict, places: list) -> dict:
+    return {
+        "id": guide["id"], "slug": guide.get("slug"),
+        "name": guide.get("name") or "Guide",
+        "color": guide.get("color") or "#3B82F6",
+        "icon": guide.get("icon") or "bookmark",
+        "owner": _author_view(owner),
+        "place_count": len(guide.get("place_ids") or []),
+        "places": [{
+            "id": p.get("id"), "title": p.get("title"), "address": p.get("address"),
+            "category": p.get("category"),
+            "longitude": p.get("longitude"), "latitude": p.get("latitude"),
+        } for p in places],
+        "created_at": guide.get("created_at"),
+        "url": f"{WEB_APP_URL}/g/{guide.get('slug')}",
+    }
+
+
 async def _load_public_user(username: str):
     uname = (username or "").lstrip("@").strip()
     if not uname:
@@ -266,6 +305,18 @@ async def public_listing(request: Request, listing_id: str):
     return _listing_json(*r)
 
 
+@router.get("/pub/guide/{slug}")
+async def public_guide(request: Request, slug: str):
+    if not _rate_ok(_client_ip(request)):
+        raise HTTPException(status_code=429, detail="Slow down — too many requests.")
+    r = await _load_public_guide(slug)
+    if not r:
+        raise HTTPException(status_code=404, detail="Guide not available")
+    guide, owner = r
+    places = await _guide_places(guide)
+    return _guide_json(guide, owner, places)
+
+
 @router.get("/pub/profile/{username}/posts")
 async def public_profile_posts(request: Request, username: str,
                                limit: int = Query(10), cursor: Optional[str] = Query(None)):
@@ -317,6 +368,8 @@ _CARD_CSS = """
   .price{font-size:20px;font-weight:800;margin:10px 0 2px;color:var(--text)}
   .ltitle{font-size:14.5px;font-weight:700;margin:0}
   .sub{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .gname{font-size:17px;font-weight:800}
+  .gplace{font-size:13.5px;margin:5px 0;color:var(--text)}
   .media{margin-top:10px;border-radius:calc(var(--rad) - 4px);overflow:hidden;border:1px solid var(--border)}
   .media img{display:block;width:100%;max-height:330px;object-fit:cover}
   .meta{display:flex;gap:16px;margin-top:10px;color:var(--muted);font-size:12.5px}
@@ -440,19 +493,48 @@ async def listing_card(request: Request, listing: str = Query(...), theme: str =
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
 
 
+@router.get("/pub/guide-card", response_class=HTMLResponse)
+async def guide_card(request: Request, guide: str = Query(...), theme: str = Query("light"),
+                     accent: Optional[str] = Query(None), radius: Optional[str] = Query(None)):
+    r = await _load_public_guide(guide)
+    if not r:
+        return _unavailable("This guide is unavailable.")
+    g, owner = r
+    places = await _guide_places(g, limit=5)
+    cfg = _embed_cfg(theme, accent, radius)
+    e = html.escape
+    name = e(g.get("name") or "Guide")
+    count = len(g.get("place_ids") or [])
+    plural = "" if count == 1 else "s"
+    owner_name = e(owner.get("name") or "")
+    place_lines = "".join(f'<div class="gplace">📍 {e(p.get("title") or "Place")}</div>' for p in places)
+    more = f'<div class="sub">+{count - 5} more</div>' if count > 5 else ""
+    link = f"{WEB_APP_URL}/g/{e(g.get('slug') or '')}"
+    inner = (
+        f'<a class="card" href="{link}" target="_blank" rel="noopener">'
+        f'<div class="gname">{name}</div>'
+        f'<div class="sub">{count} place{plural}{(" · by " + owner_name) if owner_name else ""}</div>'
+        f'<div style="margin-top:10px">{place_lines}{more}</div>'
+        '<div class="brand"><span class="n">Nami Guides</span><span class="cta">Open guide ›</span></div>'
+        "</a>"
+    )
+    return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
+
+
 # ── Drop-in <script> loader ───────────────────────────────────────────────────
 _EMBED_JS = """(function(){
   var s=document.currentScript;
   function a(n){return s&&s.getAttribute(n);}
-  var post=a("data-post"), profile=a("data-profile"), listing=a("data-listing");
-  if(!post&&!profile&&!listing)return;
+  var post=a("data-post"), profile=a("data-profile"), listing=a("data-listing"), guide=a("data-guide");
+  if(!post&&!profile&&!listing&&!guide)return;
   var path = post?("post-card?post="+encodeURIComponent(post))
     : listing?("listing-card?listing="+encodeURIComponent(listing))
+    : guide?("guide-card?guide="+encodeURIComponent(guide))
     : ("profile-card?profile="+encodeURIComponent(profile));
   ["theme","accent","radius"].forEach(function(k){var v=a("data-"+k);if(v)path+="&"+k+"="+encodeURIComponent(v);});
   var f=document.createElement("iframe");
   f.src="__BASE__/api/pub/"+path;
-  f.width=a("data-width")||"100%";f.height=a("data-height")||(profile?"150":listing?"420":"460");
+  f.width=a("data-width")||"100%";f.height=a("data-height")||(profile?"150":listing?"420":guide?"340":"460");
   f.scrolling="no";f.style.border="0";f.style.maxWidth="550px";f.style.width="100%";
   if(s&&s.parentNode)s.parentNode.insertBefore(f,s);
 })();"""
@@ -472,6 +554,11 @@ def _extract_post_id(url: str) -> Optional[str]:
 
 def _extract_listing_id(url: str) -> Optional[str]:
     m = re.search(r"/(?:listing|l)/([A-Za-z0-9\-]{6,})", url or "")
+    return m.group(1) if m else None
+
+
+def _extract_guide_slug(url: str) -> Optional[str]:
+    m = re.search(r"/(?:guide|g)/([A-Za-z0-9_\-]{2,})", url or "")
     return m.group(1) if m else None
 
 
@@ -515,6 +602,16 @@ async def oembed(request: Request, url: str = Query(...), format: str = Query("j
         src = f"{base}/api/pub/listing-card?listing={lid}"
         thumb = next(iter(_listing_photos(doc)), seller.get("picture"))
         return _oembed_payload(f"{doc.get('title')} — {_price_str(doc)}", seller, src, width, height, thumb)
+
+    gslug = _extract_guide_slug(url)
+    if gslug:
+        r = await _load_public_guide(gslug)
+        if not r:
+            raise HTTPException(status_code=404, detail="Guide not available")
+        g, owner = r
+        height = min(int(maxheight or 340), 420)
+        src = f"{base}/api/pub/guide-card?guide={gslug}"
+        return _oembed_payload(f"{g.get('name')} — a Nami guide", owner, src, width, height, owner.get("picture"))
 
     uname = _extract_username(url)
     if uname:
