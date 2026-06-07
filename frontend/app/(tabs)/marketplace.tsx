@@ -61,6 +61,7 @@ const EMPTY_DRAFT = {
   title: "", price: "", category: "other", condition: "used", description: "",
   photos: [] as string[], brand: "", quantity: "1", negotiable: false,
   delivery: "pickup", lng: null as number | null, lat: null as number | null, locality: "",
+  contactEmail: "", contactPhone: "",
 };
 
 export default function MarketplaceScreen() {
@@ -80,6 +81,7 @@ export default function MarketplaceScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
+  const [picker, setPicker] = useState<null | "category" | "condition">(null);
   const [posting, setPosting] = useState(false);
   const [postErr, setPostErr] = useState<string | null>(null);
   // Location + radius (Facebook-Marketplace style).
@@ -202,6 +204,8 @@ export default function MarketplaceScreen() {
         longitude: draft.lng ?? undefined,
         latitude: draft.lat ?? undefined,
         locality: draft.locality || undefined,
+        contact_email: draft.contactEmail.trim() || undefined,
+        contact_phone: draft.contactPhone.trim() || undefined,
       });
       setListings((x) => [p, ...x]);
       setDraft({ ...EMPTY_DRAFT });
@@ -384,39 +388,15 @@ export default function MarketplaceScreen() {
                 testID="listing-price-input"
               />
               <Text style={styles.label}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-                <View style={{ flexDirection: "row", gap: 8, paddingRight: 16 }}>
-                  {CATEGORIES.filter((c) => c.key !== "all").map((c) => {
-                    const a = c.key === draft.category;
-                    return (
-                      <TouchableOpacity
-                        key={c.key}
-                        onPress={() => setDraft({ ...draft, category: c.key })}
-                        style={[styles.chip, a && styles.chipActive, { flexShrink: 0 }]}
-                      >
-                        <Text style={[styles.chipText, { color: a ? "#fff" : theme.textSecondary }]}>{c.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </ScrollView>
+              <TouchableOpacity style={styles.dropdown} onPress={() => setPicker("category")} testID="listing-category">
+                <Text style={styles.dropdownText}>{CATEGORIES.find((c) => c.key === draft.category)?.label || "Select a category"}</Text>
+                <Ionicons name="chevron-down" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
               <Text style={styles.label}>Condition</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-                <View style={{ flexDirection: "row", gap: 8, paddingRight: 16 }}>
-                  {CONDITIONS.map((c) => {
-                    const a = c.key === draft.condition;
-                    return (
-                      <TouchableOpacity
-                        key={c.key}
-                        onPress={() => setDraft({ ...draft, condition: c.key })}
-                        style={[styles.chip, a && styles.chipActive, { flexShrink: 0 }]}
-                      >
-                        <Text style={[styles.chipText, { color: a ? "#fff" : theme.textSecondary }]}>{c.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </ScrollView>
+              <TouchableOpacity style={styles.dropdown} onPress={() => setPicker("condition")} testID="listing-condition">
+                <Text style={styles.dropdownText}>{CONDITIONS.find((c) => c.key === draft.condition)?.label || "Select a condition"}</Text>
+                <Ionicons name="chevron-down" size={18} color={theme.textMuted} />
+              </TouchableOpacity>
               <Text style={styles.label}>Brand (optional)</Text>
               <TextInput
                 style={styles.input}
@@ -500,6 +480,32 @@ export default function MarketplaceScreen() {
                 maxLength={2000}
                 testID="listing-desc-input"
               />
+
+              <Text style={styles.label}>Contact email (optional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Shown publicly so buyers can reach you"
+                placeholderTextColor={theme.textMuted}
+                value={draft.contactEmail}
+                onChangeText={(t) => setDraft({ ...draft, contactEmail: t })}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                maxLength={120}
+                testID="listing-contact-email"
+              />
+              <Text style={styles.label}>Contact phone (optional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Shown publicly so buyers can call/text"
+                placeholderTextColor={theme.textMuted}
+                value={draft.contactPhone}
+                onChangeText={(t) => setDraft({ ...draft, contactPhone: t })}
+                keyboardType="phone-pad"
+                maxLength={40}
+                testID="listing-contact-phone"
+              />
+              <Text style={styles.ageNote}>Contact details are visible to anyone viewing your listing.</Text>
+
               {!!postErr && <Text style={styles.postErr}>{postErr}</Text>}
               <Text style={styles.ageNote}>Your account must be at least 30 days old to sell.</Text>
               <TouchableOpacity
@@ -513,6 +519,29 @@ export default function MarketplaceScreen() {
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Category / Condition dropdown picker */}
+      <Modal visible={!!picker} transparent animationType="fade" onRequestClose={() => setPicker(null)}>
+        <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setPicker(null)}>
+          <View style={styles.pickerCard}>
+            <Text style={styles.pickerTitle}>{picker === "category" ? "Category" : "Condition"}</Text>
+            {(picker === "category" ? CATEGORIES.filter((c) => c.key !== "all") : CONDITIONS).map((o) => {
+              const sel = picker === "category" ? draft.category === o.key : draft.condition === o.key;
+              return (
+                <TouchableOpacity
+                  key={o.key}
+                  style={styles.pickerRow}
+                  onPress={() => { if (picker) setDraft((d) => ({ ...d, [picker]: o.key })); setPicker(null); }}
+                  testID={`listing-pick-${o.key}`}
+                >
+                  <Text style={[styles.pickerRowText, sel && { color: theme.primary, fontWeight: "800" }]}>{o.label}</Text>
+                  {sel && <Ionicons name="checkmark" size={18} color={theme.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       <Modal visible={filtersOpen} transparent animationType="slide" onRequestClose={() => setFiltersOpen(false)}>
@@ -770,6 +799,17 @@ const styles = StyleSheet.create({
     color: theme.textPrimary, fontSize: 14,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
   },
+  dropdown: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+  },
+  dropdownText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
+  pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  pickerCard: { width: "100%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
+  pickerTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
+  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12 },
+  pickerRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
   postBtn: {
     marginTop: 20, paddingVertical: 14, borderRadius: 14,
     backgroundColor: theme.primary, alignItems: "center",
