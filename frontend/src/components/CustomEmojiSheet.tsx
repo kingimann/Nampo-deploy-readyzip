@@ -84,6 +84,7 @@ export default function CustomEmojiSheet({ visible, emojis, myUserId, onClose, o
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.tabBarScroll}
             contentContainerStyle={styles.tabBar}
           >
             {tabs.map((t) => {
@@ -186,8 +187,9 @@ const styles = StyleSheet.create({
   handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 12 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   title: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
-  tabBar: { gap: 6, paddingBottom: 10, paddingRight: 8 },
-  tab: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface, borderWidth: 1, borderColor: "transparent" },
+  tabBarScroll: { flexGrow: 0, marginBottom: 12 },
+  tabBar: { paddingBottom: 2, paddingRight: 8 },
+  tab: { width: 42, height: 42, borderRadius: 12, marginRight: 8, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface, borderWidth: 1, borderColor: "transparent" },
   tabActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
   tabIcon: { fontSize: 20 },
   uniGrid: { flexDirection: "row", flexWrap: "wrap", paddingBottom: 16 },
