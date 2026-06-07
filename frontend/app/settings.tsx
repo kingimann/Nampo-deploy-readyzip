@@ -123,6 +123,7 @@ export default function SettingsScreen() {
 
         <Text style={styles.groupTitle}>General</Text>
         <View style={styles.group}>
+          <Row icon="document-text-outline" label="Documents & verification" color="#F59E0B" onPress={() => router.push("/documents")} />
           <Row icon="grid-outline" label="Customize navigation bar" color="#0EA5E9" onPress={() => router.push("/customize-nav")} />
           <Row icon="lock-closed-outline" label="Privacy" color="#14B8A6" onPress={() => router.push("/privacy")} />
           <Row icon="notifications-outline" label="Notifications" color="#EF4444" onPress={() => router.push("/notifications")} />

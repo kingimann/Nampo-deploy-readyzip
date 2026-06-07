@@ -80,6 +80,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/admin-payments",
   "/admin-support",
   "/admin-roadside",
+  "/documents", // documents & verification hub
   "/support", // support list
   "/support/", // ticket thread (reply bar)
   "/privacy",
