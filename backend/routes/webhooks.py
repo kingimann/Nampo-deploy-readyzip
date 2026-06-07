@@ -160,9 +160,29 @@ async def list_deliveries(webhook_id: str, limit: int = 25, authorization: Optio
         raise HTTPException(status_code=404, detail="Webhook not found")
     lim = max(1, min(int(limit or 25), 100))
     rows = await db.webhook_deliveries.find(
-        {"webhook_id": webhook_id}, {"_id": 0}
+        {"webhook_id": webhook_id}, {"_id": 0, "payload": 0}   # payload kept server-side only
     ).sort("created_at", -1).limit(lim).to_list(lim)
     return {"deliveries": rows}
+
+
+@router.post("/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver")
+async def redeliver(webhook_id: str, delivery_id: str, authorization: Optional[str] = Header(None)):
+    """Re-send a past delivery's original payload (e.g. after fixing your endpoint).
+    Logs a fresh delivery attempt and returns its result."""
+    user = await get_current_user(authorization)
+    hook = await db.dev_webhooks.find_one({"id": webhook_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not hook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    d = await db.webhook_deliveries.find_one(
+        {"id": delivery_id, "webhook_id": webhook_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not d:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    payload = d.get("payload") or {
+        "event": d.get("event", ""), "data": {}, "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    rec = await _post(hook, payload)
+    return {"ok": rec["ok"], "status": rec["status"], "attempts": rec["attempts"]}
 
 
 async def _post(hook: dict, payload: dict) -> dict:
@@ -196,6 +216,7 @@ async def _post(hook: dict, payload: dict) -> dict:
         "webhook_id": hook.get("id"), "user_id": hook.get("user_id"),
         "event": payload.get("event", ""), "ok": ok, "status": status,
         "attempts": attempts, "error": err,
+        "payload": payload,          # kept so a delivery can be re-sent later
         "created_at": datetime.now(timezone.utc),
     }
     try:

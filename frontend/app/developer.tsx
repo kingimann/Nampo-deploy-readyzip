@@ -155,6 +155,7 @@ const GROUPS: Group[] = [
       { method: "POST", path: "/webhooks", desc: "Register an endpoint (Pro+). Returns a signing secret once.", auth: true, body: `{"url","events":[]}` },
       { method: "POST", path: "/webhooks/{id}/test", desc: "Send a signed sample ping; returns your endpoint's status.", auth: true },
       { method: "GET", path: "/webhooks/{id}/deliveries", desc: "Recent delivery attempts (status, retries, errors).", auth: true },
+      { method: "POST", path: "/webhooks/{id}/deliveries/{delivery_id}/redeliver", desc: "Re-send a past delivery's original payload.", auth: true },
       { method: "DELETE", path: "/webhooks/{id}", desc: "Delete a webhook.", auth: true },
     ],
   },
@@ -310,6 +311,7 @@ export default function DeveloperScreen() {
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, WebhookDelivery[]>>({});
   const [logsBusy, setLogsBusy] = useState(false);
+  const [redelivering, setRedelivering] = useState<string | null>(null);
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
@@ -417,14 +419,25 @@ export default function DeveloperScreen() {
   const toggleEvent = (e: string) =>
     setWhSelected((s) => (s.includes(e) ? s.filter((x) => x !== e) : [...s, e]));
 
+  const loadLogs = async (id: string) => {
+    try { const r = await api.listWebhookDeliveries(id); setLogs((m) => ({ ...m, [id]: r.deliveries })); } catch {}
+  };
+
   const toggleLogs = async (id: string) => {
     if (openLogs === id) { setOpenLogs(null); return; }
     setOpenLogs(id);
-    if (!logs[id]) {
-      setLogsBusy(true);
-      try { const r = await api.listWebhookDeliveries(id); setLogs((m) => ({ ...m, [id]: r.deliveries })); }
-      catch {} finally { setLogsBusy(false); }
-    }
+    if (!logs[id]) { setLogsBusy(true); try { await loadLogs(id); } finally { setLogsBusy(false); } }
+  };
+
+  const redeliver = async (webhookId: string, deliveryId: string) => {
+    setRedelivering(deliveryId);
+    try {
+      const r = await api.redeliverWebhook(webhookId, deliveryId);
+      await loadLogs(webhookId);
+      Alert.alert(r.ok ? "Re-sent" : "Re-send failed", r.ok ? `Your endpoint replied ${r.status}.` : r.status ? `Your endpoint replied ${r.status}.` : "Couldn't reach the endpoint.");
+    } catch (e: any) {
+      Alert.alert("Re-send failed", errText(e));
+    } finally { setRedelivering(null); }
   };
 
   const removeWebhook = (id: string) => {
@@ -722,6 +735,9 @@ export default function DeveloperScreen() {
                         <View style={[styles.logDot, { backgroundColor: d.ok ? theme.success : theme.error }]} />
                         <Text style={styles.logEvent} numberOfLines={1}>{d.event}</Text>
                         <Text style={styles.logMeta}>{d.status || "—"}{d.attempts > 1 ? ` ·${d.attempts}x` : ""} · {fmtDate(d.created_at)}</Text>
+                        <TouchableOpacity onPress={() => redeliver(w.id, d.id)} disabled={redelivering === d.id} hitSlop={6} testID={`wh-redeliver-${d.id}`}>
+                          {redelivering === d.id ? <ActivityIndicator color={theme.primary} size="small" /> : <Ionicons name="refresh" size={15} color={theme.primary} />}
+                        </TouchableOpacity>
                       </View>
                     ))}
                   </View>
