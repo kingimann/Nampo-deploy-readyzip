@@ -106,6 +106,8 @@ async def _hydrate_listing(
         quantity=int(doc.get("quantity", 1) or 1),
         brand=doc.get("brand"),
         delivery=doc.get("delivery", "pickup"),
+        contact_email=doc.get("contact_email"),
+        contact_phone=doc.get("contact_phone"),
         distance_km=distance_km,
         status=doc.get("status", "active"),
         views_count=doc.get("views_count", 0),
@@ -209,6 +211,8 @@ async def create_listing(body: ListingCreate, authorization: Optional[str] = Hea
         "quantity": max(1, int(body.quantity or 1)),
         "brand": (body.brand or "").strip()[:80] or None,
         "delivery": body.delivery if body.delivery in ("pickup", "shipping", "both") else "pickup",
+        "contact_email": (body.contact_email or "").strip()[:120] or None,
+        "contact_phone": (body.contact_phone or "").strip()[:40] or None,
         "status": "active",
         "views_count": 0,
         "created_at": datetime.now(timezone.utc),
@@ -391,6 +395,10 @@ async def patch_listing(
         patch["brand"] = (body.brand or "").strip()[:80] or None
     if body.delivery is not None and body.delivery in ("pickup", "shipping", "both"):
         patch["delivery"] = body.delivery
+    if body.contact_email is not None:
+        patch["contact_email"] = (body.contact_email or "").strip()[:120] or None
+    if body.contact_phone is not None:
+        patch["contact_phone"] = (body.contact_phone or "").strip()[:40] or None
     if patch:
         await db.listings.update_one({"id": listing_id}, {"$set": patch})
     updated = await db.listings.find_one({"id": listing_id}, {"_id": 0})

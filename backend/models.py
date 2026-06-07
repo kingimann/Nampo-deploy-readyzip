@@ -425,6 +425,8 @@ class ListingCreate(BaseModel):
     quantity: int = 1
     brand: Optional[str] = None
     delivery: Optional[str] = "pickup"   # pickup | shipping | both
+    contact_email: Optional[str] = None  # optional public contact shown on the listing
+    contact_phone: Optional[str] = None
 
 
 class ListingPatch(BaseModel):
@@ -444,6 +446,8 @@ class ListingPatch(BaseModel):
     quantity: Optional[int] = None
     brand: Optional[str] = None
     delivery: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
 
 
 class Listing(BaseModel):
@@ -465,6 +469,8 @@ class Listing(BaseModel):
     quantity: int = 1
     brand: Optional[str] = None
     delivery: Optional[str] = "pickup"
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
     distance_km: Optional[float] = None   # set when the viewer shares a location
     status: str = "active"
     views_count: int = 0

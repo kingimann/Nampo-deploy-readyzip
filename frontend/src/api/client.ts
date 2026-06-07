@@ -759,6 +759,8 @@ export type Listing = {
   quantity?: number;
   brand?: string | null;
   delivery?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
   distance_km?: number | null;
   status: string;
   views_count?: number;
@@ -778,6 +780,7 @@ export type ListingCreate = {
   description?: string; photo_base64?: string; photos?: string[];
   longitude?: number; latitude?: number; locality?: string;
   negotiable?: boolean; quantity?: number; brand?: string; delivery?: string;
+  contact_email?: string; contact_phone?: string;
 };
 export type MarketplaceReview = {
   id: string; subject_user_id: string;
