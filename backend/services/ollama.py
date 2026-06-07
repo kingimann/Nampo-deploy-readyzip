@@ -13,6 +13,7 @@ Note: the backend is Python, so we call Ollama's HTTP API directly. The Vercel
 AI SDK is a JavaScript library — a Node sidecar using it would hit this same
 Ollama endpoint, so the result is identical.
 """
+import datetime
 import json
 import os
 import re
@@ -25,6 +26,97 @@ OLLAMA_VISION_MODEL = os.environ.get("OLLAMA_VISION_MODEL", "llama3.2-vision")
 OLLAMA_TEXT_MODEL = os.environ.get("OLLAMA_TEXT_MODEL", "llama3.2")
 
 _FUEL_OK = {"regular", "midgrade", "premium"}
+
+# ── Real-vehicle reference data ──────────────────────────────────────────────
+# Deterministic checks that run with OR without the AI: a recognised maker, a
+# plausible year, and a recognised colour. Keys are normalised (lowercase,
+# alphanumerics only) so "Mercedes-Benz", "mercedes benz" and "MercedesBenz"
+# all match.
+def _norm(s: Optional[str]) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+_KNOWN_MAKES = {_norm(m) for m in (
+    "Acura", "Alfa Romeo", "Aston Martin", "Audi", "Bentley", "BMW", "Bugatti",
+    "Buick", "Cadillac", "Chevrolet", "Chevy", "Chrysler", "Citroen", "Cupra",
+    "Dacia", "Daewoo", "Daihatsu", "Datsun", "Dodge", "DS", "Eagle", "Ferrari",
+    "Fiat", "Fisker", "Ford", "Genesis", "GMC", "Holden", "Honda", "Hummer",
+    "Hyundai", "Infiniti", "Isuzu", "Jaguar", "Jeep", "Kia", "Koenigsegg",
+    "Lada", "Lamborghini", "Lancia", "Land Rover", "Range Rover", "Lexus",
+    "Lincoln", "Lotus", "Lucid", "Maserati", "Maybach", "Mazda", "McLaren",
+    "Mercedes", "Mercedes-Benz", "Benz", "Mercury", "MG", "Mini", "Mitsubishi",
+    "Morgan", "Nissan", "Oldsmobile", "Opel", "Pagani", "Peugeot", "Plymouth",
+    "Polestar", "Pontiac", "Porsche", "Proton", "RAM", "Renault", "Rimac",
+    "Rivian", "Rolls-Royce", "Saab", "Saturn", "Scion", "Seat", "Skoda",
+    "Smart", "SsangYong", "Subaru", "Suzuki", "Tesla", "Toyota", "Vauxhall",
+    "Volkswagen", "VW", "Volvo", "Abarth", "BYD", "Geely", "Chery", "Haval",
+    "Tata", "Mahindra", "NIO", "XPeng", "Lynk & Co", "Ineos", "Alpine",
+    "Caterham", "Noble", "Hennessey", "Shelby", "Wuling",
+)}
+
+# Base colour words. A colour is accepted when any word in the user's text is a
+# known colour (so "metallic silver", "dark blue", "space gray" all pass), or
+# the whole thing is a single known colour ("gunmetal", "burgundy").
+_KNOWN_COLORS = {
+    "black", "white", "gray", "grey", "silver", "red", "blue", "green",
+    "yellow", "orange", "brown", "beige", "tan", "gold", "purple", "violet",
+    "pink", "maroon", "burgundy", "navy", "teal", "turquoise", "cyan",
+    "magenta", "bronze", "copper", "charcoal", "cream", "ivory", "champagne",
+    "gunmetal", "pearl", "crimson", "scarlet", "olive", "lime", "indigo",
+    "aqua", "plum", "mauve", "sand", "slate", "graphite", "platinum", "rose",
+    "ruby", "sapphire", "emerald", "midnight", "pewter", "brick", "mustard",
+    "khaki", "lavender", "peach", "coral", "salmon", "mint", "jade", "amber",
+    "wine", "rust", "steel", "stone", "metallic", "onyx",
+}
+
+# Cars predate this, but no production motor vehicle exists before it.
+_OLDEST_CAR_YEAR = 1886
+
+
+def _make_is_real(make: str) -> bool:
+    n = _norm(make)
+    if not n:
+        return True  # absence handled elsewhere
+    return n in _KNOWN_MAKES
+
+
+def _color_is_real(color: str) -> bool:
+    c = (color or "").strip().lower()
+    if not c:
+        return True
+    if _norm(c) in _KNOWN_COLORS:
+        return True
+    return any(w in _KNOWN_COLORS for w in re.findall(r"[a-z]+", c))
+
+
+def _year_problem(year: str) -> Optional[str]:
+    y = (year or "").strip()
+    if not y:
+        return None
+    m = re.search(r"\d{4}", y)
+    if not m:
+        return f'"{y}" isn\'t a valid year — enter the model year (e.g. 2018).'
+    yr = int(m.group())
+    nxt = datetime.date.today().year + 1
+    if yr < _OLDEST_CAR_YEAR or yr > nxt:
+        return f"{yr} isn't a real model year — enter a year between {_OLDEST_CAR_YEAR} and {nxt}."
+    return None
+
+
+def _vehicle_rule_problems(year, make, model, color) -> list:
+    """Deterministic real-vehicle problems (no AI needed). Each item is
+    {field, message}. Only checks fields that are actually filled in."""
+    out = []
+    make = (make or "").strip()
+    color = (color or "").strip()
+    if make and not _make_is_real(make):
+        out.append({"field": "vehicle", "message": f'"{make}" isn\'t a make we recognise — enter a real vehicle manufacturer.'})
+    yp = _year_problem(year)
+    if yp:
+        out.append({"field": "vehicle", "message": yp})
+    if color and not _color_is_real(color):
+        out.append({"field": "vehicle_color", "message": f'"{color}" isn\'t a colour we recognise — enter a real vehicle colour.'})
+    return out
 
 
 def ollama_enabled() -> bool:
@@ -70,10 +162,24 @@ def _rule_issues(d: dict) -> list:
 async def review_form(d: dict) -> dict:
     """Check a roadside request form is filled out correctly and suggest fixes.
     Always returns the deterministic checks; the AI (when configured) adds extra
-    clarity/quality suggestions on top. Shape: {ok, issues:[{field,message}]}."""
+    clarity/quality suggestions plus a real-vehicle check. Shape:
+    {ok, issues:[{field,message}], block}. `block` is true when the entered
+    vehicle is clearly not a real make/model/year — the caller must not proceed."""
     issues = _rule_issues(d)
+    make = (d.get("vehicle_make") or "").strip()
+    model = (d.get("vehicle_model") or "").strip()
+    # Deterministic real-vehicle checks — these always run and can block on
+    # their own, so a fake make/year/colour is caught even without the AI.
+    veh_problems = _vehicle_rule_problems(
+        d.get("vehicle_year"), make, model, d.get("vehicle_color"))
+    seen0 = {(i.get("field"), i.get("message")) for i in issues}
+    for p in veh_problems:
+        if (p["field"], p["message"]) not in seen0:
+            issues.append(p)
+            seen0.add((p["field"], p["message"]))
+    rule_block = bool(veh_problems)
     if not ollama_enabled():
-        return {"ok": len(issues) == 0, "issues": issues, "source": "rules"}
+        return {"ok": len(issues) == 0, "issues": issues, "block": rule_block, "source": "rules"}
 
     safe = {k: d.get(k) for k in (
         "service", "place_name", "dest_name", "fuel_type", "fuel_amount",
@@ -86,9 +192,15 @@ async def review_form(d: dict) -> dict:
         "Don't invent problems with fields that look fine. Service types: tow, lockout, "
         "battery, tire, gas. Gas needs a fuel type (regular/midgrade/premium — never diesel) "
         "and an amount. A tow needs a destination.\n"
+        "ALSO verify the vehicle: if a make and model are given, is it a REAL production "
+        "vehicle (the model belongs to that make, and exists around that year)? Set "
+        "vehicle_real to false for made-up or mismatched vehicles (e.g. 'Tesla Mustang', "
+        "'Honda Xyz'). If only one of make/model is given, leave vehicle_real true.\n"
         f"Form: {json.dumps(safe)}\n"
-        'Reply with ONLY JSON: {"issues":[{"field":"<name>","message":"<short fix>"}]}'
+        'Reply with ONLY JSON: {"issues":[{"field":"<name>","message":"<short fix>"}], "vehicle_real": true|false}'
     )
+    ai = None
+    vehicle_real = True
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(f"{OLLAMA_HOST}/api/chat", json={
@@ -99,7 +211,9 @@ async def review_form(d: dict) -> dict:
             resp.raise_for_status()
             content = ((resp.json() or {}).get("message") or {}).get("content") or ""
         parsed = json.loads(content)
-        ai = parsed.get("issues") if isinstance(parsed, dict) else None
+        if isinstance(parsed, dict):
+            ai = parsed.get("issues")
+            vehicle_real = parsed.get("vehicle_real", True) is not False
     except Exception:
         ai = None
 
@@ -113,7 +227,51 @@ async def review_form(d: dict) -> dict:
             if msg and (field, msg) not in seen:
                 issues.append({"field": field, "message": msg})
                 seen.add((field, msg))
-    return {"ok": len(issues) == 0, "issues": issues, "source": "ai" if ai is not None else "rules"}
+
+    block = rule_block or bool(make and model and not vehicle_real)
+    if (make and model and not vehicle_real) and not any("real vehicle" in (i.get("message") or "").lower() for i in issues):
+        issues.append({"field": "vehicle", "message": f"“{d.get('vehicle_year') or ''} {make} {model}”".strip() + " doesn't look like a real vehicle — fix the year, make and model to continue."})
+    return {"ok": len(issues) == 0, "issues": issues, "block": block, "source": "ai" if ai is not None else "rules"}
+
+
+async def validate_vehicle(year: Optional[str], make: Optional[str], model: Optional[str],
+                           color: Optional[str] = None) -> dict:
+    """Authoritative real-vehicle check for blocking on submit. Returns
+    {valid, reason}. Deterministic checks (real make, plausible year, real
+    colour) always run; the AI adds a make↔model match check when configured.
+    Fails open only on the AI portion — a bad make/year/colour blocks even
+    without Ollama."""
+    make = (make or "").strip()
+    model = (model or "").strip()
+    year = (year or "").strip()
+    color = (color or "").strip()
+    # Deterministic gate first — works with or without the AI.
+    problems = _vehicle_rule_problems(year, make, model, color)
+    if problems:
+        return {"valid": False, "reason": problems[0]["message"]}
+    if not (make and model) or not ollama_enabled():
+        return {"valid": True, "reason": ""}
+    prompt = (
+        "Is this a REAL production motor vehicle that actually exists? The model must belong "
+        "to the make, and should exist around the given year (a year or two off is fine).\n"
+        f"Year: {year or 'unspecified'}\nMake: {make}\nModel: {model}\n"
+        'Reply with ONLY JSON: {"real": true|false, "reason": "<one short sentence>"}'
+    )
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(f"{OLLAMA_HOST}/api/chat", json={
+                "model": OLLAMA_TEXT_MODEL, "stream": False, "format": "json",
+                "options": {"temperature": 0},
+                "messages": [{"role": "user", "content": prompt}],
+            })
+            resp.raise_for_status()
+            content = ((resp.json() or {}).get("message") or {}).get("content") or ""
+        parsed = json.loads(content)
+    except Exception:
+        return {"valid": True, "reason": ""}
+    if isinstance(parsed, dict) and parsed.get("real") is False:
+        return {"valid": False, "reason": str(parsed.get("reason") or "").strip()[:200]}
+    return {"valid": True, "reason": ""}
 
 
 def _raw_b64(s: str) -> str:

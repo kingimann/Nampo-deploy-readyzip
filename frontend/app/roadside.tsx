@@ -818,12 +818,15 @@ export default function RoadsideScreen() {
                         <Text style={styles.checkOkText}>AI checked it — looks good, everything's filled out.</Text>
                       </View>
                     ) : (
-                      <View style={styles.checkCard}>
+                      <View style={[styles.checkCard, checkRes.block && { borderColor: theme.error + "66" }]}>
                         <View style={{ flex: 1 }}>
-                          <View style={styles.checkHead}><Ionicons name="sparkles" size={14} color={theme.primary} /><Text style={styles.checkTitle}>AI suggestions</Text></View>
+                          <View style={styles.checkHead}>
+                            <Ionicons name={checkRes.block ? "close-circle" : "sparkles"} size={14} color={checkRes.block ? theme.error : theme.primary} />
+                            <Text style={[styles.checkTitle, checkRes.block && { color: theme.error }]}>{checkRes.block ? "Fix your vehicle to continue" : "AI suggestions"}</Text>
+                          </View>
                           {checkRes.issues.map((it, i) => (
                             <View key={i} style={styles.checkIssue}>
-                              <Ionicons name="alert-circle" size={14} color={theme.warning} style={{ marginTop: 2 }} />
+                              <Ionicons name="alert-circle" size={14} color={checkRes.block ? theme.error : theme.warning} style={{ marginTop: 2 }} />
                               <Text style={styles.checkIssueText}>{it.message}</Text>
                             </View>
                           ))}
@@ -835,9 +838,10 @@ export default function RoadsideScreen() {
                   {!!err && <Text style={styles.err}>{err}</Text>}
                   {(() => {
                     const blockFunds = payMethod === "wallet" && lowFunds;
+                    const blockVehicle = !!checkRes?.block;
                     return (
-                      <TouchableOpacity style={[styles.submit, (!service || !coords || submitting || blockFunds) && { opacity: 0.5 }]} onPress={submit} disabled={!service || !coords || submitting || blockFunds} testID="rs-submit">
-                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{payMethod === "cash" ? `Request help · $${cashTotal.toFixed(2)} cash` : `Request help · $${walletTotal.toFixed(2)}`}</Text>}
+                      <TouchableOpacity style={[styles.submit, (!service || !coords || submitting || blockFunds || blockVehicle) && { opacity: 0.5 }]} onPress={submit} disabled={!service || !coords || submitting || blockFunds || blockVehicle} testID="rs-submit">
+                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{blockVehicle ? "Fix the vehicle to continue" : payMethod === "cash" ? `Request help · $${cashTotal.toFixed(2)} cash` : `Request help · $${walletTotal.toFixed(2)}`}</Text>}
                       </TouchableOpacity>
                     );
                   })()}

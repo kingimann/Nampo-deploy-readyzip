@@ -597,6 +597,14 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
             raise HTTPException(status_code=400, detail="Tell the driver how much gas you want.")
     else:
         fuel_type, fuel_amount = None, None
+    # The vehicle must be a real make/model/year — block clearly made-up ones.
+    from services.ollama import validate_vehicle
+    vc = await validate_vehicle(body.vehicle_year, body.vehicle_make, body.vehicle_model, body.vehicle_color)
+    if not vc["valid"]:
+        raise HTTPException(status_code=400, detail={
+            "code": "vehicle_invalid",
+            "message": vc["reason"] or "That doesn't look like a real vehicle — check the year, make and model.",
+        })
     existing = await db.roadside_requests.find_one(
         {"requester_id": user["user_id"], "status": {"$in": list(ACTIVE)}}, {"_id": 0, "id": 1}
     )
