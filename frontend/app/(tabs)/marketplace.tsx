@@ -6,7 +6,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { api, Listing } from "@/src/api/client";
@@ -81,6 +81,7 @@ export default function MarketplaceScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [picker, setPicker] = useState<null | "category" | "condition">(null);
   const [posting, setPosting] = useState(false);
   const [postErr, setPostErr] = useState<string | null>(null);
@@ -180,35 +181,78 @@ export default function MarketplaceScreen() {
   };
 
   const openCompose = () => {
+    setEditingId(null);
+    setDraft({ ...EMPTY_DRAFT });
     // Prefill the listing location from the browse location when available.
     setDraft((d) => (d.lat == null && coords ? { ...d, lng: coords[0], lat: coords[1], locality } : d));
     setComposeOpen(true);
   };
 
+  // Prefill the compose sheet from an existing listing → edit mode.
+  const openEditListing = useCallback((l: Listing) => {
+    setEditingId(l.id);
+    setPostErr(null);
+    setDraft({
+      title: l.title || "",
+      price: l.price != null ? String(l.price) : "",
+      category: l.category || "other",
+      condition: l.condition || "used",
+      description: l.description || "",
+      photos: l.photos?.length ? l.photos : (l.photo_base64 ? [l.photo_base64] : []),
+      brand: l.brand || "",
+      quantity: String(l.quantity || 1),
+      negotiable: !!l.negotiable,
+      delivery: l.delivery || "pickup",
+      lng: l.longitude ?? null,
+      lat: l.latitude ?? null,
+      locality: l.locality || "",
+      contactEmail: l.contact_email || "",
+      contactPhone: l.contact_phone || "",
+    });
+    setComposeOpen(true);
+  }, []);
+
+  // Deep-link: /marketplace?edit=<id> opens that listing in edit mode.
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  useEffect(() => {
+    if (!edit) return;
+    (async () => {
+      try { openEditListing(await api.getListing(String(edit))); } catch {}
+      router.setParams({ edit: undefined });
+    })();
+  }, [edit, openEditListing]);
+
   const submit = async () => {
     const title = draft.title.trim();
     if (!title) return;
     setPosting(true); setPostErr(null);
+    const body = {
+      title,
+      price: Number(draft.price) || 0,
+      category: draft.category,
+      condition: draft.condition,
+      description: draft.description.trim(),
+      photos: draft.photos,
+      brand: draft.brand.trim() || undefined,
+      quantity: Math.max(1, Number(draft.quantity) || 1),
+      negotiable: draft.negotiable,
+      delivery: draft.delivery,
+      longitude: draft.lng ?? undefined,
+      latitude: draft.lat ?? undefined,
+      locality: draft.locality || undefined,
+      contact_email: draft.contactEmail.trim() || undefined,
+      contact_phone: draft.contactPhone.trim() || undefined,
+    };
     try {
-      const p = await api.createListing({
-        title,
-        price: Number(draft.price) || 0,
-        category: draft.category,
-        condition: draft.condition,
-        description: draft.description.trim(),
-        photos: draft.photos,
-        brand: draft.brand.trim() || undefined,
-        quantity: Math.max(1, Number(draft.quantity) || 1),
-        negotiable: draft.negotiable,
-        delivery: draft.delivery,
-        longitude: draft.lng ?? undefined,
-        latitude: draft.lat ?? undefined,
-        locality: draft.locality || undefined,
-        contact_email: draft.contactEmail.trim() || undefined,
-        contact_phone: draft.contactPhone.trim() || undefined,
-      });
-      setListings((x) => [p, ...x]);
+      if (editingId) {
+        const p = await api.updateListing(editingId, body);
+        setListings((x) => x.map((l) => (l.id === p.id ? p : l)));
+      } else {
+        const p = await api.createListing(body);
+        setListings((x) => [p, ...x]);
+      }
       setDraft({ ...EMPTY_DRAFT });
+      setEditingId(null);
       setComposeOpen(false);
     } catch (e: any) {
       setPostErr(String(e?.message || e).replace(/^\d{3}:\s*/, ""));
@@ -223,13 +267,22 @@ export default function MarketplaceScreen() {
       <View style={styles.header}>
         <SidebarMenuButton />
         <Text style={styles.title}>{savedView ? "Saved" : "Marketplace"}</Text>
-        <TouchableOpacity
-          onPress={() => setSavedView((v) => !v)}
-          style={[styles.headerIconBtn, savedView && styles.headerIconBtnActive]}
-          testID="market-saved-toggle"
-        >
-          <Ionicons name={savedView ? "bookmark" : "bookmark-outline"} size={20} color={savedView ? theme.primary : theme.textPrimary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: "row" }}>
+          <TouchableOpacity
+            onPress={() => router.push("/my-listings")}
+            style={styles.headerIconBtn}
+            testID="market-my-listings"
+          >
+            <Ionicons name="pricetags-outline" size={20} color={theme.textPrimary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setSavedView((v) => !v)}
+            style={[styles.headerIconBtn, savedView && styles.headerIconBtnActive]}
+            testID="market-saved-toggle"
+          >
+            <Ionicons name={savedView ? "bookmark" : "bookmark-outline"} size={20} color={savedView ? theme.primary : theme.textPrimary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchRow}>
@@ -335,15 +388,15 @@ export default function MarketplaceScreen() {
         <Ionicons name="add" size={26} color="#fff" />
       </TouchableOpacity>
 
-      <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => setComposeOpen(false)}>
+      <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => { setComposeOpen(false); setEditingId(null); }}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={styles.modalBackdrop}
         >
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setComposeOpen(false)} />
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => { setComposeOpen(false); setEditingId(null); }} />
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 24, maxHeight: "85%" }]}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>New listing</Text>
+            <Text style={styles.sheetTitle}>{editingId ? "Edit listing" : "New listing"}</Text>
             <ScrollView>
               <Text style={styles.label}>Photos</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
@@ -507,14 +560,14 @@ export default function MarketplaceScreen() {
               <Text style={styles.ageNote}>Contact details are visible to anyone viewing your listing.</Text>
 
               {!!postErr && <Text style={styles.postErr}>{postErr}</Text>}
-              <Text style={styles.ageNote}>Your account must be at least 30 days old to sell.</Text>
+              {!editingId && <Text style={styles.ageNote}>Your account must be at least 30 days old to sell.</Text>}
               <TouchableOpacity
                 style={[styles.postBtn, (!draft.title.trim() || posting) && { opacity: 0.5 }]}
                 onPress={submit}
                 disabled={!draft.title.trim() || posting}
                 testID="listing-submit"
               >
-                {posting ? <ActivityIndicator color="#fff" /> : <Text style={styles.postBtnText}>Post listing</Text>}
+                {posting ? <ActivityIndicator color="#fff" /> : <Text style={styles.postBtnText}>{editingId ? "Save changes" : "Post listing"}</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>
