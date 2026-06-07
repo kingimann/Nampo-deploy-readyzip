@@ -14,6 +14,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
+import FadeIn from "@/src/components/FadeIn";
 
 const CATEGORIES = [
   { key: "all", label: "All" },
@@ -446,7 +447,8 @@ export default function MarketplaceScreen() {
               </View>
             )
           }
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
+            <FadeIn animateKey={item.id} delay={Math.min(index, 8) * 40} style={{ flex: 1 }}>
             <TouchableOpacity
               style={styles.tile}
               activeOpacity={0.85}
@@ -494,6 +496,7 @@ export default function MarketplaceScreen() {
                 )}
               </View>
             </TouchableOpacity>
+            </FadeIn>
           )}
         />
       )}

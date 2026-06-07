@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image, Modal, Pressable, ActivityIndicator, Share, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, Image, Modal, Pressable, ActivityIndicator, Share, ScrollView, Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -85,6 +85,18 @@ export default function PostCard({
   const hasVideo = (display.media || []).some((m) => m.type === "video");
   const embed = getEmbed(display.text);
   const inlineImg = !embed && !(display.media || []).length ? getInlineImage(display.text) : null;
+
+  // Pop the heart when a reaction is first added (satisfying like feedback).
+  const heartScale = React.useRef(new Animated.Value(1)).current;
+  const hadReaction = React.useRef(!!display.my_reaction);
+  React.useEffect(() => {
+    const has = !!display.my_reaction;
+    if (has && !hadReaction.current) {
+      heartScale.setValue(0.6);
+      Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, friction: 3, tension: 170 }).start();
+    }
+    hadReaction.current = has;
+  }, [display.my_reaction, heartScale]);
 
   const openDetail = () => {
     if (disableOpen) return;
@@ -341,11 +353,13 @@ export default function PostCard({
             delayLongPress={350}
             testID={`react-${post.id}`}
           >
-            <Ionicons
-              name={display.my_reaction ? "heart" : "heart-outline"}
-              size={18}
-              color={display.my_reaction ? "#EF4444" : theme.textSecondary}
-            />
+            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+              <Ionicons
+                name={display.my_reaction ? "heart" : "heart-outline"}
+                size={18}
+                color={display.my_reaction ? "#EF4444" : theme.textSecondary}
+              />
+            </Animated.View>
             {(display.reactions_total ?? display.likes_count) > 0 && (
               <Text style={[styles.actionText, display.my_reaction && { color: "#EF4444" }]}>
                 {display.reactions_total ?? display.likes_count}

@@ -139,7 +139,7 @@ export default function RootLayout() {
                       <StatusBar style="light" />
                       <MobileFrame>
                         <View style={{ flex: 1 }}>
-                          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0A0A" } }} />
+                          <Stack screenOptions={{ headerShown: false, animation: "fade", animationDuration: 220, contentStyle: { backgroundColor: "#0A0A0A" } }} />
                           <EdgeSwipe />
                         </View>
                         <GlobalTabBar />
