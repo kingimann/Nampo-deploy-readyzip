@@ -87,6 +87,12 @@ export default function LeftSidebar() {
         <Animated.View
           style={[styles.drawer, { paddingTop: insets.top + 12, transform: [{ translateX: tx }] }]}
         >
+          {/* Brand */}
+          <View style={styles.brandRow}>
+            <Text style={styles.brandTitle}>Nami Social</Text>
+            <Text style={styles.brandBeta}>beta</Text>
+          </View>
+
           {/* Header — profile */}
           <TouchableOpacity
             style={styles.profileBlock}
@@ -187,6 +193,9 @@ const styles = StyleSheet.create({
   },
   menuBtnLight: { backgroundColor: "rgba(0,0,0,0.55)", borderColor: "rgba(255,255,255,0.2)" },
 
+  brandRow: { flexDirection: "row", alignItems: "flex-start", gap: 5, paddingHorizontal: 4, marginBottom: 12 },
+  brandTitle: { color: theme.textPrimary, fontSize: 22, fontWeight: "900", letterSpacing: -0.5 },
+  brandBeta: { color: theme.primary, fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 3 },
   profileBlock: {
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: theme.surface, borderRadius: 16,
