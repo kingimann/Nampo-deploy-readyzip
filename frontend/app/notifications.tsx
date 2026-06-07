@@ -33,6 +33,7 @@ const ICON: Record<Notification["type"], { name: any; color: string }> = {
   call:          { name: "call",             color: "#00A884" },
   support:       { name: "help-buoy",        color: "#06B6D4" },
   roadside:      { name: "construct",        color: "#F59E0B" },
+  moderation:    { name: "shield-half",       color: "#F59E0B" },
   money_request:         { name: "cash",        color: "#22C55E" },
   money_received:        { name: "cash",        color: "#22C55E" },
   money_request_paid:    { name: "checkmark-circle", color: "#22C55E" },
@@ -54,6 +55,7 @@ const VERB: Record<Notification["type"], string> = {
   call: "is calling you 📞 — tap to join",
   support: "Support replied to your ticket",
   roadside: "sent a roadside update",
+  moderation: "flagged your listing",
   money_request: "requested money",
   money_received: "sent you money",
   money_request_paid: "paid your request",
@@ -116,6 +118,8 @@ export default function NotificationsScreen() {
       router.push("/money");
     } else if (n.type === "roadside") {
       router.push("/roadside");
+    } else if (n.type === "moderation") {
+      router.push("/my-listings");
     } else if (n.conversation_id) {
       router.push({ pathname: "/chat/[id]", params: { id: n.conversation_id } });
     } else if ((n.type === "poke" || n.type === "follow") && n.actor_name) {

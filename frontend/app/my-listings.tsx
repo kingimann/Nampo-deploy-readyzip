@@ -63,9 +63,16 @@ export default function MyListingsScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
             <Text style={styles.price}>{item.price > 0 ? `$${item.price.toFixed(0)}` : "Free"}</Text>
-            <Text style={styles.meta} numberOfLines={1}>
-              {(item.views_count || 0)} views · {(item.saved_count || 0)} saved
-            </Text>
+            {item.status === "flagged" ? (
+              <View style={styles.flagRow}>
+                <Ionicons name="alert-circle" size={13} color={theme.error} />
+                <Text style={styles.flagText} numberOfLines={2}>Unpublished: {(item.flag_reasons || ["flagged by our automated check"]).join(" ")} Edit to fix.</Text>
+              </View>
+            ) : (
+              <Text style={styles.meta} numberOfLines={1}>
+                {(item.views_count || 0)} views · {(item.saved_count || 0)} saved
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
         <View style={styles.actions}>
@@ -138,6 +145,8 @@ const styles = StyleSheet.create({
   title: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
   price: { color: theme.primary, fontSize: 14, fontWeight: "800", marginTop: 2 },
   meta: { color: theme.textMuted, fontSize: 12, marginTop: 3 },
+  flagRow: { flexDirection: "row", alignItems: "flex-start", gap: 5, marginTop: 4 },
+  flagText: { flex: 1, color: theme.error, fontSize: 11.5, lineHeight: 15 },
   actions: { flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
   actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 11 },
   actionText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "700" },

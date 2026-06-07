@@ -479,6 +479,7 @@ class Listing(BaseModel):
     contact_phone: Optional[str] = None
     distance_km: Optional[float] = None   # set when the viewer shares a location
     status: str = "active"
+    flag_reasons: Optional[List[str]] = None   # why an automated check unpublished it
     views_count: int = 0
     saved_count: int = 0
     saved_by_me: bool = False
