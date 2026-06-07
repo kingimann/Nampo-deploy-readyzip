@@ -399,6 +399,12 @@ export const api = {
     request<RoadsideRequest>(`/roadside/requests/${id}/review`, { method: "POST", body: JSON.stringify({ rating, text }) }),
   disputeRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/dispute`, { method: "POST" }),
+  checkRoadsideForm: (body: {
+    service?: string; has_location?: boolean; place_name?: string; dest_name?: string;
+    fuel_type?: string; fuel_amount?: string;
+    vehicle_year?: string; vehicle_make?: string; vehicle_model?: string;
+    vehicle_color?: string; vehicle_plate?: string; note?: string;
+  }) => request<RoadsideCheckResult>("/roadside/check", { method: "POST", body: JSON.stringify(body) }),
   // Voice calls (LiveKit). token → join the room; ring → notify the other side.
   callToken: (conversationId: string) =>
     request<{ token: string; url: string; room: string; identity: string }>(
@@ -1196,6 +1202,7 @@ export type SupportTicket = {
   messages?: SupportMessage[];
 };
 
+export type RoadsideCheckResult = { ok: boolean; issues: { field: string; message: string }[]; source?: string };
 export type RoadsideService = "tow" | "lockout" | "battery" | "tire" | "gas";
 export type RoadsideStatus = "open" | "accepted" | "completed" | "cancelled";
 export type RoadsideParty = {

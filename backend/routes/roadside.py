@@ -164,6 +164,21 @@ class RoadsideReviewOut(BaseModel):
     text: Optional[str] = None
 
 
+class RoadsideCheck(BaseModel):
+    service: Optional[str] = None
+    has_location: bool = False
+    place_name: Optional[str] = None
+    dest_name: Optional[str] = None
+    fuel_type: Optional[str] = None
+    fuel_amount: Optional[str] = None
+    vehicle_year: Optional[str] = None
+    vehicle_make: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    vehicle_color: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    note: Optional[str] = None
+
+
 class RoadsideVerify(BaseModel):
     photos: Optional[List[str]] = None       # "after" proof photos taken at completion
 
@@ -354,6 +369,15 @@ async def quote(authorization: Optional[str] = Header(None)):
     base, tax, total = _pricing()
     bal = await _wallet_balance(user["user_id"])
     return {"base": base, "tax": tax, "total": total, "tax_rate": ROADSIDE_TAX_RATE, "wallet_balance": bal}
+
+
+@router.post("/roadside/check")
+async def check_form(body: RoadsideCheck, authorization: Optional[str] = Header(None)):
+    """AI (+ rule) review of a draft request: is it filled out correctly, and
+    what should be fixed? Returns {ok, issues:[{field, message}]}."""
+    await get_current_user(authorization)
+    from services.ollama import review_form
+    return await review_form(body.model_dump())
 
 
 @router.get("/roadside/eligibility")

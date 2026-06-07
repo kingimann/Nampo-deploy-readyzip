@@ -10,7 +10,7 @@ import * as Location from "expo-location";
 import { safeBack } from "@/src/utils/nav";
 import { reverseGeocode } from "@/src/api/mapbox";
 import { pickImages, captureImage, pickDocumentBase64 } from "@/src/utils/thumbnail";
-import { api, RoadsideRequest, RoadsideService, RoadsideParty, RoadsideQuote, RoadsideEligibility, RoadsideVerificationStatus } from "@/src/api/client";
+import { api, RoadsideRequest, RoadsideService, RoadsideParty, RoadsideQuote, RoadsideEligibility, RoadsideVerificationStatus, RoadsideCheckResult } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const SERVICE_META: Record<RoadsideService, { label: string; icon: any; desc: string }> = {
@@ -26,7 +26,7 @@ const FUEL_TYPES: { k: string; label: string }[] = [
   { k: "midgrade", label: "Mid-grade" },
   { k: "premium", label: "Premium" },
 ];
-const GAS_AMOUNTS = ["1 gallon", "2 gallons", "3 gallons", "5 gallons"];
+const GAS_AMOUNTS = ["$10", "$20", "$30", "$40", "$50"];
 
 const STATUS_LABEL = (r: RoadsideRequest) =>
   r.status === "open" ? { label: "Searching for help", color: theme.warning }
@@ -102,6 +102,8 @@ export default function RoadsideScreen() {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState("");
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkRes, setCheckRes] = useState<RoadsideCheckResult | null>(null);
   const [quote, setQuote] = useState<RoadsideQuote | null>(null);
   const [elig, setElig] = useState<RoadsideEligibility | null>(null);
   const [verif, setVerif] = useState<RoadsideVerificationStatus | null>(null);
@@ -238,6 +240,26 @@ export default function RoadsideScreen() {
       if (got.length) setPhotos((p) => [...p, ...got].slice(0, 6));
     } catch (e: any) { Alert.alert("Couldn't add photos", String(e?.message || e)); }
     finally { setPhotoBusy(false); }
+  };
+
+  const runCheck = async () => {
+    setChecking(true); setCheckRes(null);
+    try {
+      const res = await api.checkRoadsideForm({
+        service: service || undefined,
+        has_location: !!coords,
+        place_name: placeName.trim() || undefined,
+        dest_name: service === "tow" ? (destName.trim() || undefined) : undefined,
+        fuel_type: service === "gas" ? (fuelType || undefined) : undefined,
+        fuel_amount: service === "gas" ? (fuelAmount || undefined) : undefined,
+        vehicle_year: vYear || undefined, vehicle_make: vMake || undefined, vehicle_model: vModel.trim() || undefined,
+        vehicle_color: vColor.trim() || undefined, vehicle_plate: vPlate.trim() || undefined,
+        note: note.trim() || undefined,
+      });
+      setCheckRes(res);
+    } catch (e: any) {
+      Alert.alert("Couldn't review", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setChecking(false); }
   };
 
   const submit = async () => {
@@ -409,7 +431,7 @@ export default function RoadsideScreen() {
       {!!r.vehicle && <View style={styles.metaLine}><Ionicons name="car-outline" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.vehicle}</Text></View>}
       {!!r.place_name && <View style={styles.metaLine}><Ionicons name="location" size={14} color={theme.textMuted} /><Text style={styles.metaText} numberOfLines={2}>{r.place_name}</Text></View>}
       {!!r.dest_name && <View style={styles.metaLine}><Ionicons name="flag" size={14} color={theme.textMuted} /><Text style={styles.metaText} numberOfLines={2}>Tow to: {r.dest_name}</Text></View>}
-      {!!r.fuel_amount && <View style={styles.metaLine}><Ionicons name="water" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.fuel_amount}{r.fuel_type ? ` · ${FUEL_TYPES.find((f) => f.k === r.fuel_type)?.label || r.fuel_type}` : ""}</Text></View>}
+      {!!r.fuel_amount && <View style={styles.metaLine}><Ionicons name="water" size={14} color={theme.textMuted} /><Text style={styles.metaText}>Gas: {r.fuel_amount}{r.fuel_type ? ` · ${FUEL_TYPES.find((f) => f.k === r.fuel_type)?.label || r.fuel_type}` : ""}</Text></View>}
       {!!r.note && <View style={styles.metaLine}><Ionicons name="document-text-outline" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.note}</Text></View>}
       {!!(r.photos && r.photos.length) && <Photos uris={r.photos} />}
     </>
@@ -688,10 +710,10 @@ export default function RoadsideScreen() {
                     <View style={{ flex: 1 }}><Dropdown value={vYear} placeholder="Year" options={YEARS} onChange={setVYear} testID="rs-year" /></View>
                     <View style={{ flex: 1 }}><Dropdown value={vMake} placeholder="Make" options={MAKES} onChange={setVMake} testID="rs-make" /></View>
                   </View>
-                  <TextInput style={styles.input} placeholder="Model (e.g. Civic)" placeholderTextColor={theme.textMuted} value={vModel} onChangeText={setVModel} maxLength={60} testID="rs-model" />
-                  <View style={styles.row2}>
+                  <View style={[styles.row2, { marginTop: 8 }]}>
+                    <TextInput style={[styles.input, { flex: 1.3, marginTop: 0 }]} placeholder="Model" placeholderTextColor={theme.textMuted} value={vModel} onChangeText={setVModel} maxLength={60} testID="rs-model" />
                     <TextInput style={[styles.input, { flex: 1, marginTop: 0 }]} placeholder="Color" placeholderTextColor={theme.textMuted} value={vColor} onChangeText={setVColor} maxLength={30} testID="rs-color" />
-                    <TextInput style={[styles.input, { flex: 1, marginTop: 0 }]} placeholder="Plate" placeholderTextColor={theme.textMuted} value={vPlate} onChangeText={setVPlate} autoCapitalize="characters" maxLength={16} testID="rs-plate" />
+                    <TextInput style={[styles.input, { flex: 0.9, marginTop: 0 }]} placeholder="Plate" placeholderTextColor={theme.textMuted} value={vPlate} onChangeText={setVPlate} autoCapitalize="characters" maxLength={16} testID="rs-plate" />
                   </View>
 
                   <Text style={styles.sectionLabel}>Your location</Text>
@@ -710,8 +732,9 @@ export default function RoadsideScreen() {
 
                   {service === "gas" && (
                     <>
-                      <Text style={styles.sectionLabel}>Fuel — how much?</Text>
-                      <Dropdown value={fuelAmount} placeholder="Amount" options={GAS_AMOUNTS} onChange={setFuelAmount} testID="rs-fuel-amount" />
+                      <Text style={styles.sectionLabel}>Gas — how much ($)?</Text>
+                      <Dropdown value={fuelAmount} placeholder="Dollar amount" options={GAS_AMOUNTS} onChange={setFuelAmount} testID="rs-fuel-amount" />
+                      <Text style={styles.svcDescLine}>You pay the driver for the gas; the $80 is the delivery service call.</Text>
                       <Text style={styles.sectionLabel}>Fuel type (no diesel)</Text>
                       <View style={styles.row2}>
                         {FUEL_TYPES.map((f) => (
@@ -763,6 +786,31 @@ export default function RoadsideScreen() {
                         </TouchableOpacity>
                       )}
                     </View>
+                  )}
+
+                  <TouchableOpacity style={styles.checkBtn} onPress={runCheck} disabled={checking} testID="rs-ai-check">
+                    {checking ? <ActivityIndicator color={theme.primary} size="small" /> : <Ionicons name="sparkles-outline" size={16} color={theme.primary} />}
+                    <Text style={styles.checkBtnText}>Review my request with AI</Text>
+                  </TouchableOpacity>
+                  {checkRes && (
+                    checkRes.ok ? (
+                      <View style={[styles.checkCard, { borderColor: theme.success + "66" }]}>
+                        <Ionicons name="checkmark-circle" size={18} color={theme.success} />
+                        <Text style={styles.checkOkText}>Looks good — everything's filled out.</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.checkCard}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.checkTitle}>Recommended fixes</Text>
+                          {checkRes.issues.map((it, i) => (
+                            <View key={i} style={styles.checkIssue}>
+                              <Ionicons name="alert-circle" size={14} color={theme.warning} style={{ marginTop: 2 }} />
+                              <Text style={styles.checkIssueText}>{it.message}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    )
                   )}
 
                   {!!err && <Text style={styles.err}>{err}</Text>}
@@ -880,6 +928,13 @@ const styles = StyleSheet.create({
   err: { color: theme.error, fontSize: 13, marginTop: 12 },
   submit: { backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center", marginTop: 14 },
   submitText: { color: "#fff", fontSize: 15.5, fontWeight: "800" },
+  checkBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 12, borderWidth: 1, borderColor: theme.primary + "66", backgroundColor: theme.primary + "12", paddingVertical: 11, marginTop: 14 },
+  checkBtnText: { color: theme.primary, fontSize: 14, fontWeight: "800" },
+  checkCard: { flexDirection: "row", gap: 10, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, marginTop: 10 },
+  checkOkText: { flex: 1, color: theme.textSecondary, fontSize: 13.5, fontWeight: "600" },
+  checkTitle: { color: theme.textPrimary, fontSize: 13.5, fontWeight: "800", marginBottom: 8 },
+  checkIssue: { flexDirection: "row", gap: 8, marginTop: 6 },
+  checkIssueText: { flex: 1, color: theme.textSecondary, fontSize: 13.5, lineHeight: 18 },
   disclaimer: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 14, textAlign: "center" },
 
   priceBox: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14, marginTop: 14 },
