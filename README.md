@@ -320,6 +320,7 @@ NamiApp/
 | `RECOVERY_SECRET` | No | **Yes** | *(none)* | Break-glass owner password recovery via `/api/auth/recover-password`. |
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` | No | **Yes** | *(none)* | [LiveKit](https://cloud.livekit.io/) for in-app voice/video calls (WebRTC). |
 | `EXPO_ACCESS_TOKEN` | No | **Yes** | *(none)* | Optional Expo token to raise push rate limits. |
+| `RENDER_API_KEY` | No | **Yes** | *(none)* | Owner API token (Render → Account Settings → API Keys). Enables **Settings → Render (admin)** to view services/deploys and view/edit env vars, deploy, restart, and suspend/resume — without leaving the app. Admin-only; env-var values are masked with tap-to-reveal. |
 | `PORT` | No | No | `8080` | Port Uvicorn binds to (Render injects this). |
 
 > **Admin → Integrations & SDKs:** signed in as an admin, open **Settings → Integrations & SDKs (admin)** for a live status board of every service above — what's configured, a one-tap "Run live tests" to confirm credentials work, and the exact env var(s) to set for anything missing (`GET /api/admin/integrations?live=1`).

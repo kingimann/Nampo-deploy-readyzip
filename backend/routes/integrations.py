@@ -6,6 +6,7 @@ what to set if it's not working. Admin-only.
 """
 import asyncio
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -83,6 +84,86 @@ async def _check_foursquare() -> tuple[bool, str]:
         return False, f"Foursquare call failed: {str(e)[:120]}"
 
 
+async def _check_ollama() -> tuple[bool, str]:
+    host = os.environ.get("OLLAMA_HOST", "")
+    if not host:
+        return False, "OLLAMA_HOST not set."
+    base = host.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{base}/api/tags")
+        if r.status_code == 200:
+            models = [m.get("name") for m in (r.json() or {}).get("models", []) if m.get("name")][:6]
+            return True, f"Reachable. Models: {', '.join(models) if models else 'none pulled'}."
+        return False, f"HTTP {r.status_code}"
+    except Exception as e:
+        return False, f"Ollama call failed: {str(e)[:120]}"
+
+
+async def _check_email() -> tuple[bool, str]:
+    host = os.environ.get("SMTP_HOST", "")
+    frm = os.environ.get("SMTP_FROM", "")
+    if not (host and frm):
+        return False, "SMTP_HOST / SMTP_FROM not set."
+    port = int(os.environ.get("SMTP_PORT", "587") or 587)
+    user = os.environ.get("SMTP_USER", "")
+    pw = os.environ.get("SMTP_PASS", "")
+
+    def _connect() -> tuple[bool, str]:
+        import smtplib
+        s = smtplib.SMTP(host, port, timeout=12)
+        try:
+            s.ehlo()
+            try:
+                s.starttls(); s.ehlo()
+            except Exception:
+                pass
+            if user and pw:
+                s.login(user, pw)
+                return True, "Connected and authenticated (no test email sent)."
+            return True, "Connected (no SMTP_USER/PASS auth configured)."
+        finally:
+            try:
+                s.quit()
+            except Exception:
+                pass
+
+    try:
+        return await asyncio.to_thread(_connect)
+    except Exception as e:
+        return False, f"SMTP failed: {str(e)[:120]}"
+
+
+async def _check_livekit() -> tuple[bool, str]:
+    url = os.environ.get("LIVEKIT_URL", "")
+    if not (os.environ.get("LIVEKIT_API_KEY") and os.environ.get("LIVEKIT_API_SECRET") and url):
+        return False, "LIVEKIT_API_KEY / LIVEKIT_API_SECRET / LIVEKIT_URL not fully set."
+    https = url.replace("wss://", "https://").replace("ws://", "http://").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(https)
+        # Any HTTP response means the LiveKit host resolves and is reachable.
+        return True, f"Host reachable (HTTP {r.status_code}). Credentials are used to mint room tokens."
+    except Exception as e:
+        return False, f"Host unreachable: {str(e)[:120]}"
+
+
+async def _check_render() -> tuple[bool, str]:
+    key = os.environ.get("RENDER_API_KEY", "")
+    if not key:
+        return False, "RENDER_API_KEY not set."
+    try:
+        async with httpx.AsyncClient(timeout=12) as c:
+            r = await c.get("https://api.render.com/v1/services",
+                            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+                            params={"limit": 1})
+        if r.status_code == 200:
+            return True, "Authenticated — manage services in Settings → Render."
+        return False, f"HTTP {r.status_code}: {r.text[:140]}"
+    except Exception as e:
+        return False, f"Render call failed: {str(e)[:120]}"
+
+
 async def _check_anthropic() -> tuple[bool, str]:
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
@@ -151,7 +232,7 @@ _INTEGRATIONS = [
         "summary": "Password-reset emails. Without it, email reset is unavailable (use SMS or owner recovery).",
         "fix": "Set SMTP_HOST and SMTP_FROM (plus SMTP_USER / SMTP_PASS / SMTP_PORT) for your mail provider.",
         "docs": "https://code.claude.com/docs",
-        "configured": lambda: _present("SMTP_HOST", "SMTP_FROM"), "live": None,
+        "configured": lambda: _present("SMTP_HOST", "SMTP_FROM"), "live": _check_email,
     },
     {
         "key": "livekit", "name": "LiveKit (voice/video calls)", "category": "Calls",
@@ -170,6 +251,22 @@ _INTEGRATIONS = [
         "configured": lambda: _present("ANTHROPIC_API_KEY"), "live": _check_anthropic,
     },
     {
+        "key": "ollama", "name": "Ollama (self-hosted AI vision)", "category": "AI",
+        "required": False, "env": ["OLLAMA_HOST"],
+        "summary": "Optional self-hosted vision model for the roadside photo check, used instead of Anthropic when set.",
+        "fix": "Run Ollama somewhere reachable (with a vision model pulled) and set OLLAMA_HOST to its base URL.",
+        "docs": "https://ollama.com/",
+        "configured": lambda: _present("OLLAMA_HOST"), "live": _check_ollama,
+    },
+    {
+        "key": "expo_push", "name": "Expo Push (notifications)", "category": "Calls",
+        "required": False, "env": ["EXPO_ACCESS_TOKEN"],
+        "summary": "Background push for call ringing & alerts. Works out of the box with a dev/prod build; EXPO_ACCESS_TOKEN only raises rate limits.",
+        "fix": "Optional: set EXPO_ACCESS_TOKEN to raise push rate limits. Push otherwise works once you ship an EAS build.",
+        "docs": "https://docs.expo.dev/push-notifications/overview/",
+        "configured": lambda: True, "live": None,
+    },
+    {
         "key": "message_encryption", "name": "Message encryption at rest", "category": "Security",
         "required": False, "env": ["MESSAGE_ENC_KEY"],
         "summary": "Encrypts stored messages with a Fernet key. Without it, messaging still works in plaintext at rest.",
@@ -185,12 +282,21 @@ _INTEGRATIONS = [
         "docs": "https://code.claude.com/docs",
         "configured": lambda: _present("RECOVERY_SECRET"), "live": None,
     },
+    {
+        "key": "render", "name": "Render (hosting management)", "category": "Hosting",
+        "required": False, "env": ["RENDER_API_KEY"],
+        "summary": "Manage services, deploys and env vars from Settings → Render. Without it, that admin screen can't load.",
+        "fix": "Create an owner API key in Render → Account Settings → API Keys and set RENDER_API_KEY.",
+        "docs": "https://render.com/docs/api",
+        "configured": lambda: _present("RENDER_API_KEY"), "live": _check_render,
+    },
 ]
 
 
 @router.get("/admin/integrations")
 async def admin_integrations(
-    live: int = Query(0, description="1 = run live health checks (slower)"),
+    live: int = Query(0, description="1 = run live health checks for everything (slower)"),
+    only: Optional[str] = Query(None, description="run the live check for just this integration key"),
     authorization: Optional[str] = Header(None),
 ):
     me = await get_current_user(authorization)
@@ -203,6 +309,7 @@ async def admin_integrations(
         item = {
             "key": spec["key"], "name": spec["name"], "category": spec["category"],
             "required": spec["required"], "env": spec["env"],
+            "env_detail": [{"name": n, "set": bool(os.environ.get(n))} for n in spec["env"]],
             "summary": spec["summary"], "fix": spec["fix"], "docs": spec["docs"],
             "configured": configured,
             "can_test": bool(spec.get("live")),
@@ -213,11 +320,14 @@ async def admin_integrations(
         else:
             item["status"] = "configured"
             item["detail"] = "Configured."
-        if live and spec.get("live"):
+        run_live = bool(spec.get("live")) and (bool(live) or (only is not None and only == spec["key"]))
+        if run_live:
+            t0 = time.perf_counter()
             try:
                 ok, detail = await spec["live"]()
             except Exception as e:  # pragma: no cover - defensive
                 ok, detail = False, f"Check error: {str(e)[:120]}"
+            item["latency_ms"] = int((time.perf_counter() - t0) * 1000)
             item["status"] = "operational" if ok else ("error" if configured else item["status"])
             item["detail"] = detail
             item["tested"] = True
@@ -226,6 +336,8 @@ async def admin_integrations(
     summary = {
         "total": len(out),
         "configured": sum(1 for i in out if i["configured"]),
+        "operational": sum(1 for i in out if i["status"] == "operational"),
+        "errors": sum(1 for i in out if i["status"] == "error"),
         "needs_setup": sum(1 for i in out if not i["configured"] and i["required"]),
     }
-    return {"integrations": out, "summary": summary, "live": bool(live)}
+    return {"integrations": out, "summary": summary, "live": bool(live), "only": only}

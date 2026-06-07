@@ -65,8 +65,27 @@ export const api = {
     request<{ ok: boolean }>(`/admin/badges/${badgeId}`, { method: "DELETE" }),
   adminSetUserBadge: (userId: string, badge_id: string, action: "add" | "remove") =>
     request<{ ok: boolean }>(`/admin/users/${userId}/badge`, { method: "POST", body: JSON.stringify({ badge_id, action }) }),
-  adminIntegrations: (live = false) =>
-    request<IntegrationsReport>(`/admin/integrations${live ? "?live=1" : ""}`),
+  adminIntegrations: (live = false, only?: string) =>
+    request<IntegrationsReport>(`/admin/integrations${only ? `?only=${encodeURIComponent(only)}` : live ? "?live=1" : ""}`),
+  // Render deployment admin (admin-only; needs RENDER_API_KEY on the backend)
+  renderServices: () =>
+    request<{ configured: boolean; services: RenderService[]; self_id?: string }>("/admin/render/services"),
+  renderDeploys: (sid: string) =>
+    request<{ deploys: RenderDeployRec[] }>(`/admin/render/services/${sid}/deploys`),
+  renderTriggerDeploy: (sid: string, clear_cache = false) =>
+    request<{ ok: boolean; deploy_id?: string; status?: string }>(`/admin/render/services/${sid}/deploys`, { method: "POST", body: JSON.stringify({ clear_cache }) }),
+  renderRestart: (sid: string) =>
+    request<{ ok: boolean }>(`/admin/render/services/${sid}/restart`, { method: "POST" }),
+  renderSuspend: (sid: string) =>
+    request<{ ok: boolean }>(`/admin/render/services/${sid}/suspend`, { method: "POST" }),
+  renderResume: (sid: string) =>
+    request<{ ok: boolean }>(`/admin/render/services/${sid}/resume`, { method: "POST" }),
+  renderEnvVars: (sid: string) =>
+    request<{ env_vars: RenderEnvVar[] }>(`/admin/render/services/${sid}/env-vars`),
+  renderSetEnv: (sid: string, key: string, value: string) =>
+    request<{ ok: boolean; key: string }>(`/admin/render/services/${sid}/env-vars/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  renderDeleteEnv: (sid: string, key: string) =>
+    request<{ ok: boolean }>(`/admin/render/services/${sid}/env-vars/${encodeURIComponent(key)}`, { method: "DELETE" }),
   updateMe: (p: ProfilePatch) =>
     request<User>("/auth/me", { method: "PATCH", body: JSON.stringify(p) }),
   logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
@@ -989,6 +1008,7 @@ export type Integration = {
   category: string;
   required: boolean;
   env: string[];
+  env_detail?: { name: string; set: boolean }[];
   summary: string;
   fix: string;
   docs: string;
@@ -997,12 +1017,24 @@ export type Integration = {
   status: "operational" | "configured" | "not_configured" | "optional_off" | "error";
   detail: string;
   tested?: boolean;
+  latency_ms?: number;
 };
 export type IntegrationsReport = {
   integrations: Integration[];
-  summary: { total: number; configured: number; needs_setup: number };
+  summary: { total: number; configured: number; needs_setup: number; operational?: number; errors?: number };
   live: boolean;
+  only?: string | null;
 };
+export type RenderService = {
+  id: string; name: string; type: string; suspended: boolean;
+  auto_deploy?: string; branch?: string; repo?: string;
+  url?: string | null; dashboard_url?: string; updated_at?: string;
+};
+export type RenderDeployRec = {
+  id: string; status: string; created_at?: string; finished_at?: string;
+  commit_message?: string; commit_id?: string;
+};
+export type RenderEnvVar = { key: string; value: string };
 export type SubTier = { id: string; name: string; price: number };
 export type WalletTxn = { id: string; kind: string; amount: number; from_user_id: string; from_name: string; source?: string; message?: string; created_at: string };
 export type WalletSummary = {

@@ -34,6 +34,7 @@ from routes import (
     places as places_routes,
     posts as posts_routes,
     push as push_routes,
+    render_admin as render_admin_routes,
     reviews as reviews_routes,
     roadside as roadside_routes,
     stories as stories_routes,
@@ -241,6 +242,7 @@ def _register(parent: APIRouter):
     parent.include_router(support_routes.router)
     parent.include_router(forms_routes.router)
     parent.include_router(embed_routes.router)
+    parent.include_router(render_admin_routes.router)
 
 
 # `/api/v1` is the documented, stable base. `/api` stays as a back-compat alias
