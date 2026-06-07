@@ -7,7 +7,11 @@ is notified (in-app + email). Public endpoints under `/pub/form*` take no auth �
 the `form_key` identifies the form. Spam is curbed with a hidden honeypot field
 and a lightweight per-IP rate limit.
 """
+import csv
 import html
+import io
+import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -72,12 +76,66 @@ class FormCreate(BaseModel):
     title: str
     description: Optional[str] = None
     submit_label: Optional[str] = None
+    notify_email: Optional[str] = None        # send submissions here instead of the owner's account email
     fields: List[FormField] = []
 
 
 class FormSubmit(BaseModel):
     values: dict = {}
     hp: Optional[str] = None                  # honeypot — must be empty
+
+
+def _clean_notify_email(s: Optional[str]) -> Optional[str]:
+    """Validate the optional per-form recipient. Empty means 'use account email'."""
+    s = (s or "").strip()
+    if not s:
+        return None
+    if len(s) > 200 or "@" not in s or "." not in s.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid email address for responses, or leave it blank.")
+    return s.lower()
+
+
+def _fmt_dt(v) -> str:
+    if isinstance(v, datetime):
+        return v.isoformat()
+    return str(v or "")
+
+
+def _hex(s: Optional[str]) -> Optional[str]:
+    """Accept a 3- or 6-digit hex colour (with or without '#'); else None."""
+    s = (s or "").strip().lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{3}", s) or re.fullmatch(r"[0-9a-fA-F]{6}", s):
+        return "#" + s
+    return None
+
+
+def _embed_config(theme: str, accent: Optional[str], bg: Optional[str], radius: Optional[str],
+                  hide_title: Optional[str], redirect: Optional[str], prefill: dict) -> dict:
+    """Resolve the look-and-behaviour knobs an embedder can pass, with safe
+    defaults. Dark mode swaps a WhatsApp-style palette; colours are validated."""
+    dark = (theme or "").strip().lower() == "dark"
+    try:
+        rad = max(0, min(28, int(radius)))
+    except (TypeError, ValueError):
+        rad = 10
+    red = redirect if (redirect or "").startswith(("http://", "https://")) else None
+    return {
+        "accent": _hex(accent) or "#00A884",
+        "bg": _hex(bg) or ("#0b141a" if dark else "#ffffff"),
+        "text": "#e9edef" if dark else "#0b0b0c",
+        "muted": "#8696a0" if dark else "#5b6770",
+        "border": "#2a3942" if dark else "#cfd6db",
+        "fieldBg": "#111b21" if dark else "#ffffff",
+        "radius": rad,
+        "hideTitle": bool(hide_title),
+        "redirect": red,
+        "prefill": {str(k)[:60]: str(v)[:500] for k, v in (prefill or {}).items()},
+    }
+
+
+def _safe_filename(s: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", (s or "")).strip("-").lower()
+    return s or "form"
 
 
 def _clean_fields(fields: List[FormField]) -> list:
@@ -105,6 +163,7 @@ def _form_view(f: dict) -> dict:
         "id": f["id"], "owner_id": f.get("owner_id"), "form_key": f.get("form_key"),
         "title": f.get("title"), "description": f.get("description"),
         "submit_label": f.get("submit_label") or "Submit",
+        "notify_email": f.get("notify_email"),
         "fields": f.get("fields") or [],
         "submissions": int(f.get("submissions", 0) or 0),
         "created_at": f.get("created_at"),
@@ -132,6 +191,7 @@ async def create_form(body: FormCreate, authorization: Optional[str] = Header(No
         "title": title,
         "description": (body.description or "").strip()[:500] or None,
         "submit_label": (body.submit_label or "").strip()[:40] or "Submit",
+        "notify_email": _clean_notify_email(body.notify_email),
         "fields": _clean_fields(body.fields),
         "submissions": 0,
         "created_at": datetime.now(timezone.utc),
@@ -169,6 +229,7 @@ async def update_form(form_id: str, body: FormCreate, authorization: Optional[st
         "title": title,
         "description": (body.description or "").strip()[:500] or None,
         "submit_label": (body.submit_label or "").strip()[:40] or "Submit",
+        "notify_email": _clean_notify_email(body.notify_email),
         "fields": _clean_fields(body.fields),
     }
     await db.forms.update_one({"id": form_id}, {"$set": updates})
@@ -196,6 +257,29 @@ async def list_submissions(form_id: str, limit: int = Query(50), offset: int = Q
     rows = await db.form_submissions.find({"form_id": form_id}, {"_id": 0}).sort("submitted_at", -1).skip(max(0, int(offset or 0))).limit(lim).to_list(lim)
     total = await db.form_submissions.count_documents({"form_id": form_id})
     return {"submissions": rows, "total": total, "fields": form.get("fields") or []}
+
+
+@router.get("/forms/{form_id}/submissions.csv")
+async def export_submissions_csv(form_id: str, authorization: Optional[str] = Header(None)):
+    """Download every response as a CSV — one column per field, plus a timestamp."""
+    user = await get_current_user(authorization)
+    form = await db.forms.find_one({"id": form_id, "owner_id": user["user_id"]}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    fields = form.get("fields") or []
+    rows = await db.form_submissions.find({"form_id": form_id}, {"_id": 0}).sort("submitted_at", 1).limit(10000).to_list(10000)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Submitted at"] + [(f.get("label") or f.get("id") or "") for f in fields])
+    for r in rows:
+        vals = r.get("values") or {}
+        writer.writerow([_fmt_dt(r.get("submitted_at"))] + [str(vals.get(f.get("id"), "")) for f in fields])
+    fname = _safe_filename(form.get("title") or "form") + "-responses.csv"
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 # ── Public render + submit (no auth — form_key identifies the form) ───────────
@@ -243,12 +327,24 @@ async def public_submit(request: Request, body: FormSubmit, form: str = Query(..
     except Exception:
         pass
     try:
-        owner = await db.users.find_one({"user_id": doc["owner_id"]}, {"_id": 0, "email": 1})
-        if owner and owner.get("email"):
+        # Developers can subscribe a webhook to receive submissions on their server.
+        from routes.webhooks import deliver_event
+        await deliver_event(doc["owner_id"], "form.submission", {
+            "form_id": doc["id"], "form_key": doc.get("form_key"), "title": doc.get("title"),
+            "submission_id": sub["id"], "values": clean, "submitted_at": _fmt_dt(sub["submitted_at"]),
+        })
+    except Exception:
+        pass
+    try:
+        recipient = doc.get("notify_email")
+        if not recipient:
+            owner = await db.users.find_one({"user_id": doc["owner_id"]}, {"_id": 0, "email": 1})
+            recipient = owner.get("email") if owner else None
+        if recipient:
             from services.email import send_email, email_enabled
             if email_enabled():
                 lines = "\n".join(f"- {by_id.get(k, {}).get('label', k)}: {v}" for k, v in clean.items())
-                send_email(owner["email"], f"New submission: {doc.get('title')}",
+                send_email(recipient, f"New submission: {doc.get('title')}",
                            f"You received a new form submission:\n\n{lines}")
     except Exception:
         pass
@@ -258,10 +354,18 @@ async def public_submit(request: Request, body: FormSubmit, form: str = Query(..
 _EMBED_JS = """(function(){
   var s=document.currentScript;
   var form="__FORM__";
-  var w=(s&&s.getAttribute("data-width"))||"100%";
-  var h=(s&&s.getAttribute("data-height"))||"560";
+  function attr(n){return s&&s.getAttribute(n);}
+  var w=attr("data-width")||"100%";
+  var h=attr("data-height")||"560";
+  var qs="form="+encodeURIComponent(form);
+  ["theme","accent","bg","radius","redirect"].forEach(function(k){
+    var v=attr("data-"+k); if(v) qs+="&"+k+"="+encodeURIComponent(v);
+  });
+  if(attr("data-hide-title")) qs+="&hide_title=1";
+  var pf=attr("data-prefill");
+  if(pf){try{var o=JSON.parse(pf);Object.keys(o).forEach(function(k){qs+="&pf_"+encodeURIComponent(k)+"="+encodeURIComponent(o[k]);});}catch(e){}}
   var f=document.createElement("iframe");
-  f.src="__BASE__/api/pub/form-unit?form="+encodeURIComponent(form);
+  f.src="__BASE__/api/pub/form-unit?"+qs;
   f.width=w;f.height=h;f.scrolling="auto";f.style.border="0";f.style.maxWidth="100%";
   if(s&&s.parentNode)s.parentNode.insertBefore(f,s);
 })();"""
@@ -276,43 +380,50 @@ async def form_embed_js(request: Request, form: str = Query(...)):
 _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  html,body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#fff;color:#0b0b0c}
+  :root{--acc:#00A884;--bg:#fff;--text:#0b0b0c;--muted:#5b6770;--border:#cfd6db;--field:#fff;--rad:10px}
+  html,body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
   .wrap{max-width:560px;margin:0 auto;padding:16px}
   h2{margin:0 0 4px;font-size:20px}
-  p.desc{margin:0 0 14px;color:#5b6770;font-size:14px}
+  p.desc{margin:0 0 14px;color:var(--muted);font-size:14px}
   label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}
-  .req{color:#d92d20}
-  input,textarea,select{width:100%;box-sizing:border-box;border:1px solid #cfd6db;border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit}
+  .req{color:#f15c6d}
+  input,textarea,select{width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:var(--rad);padding:10px 12px;font-size:14px;font-family:inherit;background:var(--field);color:var(--text)}
   textarea{min-height:96px;resize:vertical}
   .opt{display:flex;align-items:center;gap:8px;font-weight:400;margin:6px 0}
   .opt input{width:auto}
-  button{margin-top:16px;width:100%;background:#00A884;color:#fff;border:0;border-radius:10px;padding:12px;font-size:15px;font-weight:700;cursor:pointer}
+  button{margin-top:16px;width:100%;background:var(--acc);color:#fff;border:0;border-radius:var(--rad);padding:12px;font-size:15px;font-weight:700;cursor:pointer}
   button:disabled{opacity:.6}
   .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
-  .msg{padding:14px;border-radius:10px;font-size:14px;text-align:center}
-  .ok{background:#e7f7f0;color:#0b7a59}
-  .err{background:#fdecea;color:#b42318;margin-top:10px}
+  .msg{padding:14px;border-radius:var(--rad);font-size:14px;text-align:center}
+  .ok{background:rgba(0,168,132,0.14);color:var(--acc)}
+  .err{background:rgba(241,92,109,0.14);color:#f15c6d;margin-top:10px}
 </style></head><body><div class="wrap">
 <div id="root"><p class="desc">Loading…</p></div>
 </div>
 <script>
 (function(){
-  var FORM="__FORM__", BASE="__BASE__";
+  var FORM="__FORM__", BASE="__BASE__", CFG=__CONFIG__;
+  var rs=document.documentElement.style;
+  rs.setProperty('--acc',CFG.accent);rs.setProperty('--bg',CFG.bg);rs.setProperty('--text',CFG.text);
+  rs.setProperty('--muted',CFG.muted);rs.setProperty('--border',CFG.border);rs.setProperty('--field',CFG.fieldBg);
+  rs.setProperty('--rad',CFG.radius+'px');
   var root=document.getElementById("root");
   function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];});}
   fetch(BASE+"/api/pub/form?form="+encodeURIComponent(FORM)).then(function(r){return r.json()}).then(function(f){
     if(!f||!f.fields){root.innerHTML='<div class="msg err">This form is unavailable.</div>';return;}
-    var h='<h2>'+esc(f.title||"Form")+'</h2>';
-    if(f.description) h+='<p class="desc">'+esc(f.description)+'</p>';
+    var pf=CFG.prefill||{};
+    var h='';
+    if(!CFG.hideTitle){h+='<h2>'+esc(f.title||"Form")+'</h2>';if(f.description) h+='<p class="desc">'+esc(f.description)+'</p>';}
     h+='<form id="nf"><div class="hp"><label>Leave this empty<input type="text" name="_hp" autocomplete="off" tabindex="-1"></label></div>';
     (f.fields||[]).forEach(function(fl){
       var req=fl.required?' <span class="req">*</span>':'';
+      var pv=pf[fl.id]!=null?String(pf[fl.id]):"";
       h+='<label>'+esc(fl.label)+req+'</label>';
       var t=fl.type;
-      if(t==='textarea'){h+='<textarea data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'"'+(fl.required?' required':'')+'></textarea>';}
-      else if(t==='select'){h+='<select data-fid="'+esc(fl.id)+'"'+(fl.required?' required':'')+'><option value="">Choose…</option>';(fl.options||[]).forEach(function(o){h+='<option>'+esc(o)+'</option>';});h+='</select>';}
-      else if(t==='radio'||t==='checkbox'){(fl.options||[]).forEach(function(o){h+='<label class="opt"><input type="'+t+'" name="'+esc(fl.id)+'" value="'+esc(o)+'">'+esc(o)+'</label>';});}
-      else {var it=(t==='email'||t==='number'||t==='date')?t:(t==='phone'?'tel':'text');h+='<input type="'+it+'" data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'"'+(fl.required?' required':'')+'>';}
+      if(t==='textarea'){h+='<textarea data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'"'+(fl.required?' required':'')+'>'+esc(pv)+'</textarea>';}
+      else if(t==='select'){h+='<select data-fid="'+esc(fl.id)+'"'+(fl.required?' required':'')+'><option value="">Choose…</option>';(fl.options||[]).forEach(function(o){h+='<option'+(o===pv?' selected':'')+'>'+esc(o)+'</option>';});h+='</select>';}
+      else if(t==='radio'||t==='checkbox'){(fl.options||[]).forEach(function(o){var ck=(t==='radio'?o===pv:String(pv).split(",").indexOf(o)>=0)?' checked':'';h+='<label class="opt"><input type="'+t+'" name="'+esc(fl.id)+'" value="'+esc(o)+'"'+ck+'>'+esc(o)+'</label>';});}
+      else {var it=(t==='email'||t==='number'||t==='date')?t:(t==='phone'?'tel':'text');h+='<input type="'+it+'" data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'" value="'+esc(pv)+'"'+(fl.required?' required':'')+'>';}
     });
     h+='<button type="submit">'+esc(f.submit_label||"Submit")+'</button><div id="err" class="err" style="display:none"></div></form>';
     root.innerHTML=h;
@@ -330,7 +441,10 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
       fetch(BASE+"/api/pub/form-submit?form="+encodeURIComponent(FORM),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values:vals,hp:hp?hp.value:""})})
         .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
         .then(function(res){
-          if(res.ok&&res.j&&res.j.ok){root.innerHTML='<div class="msg ok">Thanks! Your response was submitted.</div>';}
+          if(res.ok&&res.j&&res.j.ok){
+            if(CFG.redirect){window.location.href=CFG.redirect;return;}
+            root.innerHTML='<div class="msg ok">Thanks! Your response was submitted.</div>';
+          }
           else{var e2=document.getElementById("err");e2.style.display="block";e2.textContent=(res.j&&res.j.detail)||"Couldn\\'t submit. Try again.";btn.disabled=false;}
         }).catch(function(){var e2=document.getElementById("err");e2.style.display="block";e2.textContent="Network error. Try again.";btn.disabled=false;});
     });
@@ -340,6 +454,30 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
 
 
 @router.get("/pub/form-unit", response_class=HTMLResponse)
-async def form_unit(request: Request, form: str = Query(...)):
-    page = _UNIT_HTML.replace("__FORM__", html.escape(form)).replace("__BASE__", _public_base(request))
+async def form_unit(
+    request: Request,
+    form: str = Query(...),
+    theme: str = Query("light"),
+    accent: Optional[str] = Query(None),
+    bg: Optional[str] = Query(None),
+    radius: Optional[str] = Query(None),
+    hide_title: Optional[str] = Query(None),
+    redirect: Optional[str] = Query(None),
+):
+    """Self-contained, embeddable form page. Look & behaviour are customizable via
+    query params (theme, accent, bg, radius, hide_title, redirect) and pre-fill via
+    `pf_<field_id>=value`."""
+    prefill = {k[3:]: v for k, v in request.query_params.items() if k.startswith("pf_")}
+    cfg = _embed_config(theme, accent, bg, radius, hide_title, redirect, prefill)
+    # Safe to drop inside a <script> tag: escape the chars that could close it.
+    cfg_js = (
+        json.dumps(cfg)
+        .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    )
+    page = (
+        _UNIT_HTML
+        .replace("__FORM__", html.escape(form))
+        .replace("__BASE__", _public_base(request))
+        .replace("__CONFIG__", cfg_js)
+    )
     return HTMLResponse(content=page, headers={"X-Frame-Options": "ALLOWALL"})

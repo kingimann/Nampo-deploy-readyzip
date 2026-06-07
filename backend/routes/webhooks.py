@@ -21,13 +21,39 @@ from core import db, get_current_user, _active_plan
 
 router = APIRouter()
 
-# Event types a webhook can subscribe to (mirror notification types + a few more).
-WEBHOOK_EVENTS = [
-    "follow", "friend_request", "friend_accept",
-    "message", "group_message",
-    "tip", "subscribe",
-    "post_like", "post_reply", "mention",
-]
+# Event types a webhook can subscribe to. These mirror the notification types we
+# actually emit (see emit_notification call sites), so every event here can really
+# fire — plus form.submission, which is delivered directly with the full payload.
+WEBHOOK_EVENT_INFO = {
+    # Social
+    "follow": "Someone followed you",
+    "friend_request": "You received a friend request",
+    "friend_accept": "Your friend request was accepted",
+    "poke": "Someone poked you",
+    # Posts
+    "like": "Someone liked your post",
+    "reply": "Someone replied to your post",
+    "repost": "Someone reposted your post",
+    "tag": "You were tagged or mentioned",
+    # Messaging
+    "message": "You received a direct message",
+    "group_message": "New message in a group you're in",
+    "group_invite": "You were invited to a group",
+    "story_reply": "Someone replied to your story",
+    # Money
+    "tip": "You received a tip",
+    "subscribe": "Someone subscribed to you",
+    "payout": "A payout was processed",
+    "wallet_topup": "Your wallet was topped up",
+    # Services & ops
+    "roadside": "A roadside assistance update",
+    "support": "A support ticket update",
+    "call": "An incoming call",
+    "moderation": "A moderation action affected your content",
+    # Forms
+    "form.submission": "A custom form received a submission",
+}
+WEBHOOK_EVENTS = list(WEBHOOK_EVENT_INFO.keys())
 
 
 class WebhookCreate(BaseModel):
@@ -51,7 +77,11 @@ def _public(doc: dict, secret: Optional[str] = None) -> dict:
 
 @router.get("/webhooks/events")
 async def list_events():
-    return {"events": WEBHOOK_EVENTS}
+    # `events` stays a flat list for back-compat; `event_info` adds descriptions.
+    return {
+        "events": WEBHOOK_EVENTS,
+        "event_info": [{"event": e, "description": d} for e, d in WEBHOOK_EVENT_INFO.items()],
+    }
 
 
 @router.get("/webhooks")
@@ -94,18 +124,85 @@ async def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(
     return {"deleted": True}
 
 
-async def _post(url: str, secret: str, payload: dict):
+@router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
+    """Send a signed sample `ping` event to the endpoint so developers can verify
+    connectivity and signature checking. Returns the endpoint's HTTP status."""
+    user = await get_current_user(authorization)
+    hook = await db.dev_webhooks.find_one({"id": webhook_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not hook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    payload = {
+        "event": "ping",
+        "data": {"message": "Test event from Nami", "webhook_id": webhook_id},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
     body = json.dumps(payload, default=str).encode("utf-8")
-    sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    sig = hmac.new(hook.get("secret", "").encode("utf-8"), body, hashlib.sha256).hexdigest()
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            await client.post(
-                url, content=body,
-                headers={"Content-Type": "application/json", "X-Nami-Signature": f"sha256={sig}",
-                         "X-Nami-Event": payload.get("event", "")},
+            r = await client.post(
+                hook["url"], content=body,
+                headers={"Content-Type": "application/json",
+                         "X-Nami-Signature": f"sha256={sig}", "X-Nami-Event": "ping"},
             )
+        return {"ok": 200 <= r.status_code < 300, "status": r.status_code}
+    except Exception as e:
+        return {"ok": False, "status": 0, "error": str(e)[:200]}
+
+
+@router.get("/webhooks/{webhook_id}/deliveries")
+async def list_deliveries(webhook_id: str, limit: int = 25, authorization: Optional[str] = Header(None)):
+    """Recent delivery attempts for a webhook — status, attempts, errors."""
+    user = await get_current_user(authorization)
+    hook = await db.dev_webhooks.find_one({"id": webhook_id, "user_id": user["user_id"]}, {"_id": 0, "id": 1})
+    if not hook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    lim = max(1, min(int(limit or 25), 100))
+    rows = await db.webhook_deliveries.find(
+        {"webhook_id": webhook_id}, {"_id": 0}
+    ).sort("created_at", -1).limit(lim).to_list(lim)
+    return {"deliveries": rows}
+
+
+async def _post(hook: dict, payload: dict) -> dict:
+    """Deliver one event to one endpoint with a few retries + backoff, then log
+    the outcome. Returns a delivery record (also persisted)."""
+    url = hook.get("url", "")
+    secret = hook.get("secret", "")
+    body = json.dumps(payload, default=str).encode("utf-8")
+    sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    headers = {
+        "Content-Type": "application/json",
+        "X-Nami-Signature": f"sha256={sig}",
+        "X-Nami-Event": payload.get("event", ""),
+    }
+    status, ok, err, attempts = 0, False, None, 0
+    for delay in (0, 2, 6):   # 3 attempts: immediate, +2s, +6s
+        if delay:
+            await asyncio.sleep(delay)
+        attempts += 1
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.post(url, content=body, headers=headers)
+            status = r.status_code
+            if 200 <= status < 300:
+                ok = True
+                break
+        except Exception as e:
+            err = str(e)[:200]
+    record = {
+        "id": str(uuid.uuid4()),
+        "webhook_id": hook.get("id"), "user_id": hook.get("user_id"),
+        "event": payload.get("event", ""), "ok": ok, "status": status,
+        "attempts": attempts, "error": err,
+        "created_at": datetime.now(timezone.utc),
+    }
+    try:
+        await db.webhook_deliveries.insert_one(record.copy())
     except Exception:
-        pass  # best-effort delivery; no retries for now
+        pass
+    return record
 
 
 async def deliver_event(user_id: str, event: str, data: dict) -> None:
@@ -118,6 +215,6 @@ async def deliver_event(user_id: str, event: str, data: dict) -> None:
         return
     if not hooks:
         return
-    payload_base = {"event": event, "data": data, "created_at": datetime.now(timezone.utc).isoformat()}
+    payload = {"event": event, "data": data, "created_at": datetime.now(timezone.utc).isoformat()}
     for h in hooks:
-        asyncio.create_task(_post(h["url"], h.get("secret", ""), payload_base))
+        asyncio.create_task(_post(h, payload))

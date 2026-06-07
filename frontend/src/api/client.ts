@@ -137,10 +137,15 @@ export const api = {
   activateUsage: (pack: string) =>
     request<{ ok: boolean; added: number }>("/payments/api-usage/activate", { method: "POST", body: JSON.stringify({ pack }) }),
   // Developer webhooks
-  listWebhookEvents: () => request<{ events: string[] }>("/webhooks/events"),
+  listWebhookEvents: () =>
+    request<{ events: string[]; event_info?: { event: string; description: string }[] }>("/webhooks/events"),
   listWebhooks: () => request<{ webhooks: DevWebhook[] }>("/webhooks"),
   createWebhook: (url: string, events?: string[]) =>
     request<DevWebhook>("/webhooks", { method: "POST", body: JSON.stringify({ url, events }) }),
+  testWebhook: (id: string) =>
+    request<{ ok: boolean; status: number; error?: string }>(`/webhooks/${id}/test`, { method: "POST" }),
+  listWebhookDeliveries: (id: string) =>
+    request<{ deliveries: WebhookDelivery[] }>(`/webhooks/${id}/deliveries`),
   deleteWebhook: (id: string) =>
     request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>
@@ -326,6 +331,16 @@ export const api = {
     request<{ ok: boolean }>(`/forms/${id}`, { method: "DELETE" }),
   listFormSubmissions: (id: string) =>
     request<{ submissions: FormSubmission[]; total: number; fields: FormField[] }>(`/forms/${id}/submissions`),
+  // Raw CSV of all responses (auth required). Returns the file text so the
+  // caller can trigger a browser download / share sheet.
+  exportFormCsv: async (id: string): Promise<string> => {
+    const token = await getToken();
+    const res = await fetch(`${BASE_URL}/api/forms/${id}/submissions.csv`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`${res.status}: couldn't export responses`);
+    return res.text();
+  },
   // Public (no auth needed) — used by the in-app form renderer.
   publicForm: (key: string) =>
     request<{ id: string; title: string; description?: string | null; submit_label?: string; fields: FormField[] }>(`/pub/form?form=${encodeURIComponent(key)}`),
@@ -1043,6 +1058,7 @@ export type OAuthApp = { client_id: string; name: string; redirect_uris: string[
 export type OAuthConnection = { client_id: string; name: string; scope: string; granted_at?: string | null; tokens: number };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
+export type WebhookDelivery = { id: string; event: string; ok: boolean; status: number; attempts: number; error?: string | null; created_at: string };
 export type OveragePack = { id: string; name: string; requests: number; price: number };
 export type ApiUsage = { plan?: string | null; used: number; quota: number; extra_credits: number; limit: number; resets_at?: string | null; packs: OveragePack[]; stripe_enabled: boolean };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
@@ -1105,10 +1121,10 @@ export type FormField = {
 };
 export type FormDef = {
   id: string; owner_id?: string; form_key: string; title: string;
-  description?: string | null; submit_label?: string; fields: FormField[];
+  description?: string | null; submit_label?: string; notify_email?: string | null; fields: FormField[];
   submissions: number; created_at?: string;
 };
-export type FormCreate = { title: string; description?: string; submit_label?: string; fields: FormField[] };
+export type FormCreate = { title: string; description?: string; submit_label?: string; notify_email?: string | null; fields: FormField[] };
 export type FormSubmission = { id: string; form_id: string; values: Record<string, string>; ip?: string; submitted_at: string };
 export type PlaceCreate = {
   title: string; notes?: string; longitude: number; latitude: number; address?: string; category?: string;

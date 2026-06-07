@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Modal, Platform, Switch,
+  ActivityIndicator, Modal, Platform, Switch, Share, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,6 +29,8 @@ const TYPES: { k: FormFieldType; label: string; icon: any }[] = [
   { k: "radio", label: "Single choice", icon: "radio-button-on-outline" },
   { k: "checkbox", label: "Checkboxes", icon: "checkbox-outline" },
 ];
+// Accent presets for the embed customizer ("" = default theme green).
+const ACCENTS = ["", "7C3AED", "0EA5E9", "F97316", "EF4444", "EAB308", "EC4899"];
 const typeLabel = (t: string) => TYPES.find((x) => x.k === t)?.label || t;
 const hasOptions = (t: string) => t === "select" || t === "radio" || t === "checkbox";
 const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleString(); } catch { return iso; } };
@@ -46,6 +48,7 @@ export default function FormBuilderScreen() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [submitLabel, setSubmitLabel] = useState("Submit");
+  const [notifyEmail, setNotifyEmail] = useState("");
   const [fields, setFields] = useState<FormField[]>([]);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -55,13 +58,22 @@ export default function FormBuilderScreen() {
   const [subs, setSubs] = useState<FormSubmission[]>([]);
   const [subFields, setSubFields] = useState<FormField[]>([]);
   const [subsLoading, setSubsLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // Embed customization (Share tab) — reflected live in the snippet/link below.
+  const [embedDark, setEmbedDark] = useState(false);
+  const [embedHideTitle, setEmbedHideTitle] = useState(false);
+  const [embedAccent, setEmbedAccent] = useState("");   // "" = default green
+  const [embedRedirect, setEmbedRedirect] = useState("");
+  const [prefill, setPrefill] = useState<Record<string, string>>({});
+  const [showPrefill, setShowPrefill] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
       const f = await api.getForm(String(id));
       setForm(f); setTitle(f.title); setDescription(f.description || "");
-      setSubmitLabel(f.submit_label || "Submit"); setFields(f.fields || []);
+      setSubmitLabel(f.submit_label || "Submit"); setNotifyEmail(f.notify_email || ""); setFields(f.fields || []);
     } catch {} finally { setLoading(false); }
   }, [id]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -93,9 +105,10 @@ export default function FormBuilderScreen() {
     try {
       const f = await api.updateForm(form.id, {
         title: title.trim(), description: description.trim() || undefined,
-        submit_label: submitLabel.trim() || "Submit", fields,
+        submit_label: submitLabel.trim() || "Submit",
+        notify_email: notifyEmail.trim() || null, fields,
       });
-      setForm(f); setFields(f.fields || []); setDirty(false);
+      setForm(f); setNotifyEmail(f.notify_email || ""); setFields(f.fields || []); setDirty(false);
     } catch {} finally { setSaving(false); }
   };
 
@@ -105,8 +118,42 @@ export default function FormBuilderScreen() {
     try { await api.deleteForm(form.id); safeBack("/forms"); } catch {}
   };
 
-  const snippet = form ? `<script async src="${apiOrigin()}/api/pub/form-embed.js?form=${form.form_key}"></script>` : "";
-  const directLink = form ? `${apiOrigin()}/api/pub/form-unit?form=${form.form_key}` : "";
+  const exportCsv = async () => {
+    if (!form || exporting) return;
+    setExporting(true);
+    try {
+      const csv = await api.exportFormCsv(form.id);
+      const fname = `${(form.title || "form").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "form"}-responses.csv`;
+      if (Platform.OS === "web") {
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = fname;
+        document.body.appendChild(a); a.click();
+        a.remove(); URL.revokeObjectURL(url);
+      } else {
+        try { await Share.share({ message: csv, title: fname }); }
+        catch { await Clipboard.setStringAsync(csv); setCopied("csv"); setTimeout(() => setCopied(""), 1500); }
+      }
+    } catch {} finally { setExporting(false); }
+  };
+
+  const prefillEntries = Object.entries(prefill).filter(([, v]) => (v || "").trim());
+  const prefillJson = prefillEntries.length ? JSON.stringify(Object.fromEntries(prefillEntries)) : "";
+  const dataAttrs =
+    (embedDark ? ` data-theme="dark"` : "") +
+    (embedAccent ? ` data-accent="${embedAccent}"` : "") +
+    (embedHideTitle ? ` data-hide-title="1"` : "") +
+    (embedRedirect.trim() ? ` data-redirect="${embedRedirect.trim()}"` : "") +
+    (prefillJson ? ` data-prefill='${prefillJson}'` : "");
+  const linkParams =
+    (embedDark ? "&theme=dark" : "") +
+    (embedAccent ? `&accent=${embedAccent}` : "") +
+    (embedHideTitle ? "&hide_title=1" : "") +
+    (embedRedirect.trim() ? `&redirect=${encodeURIComponent(embedRedirect.trim())}` : "") +
+    prefillEntries.map(([k, v]) => `&pf_${encodeURIComponent(k)}=${encodeURIComponent(v.trim())}`).join("");
+  const snippet = form ? `<script async src="${apiOrigin()}/api/pub/form-embed.js?form=${form.form_key}"${dataAttrs}></script>` : "";
+  const directLink = form ? `${apiOrigin()}/api/pub/form-unit?form=${form.form_key}${linkParams}` : "";
   const copy = async (what: string, text: string) => { await Clipboard.setStringAsync(text); setCopied(what); setTimeout(() => setCopied(""), 1500); };
 
   return (
@@ -181,6 +228,20 @@ export default function FormBuilderScreen() {
               <Text style={[styles.label, { marginTop: 18 }]}>Submit button text</Text>
               <TextInput style={styles.input} value={submitLabel} onChangeText={(t) => { setSubmitLabel(t); mark(); }} placeholder="Submit" placeholderTextColor={theme.textMuted} />
 
+              <Text style={[styles.label, { marginTop: 18 }]}>Email responses to (optional)</Text>
+              <Text style={styles.hint}>Leave blank to use your account email.</Text>
+              <TextInput
+                style={styles.input}
+                value={notifyEmail}
+                onChangeText={(t) => { setNotifyEmail(t); mark(); }}
+                placeholder="you@example.com"
+                placeholderTextColor={theme.textMuted}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                testID="form-notify-email"
+              />
+
               <TouchableOpacity style={[styles.saveBtn, (!dirty || saving || !title.trim()) && { opacity: 0.5 }]} onPress={save} disabled={!dirty || saving || !title.trim()} testID="form-save">
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>{dirty ? "Save changes" : "Saved"}</Text>}
               </TouchableOpacity>
@@ -194,6 +255,83 @@ export default function FormBuilderScreen() {
                 <Ionicons name="open-outline" size={18} color="#fff" />
                 <Text style={styles.shareBtnText}>Open form in app</Text>
               </TouchableOpacity>
+
+              <Text style={[styles.label, { marginTop: 18 }]}>Customize appearance</Text>
+              <Text style={styles.hint}>These options update the snippet and link below.</Text>
+              <View style={styles.custCard}>
+                <View style={styles.custRow}>
+                  <Text style={styles.custLabel}>Dark mode</Text>
+                  <Switch value={embedDark} onValueChange={setEmbedDark} trackColor={{ true: theme.primary }} testID="embed-dark" />
+                </View>
+                <View style={styles.custRow}>
+                  <Text style={styles.custLabel}>Hide title & description</Text>
+                  <Switch value={embedHideTitle} onValueChange={setEmbedHideTitle} trackColor={{ true: theme.primary }} testID="embed-hide-title" />
+                </View>
+                <Text style={[styles.custLabel, { marginTop: 4, marginBottom: 8 }]}>Accent color</Text>
+                <View style={styles.swatchRow}>
+                  {ACCENTS.map((a) => {
+                    const on = embedAccent === a;
+                    const col = a ? `#${a}` : theme.primary;
+                    return (
+                      <TouchableOpacity
+                        key={a || "default"}
+                        style={[styles.swatch, { backgroundColor: col }, on && styles.swatchOn]}
+                        onPress={() => setEmbedAccent(a)}
+                        testID={`embed-accent-${a || "default"}`}
+                      >
+                        {on && <Ionicons name="checkmark" size={15} color="#fff" />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={[styles.custLabel, { marginTop: 12, marginBottom: 6 }]}>Redirect after submit (optional)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={embedRedirect}
+                  onChangeText={setEmbedRedirect}
+                  placeholder="https://yoursite.com/thanks"
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  testID="embed-redirect"
+                />
+
+                {(form.fields || []).length > 0 && (
+                  <>
+                    <TouchableOpacity style={styles.prefillToggle} onPress={() => setShowPrefill((s) => !s)} testID="embed-prefill-toggle">
+                      <Text style={styles.custLabel}>Pre-fill fields (optional)</Text>
+                      <Ionicons name={showPrefill ? "chevron-up" : "chevron-down"} size={16} color={theme.textMuted} />
+                    </TouchableOpacity>
+                    {showPrefill && (
+                      <View style={{ marginTop: 4 }}>
+                        <Text style={styles.hint}>Ship the embed with default values already filled in (e.g. a campaign source).</Text>
+                        {(form.fields || []).map((f, i) => {
+                          const key = f.id || `f${i + 1}`;
+                          return (
+                            <View key={key} style={styles.prefillRow}>
+                              <Text style={styles.prefillKey} numberOfLines={1}>{f.label || key}</Text>
+                              <TextInput
+                                style={styles.prefillInput}
+                                value={prefill[key] || ""}
+                                onChangeText={(t) => setPrefill((p) => ({ ...p, [key]: t }))}
+                                placeholder="default value"
+                                placeholderTextColor={theme.textMuted}
+                                testID={`embed-prefill-${key}`}
+                              />
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </>
+                )}
+
+                <TouchableOpacity style={styles.previewBtn} onPress={() => Linking.openURL(directLink)} testID="embed-preview">
+                  <Ionicons name="eye-outline" size={16} color={theme.primary} />
+                  <Text style={styles.copyText}>Preview styled form</Text>
+                </TouchableOpacity>
+              </View>
 
               <Text style={[styles.label, { marginTop: 18 }]}>Embed on a website</Text>
               <Text style={styles.hint}>Paste this snippet where you want the form to appear.</Text>
@@ -223,7 +361,17 @@ export default function FormBuilderScreen() {
               </View>
             ) : (
               <>
-                <Text style={styles.intro}>{subs.length} response{subs.length === 1 ? "" : "s"}</Text>
+                <View style={styles.respHead}>
+                  <Text style={[styles.intro, { marginBottom: 0 }]}>{subs.length} response{subs.length === 1 ? "" : "s"}</Text>
+                  <TouchableOpacity style={styles.exportBtn} onPress={exportCsv} disabled={exporting} testID="form-export-csv">
+                    {exporting ? <ActivityIndicator size="small" color={theme.primary} /> : (
+                      <>
+                        <Ionicons name={copied === "csv" ? "checkmark" : "download-outline"} size={15} color={theme.primary} />
+                        <Text style={styles.exportText}>{copied === "csv" ? "Copied" : "Export CSV"}</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
                 {subs.map((s) => (
                   <View key={s.id} style={styles.subCard}>
                     <Text style={styles.subDate}>{fmtDate(s.submitted_at)}</Text>
@@ -293,10 +441,24 @@ const styles = StyleSheet.create({
   saveText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   shareBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 13 },
   shareBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  custCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14 },
+  custRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6 },
+  custLabel: { color: theme.textSecondary, fontSize: 14, fontWeight: "700" },
+  swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  swatch: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
+  swatchOn: { borderColor: theme.textPrimary },
+  prefillToggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14, paddingVertical: 4 },
+  prefillRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
+  prefillKey: { flex: 0.4, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
+  prefillInput: { flex: 0.6, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: theme.textPrimary, fontSize: 14, ...webInput },
+  previewBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 11, marginTop: 14 },
   codeBox: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12 },
   code: { color: theme.textPrimary, fontSize: 12.5, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   copyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 11, marginTop: 8 },
   copyText: { color: theme.primary, fontSize: 14, fontWeight: "800" },
+  respHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  exportBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surfaceAlt, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, minWidth: 96, justifyContent: "center" },
+  exportText: { color: theme.primary, fontSize: 13, fontWeight: "800" },
   empty: { alignItems: "center", paddingTop: 50, gap: 10 },
   emptySub: { color: theme.textMuted, fontSize: 14, textAlign: "center" },
   subCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12, marginBottom: 10 },

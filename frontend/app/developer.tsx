@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as Clipboard from "expo-clipboard";
-import { api, ApiKey, OAuthApp } from "@/src/api/client";
+import { api, ApiKey, DevWebhook, OAuthApp, WebhookDelivery } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://nampo-backend.onrender.com";
@@ -22,15 +22,17 @@ const GROUPS: Group[] = [
   {
     title: "Forms", icon: "document-text",
     endpoints: [
-      { method: "POST", path: "/forms", desc: "Create a form.", auth: true, body: `{"title","description","fields":[{"type","label","required","options"}]}` },
+      { method: "POST", path: "/forms", desc: "Create a form.", auth: true, body: `{"title","description","notify_email","fields":[{"type","label","required","options"}]}` },
       { method: "GET", path: "/forms", desc: "List your forms.", auth: true },
       { method: "GET", path: "/forms/{id}", desc: "Get a form definition.", auth: true },
-      { method: "POST", path: "/forms/{id}", desc: "Update a form (title, fields, …).", auth: true },
+      { method: "POST", path: "/forms/{id}", desc: "Update a form (title, fields, notify_email, …).", auth: true },
       { method: "DELETE", path: "/forms/{id}", desc: "Delete a form and its responses.", auth: true },
       { method: "GET", path: "/forms/{id}/submissions", desc: "List responses (paginated).", auth: true },
+      { method: "GET", path: "/forms/{id}/submissions.csv", desc: "Download all responses as CSV.", auth: true },
       { method: "GET", path: "/pub/form?form=KEY", desc: "Public: get a form's fields (no auth).", auth: false },
-      { method: "POST", path: "/pub/form-submit?form=KEY", desc: "Public: submit a form (no auth).", auth: false, body: `{"values":{...},"hp":""}` },
-      { method: "GET", path: "/pub/form-embed.js?form=KEY", desc: "Public: <script> loader that embeds the form as an iframe.", auth: false },
+      { method: "POST", path: "/pub/form-submit?form=KEY", desc: "Public: submit a form (no auth). Fires the form.submission webhook.", auth: false, body: `{"values":{...},"hp":""}` },
+      { method: "GET", path: "/pub/form-embed.js?form=KEY", desc: "Public: <script> loader; theme via data-theme/accent/bg/radius/redirect/prefill.", auth: false },
+      { method: "GET", path: "/pub/form-unit?form=KEY", desc: "Public: hosted form page. Params: theme, accent, bg, radius, hide_title, redirect, pf_<id>.", auth: false },
     ],
   },
   {
@@ -139,8 +141,32 @@ const GROUPS: Group[] = [
     endpoints: [
       { method: "POST", path: "/pub/sites", desc: "Register a site to show Nami ads & earn. Returns a site_key.", auth: true, body: `{"name","domain"}` },
       { method: "GET", path: "/pub/sites", desc: "Your publisher sites + earnings.", auth: true },
-      { method: "GET", path: "/pub/embed.js?site=KEY", desc: "Drop-in <script> embed (no auth).", auth: false },
+      { method: "DELETE", path: "/pub/sites/{id}", desc: "Remove a publisher site.", auth: true },
+      { method: "GET", path: "/pub/embed.js?site=KEY", desc: "Drop-in <script> embed; style via data-theme/accent/radius/label/width/height.", auth: false },
+      { method: "GET", path: "/pub/unit?site=KEY", desc: "Hosted ad unit. Params: theme, accent, radius, label.", auth: false },
       { method: "GET", path: "/pub/ad?site=KEY", desc: "Public JSON ad for custom integrations.", auth: false },
+    ],
+  },
+  {
+    title: "Webhooks", icon: "git-network",
+    endpoints: [
+      { method: "GET", path: "/webhooks/events", desc: "List subscribable event types + descriptions.", auth: false },
+      { method: "GET", path: "/webhooks", desc: "Your registered webhooks.", auth: true },
+      { method: "POST", path: "/webhooks", desc: "Register an endpoint (Pro+). Returns a signing secret once.", auth: true, body: `{"url","events":[]}` },
+      { method: "POST", path: "/webhooks/{id}/test", desc: "Send a signed sample ping; returns your endpoint's status.", auth: true },
+      { method: "GET", path: "/webhooks/{id}/deliveries", desc: "Recent delivery attempts (status, retries, errors).", auth: true },
+      { method: "DELETE", path: "/webhooks/{id}", desc: "Delete a webhook.", auth: true },
+    ],
+  },
+  {
+    title: "Embed content", icon: "share-social",
+    endpoints: [
+      { method: "GET", path: "/pub/post/{id}", desc: "Public JSON for a post (public posts only).", auth: false },
+      { method: "GET", path: "/pub/profile/{username}", desc: "Public JSON for a user profile.", auth: false },
+      { method: "GET", path: "/pub/post-card?post=ID", desc: "Themeable iframe card for a post (theme/accent/radius).", auth: false },
+      { method: "GET", path: "/pub/profile-card?profile=USER", desc: "Themeable iframe card for a profile.", auth: false },
+      { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post or data-profile + data-theme/accent/radius.", auth: false },
+      { method: "GET", path: "/pub/oembed?url=URL", desc: "oEmbed provider — paste a Nami link into WordPress/Discourse to auto-embed.", auth: false },
     ],
   },
   {
@@ -197,16 +223,50 @@ const GROUPS: Group[] = [
   },
 ];
 
-type Lang = "curl" | "js" | "python";
+type Lang = "curl" | "js" | "python" | "dart";
 const SAMPLE: Record<Lang, (base: string) => string> = {
   curl: (b) => `curl ${b}/posts/feed \\\n  -H "Authorization: Bearer $NAMI_KEY"`,
   js: (b) => `const res = await fetch("${b}/posts/feed", {\n  headers: { Authorization: \`Bearer \${process.env.NAMI_KEY}\` },\n});\nconst feed = await res.json();`,
   python: (b) => `import requests\nr = requests.get(\n  "${b}/posts/feed",\n  headers={"Authorization": f"Bearer {NAMI_KEY}"},\n)\nfeed = r.json()`,
+  dart: (b) => `import 'package:http/http.dart' as http;\nimport 'dart:convert';\n\nfinal res = await http.get(\n  Uri.parse("${b}/posts/feed"),\n  headers: {"Authorization": "Bearer $NAMI_KEY"},\n);\nfinal feed = jsonDecode(res.body);`,
 };
+const LANG_LABEL: Record<Lang, string> = { curl: "cURL", js: "JavaScript", python: "Python", dart: "Dart / Flutter" };
 
 const METHOD_COLOR: Record<Method, string> = {
   GET: "#22C55E", POST: "#0EA5E9", PATCH: "#EAB308", DELETE: "#F15C6D",
 };
+
+// Drop-in embed examples for the "Embed & SDKs" section. Customizable via
+// data-* attributes (web) or query params (anywhere, incl. a Flutter WebView).
+const EMBED_SNIPPET = `<script async
+  src="${BASE}/api/pub/form-embed.js?form=YOUR_FORM_KEY"
+  data-theme="dark"
+  data-accent="7C3AED"
+  data-height="620"
+  data-redirect="https://yoursite.com/thanks"
+  data-prefill='{"email":"user@site.com"}'>
+</script>`;
+const FLUTTER_WEBVIEW = `// pubspec.yaml → webview_flutter: ^4.0.0
+import 'package:webview_flutter/webview_flutter.dart';
+
+final c = WebViewController()
+  ..loadRequest(Uri.parse(
+    "${BASE}/api/pub/form-unit?form=YOUR_FORM_KEY"
+    "&theme=dark&accent=7C3AED"));
+
+// in build(): WebViewWidget(controller: c)`;
+const CONTENT_SNIPPET = `<!-- Embed a Nami post (or use data-profile="username") -->
+<script async src="${BASE}/api/pub/content-embed.js"
+  data-post="POST_ID" data-theme="dark" data-accent="7C3AED"></script>`;
+const EMBED_ATTRS: [string, string][] = [
+  ["theme", "light (default) or dark"],
+  ["accent", "button colour, 3/6-digit hex (no #)"],
+  ["bg", "background colour, hex"],
+  ["radius", "corner radius in px (0–28)"],
+  ["hide_title", "1 to hide the title & description"],
+  ["redirect", "URL to send users to after submit"],
+  ["pf_<field_id>", "pre-fill a field (query param)"],
+];
 
 export default function DeveloperScreen() {
   const router = useRouter();
@@ -224,6 +284,12 @@ export default function DeveloperScreen() {
   const [webhooks, setWebhooks] = useState<DevWebhook[]>([]);
   const [whUrl, setWhUrl] = useState("");
   const [whBusy, setWhBusy] = useState(false);
+  const [whTesting, setWhTesting] = useState<string | null>(null);
+  const [whEvents, setWhEvents] = useState<{ event: string; description: string }[]>([]);
+  const [whSelected, setWhSelected] = useState<string[]>([]);
+  const [openLogs, setOpenLogs] = useState<string | null>(null);
+  const [logs, setLogs] = useState<Record<string, WebhookDelivery[]>>({});
+  const [logsBusy, setLogsBusy] = useState(false);
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
@@ -240,6 +306,10 @@ export default function DeveloperScreen() {
     try { setKeys((await api.listApiKeys()).keys); } catch {} finally { setLoading(false); }
     try { setPlan(await api.getApiPlan()); } catch {}
     try { setWebhooks((await api.listWebhooks()).webhooks); } catch {}
+    try {
+      const r = await api.listWebhookEvents();
+      setWhEvents(r.event_info || (r.events || []).map((e) => ({ event: e, description: "" })));
+    } catch {}
     try { setUsage(await api.getApiUsage()); } catch {}
     try { setOauthApps((await api.listOAuthApps()).apps); } catch {}
   }, []);
@@ -315,13 +385,26 @@ export default function DeveloperScreen() {
     if (!whUrl.trim()) return;
     setWhBusy(true);
     try {
-      const w = await api.createWebhook(whUrl.trim());
+      const w = await api.createWebhook(whUrl.trim(), whSelected.length ? whSelected : undefined);
       setFreshSecret(w.secret || null);
-      setWhUrl("");
+      setWhUrl(""); setWhSelected([]);
       await load();
     } catch (e: any) {
       Alert.alert("Couldn't add webhook", errText(e));
     } finally { setWhBusy(false); }
+  };
+
+  const toggleEvent = (e: string) =>
+    setWhSelected((s) => (s.includes(e) ? s.filter((x) => x !== e) : [...s, e]));
+
+  const toggleLogs = async (id: string) => {
+    if (openLogs === id) { setOpenLogs(null); return; }
+    setOpenLogs(id);
+    if (!logs[id]) {
+      setLogsBusy(true);
+      try { const r = await api.listWebhookDeliveries(id); setLogs((m) => ({ ...m, [id]: r.deliveries })); }
+      catch {} finally { setLogsBusy(false); }
+    }
   };
 
   const removeWebhook = (id: string) => {
@@ -329,6 +412,20 @@ export default function DeveloperScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteWebhook(id); await load(); } catch {} } },
     ]);
+  };
+
+  const testWebhook = async (id: string) => {
+    setWhTesting(id);
+    try {
+      const r = await api.testWebhook(id);
+      Alert.alert(
+        r.ok ? "Test delivered" : "Test failed",
+        r.ok ? `Your endpoint replied ${r.status}. Check for the signed "ping" event.`
+             : r.status ? `Your endpoint replied ${r.status}.` : `Couldn't reach the endpoint.${r.error ? `\n${r.error}` : ""}`,
+      );
+    } catch (e: any) {
+      Alert.alert("Test failed", errText(e));
+    } finally { setWhTesting(null); }
   };
 
   const revoke = (k: ApiKey) => {
@@ -536,7 +633,7 @@ export default function DeveloperScreen() {
           </Text>
         ) : (
           <>
-            <Text style={styles.body}>We POST signed events (follows, messages, tips, …) to your URL. Verify the `X-Nami-Signature` header with your signing secret.</Text>
+            <Text style={styles.body}>We POST signed events (follows, messages, tips, form submissions, …) to your URL. Verify the `X-Nami-Signature` header with your signing secret.</Text>
             {freshSecret && (
               <View style={styles.freshCard}>
                 <Text style={styles.freshLabel}>Signing secret — copy it now, shown once:</Text>
@@ -547,7 +644,22 @@ export default function DeveloperScreen() {
                 <TouchableOpacity onPress={() => setFreshSecret(null)}><Text style={styles.dismiss}>Done</Text></TouchableOpacity>
               </View>
             )}
-            <View style={styles.keyInputRow}>
+            {whEvents.length > 0 && (
+              <>
+                <Text style={[styles.body, { marginBottom: 6 }]}>Choose events to subscribe to (none = all {whEvents.length}):</Text>
+                <View style={styles.eventWrap}>
+                  {whEvents.map((e) => {
+                    const on = whSelected.includes(e.event);
+                    return (
+                      <TouchableOpacity key={e.event} style={[styles.eventChip, on && styles.eventChipOn]} onPress={() => toggleEvent(e.event)} testID={`wh-ev-${e.event}`}>
+                        <Text style={[styles.eventChipText, on && { color: theme.primary }]}>{e.event}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+            <View style={[styles.keyInputRow, { marginTop: 10 }]}>
               <TextInput
                 style={styles.keyInput} placeholder="https://your-server.com/hook" placeholderTextColor={theme.textMuted}
                 value={whUrl} onChangeText={setWhUrl} autoCapitalize="none" autoCorrect={false} testID="webhook-url"
@@ -559,15 +671,38 @@ export default function DeveloperScreen() {
             {webhooks.length === 0 ? (
               <Text style={styles.empty}>No webhooks yet.</Text>
             ) : webhooks.map((w) => (
-              <View key={w.id} style={styles.keyRow}>
-                <View style={styles.keyIcon}><Ionicons name="git-network-outline" size={15} color={theme.primary} /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.keyLabel} numberOfLines={1}>{w.url}</Text>
-                  <Text style={styles.keyMeta}>{(w.events || []).length} events · {fmtDate(w.created_at)}</Text>
+              <View key={w.id}>
+                <View style={styles.keyRow}>
+                  <View style={styles.keyIcon}><Ionicons name="git-network-outline" size={15} color={theme.primary} /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.keyLabel} numberOfLines={1}>{w.url}</Text>
+                    <Text style={styles.keyMeta}>{(w.events || []).length} events · {fmtDate(w.created_at)}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => toggleLogs(w.id)} hitSlop={8} style={styles.whTestBtn} testID={`webhook-logs-${w.id}`}>
+                    <Text style={styles.whTestText}>{openLogs === w.id ? "Hide" : "Logs"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => testWebhook(w.id)} disabled={whTesting === w.id} hitSlop={8} style={styles.whTestBtn} testID={`webhook-test-${w.id}`}>
+                    {whTesting === w.id ? <ActivityIndicator color={theme.primary} size="small" /> : <Text style={styles.whTestText}>Test</Text>}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => removeWebhook(w.id)} hitSlop={8} testID={`webhook-del-${w.id}`}>
+                    <Ionicons name="trash-outline" size={18} color={theme.error} />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => removeWebhook(w.id)} hitSlop={8} testID={`webhook-del-${w.id}`}>
-                  <Ionicons name="trash-outline" size={18} color={theme.error} />
-                </TouchableOpacity>
+                {openLogs === w.id && (
+                  <View style={styles.logsBox}>
+                    {logsBusy && !logs[w.id] ? (
+                      <ActivityIndicator color={theme.primary} size="small" />
+                    ) : (logs[w.id] || []).length === 0 ? (
+                      <Text style={styles.empty}>No deliveries yet. Use Test to send a ping.</Text>
+                    ) : (logs[w.id] || []).map((d) => (
+                      <View key={d.id} style={styles.logRow}>
+                        <View style={[styles.logDot, { backgroundColor: d.ok ? theme.success : theme.error }]} />
+                        <Text style={styles.logEvent} numberOfLines={1}>{d.event}</Text>
+                        <Text style={styles.logMeta}>{d.status || "—"}{d.attempts > 1 ? ` ·${d.attempts}x` : ""} · {fmtDate(d.created_at)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             ))}
           </>
@@ -624,15 +759,56 @@ export default function DeveloperScreen() {
         {/* Quickstart */}
         <Text style={styles.groupTitle}>Quickstart</Text>
         <View style={styles.langRow}>
-          {(["curl", "js", "python"] as Lang[]).map((l) => (
+          {(["curl", "js", "python", "dart"] as Lang[]).map((l) => (
             <TouchableOpacity key={l} onPress={() => setLang(l)} style={[styles.langTab, lang === l && styles.langTabOn]} testID={`lang-${l}`}>
-              <Text style={[styles.langText, lang === l && { color: theme.primary }]}>{l === "js" ? "JavaScript" : l === "python" ? "Python" : "cURL"}</Text>
+              <Text style={[styles.langText, lang === l && { color: theme.primary }]}>{LANG_LABEL[l]}</Text>
             </TouchableOpacity>
           ))}
         </View>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(SAMPLE[lang](API_BASE), "Example")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{SAMPLE[lang](API_BASE)}</Text>
         </TouchableOpacity>
+
+        {/* Embed & SDKs */}
+        <Text style={styles.groupTitle}>Embed & customize</Text>
+        <Text style={styles.body}>
+          Drop a Nami form into any website or app and theme it to match your brand — no auth, no backend. Paste the snippet and tweak the <Text style={styles.codeInline}>data-*</Text> attributes:
+        </Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(EMBED_SNIPPET, "Embed snippet")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{EMBED_SNIPPET}</Text>
+        </TouchableOpacity>
+        <View style={[styles.convCard, { marginTop: 10 }]}>
+          {EMBED_ATTRS.map(([k, v]) => (
+            <Text key={k} style={styles.convItem}><Text style={styles.convKey}>{k} </Text>{v}</Text>
+          ))}
+        </View>
+        <Text style={[styles.body, { marginTop: 12 }]}>
+          The same knobs work as query params on <Text style={styles.codeInline}>/pub/form-unit</Text>, so you can embed the form in a native app — e.g. a Flutter <Text style={styles.codeInline}>WebView</Text>:
+        </Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(FLUTTER_WEBVIEW, "Flutter snippet")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{FLUTTER_WEBVIEW}</Text>
+        </TouchableOpacity>
+
+        <Text style={[styles.body, { marginTop: 12 }]}>
+          You can also embed Nami <Text style={styles.codeInline}>content</Text> — posts and profiles — as themeable cards, or rely on <Text style={styles.codeInline}>oEmbed</Text> so a pasted Nami link auto-expands in WordPress, Discourse, Notion and other oEmbed-aware tools:
+        </Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(CONTENT_SNIPPET, "Content embed")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{CONTENT_SNIPPET}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>
+          oEmbed endpoint: <Text style={styles.codeInline}>{`${BASE}/api/pub/oembed?url=<nami link>`}</Text> — only public content is served (no subscriber-only posts, no banned users).
+        </Text>
+
+        <Text style={[styles.groupTitle, { marginTop: 22 }]}>SDKs & client generation</Text>
+        <Text style={styles.body}>
+          Nami is a plain JSON+HTTPS API, so it works from any language — Dart/Flutter, Swift, Kotlin, Go, Rust and more. For a fully-typed client, generate one from the OpenAPI schema:
+        </Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(`# Dart/Flutter client from the OpenAPI schema\ndart pub global activate openapi_generator_cli\nopenapi-generator generate \\\n  -i ${BASE}/openapi.json \\\n  -g dart-dio -o ./nami_client`, "Codegen")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{`# Dart/Flutter client from the OpenAPI schema\ndart pub global activate openapi_generator_cli\nopenapi-generator generate \\\n  -i ${BASE}/openapi.json \\\n  -g dart-dio -o ./nami_client`}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>
+          Swap <Text style={styles.codeInline}>-g dart-dio</Text> for <Text style={styles.codeInline}>swift5</Text>, <Text style={styles.codeInline}>kotlin</Text>, <Text style={styles.codeInline}>go</Text>, <Text style={styles.codeInline}>typescript-fetch</Text>, etc. CORS is open, so browser and mobile apps can call the API directly.
+        </Text>
 
         {/* Conventions */}
         <Text style={styles.groupTitle}>Conventions</Text>
@@ -672,7 +848,7 @@ export default function DeveloperScreen() {
         })}
 
         <Text style={styles.footer}>
-          Rate limits and signed webhooks are coming. Keep your API keys secret — treat them like passwords.
+          Keep your API keys and signing secrets safe — treat them like passwords. Heavy automated traffic may be rate-limited (429).
         </Text>
       </ScrollView>
     </SafeAreaView>
@@ -752,6 +928,17 @@ const styles = StyleSheet.create({
   genBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   empty: { color: theme.textMuted, fontSize: 13, marginTop: 12 },
   keyRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  whTestBtn: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, minWidth: 52, alignItems: "center", justifyContent: "center" },
+  whTestText: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
+  eventWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  eventChip: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 },
+  eventChipOn: { borderColor: theme.primary, backgroundColor: "rgba(0,168,132,0.10)" },
+  eventChipText: { color: theme.textSecondary, fontSize: 11.5, fontWeight: "700", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  logsBox: { backgroundColor: theme.surfaceAlt, borderRadius: 10, padding: 10, marginTop: -2, marginBottom: 8, gap: 6 },
+  logRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  logDot: { width: 7, height: 7, borderRadius: 4 },
+  logEvent: { flex: 1, color: theme.textPrimary, fontSize: 12.5, fontWeight: "700", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  logMeta: { color: theme.textMuted, fontSize: 11.5 },
   keyIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" },
   keyLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   keyMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
