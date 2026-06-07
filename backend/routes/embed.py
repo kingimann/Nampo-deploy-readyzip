@@ -205,6 +205,41 @@ async def public_profile(request: Request, username: str):
     return _profile_json(u)
 
 
+@router.get("/pub/profile/{username}/posts")
+async def public_profile_posts(request: Request, username: str,
+                               limit: int = Query(10), cursor: Optional[str] = Query(None)):
+    """A user's public posts, newest first — build a Nami feed widget on your site.
+    Cursor pagination: pass the returned `next_cursor` to get the next page (null =
+    end). Only public timeline posts are returned (no replies, reposts, groups,
+    communities, or subscriber-only posts)."""
+    if not _rate_ok(_client_ip(request)):
+        raise HTTPException(status_code=429, detail="Slow down — too many requests.")
+    u = await _load_public_user(username)
+    if not u:
+        raise HTTPException(status_code=404, detail="Profile not available")
+    lim = max(1, min(int(limit or 10), 30))
+    q = {
+        "user_id": u["user_id"], "parent_id": None,
+        "repost_of": {"$in": [None, ""]},
+        "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]},
+    }
+    if cursor:
+        try:
+            cdt = datetime.fromisoformat(cursor.replace("Z", "+00:00"))
+            q["created_at"] = {"$lt": cdt}
+        except Exception:
+            pass
+    rows = await db.posts.find(q, {"_id": 0}).sort("created_at", -1).limit(lim + 1).to_list(lim + 1)
+    has_more = len(rows) > lim
+    page = rows[:lim]
+    items = [_post_json(d, u) for d in page if int(d.get("min_sub_tier") or 0) == 0]
+    next_cursor = None
+    if has_more and page:
+        nc = page[-1].get("created_at")
+        next_cursor = nc.isoformat() if hasattr(nc, "isoformat") else str(nc)
+    return {"posts": items, "next_cursor": next_cursor}
+
+
 # ── Themeable iframe cards (server-rendered) ──────────────────────────────────
 _CARD_CSS = """
   :root{--bg:#fff;--text:#0b0b0c;--muted:#5b6770;--border:#e8ebed;--acc:#00A884;--rad:14px}
