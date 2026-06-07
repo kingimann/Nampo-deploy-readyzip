@@ -60,6 +60,15 @@ export default function Root({ children }: PropsWithChildren) {
               /* No image drag ghost / blue focus ring on tappables. */
               img, a { -webkit-user-drag: none; user-drag: none; }
               :focus { outline: none; }
+
+              /* Branded launch screen shown while the app boots (and on PWA cold start). */
+              #nami-splash {
+                position: fixed; inset: 0; z-index: 99999;
+                display: flex; align-items: center; justify-content: center;
+                background: #0B141A; transition: opacity .35s ease;
+              }
+              #nami-splash img { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 10px 34px rgba(0,0,0,.55); }
+              #nami-splash.hide { opacity: 0; pointer-events: none; }
             `,
           }}
         />
@@ -88,6 +97,26 @@ export default function Root({ children }: PropsWithChildren) {
         }}
       >
         {children}
+        {/* Branded launch screen — removed as soon as the app mounts. */}
+        <div id="nami-splash">
+          <img src="/icon.png" alt="Nami" />
+        </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                function hide(){ var s=document.getElementById('nami-splash'); if(!s) return; s.className='hide'; setTimeout(function(){ if(s&&s.parentNode) s.parentNode.removeChild(s); }, 420); }
+                var done=false; function finish(){ if(done) return; done=true; hide(); }
+                var root=document.querySelector('body > div'); // the React Native app root (first div)
+                if(root){
+                  if(root.childNodes.length>0){ finish(); }
+                  else { var o=new MutationObserver(function(){ if(root.childNodes.length>0){ o.disconnect(); finish(); } }); o.observe(root,{childList:true}); }
+                }
+                window.addEventListener('load', function(){ setTimeout(finish, 2000); });
+              })();
+            `,
+          }}
+        />
       </body>
     </html>
   );
