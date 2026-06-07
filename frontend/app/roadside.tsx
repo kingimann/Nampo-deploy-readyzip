@@ -402,8 +402,14 @@ export default function RoadsideScreen() {
 
   const goArrived = async (r: RoadsideRequest) => {
     setBusyId(r.id);
-    try { setHelping(await api.arrivedRoadside(r.id)); } catch (e: any) { Alert.alert("Couldn't update", String(e?.message || e)); }
-    finally { setBusyId(null); }
+    try {
+      // Confirm the helper is actually at the member — the backend gates on this.
+      const loc = await detect(true);
+      if (!loc) { Alert.alert("Location needed", "Enable location so we can confirm you're on site."); return; }
+      setHelping(await api.arrivedRoadside(r.id, loc.coords[0], loc.coords[1]));
+    } catch (e: any) {
+      Alert.alert("Couldn't update", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setBusyId(null); }
   };
 
   const cancelReq = async (r: RoadsideRequest) => {

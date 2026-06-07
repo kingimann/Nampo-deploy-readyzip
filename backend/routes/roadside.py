@@ -202,6 +202,14 @@ class RoadsidePhotos(BaseModel):
     photos: Optional[List[str]] = None
 
 
+class RoadsideArrive(BaseModel):
+    longitude: float                         # the helper's current location
+    latitude: float
+
+
+ARRIVE_RADIUS_M = 200                        # helper must be within this to mark "on location"
+
+
 class RoadsideVerifySubmit(BaseModel):
     insurance_photo: str                     # base64 data URI — held encrypted, deleted on decision
     ownership_photo: str
@@ -927,8 +935,9 @@ async def enroute(rid: str, authorization: Optional[str] = Header(None)):
 
 
 @router.post("/roadside/requests/{rid}/arrived", response_model=RoadsideRequest)
-async def arrived(rid: str, authorization: Optional[str] = Header(None)):
-    """The assigned helper marks that they're on location (arrived)."""
+async def arrived(rid: str, body: RoadsideArrive, authorization: Optional[str] = Header(None)):
+    """The assigned helper marks that they're on location (arrived). Gated by a
+    GPS proximity check — the helper must actually be near the member."""
     user = await get_current_user(authorization)
     doc = await db.roadside_requests.find_one({"id": rid}, {"_id": 0})
     if not doc:
@@ -937,6 +946,15 @@ async def arrived(rid: str, authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=403, detail="Only the assigned helper can do this.")
     if doc["status"] != "accepted":
         raise HTTPException(status_code=400, detail="This job isn't active.")
+    # Confirm the helper is actually at the member's location.
+    member_c = _doc_coords(doc)
+    if member_c:
+        dist_m = _haversine_km((float(body.longitude), float(body.latitude)), member_c) * 1000
+        if dist_m > ARRIVE_RADIUS_M:
+            raise HTTPException(status_code=400, detail={
+                "code": "too_far",
+                "message": f"You're about {round(dist_m)} m away. Get within {ARRIVE_RADIUS_M} m of the member, then mark you're on location.",
+            })
     if not doc.get("arrived"):
         now = datetime.now(timezone.utc)
         await db.roadside_requests.update_one({"id": rid}, {"$set": {"en_route": True, "arrived": True, "arrived_at": now}})

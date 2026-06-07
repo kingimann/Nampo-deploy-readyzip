@@ -390,8 +390,8 @@ export const api = {
     request<RoadsideRequest>(`/roadside/requests/${id}/accept`, { method: "POST" }),
   enrouteRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/enroute`, { method: "POST" }),
-  arrivedRoadside: (id: string) =>
-    request<RoadsideRequest>(`/roadside/requests/${id}/arrived`, { method: "POST" }),
+  arrivedRoadside: (id: string, lng: number, lat: number) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/arrived`, { method: "POST", body: JSON.stringify({ longitude: lng, latitude: lat }) }),
   addRoadsidePhotos: (id: string, phase: "before" | "after", photos: string[]) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/photos`, { method: "POST", body: JSON.stringify({ phase, photos }) }),
   verifyRoadside: (id: string, photos: string[]) =>
