@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-  TextInput, RefreshControl, Image, Alert, Linking, Platform, Modal,
+  TextInput, RefreshControl, Image, Alert, Linking, Platform, Modal, Pressable, KeyboardAvoidingView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -85,10 +85,16 @@ function Photos({ uris, onRemove }: { uris: string[]; onRemove?: (i: number) => 
 export default function RoadsideScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [tab, setTab] = useState<"request" | "nearby">("request");
+  const [tab, setTab] = useState<"request" | "nearby" | "history">("request");
   const [active, setActive] = useState<RoadsideRequest | null>(null);
   const [helping, setHelping] = useState<RoadsideRequest | null>(null);
   const [nearby, setNearby] = useState<RoadsideRequest[]>([]);
+  const [hist, setHist] = useState<RoadsideRequest[]>([]);
+  const [payMethod, setPayMethod] = useState<"wallet" | "cash">("wallet");
+  const [reviewing, setReviewing] = useState<RoadsideRequest | null>(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [quote, setQuote] = useState<RoadsideQuote | null>(null);
   const [elig, setElig] = useState<RoadsideEligibility | null>(null);
   const [verif, setVerif] = useState<RoadsideVerificationStatus | null>(null);
@@ -160,13 +166,14 @@ export default function RoadsideScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [a, h, q, e, v] = await Promise.all([
+      const [a, h, q, e, v, hi] = await Promise.all([
         api.roadsideActive(), api.roadsideHelping(),
         api.roadsideQuote().catch(() => null),
         api.roadsideEligibility().catch(() => null),
         api.roadsideVerification().catch(() => null),
+        api.roadsideHistory().catch(() => [] as RoadsideRequest[]),
       ]);
-      setActive(a); setHelping(h); if (q) setQuote(q); if (e) setElig(e); if (v) setVerif(v);
+      setActive(a); setHelping(h); if (q) setQuote(q); if (e) setElig(e); if (v) setVerif(v); setHist(hi);
     } catch {}
     const loc = await detect(false);
     if (loc) {
@@ -232,6 +239,7 @@ export default function RoadsideScreen() {
     try {
       const r = await api.createRoadside({
         service, longitude: coords[0], latitude: coords[1],
+        payment_method: payMethod,
         place_name: placeName.trim() || undefined,
         dest_name: service === "tow" ? destName.trim() : undefined,
         vehicle_year: vYear || undefined, vehicle_make: vMake || undefined, vehicle_model: vModel.trim() || undefined,
@@ -311,6 +319,35 @@ export default function RoadsideScreen() {
       Alert.alert("Couldn't accept", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
       loadNearby(coords);
     } finally { setBusyId(null); }
+  };
+
+  const openReview = (r: RoadsideRequest) => { setReviewing(r); setReviewRating(5); setReviewText(""); };
+  const submitReview = async () => {
+    if (!reviewing) return;
+    setReviewBusy(true);
+    try {
+      await api.reviewRoadside(reviewing.id, reviewRating, reviewText.trim() || undefined);
+      setReviewing(null);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Couldn't submit review", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setReviewBusy(false); }
+  };
+  const openDispute = (r: RoadsideRequest) => {
+    const go = async () => {
+      try {
+        await api.disputeRoadside(r.id);
+      } catch (e: any) {
+        Alert.alert("Couldn't open dispute", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+        return;
+      }
+      router.push({ pathname: "/support", params: { compose: "1", category: "dispute", subject: `Roadside dispute · ${SERVICE_META[r.service].label}`, related_type: "roadside", related_id: r.id } });
+    };
+    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm("Open a dispute for this roadside job and start a support ticket?")) go(); }
+    else Alert.alert("Open a dispute", "Flag this job and open a support ticket? Available up to 7 days after the service.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Dispute", style: "destructive", onPress: go },
+    ]);
   };
 
   const messageUser = async (uid: string, name?: string) => {
@@ -459,6 +496,48 @@ export default function RoadsideScreen() {
     );
   };
 
+  const Stars = ({ rating, onChange }: { rating: number; onChange?: (n: number) => void }) => (
+    <View style={{ flexDirection: "row", gap: onChange ? 8 : 3 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <TouchableOpacity key={n} disabled={!onChange} onPress={() => onChange?.(n)} testID={`rs-star-${n}`}>
+          <Ionicons name={n <= rating ? "star" : "star-outline"} size={onChange ? 30 : 14} color="#F5A623" />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  // ── History card (review / dispute past jobs) ──
+  const HistoryCard = ({ r }: { r: RoadsideRequest }) => {
+    const s = STATUS_LABEL(r);
+    const other = r.mine ? r.helper : r.requester;
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHead}>
+          <ServicePill svc={r.service} />
+          <View style={[styles.statusBadge, { backgroundColor: s.color + "22", borderColor: s.color }]}><Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text></View>
+        </View>
+        {!!other && <Text style={styles.metaText}>{r.mine ? "Helper" : "Customer"}: {other.name}</Text>}
+        {!!r.vehicle && <View style={styles.metaLine}><Ionicons name="car-outline" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.vehicle}</Text></View>}
+        <Text style={[styles.metaText, { marginTop: 6 }]}>
+          {r.payment_method === "cash" ? `$${(r.price || 0).toFixed(2)} cash` : `$${(r.total || 0).toFixed(2)} wallet`} · {new Date(r.created_at).toLocaleDateString()}
+        </Text>
+        {r.disputed && <View style={styles.disputeBadge}><Ionicons name="alert-circle" size={13} color={theme.error} /><Text style={styles.disputeText}>Disputed</Text></View>}
+        {!!r.their_review && (
+          <View style={styles.reviewBox}><Text style={styles.reviewWho}>Their review of you</Text><Stars rating={r.their_review.rating} />{!!r.their_review.text && <Text style={styles.reviewQuote}>{r.their_review.text}</Text>}</View>
+        )}
+        {!!r.my_review && (
+          <View style={styles.reviewBox}><Text style={styles.reviewWho}>Your review</Text><Stars rating={r.my_review.rating} />{!!r.my_review.text && <Text style={styles.reviewQuote}>{r.my_review.text}</Text>}</View>
+        )}
+        {(r.can_review || r.can_dispute) && (
+          <View style={styles.cardActions}>
+            {r.can_review && <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={() => openReview(r)} testID={`rs-review-${r.id}`}><Text style={styles.actPrimaryText}>Leave a review</Text></TouchableOpacity>}
+            {r.can_dispute && <TouchableOpacity style={[styles.actBtn, styles.actDanger]} onPress={() => openDispute(r)} testID={`rs-dispute-${r.id}`}><Text style={styles.actDangerText}>Dispute</Text></TouchableOpacity>}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   // ── Active card (viewer is the requester) ──
   const ActiveCard = ({ r }: { r: RoadsideRequest }) => {
     const s = STATUS_LABEL(r);
@@ -553,9 +632,9 @@ export default function RoadsideScreen() {
       </View>
 
       <View style={styles.tabs}>
-        {(["request", "nearby"] as const).map((t) => (
+        {(["request", "nearby", "history"] as const).map((t) => (
           <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => setTab(t)} testID={`roadside-tab-${t}`}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t === "request" ? "Get help" : "Help others"}</Text>
+            <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>{t === "request" ? "Get help" : t === "nearby" ? "Help others" : "History"}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -626,28 +705,52 @@ export default function RoadsideScreen() {
                   <Text style={styles.sectionLabel}>Notes (optional)</Text>
                   <TextInput style={[styles.input, styles.textarea, { marginTop: 0 }]} placeholder="Anything that helps — which tire is flat, are you somewhere safe…" placeholderTextColor={theme.textMuted} value={note} onChangeText={setNote} maxLength={500} multiline testID="rs-note" />
 
-                  <View style={styles.priceBox}>
-                    <View style={styles.priceRow}><Text style={styles.priceK}>Service fee</Text><Text style={styles.priceV}>${(quote?.base ?? 80).toFixed(2)}</Text></View>
-                    <View style={styles.priceRow}><Text style={styles.priceK}>Tax &amp; fees{quote ? ` (${Math.round((quote.tax_rate || 0) * 100)}%)` : ""}</Text><Text style={styles.priceV}>${(quote?.tax ?? 8).toFixed(2)}</Text></View>
-                    <View style={[styles.priceRow, styles.priceTotal]}><Text style={styles.priceKt}>Total (held until done)</Text><Text style={styles.priceVt}>${total.toFixed(2)}</Text></View>
-                    <Text style={styles.priceNote}>Wallet balance ${bal.toFixed(2)}. The $80 goes to your helper once both of you verify; tax is a platform fee.</Text>
-                    {lowFunds && (
-                      <TouchableOpacity style={styles.topupBtn} onPress={() => router.push("/wallet")} testID="rs-topup">
-                        <Ionicons name="add-circle" size={16} color="#fff" />
-                        <Text style={styles.topupText}>Top up ${(total - bal).toFixed(2)} more</Text>
-                      </TouchableOpacity>
-                    )}
+                  <Text style={styles.sectionLabel}>Payment</Text>
+                  <View style={styles.row2}>
+                    <TouchableOpacity style={[styles.payPill, payMethod === "wallet" && styles.payPillOn]} onPress={() => setPayMethod("wallet")} testID="rs-pay-wallet">
+                      <Ionicons name="wallet-outline" size={16} color={payMethod === "wallet" ? theme.primary : theme.textMuted} />
+                      <Text style={[styles.payText, payMethod === "wallet" && { color: theme.primary }]}>Wallet (held)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.payPill, payMethod === "cash" && styles.payPillOn]} onPress={() => setPayMethod("cash")} testID="rs-pay-cash">
+                      <Ionicons name="cash-outline" size={16} color={payMethod === "cash" ? theme.primary : theme.textMuted} />
+                      <Text style={[styles.payText, payMethod === "cash" && { color: theme.primary }]}>Cash in person</Text>
+                    </TouchableOpacity>
                   </View>
 
+                  {payMethod === "cash" ? (
+                    <View style={styles.priceBox}>
+                      <View style={[styles.priceRow, { marginBottom: 0 }]}><Text style={styles.priceKt}>Pay your helper</Text><Text style={styles.priceVt}>${(quote?.base ?? 80).toFixed(2)} cash</Text></View>
+                      <Text style={[styles.priceNote, { marginTop: 8 }]}>No card or hold needed — hand your helper ${(quote?.base ?? 80).toFixed(2)} in cash when the job's done. Both of you still verify with photos.</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.priceBox}>
+                      <View style={styles.priceRow}><Text style={styles.priceK}>Service fee</Text><Text style={styles.priceV}>${(quote?.base ?? 80).toFixed(2)}</Text></View>
+                      <View style={styles.priceRow}><Text style={styles.priceK}>Tax &amp; fees{quote ? ` (${Math.round((quote.tax_rate || 0) * 100)}%)` : ""}</Text><Text style={styles.priceV}>${(quote?.tax ?? 8).toFixed(2)}</Text></View>
+                      <View style={[styles.priceRow, styles.priceTotal]}><Text style={styles.priceKt}>Total (held until done)</Text><Text style={styles.priceVt}>${total.toFixed(2)}</Text></View>
+                      <Text style={styles.priceNote}>Wallet balance ${bal.toFixed(2)}. The $80 goes to your helper once both of you verify; tax is a platform fee.</Text>
+                      {lowFunds && (
+                        <TouchableOpacity style={styles.topupBtn} onPress={() => router.push("/wallet")} testID="rs-topup">
+                          <Ionicons name="add-circle" size={16} color="#fff" />
+                          <Text style={styles.topupText}>Top up ${(total - bal).toFixed(2)} more</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+
                   {!!err && <Text style={styles.err}>{err}</Text>}
-                  <TouchableOpacity style={[styles.submit, (!service || !coords || submitting || lowFunds) && { opacity: 0.5 }]} onPress={submit} disabled={!service || !coords || submitting || lowFunds} testID="rs-submit">
-                    {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Request help · ${total.toFixed(2)}</Text>}
-                  </TouchableOpacity>
+                  {(() => {
+                    const blockFunds = payMethod === "wallet" && lowFunds;
+                    return (
+                      <TouchableOpacity style={[styles.submit, (!service || !coords || submitting || blockFunds) && { opacity: 0.5 }]} onPress={submit} disabled={!service || !coords || submitting || blockFunds} testID="rs-submit">
+                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{payMethod === "cash" ? `Request help · $${(quote?.base ?? 80).toFixed(2)} cash` : `Request help · $${total.toFixed(2)}`}</Text>}
+                      </TouchableOpacity>
+                    );
+                  })()}
                   <Text style={styles.disclaimer}>Help is provided by other members, not a professional service. Stay somewhere safe while you wait. For emergencies, call your local emergency number.</Text>
                 </>
               )}
             </>
-          ) : (
+          ) : tab === "nearby" ? (
             <>
               {noLocation ? (
                 <View style={styles.empty}>
@@ -681,9 +784,37 @@ export default function RoadsideScreen() {
                 </>
               )}
             </>
+          ) : (
+            <>
+              {hist.length === 0 ? (
+                <View style={styles.empty}><Ionicons name="time-outline" size={36} color={theme.textMuted} /><Text style={styles.emptyText}>No recent roadside jobs yet.</Text></View>
+              ) : hist.map((r) => <HistoryCard key={r.id} r={r} />)}
+            </>
           )}
         </ScrollView>
       )}
+
+      <Modal visible={!!reviewing} transparent animationType="fade" onRequestClose={() => setReviewing(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.reviewBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setReviewing(null)} />
+          <View style={styles.reviewCard}>
+            <Text style={styles.reviewTitle}>Rate {reviewing?.mine ? reviewing?.helper?.name || "your helper" : reviewing?.requester?.name || "the member"}</Text>
+            <View style={{ alignItems: "center", marginVertical: 12 }}>
+              <Stars rating={reviewRating} onChange={setReviewRating} />
+            </View>
+            <TextInput
+              style={styles.reviewInput} value={reviewText} onChangeText={setReviewText} multiline maxLength={500}
+              placeholder="Add a comment (optional)" placeholderTextColor={theme.textMuted} testID="rs-review-text"
+            />
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={[styles.actBtn, styles.actGhost]} onPress={() => setReviewing(null)}><Text style={styles.actGhostText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.actBtn, styles.actPrimary]} onPress={submitReview} disabled={reviewBusy} testID="rs-review-submit">
+                <Text style={styles.actPrimaryText}>{reviewBusy ? "…" : "Submit"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -785,4 +916,19 @@ const styles = StyleSheet.create({
 
   empty: { alignItems: "center", gap: 12, paddingVertical: 50 },
   emptyText: { color: theme.textMuted, fontSize: 14, textAlign: "center", paddingHorizontal: 30, lineHeight: 20 },
+
+  payPill: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
+  payPillOn: { borderColor: theme.primary, backgroundColor: theme.primary + "12" },
+  payText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "800" },
+
+  disputeBadge: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", backgroundColor: theme.error + "1a", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginTop: 8 },
+  disputeText: { color: theme.error, fontSize: 12, fontWeight: "800" },
+  reviewBox: { backgroundColor: theme.surfaceAlt, borderRadius: 12, padding: 12, marginTop: 10, gap: 6 },
+  reviewWho: { color: theme.textMuted, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  reviewQuote: { color: theme.textSecondary, fontSize: 13.5, lineHeight: 19 },
+
+  reviewBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", paddingHorizontal: 24 },
+  reviewCard: { backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 18 },
+  reviewTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", textAlign: "center" },
+  reviewInput: { color: theme.textPrimary, fontSize: 14.5, minHeight: 70, backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 12, textAlignVertical: "top", marginBottom: 12, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
 });

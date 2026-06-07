@@ -394,6 +394,11 @@ export const api = {
     request<RoadsideRequest>(`/roadside/requests/${id}/verify`, { method: "POST", body: JSON.stringify({ photos }) }),
   cancelRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/cancel`, { method: "POST" }),
+  roadsideHistory: () => request<RoadsideRequest[]>("/roadside/history"),
+  reviewRoadside: (id: string, rating: number, text?: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/review`, { method: "POST", body: JSON.stringify({ rating, text }) }),
+  disputeRoadside: (id: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/dispute`, { method: "POST" }),
   // Voice calls (LiveKit). token → join the room; ring → notify the other side.
   callToken: (conversationId: string) =>
     request<{ token: string; url: string; room: string; identity: string }>(
@@ -1220,8 +1225,10 @@ export type RoadsideRequest = {
   dest_longitude?: number | null;
   dest_latitude?: number | null;
   photos?: string[];
-  completion_photos?: string[];
+  before_photos?: string[];
+  after_photos?: string[];
   note?: string | null;
+  payment_method?: "wallet" | "cash";
   price?: number;
   tax?: number;
   total?: number;
@@ -1230,9 +1237,14 @@ export type RoadsideRequest = {
   refunded?: boolean;
   requester_verified?: boolean;
   helper_verified?: boolean;
+  disputed?: boolean;
   distance_km?: number | null;
   mine?: boolean;
   helping?: boolean;
+  can_review?: boolean | null;
+  can_dispute?: boolean | null;
+  my_review?: { rating: number; text?: string | null } | null;
+  their_review?: { rating: number; text?: string | null } | null;
   created_at: string;
   accepted_at?: string | null;
   completed_at?: string | null;
@@ -1252,6 +1264,7 @@ export type RoadsideCreate = {
   dest_latitude?: number;
   photos?: string[];
   note?: string;
+  payment_method?: "wallet" | "cash";
 };
 export type RoadsideQuote = {
   base: number;

@@ -18,13 +18,13 @@ Money (wallet escrow):
 import math
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from core import db, get_current_user, account_age_days, _norm_dt, is_mod
+from core import db, get_current_user, account_age_days, _norm_dt, is_mod, is_admin
 from routes.notifications import emit_notification
 from routes.money import _wallet_balance, _debit_wallet, _credit_wallet, _record_platform_fee
 from services.encryption import encrypt_text, decrypt_text
@@ -65,8 +65,9 @@ def _helper_eligibility(u: dict) -> dict:
     ]
     requirements = [{"key": k, "label": lbl, "met": met} for (k, lbl, met) in checks]
     missing = [lbl for (_, lbl, met) in checks if not met]
+    # Admins are immune to the trust bar (and to roadside verification).
     return {
-        "eligible": len(missing) == 0,
+        "eligible": len(missing) == 0 or is_admin(u),
         "requirements": requirements,
         "missing": missing,
         "min_age_days": ROADSIDE_HELPER_MIN_AGE_DAYS,
@@ -147,6 +148,17 @@ class RoadsideCreate(BaseModel):
     dest_latitude: Optional[float] = None
     photos: Optional[List[str]] = None
     note: Optional[str] = None
+    payment_method: Optional[str] = "wallet"  # wallet (escrow) | cash (pay in person)
+
+
+class RoadsideReview(BaseModel):
+    rating: int
+    text: Optional[str] = None
+
+
+class RoadsideReviewOut(BaseModel):
+    rating: int
+    text: Optional[str] = None
 
 
 class RoadsideVerify(BaseModel):
@@ -204,6 +216,7 @@ class RoadsideRequest(BaseModel):
     before_photos: List[str] = []
     after_photos: List[str] = []
     note: Optional[str] = None
+    payment_method: str = "wallet"           # wallet (escrow) | cash (in person)
     price: float = 0.0
     tax: float = 0.0
     total: float = 0.0
@@ -212,9 +225,15 @@ class RoadsideRequest(BaseModel):
     refunded: bool = False
     requester_verified: bool = False
     helper_verified: bool = False
+    disputed: bool = False
     distance_km: Optional[float] = None
     mine: bool = False
     helping: bool = False
+    # History-only extras (set by GET /roadside/history)
+    can_review: Optional[bool] = None
+    can_dispute: Optional[bool] = None
+    my_review: Optional[RoadsideReviewOut] = None
+    their_review: Optional[RoadsideReviewOut] = None
     created_at: datetime
     accepted_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -266,6 +285,7 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
         before_photos=doc.get("before_photos") or [],
         after_photos=doc.get("after_photos") or [],
         note=doc.get("note"),
+        payment_method=doc.get("payment_method") or "wallet",
         price=round(float(doc.get("price", 0) or 0), 2),
         tax=round(float(doc.get("tax", 0) or 0), 2),
         total=round(float(doc.get("total", 0) or 0), 2),
@@ -274,6 +294,7 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
         refunded=bool(doc.get("refunded", False)),
         requester_verified=bool(doc.get("requester_verified", False)),
         helper_verified=bool(doc.get("helper_verified", False)),
+        disputed=bool(doc.get("disputed_by")),
         distance_km=dist,
         mine=(doc["requester_id"] == viewer_id),
         helping=(doc.get("helper_id") == viewer_id),
@@ -305,14 +326,17 @@ async def _settle(doc: dict) -> None:
         {"id": doc["id"]}, {"$set": {"status": "completed", "settled": True, "completed_at": now}}
     )
     doc.update({"status": "completed", "settled": True, "completed_at": now})
+    cash = doc.get("payment_method") == "cash"
     if helper_id:
         await emit_notification(
             user_id=helper_id, actor_id=doc["requester_id"], ntype="roadside",
-            message=f"Job complete — ${base:.2f} was added to your wallet.",
+            message=(f"Job complete — collect ${base:.2f} cash from the member."
+                     if cash else f"Job complete — ${base:.2f} was added to your wallet."),
         )
     await emit_notification(
         user_id=doc["requester_id"], actor_id=helper_id, ntype="roadside",
-        message="Your roadside job is complete and the helper has been paid. Thanks!",
+        message=("Roadside job complete — pay your helper in cash. Thanks!"
+                 if cash else "Your roadside job is complete and the helper has been paid. Thanks!"),
     )
 
 
@@ -348,8 +372,8 @@ async def my_verification(authorization: Optional[str] = Header(None)):
         sort=[("created_at", -1)],
     )
     return {
-        "verified": bool(user.get("roadside_verified")),
-        "status": (v or {}).get("status", "none"),
+        "verified": bool(user.get("roadside_verified")) or is_admin(user),
+        "status": "approved" if is_admin(user) else (v or {}).get("status", "none"),
         "reason": (v or {}).get("reason"),
         "eligibility": elig,
     }
@@ -495,20 +519,22 @@ async def admin_decide_verification(vid: str, body: RoadsideDecision, authorizat
 @router.post("/roadside/requests", response_model=RoadsideRequest)
 async def create_request(body: RoadsideCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
-    # Requesters must clear the same identity bar as helpers …
-    elig = _helper_eligibility(user)
-    if not elig["eligible"]:
-        raise HTTPException(status_code=403, detail={
-            "code": "not_eligible",
-            "message": "Verify your identity (ID, email and phone; account 3+ months old; no bans) before requesting roadside help.",
-            "missing": elig["missing"],
-        })
-    # … and have an admin-approved insurance + ownership verification.
-    if not user.get("roadside_verified"):
-        raise HTTPException(status_code=403, detail={
-            "code": "roadside_not_verified",
-            "message": "Verify your insurance and vehicle ownership before you can request roadside help.",
-        })
+    # Admins bypass all roadside verification.
+    if not is_admin(user):
+        # Requesters must clear the same identity bar as helpers …
+        elig = _helper_eligibility(user)
+        if not elig["eligible"]:
+            raise HTTPException(status_code=403, detail={
+                "code": "not_eligible",
+                "message": "Verify your identity (ID, email and phone; account 3+ months old; no bans) before requesting roadside help.",
+                "missing": elig["missing"],
+            })
+        # … and have an approved insurance + ownership verification.
+        if not user.get("roadside_verified"):
+            raise HTTPException(status_code=403, detail={
+                "code": "roadside_not_verified",
+                "message": "Verify your insurance and vehicle ownership before you can request roadside help.",
+            })
     svc = (body.service or "").strip().lower()
     if svc not in SERVICES:
         raise HTTPException(status_code=400, detail="Pick a valid service: tow, lockout, battery or tire.")
@@ -523,19 +549,25 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
             "code": "active_request_exists",
             "message": "You already have an active roadside request. Cancel it before starting a new one.",
         })
+    method = "cash" if (body.payment_method or "").strip().lower() == "cash" else "wallet"
     base, tax, total = _pricing()
-    bal = await _wallet_balance(user["user_id"])
-    if bal + 1e-9 < total:
-        raise HTTPException(status_code=400, detail={
-            "code": "insufficient_balance",
-            "message": f"Roadside help costs ${total:.2f} (incl. tax). Top up your wallet, then try again.",
-        })
-    ok = await _debit_wallet(user["user_id"], total)
-    if not ok:
-        raise HTTPException(status_code=400, detail={
-            "code": "insufficient_balance",
-            "message": f"Roadside help costs ${total:.2f} (incl. tax). Top up your wallet, then try again.",
-        })
+    if method == "cash":
+        # Pay the helper $80 in person — no platform hold, no tax.
+        tax, total, held = 0.0, base, False
+    else:
+        held = True
+        bal = await _wallet_balance(user["user_id"])
+        if bal + 1e-9 < total:
+            raise HTTPException(status_code=400, detail={
+                "code": "insufficient_balance",
+                "message": f"Roadside help costs ${total:.2f} (incl. tax). Top up your wallet, then try again.",
+            })
+        ok = await _debit_wallet(user["user_id"], total)
+        if not ok:
+            raise HTTPException(status_code=400, detail={
+                "code": "insufficient_balance",
+                "message": f"Roadside help costs ${total:.2f} (incl. tax). Top up your wallet, then try again.",
+            })
     now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
@@ -559,10 +591,11 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
         "before_photos": [],
         "after_photos": [],
         "note": (body.note or "").strip()[:500] or None,
+        "payment_method": method,
         "price": base,
         "tax": tax,
         "total": total,
-        "held": True,
+        "held": held,
         "settled": False,
         "refunded": False,
         "requester_verified": False,
@@ -812,3 +845,96 @@ async def cancel(rid: str, authorization: Optional[str] = Header(None)):
         )
         await emit_notification(user_id=helper_id, actor_id=user["user_id"], ntype="roadside", message=msg)
     return await _hydrate(doc, user["user_id"])
+
+
+# ── Reviews, disputes & history ─────────────────────────────────────────────
+DISPUTE_WINDOW = timedelta(days=7)
+
+
+@router.post("/roadside/requests/{rid}/review", response_model=RoadsideRequest)
+async def review(rid: str, body: RoadsideReview, authorization: Optional[str] = Header(None)):
+    """Either party rates the other after the job is complete (one review each)."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    doc = await db.roadside_requests.find_one({"id": rid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if uid not in (doc["requester_id"], doc.get("helper_id")):
+        raise HTTPException(status_code=403, detail="This isn't your job.")
+    if doc["status"] != "completed":
+        raise HTTPException(status_code=400, detail="You can review once the job is complete.")
+    subject = doc.get("helper_id") if uid == doc["requester_id"] else doc["requester_id"]
+    if not subject:
+        raise HTTPException(status_code=400, detail="No counterparty to review.")
+    if await db.roadside_reviews.find_one({"request_id": rid, "reviewer_id": uid}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=400, detail="You already reviewed this job.")
+    rating = max(1, min(5, int(body.rating or 0)))
+    now = datetime.now(timezone.utc)
+    await db.roadside_reviews.insert_one({
+        "id": str(uuid.uuid4()), "request_id": rid,
+        "reviewer_id": uid, "subject_id": subject,
+        "role": "customer" if uid == doc["requester_id"] else "helper",
+        "rating": rating, "text": (body.text or "").strip()[:500] or None,
+        "created_at": now,
+    })
+    await emit_notification(
+        user_id=subject, actor_id=uid, ntype="roadside",
+        message=f"You got a {rating}-star roadside review.",
+    )
+    return await _hydrate(doc, uid)
+
+
+@router.post("/roadside/requests/{rid}/dispute", response_model=RoadsideRequest)
+async def dispute(rid: str, authorization: Optional[str] = Header(None)):
+    """Either party flags a dispute, up to 7 days after the service call."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    doc = await db.roadside_requests.find_one({"id": rid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if uid not in (doc["requester_id"], doc.get("helper_id")):
+        raise HTTPException(status_code=403, detail="This isn't your job.")
+    now = datetime.now(timezone.utc)
+    if (now - _norm_dt(doc["created_at"])) > DISPUTE_WINDOW:
+        raise HTTPException(status_code=400, detail={
+            "code": "window_closed",
+            "message": "The 7-day window to dispute this service has closed.",
+        })
+    disputed_by = list(doc.get("disputed_by") or [])
+    if uid not in disputed_by:
+        disputed_by.append(uid)
+        await db.roadside_requests.update_one({"id": rid}, {"$set": {"disputed_by": disputed_by, "disputed_at": now}})
+        doc["disputed_by"] = disputed_by
+        other = doc.get("helper_id") if uid == doc["requester_id"] else doc["requester_id"]
+        if other:
+            await emit_notification(
+                user_id=other, actor_id=uid, ntype="roadside",
+                message="A dispute was opened on your roadside job. Our team will look into it.",
+            )
+    return await _hydrate(doc, uid)
+
+
+@router.get("/roadside/history", response_model=List[RoadsideRequest])
+async def history(authorization: Optional[str] = Header(None)):
+    """Recent jobs you were part of — for leaving a review or opening a dispute."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    docs = await db.roadside_requests.find(
+        {"$or": [{"requester_id": uid}, {"helper_id": uid}],
+         "status": {"$in": ["completed", "cancelled", "accepted"]},
+         "created_at": {"$gte": cutoff}},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(40).to_list(40)
+    now = datetime.now(timezone.utc)
+    out: List[RoadsideRequest] = []
+    for d in docs:
+        h = await _hydrate(d, uid)
+        my = await db.roadside_reviews.find_one({"request_id": d["id"], "reviewer_id": uid}, {"_id": 0, "rating": 1, "text": 1})
+        their = await db.roadside_reviews.find_one({"request_id": d["id"], "subject_id": uid}, {"_id": 0, "rating": 1, "text": 1})
+        h.can_review = d["status"] == "completed" and my is None
+        h.my_review = RoadsideReviewOut(**my) if my else None
+        h.their_review = RoadsideReviewOut(**their) if their else None
+        h.can_dispute = (now - _norm_dt(d["created_at"])) <= DISPUTE_WINDOW and uid not in (d.get("disputed_by") or [])
+        out.append(h)
+    return out
