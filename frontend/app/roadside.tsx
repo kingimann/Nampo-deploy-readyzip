@@ -18,8 +18,15 @@ const SERVICE_META: Record<RoadsideService, { label: string; icon: any; desc: st
   lockout: { label: "Lockout",            icon: "key",              desc: "Locked out — keys inside the car" },
   battery: { label: "Battery boost",      icon: "battery-charging", desc: "Dead battery — needs a jump start" },
   tire:    { label: "Tire change / flat", icon: "disc",             desc: "Flat tire — swap to spare or repair" },
+  gas:     { label: "Gas delivery",       icon: "water",            desc: "Out of fuel — gas brought to you" },
 };
-const SERVICE_ORDER: RoadsideService[] = ["tow", "lockout", "battery", "tire"];
+const SERVICE_ORDER: RoadsideService[] = ["tow", "lockout", "battery", "tire", "gas"];
+const FUEL_TYPES: { k: string; label: string }[] = [
+  { k: "regular", label: "Regular" },
+  { k: "midgrade", label: "Mid-grade" },
+  { k: "premium", label: "Premium" },
+];
+const GAS_AMOUNTS = ["1 gallon", "2 gallons", "3 gallons", "5 gallons"];
 
 const STATUS_LABEL = (r: RoadsideRequest) =>
   r.status === "open" ? { label: "Searching for help", color: theme.warning }
@@ -112,6 +119,8 @@ export default function RoadsideScreen() {
   const [coords, setCoords] = useState<[number, number] | null>(null);
   const [placeName, setPlaceName] = useState("");
   const [destName, setDestName] = useState("");
+  const [fuelType, setFuelType] = useState("");
+  const [fuelAmount, setFuelAmount] = useState("");
   const [vYear, setVYear] = useState("");
   const [vMake, setVMake] = useState("");
   const [vModel, setVModel] = useState("");
@@ -235,6 +244,7 @@ export default function RoadsideScreen() {
     if (!service) { setErr("Choose what you need help with."); return; }
     if (!coords) { setErr("Set your location so a helper can reach you."); return; }
     if (service === "tow" && !destName.trim()) { setErr("Add where you'd like the vehicle towed."); return; }
+    if (service === "gas" && (!fuelType || !fuelAmount)) { setErr("Choose how much gas you want and the fuel type."); return; }
     setErr(null); setSubmitting(true);
     try {
       const r = await api.createRoadside({
@@ -242,13 +252,15 @@ export default function RoadsideScreen() {
         payment_method: payMethod,
         place_name: placeName.trim() || undefined,
         dest_name: service === "tow" ? destName.trim() : undefined,
+        fuel_type: service === "gas" ? fuelType : undefined,
+        fuel_amount: service === "gas" ? fuelAmount : undefined,
         vehicle_year: vYear || undefined, vehicle_make: vMake || undefined, vehicle_model: vModel.trim() || undefined,
         vehicle_color: vColor.trim() || undefined, vehicle_plate: vPlate.trim() || undefined,
         photos: photos.length ? photos : undefined,
         note: note.trim() || undefined,
       });
       setActive(r);
-      setService(null); setVModel(""); setVColor(""); setVPlate(""); setVYear(""); setVMake(""); setDestName(""); setPhotos([]); setNote("");
+      setService(null); setVModel(""); setVColor(""); setVPlate(""); setVYear(""); setVMake(""); setDestName(""); setFuelType(""); setFuelAmount(""); setPhotos([]); setNote("");
     } catch (e: any) {
       const msg = String(e?.message || e).replace(/^\d{3}:\s*/, "");
       setErr(msg);
@@ -397,6 +409,7 @@ export default function RoadsideScreen() {
       {!!r.vehicle && <View style={styles.metaLine}><Ionicons name="car-outline" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.vehicle}</Text></View>}
       {!!r.place_name && <View style={styles.metaLine}><Ionicons name="location" size={14} color={theme.textMuted} /><Text style={styles.metaText} numberOfLines={2}>{r.place_name}</Text></View>}
       {!!r.dest_name && <View style={styles.metaLine}><Ionicons name="flag" size={14} color={theme.textMuted} /><Text style={styles.metaText} numberOfLines={2}>Tow to: {r.dest_name}</Text></View>}
+      {!!r.fuel_amount && <View style={styles.metaLine}><Ionicons name="water" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.fuel_amount}{r.fuel_type ? ` · ${FUEL_TYPES.find((f) => f.k === r.fuel_type)?.label || r.fuel_type}` : ""}</Text></View>}
       {!!r.note && <View style={styles.metaLine}><Ionicons name="document-text-outline" size={14} color={theme.textMuted} /><Text style={styles.metaText}>{r.note}</Text></View>}
       {!!(r.photos && r.photos.length) && <Photos uris={r.photos} />}
     </>
@@ -657,18 +670,18 @@ export default function RoadsideScreen() {
               ) : (
                 <>
                   <Text style={styles.sectionLabel}>What do you need?</Text>
-                  <View style={styles.svcGrid}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 2 }}>
                     {SERVICE_ORDER.map((k) => {
                       const m = SERVICE_META[k]; const on = service === k;
                       return (
-                        <TouchableOpacity key={k} style={[styles.svcCard, on && styles.svcCardOn]} onPress={() => setService(k)} testID={`rs-svc-${k}`}>
-                          <View style={[styles.svcIcon, on && { backgroundColor: theme.primary }]}><Ionicons name={m.icon} size={22} color={on ? "#fff" : theme.primary} /></View>
-                          <Text style={[styles.svcLabel, on && { color: theme.primary }]}>{m.label}</Text>
-                          <Text style={styles.svcDesc} numberOfLines={2}>{m.desc}</Text>
+                        <TouchableOpacity key={k} style={[styles.svcChip, on && styles.svcChipOn]} onPress={() => setService(k)} testID={`rs-svc-${k}`}>
+                          <Ionicons name={m.icon} size={20} color={on ? "#fff" : theme.primary} />
+                          <Text style={[styles.svcChipText, on && { color: "#fff" }]}>{m.label}</Text>
                         </TouchableOpacity>
                       );
                     })}
-                  </View>
+                  </ScrollView>
+                  {!!service && <Text style={styles.svcDescLine}>{SERVICE_META[service].desc}</Text>}
 
                   <Text style={styles.sectionLabel}>Vehicle</Text>
                   <View style={styles.row2}>
@@ -692,6 +705,21 @@ export default function RoadsideScreen() {
                     <>
                       <Text style={styles.sectionLabel}>Tow destination</Text>
                       <TextInput style={[styles.input, { marginTop: 0 }]} placeholder="Where should it be towed? (shop / home address)" placeholderTextColor={theme.textMuted} value={destName} onChangeText={setDestName} testID="rs-dest" />
+                    </>
+                  )}
+
+                  {service === "gas" && (
+                    <>
+                      <Text style={styles.sectionLabel}>Fuel — how much?</Text>
+                      <Dropdown value={fuelAmount} placeholder="Amount" options={GAS_AMOUNTS} onChange={setFuelAmount} testID="rs-fuel-amount" />
+                      <Text style={styles.sectionLabel}>Fuel type (no diesel)</Text>
+                      <View style={styles.row2}>
+                        {FUEL_TYPES.map((f) => (
+                          <TouchableOpacity key={f.k} style={[styles.payPill, fuelType === f.k && styles.payPillOn]} onPress={() => setFuelType(f.k)} testID={`rs-fuel-${f.k}`}>
+                            <Text style={[styles.payText, fuelType === f.k && { color: theme.primary }]}>{f.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                     </>
                   )}
 
@@ -831,15 +859,13 @@ const styles = StyleSheet.create({
   tabTextOn: { color: "#fff" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  sectionLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 10 },
-  svcGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  svcCard: { width: "47.5%", flexGrow: 1, minHeight: 104, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12 },
-  svcCardOn: { borderColor: theme.primary, backgroundColor: theme.primary + "12" },
-  svcIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: theme.primary + "1f", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  svcLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
-  svcDesc: { color: theme.textMuted, fontSize: 11.5, marginTop: 2, lineHeight: 15 },
+  sectionLabel: { color: theme.textMuted, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 14, marginBottom: 7 },
+  svcChip: { width: 86, alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  svcChipOn: { backgroundColor: theme.primary, borderColor: theme.primary },
+  svcChipText: { color: theme.textPrimary, fontSize: 12, fontWeight: "800" },
+  svcDescLine: { color: theme.textMuted, fontSize: 12.5, marginTop: 8 },
 
-  row2: { flexDirection: "row", gap: 10 },
+  row2: { flexDirection: "row", gap: 8 },
   dropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13 },
   dropdownText: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "600", flex: 1, marginRight: 8 },
   ddBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 30 },
@@ -847,16 +873,16 @@ const styles = StyleSheet.create({
   ddRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   ddRowText: { color: theme.textPrimary, fontSize: 15 },
 
-  locBtn: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: theme.primary + "1a", borderWidth: 1, borderColor: theme.primary + "55", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11 },
+  locBtn: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: theme.primary + "1a", borderWidth: 1, borderColor: theme.primary + "55", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   locBtnText: { color: theme.primary, fontSize: 14, fontWeight: "800" },
-  input: { color: theme.textPrimary, fontSize: 14.5, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 10, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  input: { color: theme.textPrimary, fontSize: 14.5, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginTop: 8, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
   textarea: { minHeight: 84, textAlignVertical: "top" },
   err: { color: theme.error, fontSize: 13, marginTop: 12 },
-  submit: { backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 15, alignItems: "center", marginTop: 16 },
+  submit: { backgroundColor: theme.primary, borderRadius: 14, paddingVertical: 14, alignItems: "center", marginTop: 14 },
   submitText: { color: "#fff", fontSize: 15.5, fontWeight: "800" },
   disclaimer: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 14, textAlign: "center" },
 
-  priceBox: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 16, padding: 16, marginTop: 18 },
+  priceBox: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 14, marginTop: 14 },
   priceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   priceK: { color: theme.textSecondary, fontSize: 14 },
   priceV: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },

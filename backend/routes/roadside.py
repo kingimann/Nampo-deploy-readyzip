@@ -31,9 +31,10 @@ from services.encryption import encrypt_text, decrypt_text
 
 router = APIRouter()
 
-SERVICES = {"tow", "lockout", "battery", "tire"}
+SERVICES = {"tow", "lockout", "battery", "tire", "gas"}
 ACTIVE = {"open", "accepted"}
-_LABELS = {"tow": "tow", "lockout": "lockout", "battery": "battery boost", "tire": "tire change"}
+_LABELS = {"tow": "tow", "lockout": "lockout", "battery": "battery boost", "tire": "tire change", "gas": "gas delivery"}
+FUEL_TYPES = {"regular", "midgrade", "premium"}   # gasoline only — no diesel
 
 ROADSIDE_BASE = 80.0       # flat service fee paid to the helper
 ROADSIDE_TAX_RATE = 0.10   # tax & fees, kept by the platform
@@ -146,6 +147,8 @@ class RoadsideCreate(BaseModel):
     dest_name: Optional[str] = None          # tow destination (required for tow)
     dest_longitude: Optional[float] = None
     dest_latitude: Optional[float] = None
+    fuel_type: Optional[str] = None          # gas delivery: regular | midgrade | premium
+    fuel_amount: Optional[str] = None        # gas delivery: how much (e.g. "2 gallons")
     photos: Optional[List[str]] = None
     note: Optional[str] = None
     payment_method: Optional[str] = "wallet"  # wallet (escrow) | cash (pay in person)
@@ -212,6 +215,8 @@ class RoadsideRequest(BaseModel):
     dest_name: Optional[str] = None
     dest_longitude: Optional[float] = None
     dest_latitude: Optional[float] = None
+    fuel_type: Optional[str] = None
+    fuel_amount: Optional[str] = None
     photos: List[str] = []
     before_photos: List[str] = []
     after_photos: List[str] = []
@@ -281,6 +286,8 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
         dest_name=doc.get("dest_name"),
         dest_longitude=doc.get("dest_longitude"),
         dest_latitude=doc.get("dest_latitude"),
+        fuel_type=doc.get("fuel_type"),
+        fuel_amount=doc.get("fuel_amount"),
         photos=doc.get("photos") or [],
         before_photos=doc.get("before_photos") or [],
         after_photos=doc.get("after_photos") or [],
@@ -537,10 +544,21 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
             })
     svc = (body.service or "").strip().lower()
     if svc not in SERVICES:
-        raise HTTPException(status_code=400, detail="Pick a valid service: tow, lockout, battery or tire.")
+        raise HTTPException(status_code=400, detail="Pick a valid service: tow, lockout, battery, tire or gas.")
     dest_name = (body.dest_name or "").strip()[:200]
     if svc == "tow" and not dest_name:
         raise HTTPException(status_code=400, detail="Add where you'd like the vehicle towed to.")
+    fuel_type = (body.fuel_type or "").strip().lower() or None
+    fuel_amount = (body.fuel_amount or "").strip()[:40] or None
+    if svc == "gas":
+        if fuel_type == "diesel":
+            raise HTTPException(status_code=400, detail="We don't deliver diesel — choose regular, mid-grade or premium.")
+        if fuel_type not in FUEL_TYPES:
+            raise HTTPException(status_code=400, detail="Choose a fuel type: regular, mid-grade or premium.")
+        if not fuel_amount:
+            raise HTTPException(status_code=400, detail="Tell the driver how much gas you want.")
+    else:
+        fuel_type, fuel_amount = None, None
     existing = await db.roadside_requests.find_one(
         {"requester_id": user["user_id"], "status": {"$in": list(ACTIVE)}}, {"_id": 0, "id": 1}
     )
@@ -587,6 +605,8 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
         "dest_name": dest_name or None,
         "dest_longitude": body.dest_longitude,
         "dest_latitude": body.dest_latitude,
+        "fuel_type": fuel_type,
+        "fuel_amount": fuel_amount,
         "photos": _clean_photos(body.photos),
         "before_photos": [],
         "after_photos": [],
