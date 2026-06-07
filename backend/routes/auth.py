@@ -160,17 +160,19 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
     # Public profile details (empty string clears the field).
     if body.location is not None:
         patch["location"] = body.location.strip()[:80] or None
-    if body.website is not None:
-        w = body.website.strip()[:200]
-        if w and not w.lower().startswith(("http://", "https://")):
-            w = "https://" + w
-        patch["website"] = w or None
     if body.pronouns is not None:
         patch["pronouns"] = body.pronouns.strip()[:40] or None
-    if body.occupation is not None:
-        patch["occupation"] = body.occupation.strip()[:80] or None
     if body.birthday is not None:
-        patch["birthday"] = body.birthday.strip()[:40] or None
+        # Only accept a YYYY-MM-DD date (the client uses a date picker).
+        b = (body.birthday or "").strip()
+        patch["birthday"] = b[:10] if re.match(r"^\d{4}-\d{2}-\d{2}$", b) else None
+    if body.socials is not None:
+        allowed = {"instagram", "twitter", "tiktok", "youtube", "facebook", "snapchat", "linkedin", "github"}
+        cleaned = {}
+        for k, v in (body.socials or {}).items():
+            if k in allowed and isinstance(v, str) and v.strip():
+                cleaned[k] = v.strip()[:120]
+        patch["socials"] = cleaned
     for k in ("home_name", "home_longitude", "home_latitude",
               "work_name", "work_longitude", "work_latitude"):
         v = getattr(body, k)

@@ -13,6 +13,8 @@ import { api, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import PostCard from "@/src/components/PostCard";
+import BirthdayPicker from "@/src/components/BirthdayPicker";
+import { SOCIAL_PLATFORMS, SOCIAL_BY_KEY, socialUrl, fmtBirthday } from "@/src/lib/socials";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
 import { DEFAULT_AVATARS } from "@/src/lib/avatars";
@@ -32,10 +34,9 @@ export default function ProfileScreen() {
   const [editBio, setEditBio] = useState("");
   const [editUsername, setEditUsername] = useState("");
   const [editLocation, setEditLocation] = useState("");
-  const [editWebsite, setEditWebsite] = useState("");
   const [editPronouns, setEditPronouns] = useState("");
-  const [editOccupation, setEditOccupation] = useState("");
   const [editBirthday, setEditBirthday] = useState("");
+  const [editSocials, setEditSocials] = useState<Record<string, string>>({});
   const [usernameCheck, setUsernameCheck] = useState<{ checking: boolean; available: boolean | null }>({ checking: false, available: null });
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -148,10 +149,9 @@ export default function ProfileScreen() {
     setEditBio(user?.bio || "");
     setEditUsername(user?.username || "");
     setEditLocation(user?.location || "");
-    setEditWebsite(user?.website || "");
     setEditPronouns(user?.pronouns || "");
-    setEditOccupation(user?.occupation || "");
     setEditBirthday(user?.birthday || "");
+    setEditSocials({ ...(user?.socials || {}) });
     setUsernameCheck({ checking: false, available: true });
     setEditOpen(true);
   };
@@ -193,8 +193,8 @@ export default function ProfileScreen() {
       }
       await api.updateMe({
         name: editName, bio: editBio,
-        location: editLocation, website: editWebsite, pronouns: editPronouns,
-        occupation: editOccupation, birthday: editBirthday,
+        location: editLocation, pronouns: editPronouns, birthday: editBirthday,
+        socials: editSocials,
       });
       await refresh();
       setEditOpen(false);
@@ -252,14 +252,8 @@ export default function ProfileScreen() {
             )}
             {!!user?.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
-            {(!!user?.occupation || !!user?.pronouns || !!user?.location || !!user?.birthday || !!user?.website) && (
+            {(!!user?.pronouns || !!user?.location || !!user?.birthday) && (
               <View style={styles.detailsWrap}>
-                {!!user?.occupation && (
-                  <View style={styles.detailRow}>
-                    <Ionicons name="briefcase-outline" size={14} color={theme.textMuted} />
-                    <Text style={styles.detailText} numberOfLines={1}>{user.occupation}</Text>
-                  </View>
-                )}
                 {!!user?.pronouns && (
                   <View style={styles.detailRow}>
                     <Ionicons name="person-circle-outline" size={14} color={theme.textMuted} />
@@ -272,18 +266,26 @@ export default function ProfileScreen() {
                     <Text style={styles.detailText} numberOfLines={1}>{user.location}</Text>
                   </View>
                 )}
-                {!!user?.birthday && (
+                {!!fmtBirthday(user?.birthday) && (
                   <View style={styles.detailRow}>
                     <Ionicons name="gift-outline" size={14} color={theme.textMuted} />
-                    <Text style={styles.detailText} numberOfLines={1}>{user.birthday}</Text>
+                    <Text style={styles.detailText} numberOfLines={1}>{fmtBirthday(user?.birthday)}</Text>
                   </View>
                 )}
-                {!!user?.website && (
-                  <TouchableOpacity style={styles.detailRow} onPress={() => Linking.openURL(user.website!).catch(() => {})} testID="profile-website">
-                    <Ionicons name="link-outline" size={14} color={theme.primary} />
-                    <Text style={[styles.detailText, styles.detailLink]} numberOfLines={1}>{user.website!.replace(/^https?:\/\//, "")}</Text>
-                  </TouchableOpacity>
-                )}
+              </View>
+            )}
+
+            {!!user?.socials && Object.keys(user.socials).length > 0 && (
+              <View style={styles.socialLinks}>
+                {Object.entries(user.socials).map(([key, val]) => {
+                  const p = SOCIAL_BY_KEY[key];
+                  if (!p || !val) return null;
+                  return (
+                    <TouchableOpacity key={key} style={styles.socialLinkBtn} onPress={() => Linking.openURL(socialUrl(key, val)).catch(() => {})} testID={`profile-social-${key}`}>
+                      <Ionicons name={p.icon as any} size={20} color={theme.textPrimary} />
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
 
@@ -525,17 +527,6 @@ export default function ProfileScreen() {
               testID="edit-pronouns"
             />
 
-            <Text style={styles.label}>Occupation</Text>
-            <TextInput
-              style={styles.input}
-              value={editOccupation}
-              onChangeText={setEditOccupation}
-              placeholder="What you do (e.g. Photographer)"
-              placeholderTextColor={theme.textMuted}
-              maxLength={80}
-              testID="edit-occupation"
-            />
-
             <Text style={styles.label}>Location</Text>
             <TextInput
               style={styles.input}
@@ -547,29 +538,27 @@ export default function ProfileScreen() {
               testID="edit-location"
             />
 
-            <Text style={styles.label}>Website</Text>
-            <TextInput
-              style={styles.input}
-              value={editWebsite}
-              onChangeText={setEditWebsite}
-              placeholder="yoursite.com"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-              keyboardType="url"
-              maxLength={200}
-              testID="edit-website"
-            />
-
             <Text style={styles.label}>Birthday</Text>
-            <TextInput
-              style={styles.input}
-              value={editBirthday}
-              onChangeText={setEditBirthday}
-              placeholder="e.g. June 7 or 2000-06-07"
-              placeholderTextColor={theme.textMuted}
-              maxLength={40}
-              testID="edit-birthday"
-            />
+            <BirthdayPicker value={editBirthday} onChange={setEditBirthday} testID="edit-birthday" />
+
+            <Text style={styles.label}>Social links</Text>
+            {SOCIAL_PLATFORMS.map((p) => (
+              <View key={p.key} style={styles.socialInputRow}>
+                <Ionicons name={p.icon as any} size={20} color={theme.textSecondary} style={{ width: 24 }} />
+                {!!p.prefix && <Text style={styles.socialPrefix}>{p.prefix}</Text>}
+                <TextInput
+                  style={styles.socialInput}
+                  value={editSocials[p.key] || ""}
+                  onChangeText={(t) => setEditSocials((s) => ({ ...s, [p.key]: t.trim() }))}
+                  placeholder={`${p.label} ${p.prefix ? "handle" : "username or link"}`}
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={120}
+                  testID={`edit-social-${p.key}`}
+                />
+              </View>
+            ))}
 
             <TouchableOpacity
               style={[styles.saveBtn, saving && { opacity: 0.6 }]}
@@ -628,6 +617,11 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" },
   detailText: { color: theme.textMuted, fontSize: 13, fontWeight: "600", flexShrink: 1 },
   detailLink: { color: theme.primary },
+  socialLinks: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10, marginTop: 12 },
+  socialLinkBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: "center", justifyContent: "center" },
+  socialInputRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 50, marginBottom: 8 },
+  socialPrefix: { color: theme.textMuted, fontSize: 15, fontWeight: "700" },
+  socialInput: { flex: 1, color: theme.textPrimary, fontSize: 15, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
   email: { color: theme.textMuted, fontSize: 13, marginTop: 9 },
 
   socialBar: {
