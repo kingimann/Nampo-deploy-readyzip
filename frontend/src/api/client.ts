@@ -816,10 +816,9 @@ export type User = {
   sms_notifications?: boolean;
   bio?: string;
   location?: string | null;
-  website?: string | null;
   pronouns?: string | null;
-  occupation?: string | null;
   birthday?: string | null;
+  socials?: Record<string, string> | null;
   home_name?: string | null;
   home_longitude?: number | null;
   home_latitude?: number | null;
@@ -837,8 +836,8 @@ export type User = {
 };
 export type ProfilePatch = {
   name?: string; bio?: string; picture?: string;
-  location?: string | null; website?: string | null; pronouns?: string | null;
-  occupation?: string | null; birthday?: string | null;
+  location?: string | null; pronouns?: string | null; birthday?: string | null;
+  socials?: Record<string, string>;
   home_name?: string | null; home_longitude?: number | null; home_latitude?: number | null;
   work_name?: string | null; work_longitude?: number | null; work_latitude?: number | null;
   sub_price?: number;
@@ -964,10 +963,9 @@ export type PublicUser = {
   picture?: string | null;
   bio?: string;
   location?: string | null;
-  website?: string | null;
   pronouns?: string | null;
-  occupation?: string | null;
   birthday?: string | null;
+  socials?: Record<string, string> | null;
   verified?: boolean;
   role?: string;
   online?: boolean;

@@ -9,6 +9,7 @@ import { safeBack } from "@/src/utils/nav";
 import { api, Post, PublicUser, FriendStatus, SubTier } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { SOCIAL_BY_KEY, socialUrl, fmtBirthday } from "@/src/lib/socials";
 import PostCard from "@/src/components/PostCard";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
 import PresenceDot, { presenceLabel } from "@/src/components/PresenceDot";
@@ -212,14 +213,8 @@ export default function UserProfileScreen() {
               )}
               {!!user.bio && <Text style={styles.bio}>{user.bio}</Text>}
 
-              {(!!user.occupation || !!user.pronouns || !!user.location || !!user.birthday || !!user.website) && (
+              {(!!user.pronouns || !!user.location || !!user.birthday) && (
                 <View style={styles.detailsWrap}>
-                  {!!user.occupation && (
-                    <View style={styles.detailRow}>
-                      <Ionicons name="briefcase-outline" size={14} color={theme.textMuted} />
-                      <Text style={styles.detailText} numberOfLines={1}>{user.occupation}</Text>
-                    </View>
-                  )}
                   {!!user.pronouns && (
                     <View style={styles.detailRow}>
                       <Ionicons name="person-circle-outline" size={14} color={theme.textMuted} />
@@ -232,18 +227,26 @@ export default function UserProfileScreen() {
                       <Text style={styles.detailText} numberOfLines={1}>{user.location}</Text>
                     </View>
                   )}
-                  {!!user.birthday && (
+                  {!!fmtBirthday(user.birthday) && (
                     <View style={styles.detailRow}>
                       <Ionicons name="gift-outline" size={14} color={theme.textMuted} />
-                      <Text style={styles.detailText} numberOfLines={1}>{user.birthday}</Text>
+                      <Text style={styles.detailText} numberOfLines={1}>{fmtBirthday(user.birthday)}</Text>
                     </View>
                   )}
-                  {!!user.website && (
-                    <TouchableOpacity style={styles.detailRow} onPress={() => Linking.openURL(user.website!).catch(() => {})} testID="user-website">
-                      <Ionicons name="link-outline" size={14} color={theme.primary} />
-                      <Text style={[styles.detailText, styles.detailLink]} numberOfLines={1}>{user.website!.replace(/^https?:\/\//, "")}</Text>
-                    </TouchableOpacity>
-                  )}
+                </View>
+              )}
+
+              {!!user.socials && Object.keys(user.socials).length > 0 && (
+                <View style={styles.socialLinks}>
+                  {Object.entries(user.socials).map(([key, val]) => {
+                    const p = SOCIAL_BY_KEY[key];
+                    if (!p || !val) return null;
+                    return (
+                      <TouchableOpacity key={key} style={styles.socialLinkBtn} onPress={() => Linking.openURL(socialUrl(key, val)).catch(() => {})} testID={`user-social-${key}`}>
+                        <Ionicons name={p.icon as any} size={20} color={theme.textPrimary} />
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               )}
 
@@ -508,6 +511,8 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" },
   detailText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
   detailLink: { color: theme.primary },
+  socialLinks: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10, marginTop: 10 },
+  socialLinkBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, alignItems: "center", justifyContent: "center" },
   socialRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     alignSelf: "stretch", marginTop: 14,
