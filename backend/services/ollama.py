@@ -342,7 +342,10 @@ async def verify_documents(
     """Returns {"decision": "approve"|"reject"|"unavailable", "reason": str}.
     `unavailable` means the caller should fall back (e.g. manual review)."""
     if not ollama_enabled():
-        return {"decision": "unavailable", "reason": "AI verifier not configured"}
+        # No local Ollama vision model — fall back to Claude vision (Anthropic),
+        # which returns "unavailable" itself when ANTHROPIC_API_KEY is unset.
+        from services.claude_ai import verify_documents_claude
+        return await verify_documents_claude(insurance_b64, ownership_b64, vehicle, name)
 
     prompt = (
         "You verify members for a peer-to-peer roadside assistance app, to stop "
@@ -433,7 +436,7 @@ async def verify_vehicle_photo(b64: str) -> dict:
         # No local Ollama vision model — fall back to Claude vision (Anthropic)
         # so non-automotive photos are still flagged on hosted deployments.
         # classify_vehicle_photo fails open when ANTHROPIC_API_KEY is also unset.
-        from services.claude_vision import classify_vehicle_photo
+        from services.claude_ai import classify_vehicle_photo
         return await classify_vehicle_photo(b64)
     prompt = (
         "This is a photo from a roadside-assistance request. Does it clearly show a "
@@ -522,6 +525,18 @@ async def moderate_listing(title: str, description: str, photos, dup_existing: b
             parsed = json.loads(content)
             if isinstance(parsed, dict) and parsed.get("spam"):
                 r = str(parsed.get("reason") or "This looks like spam.").strip()[:200]
+                if r and r not in reasons:
+                    reasons.append(r)
+        except Exception:
+            pass
+    else:
+        # No local Ollama text model — fall back to Claude (Anthropic) for the
+        # spam/scam judgement. No-op when ANTHROPIC_API_KEY is also unset.
+        try:
+            from services.claude_ai import classify_listing_spam
+            res = await classify_listing_spam(title, description)
+            if res and res.get("spam"):
+                r = (res.get("reason") or "This looks like spam.").strip()[:200]
                 if r and r not in reasons:
                     reasons.append(r)
         except Exception:
