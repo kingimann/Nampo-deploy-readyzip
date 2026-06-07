@@ -1196,7 +1196,7 @@ export type SupportTicket = {
   messages?: SupportMessage[];
 };
 
-export type RoadsideService = "tow" | "lockout" | "battery" | "tire";
+export type RoadsideService = "tow" | "lockout" | "battery" | "tire" | "gas";
 export type RoadsideStatus = "open" | "accepted" | "completed" | "cancelled";
 export type RoadsideParty = {
   user_id: string;
@@ -1224,6 +1224,8 @@ export type RoadsideRequest = {
   dest_name?: string | null;
   dest_longitude?: number | null;
   dest_latitude?: number | null;
+  fuel_type?: string | null;
+  fuel_amount?: string | null;
   photos?: string[];
   before_photos?: string[];
   after_photos?: string[];
@@ -1262,6 +1264,8 @@ export type RoadsideCreate = {
   dest_name?: string;
   dest_longitude?: number;
   dest_latitude?: number;
+  fuel_type?: string;
+  fuel_amount?: string;
   photos?: string[];
   note?: string;
   payment_method?: "wallet" | "cash";
