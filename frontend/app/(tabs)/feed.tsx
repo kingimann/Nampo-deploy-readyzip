@@ -33,6 +33,10 @@ export default function FeedScreen() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [unreadNotif, setUnreadNotif] = useState(0);
+  useFocusEffect(useCallback(() => {
+    api.unreadNotificationsCount().then((r) => setUnreadNotif(r.count)).catch(() => {});
+  }, []));
 
   // Composer state
   const [composeOpen, setComposeOpen] = useState(false);
@@ -231,7 +235,14 @@ export default function FeedScreen() {
         <View style={styles.brandRow}>
           <Text style={styles.title}>Feed</Text>
         </View>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={() => router.push("/notifications")} style={styles.bellBtn} testID="feed-notifications">
+          <Ionicons name="notifications-outline" size={22} color={theme.textPrimary} />
+          {unreadNotif > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{unreadNotif > 9 ? "9+" : unreadNotif}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View style={styles.segmentWrap}>
@@ -452,6 +463,9 @@ const styles = StyleSheet.create({
   },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { color: theme.textPrimary, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
+  bellBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  bellBadge: { position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderWidth: 1.5, borderColor: theme.bg },
+  bellBadgeText: { color: "#fff", fontSize: 9.5, fontWeight: "800" },
 
   segmentWrap: { paddingHorizontal: 14, paddingBottom: 10 },
   segment: {

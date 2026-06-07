@@ -53,6 +53,7 @@ function AuthRedirect() {
 const HIDDEN_BAR_PREFIXES = [
   "/login", "/auth",
   "/customize-nav", "/customize-sidebar",
+  "/notifications", // reached from the feed bell; full-screen with its own back
   "/chat/", // 1-1 / group chat thread is immersive
   "/post/", // post detail
   "/reels", // full-screen video

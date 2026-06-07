@@ -34,9 +34,6 @@ export default function MessagesScreen() {
   const [groupMembers, setGroupMembers] = useState<PublicUser[]>([]);
   const [creating, setCreating] = useState(false);
 
-  // Unread notifications badge
-  const [unreadNotif, setUnreadNotif] = useState(0);
-
   const load = useCallback(async () => {
     try {
       const c = await api.listConversations();
@@ -47,14 +44,7 @@ export default function MessagesScreen() {
     }
   }, []);
 
-  const loadUnread = useCallback(async () => {
-    try {
-      const r = await api.unreadNotificationsCount();
-      setUnreadNotif(r.count);
-    } catch {}
-  }, []);
-
-  useFocusEffect(useCallback(() => { load(); loadUnread(); }, [load, loadUnread]));
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   useEffect(() => {
     if (!mode) return;
@@ -191,20 +181,6 @@ export default function MessagesScreen() {
           <Text style={styles.title}>Messages</Text>
         </View>
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <TouchableOpacity
-            style={styles.iconBtn}
-            onPress={() => router.push("/notifications")}
-            testID="notifications-btn"
-          >
-            <Ionicons name="notifications-outline" size={20} color={theme.primary} />
-            {unreadNotif > 0 && (
-              <View style={styles.iconBadge}>
-                <Text style={styles.iconBadgeText}>
-                  {unreadNotif > 9 ? "9+" : unreadNotif}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
           <TouchableOpacity onPress={() => setMode("new-dm")} style={styles.iconBtn} testID="new-chat-btn">
             <Ionicons name="create-outline" size={20} color={theme.primary} />
           </TouchableOpacity>

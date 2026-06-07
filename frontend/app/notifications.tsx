@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { api, Notification } from "@/src/api/client";
 import { theme } from "@/src/theme";
-import { SidebarMenuButton } from "@/src/components/LeftSidebar";
+import { safeBack } from "@/src/utils/nav";
 
 const ICON: Record<Notification["type"], { name: any; color: string }> = {
   like:          { name: "heart",            color: "#EF4444" },
@@ -113,7 +113,9 @@ export default function NotificationsScreen() {
     <SafeAreaView edges={["top"]} style={styles.root} testID="notifications-screen">
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
-        <SidebarMenuButton />
+        <TouchableOpacity onPress={() => safeBack("/(tabs)/feed")} style={styles.backBtn} testID="notifications-back">
+          <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
         <Text style={styles.title}>Notifications</Text>
         <TouchableOpacity
           onPress={markAll}
