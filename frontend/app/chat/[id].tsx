@@ -1155,87 +1155,32 @@ export default function ChatScreen() {
         )}
 
         <View>
-          {/* Attachment menu (tap the + button). WhatsApp-style popup. */}
-          {attachOpen && !recording && (
-            <>
-              <TouchableOpacity
-                style={styles.attachBackdrop}
-                activeOpacity={1}
-                onPress={() => setAttachOpen(false)}
-                testID="attach-backdrop"
-              />
-              <View style={[styles.attachMenu, { bottom: insets.bottom + 66 }]}>
-                <TouchableOpacity
-                  style={styles.attachItem}
-                  onPress={() => { setAttachOpen(false); sendMedia(); }}
-                  disabled={sending}
-                  testID="attach-photo"
-                >
-                  <View style={[styles.attachItemIcon, { backgroundColor: "#8E5CF7" }]}>
-                    <Ionicons name="image" size={20} color="#fff" />
-                  </View>
-                  <Text style={styles.attachItemLabel}>Photo &amp; Video</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.attachItem}
-                  onPress={() => { setAttachOpen(false); shareLocation(); }}
-                  disabled={sending || sharingLocation}
-                  testID="attach-location"
-                >
-                  <View style={[styles.attachItemIcon, { backgroundColor: "#23B26D" }]}>
-                    {sharingLocation ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Ionicons name="location" size={20} color="#fff" />
-                    )}
-                  </View>
-                  <Text style={styles.attachItemLabel}>Location</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.attachItem}
-                  onPress={() => { setAttachOpen(false); setGifOpen(true); }}
-                  testID="attach-gif"
-                >
-                  <View style={[styles.attachItemIcon, { backgroundColor: "#EC4899" }]}>
-                    <Ionicons name="film" size={20} color="#fff" />
-                  </View>
-                  <Text style={styles.attachItemLabel}>GIF</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.attachItem}
-                  onPress={() => { setAttachOpen(false); pickFile(); }}
-                  testID="attach-file"
-                >
-                  <View style={[styles.attachItemIcon, { backgroundColor: "#F59E0B" }]}>
-                    <Ionicons name="document" size={20} color="#fff" />
-                  </View>
-                  <Text style={styles.attachItemLabel}>File</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.attachItem}
-                  onPress={() => { setAttachOpen(false); setContactOpen(true); }}
-                  testID="attach-contact"
-                >
-                  <View style={[styles.attachItemIcon, { backgroundColor: "#3B82F6" }]}>
-                    <Ionicons name="person" size={20} color="#fff" />
-                  </View>
-                  <Text style={styles.attachItemLabel}>Contact</Text>
-                </TouchableOpacity>
-                {!!peer && (
-                  <TouchableOpacity
-                    style={styles.attachItem}
-                    onPress={() => { setAttachOpen(false); setTipOpen(true); }}
-                    testID="attach-tip"
-                  >
-                    <View style={[styles.attachItemIcon, { backgroundColor: theme.primary }]}>
-                      <Ionicons name="cash" size={20} color="#fff" />
-                    </View>
-                    <Text style={styles.attachItemLabel}>Send tip</Text>
-                  </TouchableOpacity>
-                )}
+          {/* Attachment picker — a clean bottom sheet (tap the + button). */}
+          <Modal visible={attachOpen && !recording} transparent animationType="slide" onRequestClose={() => setAttachOpen(false)}>
+            <View style={styles.attachSheetBackdrop}>
+              <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setAttachOpen(false)} testID="attach-backdrop" />
+              <View style={[styles.attachSheet, { paddingBottom: insets.bottom + 18 }]}>
+                <View style={styles.attachHandle} />
+                <View style={styles.attachGrid}>
+                  {[
+                    { key: "photo", label: "Photo & Video", icon: "image", color: "#8E5CF7", onPress: () => { setAttachOpen(false); sendMedia(); } },
+                    { key: "location", label: "Location", icon: "location", color: "#23B26D", busy: sharingLocation, onPress: () => { setAttachOpen(false); shareLocation(); } },
+                    { key: "gif", label: "GIF", icon: "film", color: "#EC4899", onPress: () => { setAttachOpen(false); setGifOpen(true); } },
+                    { key: "file", label: "File", icon: "document", color: "#F59E0B", onPress: () => { setAttachOpen(false); pickFile(); } },
+                    { key: "contact", label: "Contact", icon: "person", color: "#3B82F6", onPress: () => { setAttachOpen(false); setContactOpen(true); } },
+                    ...(peer ? [{ key: "tip", label: "Send tip", icon: "cash", color: theme.primary, onPress: () => { setAttachOpen(false); setTipOpen(true); } }] : []),
+                  ].map((t: any) => (
+                    <TouchableOpacity key={t.key} style={styles.attachTile} onPress={t.onPress} disabled={sending} testID={`attach-${t.key}`}>
+                      <View style={[styles.attachTileIcon, { backgroundColor: t.color }]}>
+                        {t.busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={t.icon} size={24} color="#fff" />}
+                      </View>
+                      <Text style={styles.attachTileLabel}>{t.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
-            </>
-          )}
+            </View>
+          </Modal>
 
           {editingMsg && !recording && (
             <View style={styles.editBanner}>
@@ -1650,30 +1595,24 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   attachBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    width: 38, height: 44, borderRadius: 19,
     alignItems: "center", justifyContent: "center",
   },
-  attachBackdrop: {
-    position: "absolute", left: 0, right: 0, bottom: 0, top: -1000,
-  },
-  attachMenu: {
-    position: "absolute", left: 12,
+  attachSheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  attachSheet: {
     backgroundColor: theme.surface,
-    borderWidth: 1, borderColor: theme.border,
-    borderRadius: 16, paddingVertical: 6, minWidth: 200,
-    shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 }, elevation: 8,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border,
+    paddingTop: 8, paddingHorizontal: 10,
   },
-  attachItem: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    paddingHorizontal: 14, paddingVertical: 10,
-  },
-  attachItemIcon: {
-    width: 36, height: 36, borderRadius: 18,
+  attachHandle: { alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: theme.border, marginTop: 2, marginBottom: 14 },
+  attachGrid: { flexDirection: "row", flexWrap: "wrap" },
+  attachTile: { width: "33.33%", alignItems: "center", paddingVertical: 14, gap: 9 },
+  attachTileIcon: {
+    width: 58, height: 58, borderRadius: 29,
     alignItems: "center", justifyContent: "center",
   },
-  attachItemLabel: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
+  attachTileLabel: { color: theme.textPrimary, fontSize: 13, fontWeight: "600", textAlign: "center" },
   recordingPill: {
     flex: 1, flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
