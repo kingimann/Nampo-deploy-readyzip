@@ -443,9 +443,11 @@ async def _hydrate_review(doc: dict) -> MarketplaceReview:
         name=author_doc.get("name", "Unknown") if author_doc else "Unknown",
         picture=author_doc.get("picture") if author_doc else None,
     )
+    verified = await _has_verified_trade(doc["reviewer_id"], doc["subject_user_id"])
     return MarketplaceReview(
         id=doc["id"], subject_user_id=doc["subject_user_id"], reviewer=reviewer,
         rating=doc.get("rating", 5), ratings=doc.get("ratings") or {},
+        verified=verified,
         text=doc.get("text", ""), created_at=doc["created_at"],
     )
 

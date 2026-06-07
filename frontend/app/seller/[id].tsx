@@ -222,6 +222,10 @@ export default function SellerProfileScreen() {
                       <Text style={styles.reviewName}>{r.reviewer.name}</Text>
                       <Stars value={r.rating} />
                     </View>
+                    <View style={[styles.verTag, r.verified ? styles.verTagOn : styles.verTagOff]}>
+                      <Ionicons name={r.verified ? "shield-checkmark" : "shield-outline"} size={11} color={r.verified ? "#22C55E" : theme.textMuted} />
+                      <Text style={[styles.verTagText, { color: r.verified ? "#22C55E" : theme.textMuted }]}>{r.verified ? "Verified" : "Unverified"}</Text>
+                    </View>
                   </View>
                   {!!r.ratings && Object.keys(r.ratings).length > 0 && (
                     <View style={styles.reviewCats}>
@@ -399,6 +403,10 @@ const styles = StyleSheet.create({
   reviewCatChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: theme.surfaceAlt, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
   reviewCatChipText: { color: theme.textSecondary, fontSize: 11.5, fontWeight: "600" },
   reviewCatChipVal: { color: theme.textPrimary, fontSize: 11.5, fontWeight: "800" },
+  verTag: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 999, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
+  verTagOn: { borderColor: "rgba(34,197,94,0.45)", backgroundColor: "rgba(34,197,94,0.10)" },
+  verTagOff: { borderColor: theme.border, backgroundColor: theme.surfaceAlt },
+  verTagText: { fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.3 },
   reviewInput: {
     backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 12, minHeight: 90, textAlignVertical: "top",

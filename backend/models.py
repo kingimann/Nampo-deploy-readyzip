@@ -505,6 +505,7 @@ class MarketplaceReview(BaseModel):
     reviewer: "PostAuthor"
     rating: int
     ratings: dict = {}               # granular per-category stars
+    verified: bool = True            # backed by a verified trade between the two
     text: Optional[str] = ""
     created_at: datetime
 

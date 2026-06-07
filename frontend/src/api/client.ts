@@ -794,7 +794,7 @@ export type ListingCreate = {
 export type MarketplaceReview = {
   id: string; subject_user_id: string;
   reviewer: PostAuthor;
-  rating: number; ratings?: Record<string, number>; text?: string | null; created_at: string;
+  rating: number; ratings?: Record<string, number>; verified?: boolean; text?: string | null; created_at: string;
 };
 export type SellerProfile = {
   user: PublicUser;
