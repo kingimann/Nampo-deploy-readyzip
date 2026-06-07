@@ -362,6 +362,7 @@ export const api = {
   listConversations: () => request<ConversationView[]>("/conversations"),
 
   // ── Roadside assistance ──────────────────────────────────────────────────
+  roadsideQuote: () => request<RoadsideQuote>("/roadside/quote"),
   roadsideActive: () => request<RoadsideRequest | null>("/roadside/active"),
   roadsideHelping: () => request<RoadsideRequest | null>("/roadside/helping"),
   roadsideMine: () => request<RoadsideRequest[]>("/roadside/mine"),
@@ -375,10 +376,14 @@ export const api = {
   getRoadside: (id: string) => request<RoadsideRequest>(`/roadside/requests/${id}`),
   acceptRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/accept`, { method: "POST" }),
+  enrouteRoadside: (id: string) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/enroute`, { method: "POST" }),
+  addRoadsidePhotos: (id: string, phase: "before" | "after", photos: string[]) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/photos`, { method: "POST", body: JSON.stringify({ phase, photos }) }),
+  verifyRoadside: (id: string, photos: string[]) =>
+    request<RoadsideRequest>(`/roadside/requests/${id}/verify`, { method: "POST", body: JSON.stringify({ photos }) }),
   cancelRoadside: (id: string) =>
     request<RoadsideRequest>(`/roadside/requests/${id}/cancel`, { method: "POST" }),
-  completeRoadside: (id: string) =>
-    request<RoadsideRequest>(`/roadside/requests/${id}/complete`, { method: "POST" }),
   // Voice calls (LiveKit). token → join the room; ring → notify the other side.
   callToken: (conversationId: string) =>
     request<{ token: string; url: string; room: string; identity: string }>(
@@ -1196,7 +1201,25 @@ export type RoadsideRequest = {
   latitude: number;
   place_name?: string | null;
   vehicle?: string | null;
+  vehicle_year?: string | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  vehicle_color?: string | null;
+  vehicle_plate?: string | null;
+  dest_name?: string | null;
+  dest_longitude?: number | null;
+  dest_latitude?: number | null;
+  photos?: string[];
+  completion_photos?: string[];
   note?: string | null;
+  price?: number;
+  tax?: number;
+  total?: number;
+  held?: boolean;
+  settled?: boolean;
+  refunded?: boolean;
+  requester_verified?: boolean;
+  helper_verified?: boolean;
   distance_km?: number | null;
   mine?: boolean;
   helping?: boolean;
@@ -1209,8 +1232,23 @@ export type RoadsideCreate = {
   longitude: number;
   latitude: number;
   place_name?: string;
-  vehicle?: string;
+  vehicle_year?: string;
+  vehicle_make?: string;
+  vehicle_model?: string;
+  vehicle_color?: string;
+  vehicle_plate?: string;
+  dest_name?: string;
+  dest_longitude?: number;
+  dest_latitude?: number;
+  photos?: string[];
   note?: string;
+};
+export type RoadsideQuote = {
+  base: number;
+  tax: number;
+  total: number;
+  tax_rate: number;
+  wallet_balance: number;
 };
 
 export type Notification = {
