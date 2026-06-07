@@ -11,15 +11,27 @@ import { api, SupportTicket } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
-const CATEGORIES: { k: string; label: string; icon: any }[] = [
-  { k: "dispute", label: "Dispute a payment / transaction", icon: "card-outline" },
-  { k: "payment", label: "Billing & payouts", icon: "cash-outline" },
-  { k: "account", label: "Account & login", icon: "person-outline" },
-  { k: "content", label: "Report content / user", icon: "flag-outline" },
-  { k: "safety", label: "Safety concern", icon: "shield-outline" },
-  { k: "bug", label: "Something's broken", icon: "bug-outline" },
-  { k: "other", label: "Something else", icon: "help-circle-outline" },
+const CATEGORIES: { k: string; label: string; desc: string; icon: any }[] = [
+  { k: "dispute", label: "Dispute a payment", desc: "A charge, payout, or transaction to review", icon: "card-outline" },
+  { k: "payment", label: "Billing & payouts", desc: "Wallet top-ups, cash-outs, fees", icon: "cash-outline" },
+  { k: "account", label: "Account & login", desc: "Login, username, email, verification", icon: "person-outline" },
+  { k: "content", label: "Report content / user", desc: "A post, listing, or person", icon: "flag-outline" },
+  { k: "safety", label: "Safety concern", desc: "Harassment, threats, or unsafe behavior", icon: "shield-outline" },
+  { k: "bug", label: "Something's broken", desc: "A feature isn't working right", icon: "bug-outline" },
+  { k: "other", label: "Something else", desc: "Anything not covered above", icon: "help-circle-outline" },
 ];
+
+// Friendly label for a ticket linked to another item (e.g. a roadside dispute).
+function relatedLabel(type?: string): string {
+  switch (type) {
+    case "roadside": return "a roadside job";
+    case "transfer": return "a transaction";
+    case "listing": return "a listing";
+    case "post": return "a post";
+    case "reel": return "a reel";
+    default: return "an item";
+  }
+}
 
 export function statusMeta(s: string): { label: string; color: string } {
   switch (s) {
@@ -151,28 +163,63 @@ export default function SupportScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setComposeOpen(false)} />
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.grabber} />
             <View style={styles.sheetHead}>
               <Text style={styles.sheetTitle}>New ticket</Text>
-              <TouchableOpacity onPress={() => setComposeOpen(false)}><Ionicons name="close" size={22} color={theme.textPrimary} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setComposeOpen(false)} hitSlop={8} testID="ticket-close"><Ionicons name="close" size={22} color={theme.textPrimary} /></TouchableOpacity>
             </View>
-            <Text style={styles.label}>What's this about?</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
-              {CATEGORIES.map((c) => {
-                const on = category === c.k;
-                return (
-                  <TouchableOpacity key={c.k} onPress={() => setCategory(c.k)} style={[styles.catChip, on && styles.catChipOn]} testID={`cat-${c.k}`}>
-                    <Ionicons name={c.icon} size={14} color={on ? "#fff" : theme.primary} />
-                    <Text style={[styles.catChipText, on && { color: "#fff" }]}>{c.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {!!related.type && (
+                <View style={styles.linkedRow}>
+                  <Ionicons name="link-outline" size={15} color={theme.primary} />
+                  <Text style={styles.linkedText}>Linked to {relatedLabel(related.type)}</Text>
+                </View>
+              )}
+
+              <Text style={styles.fieldLabel}>What's this about?</Text>
+              <View style={styles.catList}>
+                {CATEGORIES.map((c) => {
+                  const on = category === c.k;
+                  return (
+                    <TouchableOpacity key={c.k} onPress={() => setCategory(c.k)} style={[styles.catRow, on && styles.catRowOn]} activeOpacity={0.8} testID={`cat-${c.k}`}>
+                      <View style={[styles.catRowIcon, on && { backgroundColor: theme.primary }]}>
+                        <Ionicons name={c.icon} size={17} color={on ? "#fff" : theme.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.catRowLabel}>{c.label}</Text>
+                        <Text style={styles.catRowDesc} numberOfLines={1}>{c.desc}</Text>
+                      </View>
+                      <Ionicons name={on ? "checkmark-circle" : "ellipse-outline"} size={20} color={on ? theme.primary : theme.textMuted} />
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={styles.labelRow}>
+                <Text style={styles.fieldLabel}>Subject <Text style={styles.req}>*</Text></Text>
+                <Text style={styles.counter}>{subject.length}/140</Text>
+              </View>
+              <TextInput style={styles.input} placeholder="A short summary" placeholderTextColor={theme.textMuted} value={subject} onChangeText={setSubject} maxLength={140} testID="ticket-subject" />
+
+              <View style={styles.labelRow}>
+                <Text style={styles.fieldLabel}>Details <Text style={styles.req}>*</Text></Text>
+                <Text style={styles.counter}>{message.length}/4000</Text>
+              </View>
+              <TextInput style={[styles.input, styles.textarea]} placeholder="What happened, when, and any amounts or reference IDs that help." placeholderTextColor={theme.textMuted} value={message} onChangeText={setMessage} multiline maxLength={4000} testID="ticket-message" />
+              <Text style={styles.hint}>Tip: include dates, amounts, and any reference IDs so we can resolve it faster.</Text>
+
+              {!!err && <Text style={styles.err}>{err}</Text>}
+
+              <TouchableOpacity
+                style={[styles.submit, (sending || !subject.trim() || !message.trim()) && { opacity: 0.5 }]}
+                onPress={submit}
+                disabled={sending || !subject.trim() || !message.trim()}
+                testID="ticket-submit"
+              >
+                {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Submit ticket</Text>}
+              </TouchableOpacity>
+              <Text style={styles.footNote}>Our team replies right here in Support, usually within a day.</Text>
             </ScrollView>
-            <TextInput style={styles.input} placeholder="Subject" placeholderTextColor={theme.textMuted} value={subject} onChangeText={setSubject} maxLength={140} testID="ticket-subject" />
-            <TextInput style={[styles.input, styles.textarea]} placeholder="Describe the issue (include amounts, dates, IDs for disputes)…" placeholderTextColor={theme.textMuted} value={message} onChangeText={setMessage} multiline testID="ticket-message" />
-            {!!err && <Text style={styles.err}>{err}</Text>}
-            <TouchableOpacity style={[styles.submit, sending && { opacity: 0.5 }]} onPress={submit} disabled={sending} testID="ticket-submit">
-              {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Submit ticket</Text>}
-            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -200,16 +247,43 @@ const styles = StyleSheet.create({
   fab: { position: "absolute", right: 18, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.primary, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 12, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 10, elevation: 8 },
   fabText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: theme.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: theme.border, padding: 18, gap: 10 },
-  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sheetTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
-  label: { color: theme.textSecondary, fontSize: 13, fontWeight: "700", marginTop: 4 },
-  catChip: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surface, borderRadius: 999, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 12, paddingVertical: 8 },
-  catChipOn: { backgroundColor: theme.primary, borderColor: theme.primary },
-  catChipText: { color: theme.textPrimary, fontSize: 12.5, fontWeight: "700" },
-  input: { color: theme.textPrimary, fontSize: 14.5, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
-  textarea: { minHeight: 110, textAlignVertical: "top" },
-  err: { color: theme.error, fontSize: 13 },
-  submit: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 4 },
+  sheet: {
+    backgroundColor: theme.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22,
+    borderTopWidth: 1, borderColor: theme.border, paddingHorizontal: 18, paddingTop: 8, maxHeight: "92%",
+  },
+  grabber: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 10 },
+  sheetScroll: { flexShrink: 1 },
+  sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  sheetTitle: { color: theme.textPrimary, fontSize: 19, fontWeight: "800" },
+
+  linkedRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: theme.primary + "12", borderWidth: 1, borderColor: theme.primary + "55",
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 14,
+  },
+  linkedText: { color: theme.textPrimary, fontSize: 13, fontWeight: "700" },
+
+  fieldLabel: { color: theme.textSecondary, fontSize: 13, fontWeight: "800", marginBottom: 8 },
+  labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16, marginBottom: 8 },
+  req: { color: theme.error },
+  counter: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
+
+  catList: { gap: 8 },
+  catRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11,
+  },
+  catRowOn: { borderColor: theme.primary, backgroundColor: theme.primary + "12" },
+  catRowIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: theme.primary + "1f" },
+  catRowLabel: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "700" },
+  catRowDesc: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
+
+  input: { color: theme.textPrimary, fontSize: 14.5, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  textarea: { minHeight: 120, textAlignVertical: "top" },
+  hint: { color: theme.textMuted, fontSize: 12, marginTop: 6, lineHeight: 16 },
+  err: { color: theme.error, fontSize: 13, marginTop: 10 },
+  submit: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 18 },
   submitText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  footNote: { color: theme.textMuted, fontSize: 11.5, textAlign: "center", marginTop: 10 },
 });
