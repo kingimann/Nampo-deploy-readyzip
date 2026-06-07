@@ -368,20 +368,22 @@ export default function RoadsideScreen() {
     finally { setBusyId(null); }
   };
 
-  const cancelReq = (r: RoadsideRequest) => {
+  const cancelReq = async (r: RoadsideRequest) => {
     const fee = r.en_route && r.status === "accepted" ? (r.price || 80) / 2 : 0;
     const body = fee > 0
       ? `Your helper is already en route. You'll be refunded $${((r.total || 0) - fee).toFixed(2)} and they keep $${fee.toFixed(2)} for setting off.`
       : "You'll get a full refund.";
-    const go = async () => {
-      setBusyId(r.id);
-      try { await api.cancelRoadside(r.id); setActive(null); } catch (e: any) { Alert.alert("Couldn't cancel", String(e?.message || e)); } finally { setBusyId(null); }
-    };
-    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(`Cancel this request?\n\n${body}`)) go(); }
-    else Alert.alert("Cancel request", body, [
-      { text: "Keep", style: "cancel" },
-      { text: "Cancel request", style: "destructive", onPress: go },
-    ]);
+    // In-app confirm modal (works the same on web + native) — no browser dialog.
+    const ok = await confirm({
+      title: "Cancel request",
+      message: body,
+      confirmLabel: "Cancel request",
+      cancelLabel: "Keep",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyId(r.id);
+    try { await api.cancelRoadside(r.id); setActive(null); } catch (e: any) { Alert.alert("Couldn't cancel", String(e?.message || e)); } finally { setBusyId(null); }
   };
 
   const accept = async (r: RoadsideRequest) => {
