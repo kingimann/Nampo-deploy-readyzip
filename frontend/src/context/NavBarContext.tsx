@@ -59,11 +59,6 @@ export const NAV_CATALOG: NavShortcut[] = [
     route: "/marketplace",
   },
   {
-    id: "bookmarks", label: "Saved",
-    iconOutline: "bookmark-outline", iconFilled: "bookmark",
-    route: "/bookmarks",
-  },
-  {
     id: "reels", label: "Reels",
     iconOutline: "play-circle-outline", iconFilled: "play-circle",
     route: "/reels",
