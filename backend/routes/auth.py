@@ -19,6 +19,7 @@ from core import (
     db,
     get_current_user,
     _norm_dt,
+    is_admin,
     TOS_VERSION,
     PRIVACY_VERSION,
 )
@@ -422,9 +423,9 @@ async def set_username(body: UsernameUpdate, authorization: Optional[str] = Head
     if username == current:
         updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
         return User(**_user_doc_to_model(updated))
-    # Usernames can only be changed once every 30 days (display name is free).
+    # Usernames can only be changed once every 30 days (admins are exempt).
     changed_at = user.get("username_changed_at")
-    if current and changed_at:
+    if current and changed_at and not is_admin(user):
         try:
             delta = datetime.now(timezone.utc) - changed_at
             if delta < timedelta(days=30):
