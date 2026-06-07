@@ -391,6 +391,14 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
             raise HTTPException(status_code=404, detail="Parent post not found")
         if not await _viewer_can_comment(parent, user["user_id"]):
             raise HTTPException(status_code=403, detail="The author has limited who can comment on this post")
+        # Subscriber-only posts: only subscribers (at the required tier), the
+        # author, and admins may comment.
+        _ptier = int(parent.get("min_sub_tier") or 0)
+        if _ptier > 0 and (await _viewer_sub_level(user["user_id"], parent["user_id"])) < _ptier:
+            raise HTTPException(status_code=403, detail={
+                "code": "subscribers_only",
+                "message": f"Subscribe at Tier {_ptier} or higher to comment on this post.",
+            })
         parent_id = body.parent_id
     quote_of = None
     if body.quote_of:
@@ -770,6 +778,14 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
     doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found")
+    # Subscriber-only posts: only subscribers (at the required tier), the author,
+    # and admins may react/like.
+    _mtier = int(doc.get("min_sub_tier") or 0)
+    if _mtier > 0 and (await _viewer_sub_level(uid, doc["user_id"])) < _mtier:
+        raise HTTPException(status_code=403, detail={
+            "code": "subscribers_only",
+            "message": f"Subscribe at Tier {_mtier} or higher to react to this post.",
+        })
     reactions = dict(doc.get("reactions") or {})
 
     def _dec(em: str):

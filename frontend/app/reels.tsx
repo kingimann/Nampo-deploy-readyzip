@@ -81,6 +81,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
 
   const doReact = async (emoji: string) => {
     setReactOpen(false);
+    if (content.locked) return goSub();
     const cur = myReaction;
     const delta = cur === emoji ? -1 : cur ? 0 : 1;
     setMyReaction(cur === emoji ? null : emoji);
@@ -131,12 +132,15 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
     Animated.timing(muteFlash, { toValue: 0, duration: 650, useNativeDriver: true }).start();
   };
 
+  // Subscriber-only reels: engagement routes to the creator's subscribe sheet.
+  const goSub = () => router.push({ pathname: "/user/[name]", params: { name: content.author.name, subscribe: "1" } });
   const onRepost = async () => {
+    if (content.locked) return goSub();
     setReposted((v) => !v);
     setRepostCount((n) => n + (reposted ? -1 : 1));
     try { await api.toggleRepost(post.repost_of || post.id); } catch {}
   };
-  const onComment = () => onOpenComments(content);
+  const onComment = () => { if (content.locked) return goSub(); onOpenComments(content); };
   const onUser = () => router.push({ pathname: "/user/[name]", params: { name: content.author.name } });
   const onReport = () => {
     const doReport = () => { api.reportPost(post.id, "inappropriate").catch(() => {}); };

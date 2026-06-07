@@ -107,7 +107,12 @@ export default function PostCard({
     if (name) router.push({ pathname: "/user/[name]", params: { name } });
   };
 
+  // Subscriber-only posts: engagement routes to the creator's subscribe sheet.
+  const goSubscribe = () =>
+    router.push({ pathname: "/user/[name]", params: { name: display.author.name, subscribe: "1" } });
+
   const onCommentPress = () => {
+    if (display.locked) return goSubscribe();
     if (onComments) onComments(display);
     else onReply(display);
   };
@@ -127,6 +132,7 @@ export default function PostCard({
   // Emoji reactions (unified like/dislike). Optimistic via a local override.
   const doReact = async (emoji: string) => {
     setReactOpen(false);
+    if (display.locked) return goSubscribe();
     try {
       const updated = await api.reactToPost(display.id, emoji);
       if (!isRepost) setLocalPost(updated);
@@ -330,8 +336,8 @@ export default function PostCard({
           // used are hidden here — they're only revealed in the picker sheet.
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={(e) => { e.stopPropagation?.(); setReactOpen(true); }}
-            onLongPress={() => setLikers({ open: true, kind: "likers" })}
+            onPress={(e) => { e.stopPropagation?.(); if (display.locked) return goSubscribe(); setReactOpen(true); }}
+            onLongPress={() => { if (!display.locked) setLikers({ open: true, kind: "likers" }); }}
             delayLongPress={350}
             testID={`react-${post.id}`}
           >
