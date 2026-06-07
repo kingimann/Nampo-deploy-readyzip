@@ -146,6 +146,57 @@ async def _load_public_post(post_id: str):
     return doc, author
 
 
+async def _load_public_listing(listing_id: str):
+    """Return (listing_doc, seller_doc) if publicly embeddable, else None.
+    Only `active` listings (not sold/flagged) by non-banned sellers are shown."""
+    doc = await db.listings.find_one({"id": listing_id}, {"_id": 0})
+    if not doc or doc.get("status") != "active":
+        return None
+    seller = await db.users.find_one({"user_id": doc.get("user_id")}, {"_id": 0})
+    if not _author_ok(seller):
+        return None
+    return doc, seller
+
+
+def _listing_photos(doc: dict) -> list:
+    photos = doc.get("photos") or ([doc["photo_base64"]] if doc.get("photo_base64") else [])
+    return [p for p in photos if p]
+
+
+_CUR_SYMBOL = {"USD": "$", "CAD": "$", "AUD": "$", "NZD": "$", "EUR": "€", "GBP": "£", "JPY": "¥", "INR": "₹"}
+
+
+def _price_str(doc: dict) -> str:
+    cur = (doc.get("currency") or "USD").upper()
+    try:
+        p = float(doc.get("price") or 0)
+    except (TypeError, ValueError):
+        p = 0.0
+    amt = f"{p:,.0f}" if p == int(p) else f"{p:,.2f}"
+    sym = _CUR_SYMBOL.get(cur)
+    return f"{sym}{amt}" if sym else f"{amt} {cur}"
+
+
+def _listing_json(doc: dict, seller: dict) -> dict:
+    return {
+        "id": doc["id"],
+        "title": doc.get("title") or "",
+        "price": float(doc.get("price") or 0),
+        "currency": doc.get("currency") or "USD",
+        "price_display": _price_str(doc),
+        "condition": doc.get("condition") or "used",
+        "category": doc.get("category"),
+        "description": doc.get("description") or "",
+        "locality": doc.get("locality") or "",
+        "delivery": doc.get("delivery") or "pickup",
+        "negotiable": bool(doc.get("negotiable")),
+        "photos": _listing_photos(doc),
+        "seller": _author_view(seller),
+        "created_at": doc.get("created_at"),
+        "url": f"{WEB_APP_URL}/listing/{doc['id']}",
+    }
+
+
 async def _load_public_user(username: str):
     uname = (username or "").lstrip("@").strip()
     if not uname:
@@ -205,6 +256,16 @@ async def public_profile(request: Request, username: str):
     return _profile_json(u)
 
 
+@router.get("/pub/listing/{listing_id}")
+async def public_listing(request: Request, listing_id: str):
+    if not _rate_ok(_client_ip(request)):
+        raise HTTPException(status_code=429, detail="Slow down — too many requests.")
+    r = await _load_public_listing(listing_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Listing not available")
+    return _listing_json(*r)
+
+
 @router.get("/pub/profile/{username}/posts")
 async def public_profile_posts(request: Request, username: str,
                                limit: int = Query(10), cursor: Optional[str] = Query(None)):
@@ -253,6 +314,9 @@ _CARD_CSS = """
   .ck{color:var(--acc);font-size:13px}
   .tx{font-size:14.5px;line-height:1.45;margin:10px 0 0;white-space:pre-wrap;word-wrap:break-word}
   .bio{font-size:13.5px;color:var(--muted);margin:8px 0 0}
+  .price{font-size:20px;font-weight:800;margin:10px 0 2px;color:var(--text)}
+  .ltitle{font-size:14.5px;font-weight:700;margin:0}
+  .sub{font-size:12.5px;color:var(--muted);margin-top:3px}
   .media{margin-top:10px;border-radius:calc(var(--rad) - 4px);overflow:hidden;border:1px solid var(--border)}
   .media img{display:block;width:100%;max-height:330px;object-fit:cover}
   .meta{display:flex;gap:16px;margin-top:10px;color:var(--muted);font-size:12.5px}
@@ -347,17 +411,48 @@ async def profile_card(request: Request, profile: str = Query(...), theme: str =
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
 
 
+@router.get("/pub/listing-card", response_class=HTMLResponse)
+async def listing_card(request: Request, listing: str = Query(...), theme: str = Query("light"),
+                       accent: Optional[str] = Query(None), radius: Optional[str] = Query(None)):
+    r = await _load_public_listing(listing)
+    if not r:
+        return _unavailable("This listing is unavailable.")
+    doc, seller = r
+    cfg = _embed_cfg(theme, accent, radius)
+    e = html.escape
+    photos = _listing_photos(doc)
+    img = f'<div class="media"><img src="{e(photos[0])}" alt=""></div>' if photos else ""
+    cond = e((doc.get("condition") or "").replace("_", " "))
+    loc = e(doc.get("locality") or "")
+    sub = " · ".join([s for s in (cond, loc) if s])
+    sub_html = f'<div class="sub">{sub}</div>' if sub else ""
+    title = e(doc.get("title") or "Listing")
+    link = f"{WEB_APP_URL}/listing/{e(doc['id'])}"
+    inner = (
+        f'<a class="card" href="{link}" target="_blank" rel="noopener">'
+        f'{img}'
+        f'<div class="price">{e(_price_str(doc))}</div>'
+        f'<div class="ltitle">{title}</div>'
+        f'{sub_html}'
+        '<div class="brand"><span class="n">Nami Marketplace</span><span class="cta">View listing ›</span></div>'
+        "</a>"
+    )
+    return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
+
+
 # ── Drop-in <script> loader ───────────────────────────────────────────────────
 _EMBED_JS = """(function(){
   var s=document.currentScript;
   function a(n){return s&&s.getAttribute(n);}
-  var post=a("data-post"), profile=a("data-profile");
-  if(!post&&!profile)return;
-  var path=post?("post-card?post="+encodeURIComponent(post)):("profile-card?profile="+encodeURIComponent(profile));
+  var post=a("data-post"), profile=a("data-profile"), listing=a("data-listing");
+  if(!post&&!profile&&!listing)return;
+  var path = post?("post-card?post="+encodeURIComponent(post))
+    : listing?("listing-card?listing="+encodeURIComponent(listing))
+    : ("profile-card?profile="+encodeURIComponent(profile));
   ["theme","accent","radius"].forEach(function(k){var v=a("data-"+k);if(v)path+="&"+k+"="+encodeURIComponent(v);});
   var f=document.createElement("iframe");
   f.src="__BASE__/api/pub/"+path;
-  f.width=a("data-width")||"100%";f.height=a("data-height")||(profile?"150":"460");
+  f.width=a("data-width")||"100%";f.height=a("data-height")||(profile?"150":listing?"420":"460");
   f.scrolling="no";f.style.border="0";f.style.maxWidth="550px";f.style.width="100%";
   if(s&&s.parentNode)s.parentNode.insertBefore(f,s);
 })();"""
@@ -372,6 +467,11 @@ async def content_embed_js(request: Request):
 # ── oEmbed (https://oembed.com) ───────────────────────────────────────────────
 def _extract_post_id(url: str) -> Optional[str]:
     m = re.search(r"/(?:post|p)/([A-Za-z0-9\-]{6,})", url or "")
+    return m.group(1) if m else None
+
+
+def _extract_listing_id(url: str) -> Optional[str]:
+    m = re.search(r"/(?:listing|l)/([A-Za-z0-9\-]{6,})", url or "")
     return m.group(1) if m else None
 
 
@@ -404,6 +504,17 @@ async def oembed(request: Request, url: str = Query(...), format: str = Query("j
                       if (m.get("url") or m.get("thumbnail"))), author.get("picture"))
         title = (doc.get("text") or "Post on Nami")[:120]
         return _oembed_payload(title, author, src, width, height, thumb)
+
+    lid = _extract_listing_id(url)
+    if lid:
+        r = await _load_public_listing(lid)
+        if not r:
+            raise HTTPException(status_code=404, detail="Listing not available")
+        doc, seller = r
+        height = min(int(maxheight or 420), 460)
+        src = f"{base}/api/pub/listing-card?listing={lid}"
+        thumb = next(iter(_listing_photos(doc)), seller.get("picture"))
+        return _oembed_payload(f"{doc.get('title')} — {_price_str(doc)}", seller, src, width, height, thumb)
 
     uname = _extract_username(url)
     if uname:

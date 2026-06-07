@@ -164,9 +164,11 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/pub/post/{id}", desc: "Public JSON for a post (public posts only).", auth: false },
       { method: "GET", path: "/pub/profile/{username}", desc: "Public JSON for a user profile.", auth: false },
       { method: "GET", path: "/pub/profile/{username}/posts", desc: "A user's public posts (cursor paginated: ?limit=&cursor=).", auth: false },
+      { method: "GET", path: "/pub/listing/{id}", desc: "Public JSON for an active marketplace listing.", auth: false },
       { method: "GET", path: "/pub/post-card?post=ID", desc: "Themeable iframe card for a post (theme/accent/radius).", auth: false },
       { method: "GET", path: "/pub/profile-card?profile=USER", desc: "Themeable iframe card for a profile.", auth: false },
-      { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post or data-profile + data-theme/accent/radius.", auth: false },
+      { method: "GET", path: "/pub/listing-card?listing=ID", desc: "Themeable iframe card for a listing.", auth: false },
+      { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post / data-profile / data-listing + data-theme/accent/radius.", auth: false },
       { method: "GET", path: "/pub/oembed?url=URL", desc: "oEmbed provider — paste a Nami link into WordPress/Discourse to auto-embed.", auth: false },
     ],
   },
@@ -256,9 +258,24 @@ final c = WebViewController()
     "&theme=dark&accent=7C3AED"));
 
 // in build(): WebViewWidget(controller: c)`;
-const CONTENT_SNIPPET = `<!-- Embed a Nami post (or use data-profile="username") -->
+const CONTENT_SNIPPET = `<!-- Embed a Nami post, profile, or marketplace listing -->
+<!-- swap data-post for data-profile="username" or data-listing="LISTING_ID" -->
 <script async src="${BASE}/api/pub/content-embed.js"
   data-post="POST_ID" data-theme="dark" data-accent="7C3AED"></script>`;
+const WEBHOOK_VERIFY = `// Verify the X-Nami-Signature header (Node / Express)
+import crypto from "crypto";
+
+app.post("/hook", express.raw({ type: "*/*" }), (req, res) => {
+  const sig = req.header("X-Nami-Signature") || "";           // "sha256=<hex>"
+  const expected = "sha256=" + crypto
+    .createHmac("sha256", process.env.NAMI_WEBHOOK_SECRET)
+    .update(req.body)                                          // the RAW body
+    .digest("hex");
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)))
+    return res.status(401).end();
+  const event = JSON.parse(req.body);                          // { event, data, created_at }
+  res.sendStatus(200);
+});`;
 const EMBED_ATTRS: [string, string][] = [
   ["theme", "light (default) or dark"],
   ["accent", "button colour, 3/6-digit hex (no #)"],
@@ -634,7 +651,10 @@ export default function DeveloperScreen() {
           </Text>
         ) : (
           <>
-            <Text style={styles.body}>We POST signed events (follows, messages, tips, form submissions, …) to your URL. Verify the `X-Nami-Signature` header with your signing secret.</Text>
+            <Text style={styles.body}>We POST signed events (follows, messages, tips, form submissions, …) to your URL with up to 3 retries, and keep a delivery log. Always verify the `X-Nami-Signature` header — it's `sha256=` followed by the HMAC-SHA256 (hex) of the raw request body, keyed with your signing secret:</Text>
+            <TouchableOpacity style={styles.codeBlock} onPress={() => copy(WEBHOOK_VERIFY, "Verification")} activeOpacity={0.7}>
+              <Text style={styles.codeBlockText} selectable>{WEBHOOK_VERIFY}</Text>
+            </TouchableOpacity>
             {freshSecret && (
               <View style={styles.freshCard}>
                 <Text style={styles.freshLabel}>Signing secret — copy it now, shown once:</Text>
@@ -817,7 +837,7 @@ export default function DeveloperScreen() {
           <Text style={styles.convItem}><Text style={styles.convKey}>Format </Text>JSON request & response bodies; `Content-Type: application/json`.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Versioning </Text>The stable base is `/api/v1`. The unversioned `/api` is kept as a legacy alias so existing keys keep working.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Pagination </Text>List endpoints accept `?limit=` and `?offset=`. Some also support cursor paging — pass the returned `next_cursor` as `?cursor=` (null = end).</Text>
-          <Text style={styles.convItem}><Text style={styles.convKey}>Idempotency </Text>Send an `Idempotency-Key: <unique>` header on writes (POST/PUT/PATCH/DELETE). Retries with the same key replay the first response (header `Idempotent-Replay: true`) — safe against double-submits.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Idempotency </Text>Send an `Idempotency-Key` header (any unique value) on writes (POST/PUT/PATCH/DELETE). Retries with the same key replay the first response (header `Idempotent-Replay: true`) — safe against double-submits.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Errors </Text>Every non-2xx reply uses one shape: `{"{"}"error":{"{"}"code","message"{"}"}{"}"}` (also mirrored under `detail`). e.g. 401 unauthorized, 403 forbidden, 404 not_found, 413 payload_too_large, 422 validation_error, 429 rate_limited.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Rate limits </Text>Fair-use; heavy automated traffic may be throttled (429).</Text>
         </View>

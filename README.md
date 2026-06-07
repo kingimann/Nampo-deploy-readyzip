@@ -1,150 +1,187 @@
-# Nampo
+# Nami App
 
-**Nami App** is a social + maps app for mobile (and the web) that blends a Twitter/Instagram-style social network with a full-featured, Google-Maps-style navigation experience. Users get a **news feed** with photos and videos, **reels**, ephemeral **stories**, **direct and group messaging** (voice notes, custom emojis, shared live locations), an interactive **Mapbox map** with **turn-by-turn navigation**, saved **places** and shareable **guides**, rich **profiles** with follows/friends and **verified badges**, a location-aware **marketplace**, **Reddit-style community forums**, chat **groups**, and **creator monetization** (tips & subscriptions) — all on a single FastAPI backend.
+**Nami App** is a social + maps super-app for mobile and the web. It blends a
+Twitter/Instagram-style social network with a Google-Maps-style navigation
+experience, a location-aware marketplace, creator monetization, peer-to-peer
+payments, roadside assistance, and a full **Developer API** for building on top
+of and embedding Nami anywhere.
 
-The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking over REST and WebSockets to a **FastAPI** server (`backend/`).
+The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking
+over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
+**PostgreSQL**.
 
-> Note on naming: the repository is `nampo-deploy-readyzip` and deploy docs historically said "Nampo"; the app is branded **Nami App** (Expo manifest name, login screen, API root `{"app": "Nami App API"}`). They refer to the same app.
+---
+
+## Contents
+
+- [Key features](#key-features)
+- [Tech stack](#tech-stack)
+- [Architecture overview](#architecture-overview)
+- [Project structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Environment variables](#environment-variables)
+- [Local setup & running](#local-setup--running)
+- [Deployment](#deployment)
+- [API overview](#api-overview)
+- [Developer API & embedding](#developer-api--embedding)
+- [Testing & scripts](#testing--scripts)
+- [License & notes](#license--notes)
 
 ---
 
 ## Key features
 
-### Social / Feed
-- News feed with text, photos, and videos (home/following feed and an explore feed)
-- Likes **and dislikes** (mutually exclusive; counts sync to the server after each toggle), replies/threads, bookmarks, reposts, and quote-reposts
+### Social & feed
+- Home/following feed and an explore feed with text, photos, and videos
+- Likes **and dislikes** (mutually exclusive), replies/threads, bookmarks, reposts, and quote-reposts
+- **Threaded comments** with "replying to @user" labels, tappable `@mentions`, and owner **pin a comment**
 - **Pin** your own posts to the top of your profile
-- **Threaded comments**: reply to a comment (nested under it), with "replying to @user" labels and tappable `@mentions`; the post owner can **pin a comment**
-- **Inline media & embeds**: paste a YouTube/Twitch/Vimeo link and it plays inline; paste a direct image / imgur / giphy link and it shows inline (in posts *and* comments). GIF picker available in comments too.
-- Polls (timed, single-choice) attached to posts
-- Hashtags (browse posts by tag, with counts) and rich link previews
-- X-style impression / view-count tracking on posts; likers and reposters lists
-- **Content reporting** (flag a post/reel for moderation, one report per user)
-- **Promote / advertise** a post: boosts ranking and shows a "Sponsored" badge, paid via Stripe Checkout (durations, optional pay-per-click budget) with a test-mode fallback
+- **Inline media & embeds**: YouTube/Twitch/Vimeo links play inline; image / imgur / giphy links render inline (posts *and* comments); GIF picker in comments
+- Polls (timed, single-choice), hashtags (browse by tag with counts), and rich link previews
+- Impression / view-count tracking; likers and reposters lists
+- **Content reporting** (one report per user) for moderation
 
-### Reels & Stories
-- Reels: a vertical, full-screen video feed (`/feed/reels`) with a true cover-fit, controls-free player on web
-- Upload reels from your device (Cloudinary CDN) **or** paste a link from a **verified host** (imgur / streamable / direct `.mp4`); the link is auto-resolved to a playable file so it shows as if uploaded. YouTube/TikTok links are intentionally **not** allowed as reels (they stay regular video posts).
-- **Video ads in reels**: full-screen sponsored overlays (5–60s) with a progress bar, "Sponsored" badge, CTA button, and skip-after-5s; CTR is tracked. Anyone can **promote their own reel**, and admins can advertise **for free**.
-- Stories: 24-hour ephemeral image/video stories with a story tray, view counts, viewer lists, and story replies
+### Reels & stories
+- **Reels**: a vertical, full-screen video feed (`/feed/reels`) with a cover-fit, controls-free web player
+- Upload reels (Cloudinary CDN) **or** paste a link from a verified host (imgur / streamable / direct `.mp4`), auto-resolved to a playable file. YouTube/TikTok stay regular video posts.
+- **Video ads in reels**: full-screen sponsored overlays (5–60s) with progress bar, CTA, skip-after-5s, and CTR tracking
+- **Stories**: 24-hour ephemeral image/video stories with a tray, view counts, viewer lists, and replies
 
-### Messaging
-- One-to-one (DM) and group conversations
-- Message types: text, shared **place/location**, media (images/video), **voice notes** (with a live recording timer), **GIFs**, **shared posts**, **contacts**, and **file/document attachments** (native via the document picker, plus the web file input)
-- **❤️ reactions** (double-tap a bubble or use the long-press menu) and **replies** (quoted preview in the composer and on the sent bubble)
-- **Custom uploadable emojis**: upload an image + `:shortcode:` and use it inline in any message (global registry; long-press your own to delete)
-- Edits, read receipts, unread counts, and message deletion (with a tombstone)
-- **Snapchat-style presence** (delivered/sent/read, "writing…", "active now") and **Clear conversation** (clears your copy of the history while keeping the chat)
-- **Send a tip inside a DM** (embedded Stripe when live), and request/send money via the wallet
-- Group conversation management (rename, avatar, add/remove members, leave)
-- Optional client-side **E2E encryption** (tweetnacl) plus optional at-rest encryption (Fernet) when a key is configured
-- "Contact seller" flow that spins up a DM from a marketplace listing
+### Messaging & calls
+- One-to-one and group conversations; message types: text, **place/location**, media, **voice notes**, **GIFs**, **shared posts**, **contacts**, and **file/document attachments**
+- **❤️ reactions**, **replies** (quoted preview), edits, read receipts, unread counts, deletion (tombstone)
+- **Custom uploadable emojis** (`:shortcode:` global registry)
+- **Snapchat-style presence** (delivered/sent/read, "writing…", "active now") and **Clear conversation**
+- Optional client-side **E2E encryption** (tweetnacl) + optional at-rest encryption (Fernet)
+- **Voice/video calls** over **LiveKit** (WebRTC) with in-app + push ringing
+- "Contact seller" flow spins up a DM from a marketplace listing
 
-### Maps & Navigation
-- Full-screen interactive **Mapbox GL** map rendered through a `react-native-webview` bridge
-- Forward geocoding, category/POI search, and reverse lookups via the Mapbox Search/Geocoding APIs
-- **Turn-by-turn directions** (driving, walking, cycling, driving-with-traffic) with alternates, road exclusions (toll/motorway/ferry), and speed-limit annotations via the Mapbox Directions API
+### Maps & navigation
+- Full-screen interactive **Mapbox GL JS** map rendered via a `react-native-webview` bridge
+- Forward geocoding, category/POI search, and reverse lookups (Mapbox Search/Geocoding)
+- **Turn-by-turn directions** (driving, walking, cycling, traffic) with alternates, road exclusions, and speed limits
 - Multiple map styles (streets, satellite, dark, outdoors)
-- Live **ETA sharing**: share your real-time location/ETA to a destination over a WebSocket; recipients watch it move on a public link
-- Optional **Foursquare** place matching to enrich a pin with a business profile (rating, hours, phone, website, photo)
+- Live **ETA sharing** over a WebSocket; recipients watch it move on a public link
+- **Foursquare business profiles**: enrich a pin (and a dedicated profile screen) with rating, hours, phone, website, and photos
+- **Transit**: nearby stops + next departures via TransitLand (real-time where available)
 
-### Profile & Settings
-- Profiles with avatar, bio, username, and home/work saved locations
-- **Profile pictures**: upload your own, or pick from a gallery of **ready-made default avatars**; new users are auto-assigned a unique default avatar at sign-up
-- **Verified blue checkmark** shown next to verified users (on posts, comments, profiles)
-- **Per-post privacy**: choose who can comment (everyone/followers/friends/nobody), turn likes off, and see who viewed a post
-- Follow / unfollow, followers/following lists
-- Friend requests (send, accept, reject, remove) with friend status
-- A user's posts (originals plus reposts/quotes) shown on their profile, pinned first
-- Tapping a post author (avatar or name) opens their profile
-- **Account & security** screen: change your **email** (password-confirmed), change your **password** (current + new), and **verify a phone number** via an SMS code (Twilio; a dev code is surfaced when Twilio isn't configured) with a green **Verified** badge
-- A customizable navigation bar; after login the app opens on the **first item in your nav bar** (not always the map)
+### Marketplace
+- Listings with price, currency, category, condition, photos, brand, quantity, negotiable, and delivery
+- **Location + radius search** (set your location, filter by distance, "N km away", "Nearest first")
+- Search + category filters, a saved/bookmarked view, **seller profiles** (avatar, rating, listing grid), and **buyer/seller reviews** (1–5★)
+- AI spam/moderation gate on new listings; "Contact seller" opens a DM
 
-### Legal & onboarding
-- **Terms of Service & Privacy Policy**: agreement is required at sign-up (checkbox + in-app policy screens). Existing users who never agreed — or anyone after the policies are updated (versioned) — are re-prompted to accept before continuing.
+### Roadside assistance
+- Members **request help when stranded** — a tow (with destination) or a light service (lockout, battery boost/jump, tire change/flat)
+- Nearby members see open requests and **accept** one; an **accept/decline detail screen** shows phone (revealed **after accept** only), vehicle, address, notes, and photos
+- A **2-minute response timer** (auto-declines on expiry) with auto-refresh so a call disappears once another helper takes it
+- A dedicated **"Your job"** tab with **en route → on location** steps; arrival is gated by a **GPS proximity check**
+- **Photo AI moderation** flags non-automotive photos (Claude vision, with an optional self-hosted Ollama fallback)
+- **Disputes** are only recorded when a valid **support ticket** is opened
+- Staff verification queue (`/admin-roadside`)
 
-### Developer API
-- A detailed in-app **Developer API** section (Settings → Developer API): base URL, bearer-token auth, a quickstart, and a browsable endpoint reference grouped by area
-- **Personal API keys**: generate labeled keys (shown once), list, and revoke them. Keys are long-lived bearer tokens that work anywhere the REST API is used.
+### Custom forms (Contact-Form-7 style)
+- Build forms in-app with 9 field types (text, email, phone, number, paragraph, date, dropdown, single-choice, checkboxes), required toggles, reorder, and options
+- **Use them anywhere**: render in-app, open a hosted page, or embed on any website via a `<script>` snippet or iframe
+- **Themeable embeds** via `data-*` / query params: `theme` (light/dark), `accent`, `bg`, `radius`, `hide_title`, `redirect`-after-submit, and field **prefill**
+- **Responses**: in-app viewer, **CSV export**, a **per-form email recipient** override, plus **`form.submission` webhooks** to your own server
+- Spam protection: a hidden **honeypot** field + a per-IP **rate limit**
+
+### Profile, settings & legal
+- Profiles with avatar, bio, username, and home/work saved locations; **ready-made default avatars** auto-assigned at sign-up
+- **Verified blue checkmark** across posts, comments, and profiles
+- **Per-post privacy**: who can comment (everyone/followers/friends/nobody), likes off, and viewer list
+- Follow/unfollow, followers/following, friend requests (send/accept/reject/remove)
+- **Account & security**: change email (password-confirmed), change password, **verify phone** via SMS, **SMS two-factor**, and **phone OTP login**
+- Customizable navigation bar (the app opens on your first nav item) and sidebar
+- **Terms of Service & Privacy Policy** acceptance required at sign-up (versioned; re-prompted on update)
+- **Support & disputes**: open tickets, message staff back and forth, and track resolution
 
 ### Payments, wallet & money (real Stripe, with a test-mode fallback)
-- **Real payments via Stripe** when configured (`STRIPE_SECRET_KEY`): tips, monthly **subscriptions**, and post **promotion** are paid with an **inline card field in the app** (Stripe.js Elements + PaymentIntents/Subscriptions) — no hosted or embedded Stripe checkout page. Creators receive funds on a **platform-controlled Stripe Connect account** they set up entirely **in-app** (see "Fully in-app payouts" below). When Stripe isn't configured — or an admin flips test mode on — the app falls back to a simulated checkout (no real charge). **Test payments are off by default.**
-- **Wallet** with a spendable **balance** you **top up** (Stripe Checkout, credited via webhook + on-return confirm + a per-visit reconcile so a payment can never be missed), shown in a **display currency you choose** (12 currencies; money is stored in USD).
-- **Instant cash-out to a debit card** (Stripe Instant Payouts, DoorDash-style) of your wallet balance, paid in the account's settlement currency: **$5 minimum**, a **$1.99 flat fee**, and **disabled until a debit card is attached** (and the balance clears the minimum). Balance is debited first and refunded on any failure.
-- **Fully in-app payouts (no Stripe-hosted screens)**: identity verification, adding a **debit card** (`/add-card`), and adding **direct-deposit bank details** (`/add-bank`) are all **native in-app forms** — details are tokenized client-side by Stripe.js and submitted via the API. KYC is collected in-app (`/verify-payouts`) and sent with `Account.update`; an ID photo can be captured in-app and uploaded via the Stripe File API. The only Stripe-owned pixels are the PCI-required card-number field.
-- **Payout schedule**: free scheduled bank payouts on a **weekly** (default), bi-weekly, or monthly cadence — changeable **once a month** (confirmed in-app, then locked for 30 days).
-- **Unified "All activity" feed** (`/activity`): one chronological list merging top-ups, cash-outs, tips & subscriptions (sent and received, with names/messages), and money transfers (including pending/reversed/declined/cancelled) so users can see exactly where their balance went.
-- **Peer-to-peer money**: send money (gated by a personal **security question**) and **request money**. Sends are a pending transfer the recipient accepts; the sender has a **5-minute reversal window** (mistake undo) before it can be claimed, and a full **transfer history** (sent/received, every status). Receiving notifies the recipient and records who/when/message.
-- **Pay by QR**: a branded, on-device-rendered **pay QR code** (with your avatar in the centre) others scan to pay you; plus an in-app QR scanner.
-- **Pay from balance or card**: anywhere that takes a payment (tips, subscriptions), if you have wallet funds you're asked whether to **pay from your balance**; if it isn't enough you can **cover the rest with a card** and optionally **top up** the difference. Card fields render **inline on the site** (Stripe Elements) when live.
-- **Fees**: an admin-controlled **revenue split** on subscriptions/tips (e.g. 70/30 or 90/10) plus a flat **per-payment transaction fee** (default 10¢, charged on every send including admins). The send fee is booked to the **platform-revenue** ledger the moment money is sent and removed again if the transfer is reversed/declined; the **$1.99 instant cash-out fee** is booked too. The admin panel shows the full breakdown (from sends, cash-out fees, paid to creators).
-- **Wallet screen** shows total earned (tips vs. subscriptions vs. ads), top-up history with status (processing/completed/failed), a **Sent** section, payout status with plain-language reasons when Stripe is still verifying, and a cash-out nudge when you have a balance but no payout account.
-- **Ads & advertising**: prepaid ad accounts, promoted posts (budget/CPC), link ads for your own website, and a publisher network to embed Nami ads on your site and earn — with X/Google-style click-fraud guards and account-age gates.
+- **Real payments via Stripe** when configured (`STRIPE_SECRET_KEY`): tips, monthly **subscriptions**, and post **promotion**, paid with an **inline card field** (Stripe.js Elements + PaymentIntents/Subscriptions). When Stripe isn't configured (or an admin enables test mode) the app falls back to a simulated checkout. **Test payments are off by default.**
+- **Wallet** with a spendable **balance** you **top up** (credited via webhook + on-return confirm + per-visit reconcile), shown in a **display currency you choose** (12 currencies; stored in USD)
+- **Instant cash-out to a debit card** (Stripe Instant Payouts): **$5 minimum**, **$1.99 flat fee**, disabled until a debit card is attached
+- **Fully in-app payouts (no Stripe-hosted screens)**: identity verification (`/verify-payouts`), **debit card** (`/add-card`), and **bank details** (`/add-bank`) are native forms tokenized client-side by Stripe.js. The only Stripe-owned pixels are the PCI-required card-number field.
+- **Payout schedule**: free scheduled bank payouts weekly (default), bi-weekly, or monthly — changeable once a month
+- **Peer-to-peer money**: send (gated by a personal **security question**) and **request** money; sends are a pending transfer with a **5-minute reversal window**, full history, and accept/decline
+- **Pay by QR**: a branded on-device pay QR (with your avatar) + an in-app scanner
+- **Unified "All activity" feed** (`/activity`): top-ups, cash-outs, tips & subscriptions (sent/received), and transfers in one timeline
+- **Fees**: an admin-controlled **revenue split** plus a flat **per-payment transaction fee**, booked to the platform-revenue ledger (and reversed if a transfer is)
+
+### Ads & advertising
+- Prepaid ad accounts, **promoted posts** (budget/CPC) and **reel video ads**, **link ads** for your own site, and a **publisher network** to embed customizable Nami ad units on your site and earn — with click-fraud guards and account-age gates
 
 ### Roles & moderation
-- Site **roles**: `user` / `mod` / `admin`. Bootstrap admins with the `ADMIN_EMAILS` env var.
-- Admins can **verify** users and assign **mod/admin** roles from any profile
-- Mods/admins can delete any post (owners can always delete their own)
-- **Admin payments panel**: enable/disable simulated **test payments**, set the **revenue split + transaction fee**, view **platform revenue**, reset fake money/analytics, **set a user's wallet balance** exactly (audited), and toggle a **mobile-only** mode that gates desktop web behind a "scan to open on your phone" QR screen.
-- **In-site UX guards (web)**: all confirmations are **in-app dialogs** (no browser `window.confirm`/pop-ups); a keyboard-refresh confirm and disabled right-click / dev-tools shortcuts keep actions inside the app.
+- Site roles: `user` / `mod` / `admin`; bootstrap admins via `ADMIN_EMAILS`
+- Admins **verify** users and assign roles from any profile; mods/admins can delete any post
+- **Admin panels**: payments & fees, platform/ad revenue, user moderation (ban/suspend/role/verify) + audit log, custom badges, the **@claude test bot**, roadside verifications, support triage, and an **Integrations & SDKs** status board (configured + live health checks + remediation)
+- **In-site UX guards (web)**: all confirmations are in-app dialogs (no browser `window.confirm`), plus a keyboard-refresh confirm and disabled right-click / dev-tools shortcuts
 
 ### Discovery
-- User search
-- Saved **places** and **recents**
-- **Guides**: curated, optionally public/cloneable collections of places (with shareable slugs)
-- **Reviews** for places (1–5 stars + text)
-- **Marketplace** listings (price, category, photos, condition, sold status) with **location + radius search** (Facebook-style: set your location, filter by distance, "N km away" on cards, "Nearest first" sort), **search + category filters**, a **saved/bookmarked** view, advanced listing fields (brand, quantity, negotiable, delivery), **seller profiles** (avatar, aggregate rating, listing grid), and **buyer/seller reviews** (1–5★)
-- **Communities (forum)**: a Reddit-style section — create/discover communities, join/leave, post **threads** (title + body), vote (up/down via like/dislike), comment, and sort **Hot / New / Top**
-- **Groups**: public/private chat communities with posts, pinned posts, join requests, and member roles (owner/admin/member) — distinct from the forum
-- Notifications feed (with unread counts and mark-as-read)
+- User search, saved **places** + **recents**, **guides** (curated, optionally public/cloneable collections with shareable slugs), place **reviews** (1–5★)
+- **Communities (forum)**: Reddit-style — create/discover, join/leave, post threads, vote, comment, sort **Hot / New / Top**
+- **Groups**: public/private chat communities with posts, pinned posts, join requests, and member roles — distinct from the forum
+- Notifications feed (unread counts, mark-as-read)
+
+### Developer API
+A first-class, paid Developer API (Settings → Developer API) for building on Nami
+and embedding it anywhere — see [Developer API & embedding](#developer-api--embedding).
+Highlights: personal **API keys** (read/write scopes), paid **plans + usage
+quotas**, signed **webhooks** (20+ events, retries, delivery logs, test pings),
+**Login with Nami** (OAuth2 provider), the **publisher ad network**, **custom
+forms**, **embeddable content + oEmbed**, **idempotency keys**, cursor
+pagination, open CORS, a versioned `/api/v1`, OpenAPI/Swagger docs, and SDK
+code-generation guidance (Dart/Flutter, Swift, Kotlin, Go, …).
 
 ---
 
 ## Tech stack
 
 **Frontend**
-- React Native `0.81` + **Expo SDK 54** (new architecture enabled)
-- **expo-router** (file-based routing, typed routes) on top of React Navigation
+- React Native `0.81` + **Expo SDK 54** (new architecture)
+- **expo-router** (file-based, typed routes) on React Navigation
 - **TypeScript** (strict)
-- **expo-video** and **expo-audio** for video playback and voice-note recording/playback
-- **Mapbox GL JS** rendered inside `react-native-webview` (`MapboxWebView`)
-- expo-location, expo-image-picker, expo-secure-store, expo-haptics, expo-blur, expo-linear-gradient, reanimated, gesture-handler
+- **expo-video** / **expo-audio** for playback and voice notes
+- **Mapbox GL JS** inside `react-native-webview` (`MapboxWebView`)
+- expo-location, expo-image-picker, expo-document-picker, expo-secure-store, expo-clipboard, expo-sharing, expo-haptics, expo-blur, reanimated, gesture-handler
 - `tweetnacl` for client-side E2E key material
 
 **Backend**
-- **FastAPI** + **Uvicorn** (ASGI)
-- **Pydantic v2** models
-- **PostgreSQL** via the async **asyncpg** driver, accessed through a thin MongoDB-style wrapper (`db.py`) so route code reads like Motor/PyMongo (each "collection" is a table with a single JSONB `doc` column)
-- bcrypt for password hashing, `cryptography` (Fernet) for optional message encryption at rest
-- `httpx` for outbound calls (Foursquare matching, link-preview scraping)
+- **FastAPI** + **Uvicorn** (ASGI), **Pydantic v2**
+- **PostgreSQL** via async **asyncpg**, through a thin MongoDB-style wrapper (`db.py`) so route code reads like Motor/PyMongo (each "collection" is a table with a single JSONB `doc` column)
+- bcrypt (passwords), `cryptography` (Fernet, optional at-rest message encryption)
+- `httpx` for outbound calls (Foursquare, TransitLand, link previews, webhook delivery, AI hosts)
 - WebSockets for live ETA sharing
 
-> **Database note:** the running backend uses **PostgreSQL** (`DATABASE_URL`, `asyncpg`). The wrapper in `backend/db.py` deliberately mimics a Mongo API, which is why the older `backend/tests/` suite still imports `pymongo` and reads `MONGO_URL` / `DB_NAME`. The current code and deploy config (`render.yaml`, `DEPLOY.md`) use **`DATABASE_URL`**.
+**External & optional services**
+- **Stripe** (payments, Connect payouts, instant cash-out), **Cloudinary** (media CDN), **Mapbox** (maps/geocoding/directions), **Foursquare** (place enrichment), **TransitLand** (transit), **Twilio** (SMS), **SMTP** (email), **LiveKit** (WebRTC calls), **Expo Push** (notifications)
+- **AI**: Anthropic **Claude** (vision + text — roadside photo moderation, document verification, spam classification, and the in-app **@claude** assistant), with an optional self-hosted **Ollama** vision fallback
+
+> **Database note:** the running backend uses **PostgreSQL** (`DATABASE_URL`, `asyncpg`). The wrapper in `backend/db.py` deliberately mimics a Mongo API, which is why the older `backend/tests/` suite still imports `pymongo`/`MONGO_URL`. Current code and deploy config use **`DATABASE_URL`**.
 
 ---
 
 ## Architecture overview
 
 ```
-┌──────────────────────────┐         REST  /api/*  +  WS  /api/ws/eta/*        ┌──────────────────────────┐
-│   Expo / React Native    │ ───────────────────────────────────────────────▶ │      FastAPI backend     │
-│   (frontend/)            │   Authorization: Bearer <session_token>          │      (backend/)          │
-│                          │ ◀─────────────────────────────────────────────── │                          │
-│  - expo-router screens   │                                                   │  - routes/* (APIRouter)  │
-│  - MapboxWebView (GL JS) │                                                   │  - PostgreSQL (asyncpg)  │
-└──────────┬───────────────┘                                                   └──────────────────────────┘
-           │
-           │  direct client→Mapbox calls (geocode, search, directions)
-           ▼
-   ┌─────────────────┐        the backend also calls Foursquare (place match)
-   │  Mapbox APIs    │        and scrapes link previews via httpx
+┌──────────────────────────┐     REST /api/* (+ /api/v1/*)  +  WS /api/ws/eta/*    ┌──────────────────────────┐
+│   Expo / React Native    │ ─────────────────────────────────────────────────▶  │      FastAPI backend     │
+│   (frontend/)            │      Authorization: Bearer <session token | API key> │      (backend/)          │
+│                          │ ◀─────────────────────────────────────────────────  │                          │
+│  - expo-router screens   │                                                       │  - routes/* (APIRouter)  │
+│  - MapboxWebView (GL JS) │                                                       │  - PostgreSQL (asyncpg)  │
+└──────────┬───────────────┘                                                       └─────────────┬────────────┘
+           │ direct client→Mapbox (geocode, search, directions)                                  │
+           ▼                                                                                      ▼
+   ┌─────────────────┐                                            Stripe · Cloudinary · Foursquare · TransitLand
+   │  Mapbox APIs    │                                            Twilio · SMTP · LiveKit · Expo Push · Claude/Ollama
    └─────────────────┘
 ```
 
-- The frontend calls the backend at **`EXPO_PUBLIC_BACKEND_URL` + `/api`**. Auth is a Bearer **session token** stored in `expo-secure-store`.
-- On **native**, the client uses the full `EXPO_PUBLIC_BACKEND_URL`. On **web**, it uses `EXPO_PUBLIC_BACKEND_URL` when set (production static build) and otherwise falls back to same-origin relative paths so the Metro dev proxy (`metro.config.js`) forwards `/api/*` and `/health` to the backend on port `8080` during local development.
-- **Mapbox** work (geocoding, category search, turn-by-turn directions) happens **client-side** using `EXPO_PUBLIC_MAPBOX_TOKEN`.
-- **Foursquare** place enrichment happens **server-side** (`/api/foursquare/match`) using the optional `FSQ_API_KEY`.
+- The frontend calls the backend at **`EXPO_PUBLIC_BACKEND_URL` + `/api`**. Auth is a Bearer **session token** (or a developer **API key**) stored in `expo-secure-store`.
+- On **native**, the client uses the full `EXPO_PUBLIC_BACKEND_URL`. On **web**, it uses that URL when set, otherwise falls back to same-origin so the Metro dev proxy (`metro.config.js`) forwards `/api/*` and `/health` to the backend on port `8080` during local development.
+- **Mapbox** work happens **client-side** with `EXPO_PUBLIC_MAPBOX_TOKEN`. **Foursquare/TransitLand/Stripe webhooks/AI** happen **server-side**.
+- The stable, versioned base is **`/api/v1`**; **`/api`** is kept as a legacy alias. CORS is open so browser/mobile/3rd-party apps can call directly.
 - Live ETA sharing rides a WebSocket at **`/api/ws/eta/{share_id}`**.
 
 ---
@@ -152,8 +189,9 @@ The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking o
 ## Project structure
 
 ```
-Nampo-deploy-readyzip/
+NamiApp/
 ├── README.md                  # this file
+├── API.md                     # developer-facing API reference
 ├── DEPLOY.md                  # deploy to Render (Postgres + the API)
 ├── render.yaml                # Render Blueprint (Postgres + API + Expo web static site)
 ├── design_guidelines.json     # design system (colors, typography, components)
@@ -161,69 +199,86 @@ Nampo-deploy-readyzip/
 ├── memory/                    # PRD and scratch notes
 │
 ├── backend/                   # FastAPI service
-│   ├── server.py              # app entry: CORS, routers, /health, ETA WebSocket, startup
+│   ├── server.py              # app entry: CORS, idempotency, routers, /health, ETA WS, startup
 │   ├── core.py                # shared deps: DB proxy, get_current_user(), helpers, env
 │   ├── db.py                  # PostgreSQL-backed, Mongo-style async DB wrapper
-│   ├── models.py              # all Pydantic request/response models
+│   ├── models.py              # Pydantic request/response models
 │   ├── requirements.txt       # Python dependencies
 │   ├── Dockerfile             # container image (used by Render)
 │   ├── apprunner.yaml         # optional AWS App Runner config
-│   ├── routes/                # one APIRouter module per domain (see API overview)
-│   │   ├── auth.py            # register/login, sessions, username, Google OAuth, E2E keys
-│   │   ├── users.py          # search, follows, friends
-│   │   ├── places.py         # saved places + recents
-│   │   ├── guides.py         # guides + public/cloneable guides
-│   │   ├── reviews.py        # place reviews
-│   │   ├── messaging.py      # DMs, groups, messages, voice/place/media
-│   │   ├── notifications.py  # notifications feed
-│   │   ├── eta.py            # ETA share REST + WebSocket
-│   │   ├── posts.py          # feed, posts, likes/dislikes, reposts, bookmarks, polls, reels, pinning, comment threads
-│   │   ├── communities.py    # Reddit-style forum communities + threads
-│   │   ├── marketplace.py    # listings (location/radius), seller profiles, reviews
-│   │   ├── groups.py         # chat communities, members, pins, requests
-│   │   ├── foursquare.py     # Foursquare place match
-│   │   ├── stories.py        # ephemeral stories
-│   │   ├── payments.py       # Stripe Connect, Checkout, payouts, cash-out, webhook, admin fees/revenue
-│   │   ├── money.py          # peer-to-peer send/request, wallet balance/top-up, currency, reversal, history
-│   │   ├── ads.py            # promoted posts, ad accounts, link ads, publisher network
-│   │   └── payouts.py        # scheduled creator payouts
-│   │   # users.py also hosts: tips, subscriptions, /wallet, /admin/users (roles/verify/ban/suspend/audit)
+│   ├── routes/                # one APIRouter module per domain
+│   │   ├── auth.py            # register/login, sessions, 2FA, phone OTP, password reset, API keys, policies
+│   │   ├── users.py           # search, follows, friends, tips, subscriptions, /wallet, /admin/users
+│   │   ├── posts.py           # feed, posts, likes/dislikes, reposts, bookmarks, polls, reels, pinning, threads
+│   │   ├── stories.py         # 24h ephemeral stories
+│   │   ├── messaging.py       # DMs, groups, messages, voice/place/media, reactions, custom emoji
+│   │   ├── calls.py           # LiveKit room tokens + ring (voice/video)
+│   │   ├── push.py            # device push-token registration
+│   │   ├── notifications.py   # notifications feed
+│   │   ├── places.py          # saved places + recents
+│   │   ├── guides.py          # guides + public/cloneable guides
+│   │   ├── reviews.py         # place reviews
+│   │   ├── foursquare.py      # Foursquare place match / business profiles
+│   │   ├── transit.py         # nearby transit stops + departures (TransitLand)
+│   │   ├── eta.py             # ETA share REST + WebSocket
+│   │   ├── marketplace.py     # listings (location/radius), seller profiles, reviews
+│   │   ├── communities.py     # Reddit-style forum communities + threads
+│   │   ├── groups.py          # chat communities, members, pins, requests
+│   │   ├── roadside.py        # roadside assistance (request/accept, en route/on location, photos, disputes)
+│   │   ├── support.py         # support & dispute tickets
+│   │   ├── forms.py           # custom form builder + public themeable embeds + submissions/CSV/webhooks
+│   │   ├── embed.py           # public embeddable content: post/profile JSON, cards, content-embed.js, oEmbed
+│   │   ├── webhooks.py        # developer event webhooks (signed, retries, delivery logs, test ping)
+│   │   ├── oauth.py           # "Login with Nami" OAuth2 provider (apps, authorize/token/userinfo)
+│   │   ├── ads.py             # promoted posts, reel video ads, ad accounts, link ads
+│   │   ├── adnetwork.py       # publisher network: sites + customizable embeddable ad units
+│   │   ├── payments.py        # Stripe Connect, inline payments, payouts, cash-out, webhook, API plans/usage
+│   │   ├── money.py           # peer-to-peer send/request, wallet balance/top-up, currency, reversal, history
+│   │   ├── payouts.py         # scheduled creator payouts
+│   │   ├── integrations.py    # admin integrations/SDK status board + live health checks
+│   │   └── meta.py            # /version, machine-readable /v1/info, public /app-config
 │   ├── services/
-│   │   ├── encryption.py     # optional Fernet message encryption at rest
-│   │   └── link_preview.py   # OpenGraph/link-preview scraping
-│   └── tests/                # pytest suites (see Testing)
+│   │   ├── claude_ai.py       # Claude vision/text (photo moderation, doc verification, spam)
+│   │   ├── ollama.py          # optional self-hosted AI vision fallback
+│   │   ├── claude_bot.py      # in-app @claude assistant bot
+│   │   ├── email.py           # SMTP email (password reset, form notifications)
+│   │   ├── sms.py             # Twilio SMS (verification, OTP, 2FA, notifications)
+│   │   ├── push.py            # Expo push delivery
+│   │   ├── encryption.py      # optional Fernet message encryption at rest
+│   │   └── link_preview.py    # OpenGraph/link-preview scraping
+│   └── tests/                 # pytest suites (see Testing)
 │
 └── frontend/                  # Expo / React Native client
-    ├── app.json               # Expo app manifest (name, plugins, permissions)
+    ├── app.json               # Expo manifest (name, plugins, permissions)
     ├── package.json           # scripts + dependencies
     ├── metro.config.js        # dev proxy of /api + /health to the backend
     ├── app/                   # expo-router routes
     │   ├── _layout.tsx        # root layout (auth gate, tab bar, providers)
-    │   ├── (tabs)/            # main tabs: index(Map), feed, messages, groups,
-    │   │                      #   marketplace, profile, directions, favorites
-    │   ├── auth.tsx / login.tsx
-    │   ├── chat/[id].tsx      # conversation screen
-    │   ├── reels.tsx          # reels feed
-    │   ├── story/[userId].tsx # story viewer
+    │   ├── (tabs)/            # main tabs: index(Map), feed, messages, groups, marketplace, profile, directions, favorites
+    │   ├── login.tsx, auth.tsx, legal/        # auth + ToS/Privacy
+    │   ├── chat/[id].tsx, call/               # conversation + voice/video call
+    │   ├── reels.tsx, story/[userId].tsx      # reels + story viewer
     │   ├── post/[id].tsx, hashtag/[tag].tsx, bookmarks.tsx, notifications.tsx
-    │   ├── communities.tsx, c/[name].tsx   # forum: discover + a community page
-    │   ├── wallet.tsx          # wallet: balance/top-up/cash-out, earnings, payout setup
-    │   ├── verify-payouts.tsx  # in-app KYC identity verification (no Stripe screen)
-    │   ├── add-card.tsx, add-bank.tsx  # native debit-card / direct-deposit forms
-    │   ├── activity.tsx        # unified "All activity" money feed
-    │   ├── advertise.tsx       # promote a post or reel (Stripe / test-mode checkout)
-    │   ├── group/[id]/...     # chat group detail + members
-    │   ├── guide/[id].tsx, g/[slug].tsx (public guide)
-    │   ├── eta/[shareId].tsx  # public ETA viewer
-    │   └── user/[name].tsx, people.tsx, connections.tsx, settings.tsx, ...
+    │   ├── communities.tsx, c/[name].tsx      # forum: discover + community page
+    │   ├── group/[id]/...                     # chat group detail + members
+    │   ├── listing/, seller/, my-listings.tsx # marketplace
+    │   ├── place/[id].tsx                     # Foursquare business profile
+    │   ├── roadside.tsx, admin-roadside.tsx   # roadside request + staff queue
+    │   ├── support.tsx, support/[id].tsx, admin-support.tsx  # tickets
+    │   ├── forms.tsx, forms/[id].tsx, f/[key].tsx  # form list, builder, public renderer
+    │   ├── developer.tsx, oauth/, connected-apps.tsx  # Developer API + OAuth consent
+    │   ├── advertise.tsx, monetize.tsx        # promote / publisher
+    │   ├── wallet.tsx, money.tsx, activity.tsx, pay/, pay-qr.tsx, pay-scan.tsx
+    │   ├── verify-payouts.tsx, add-card.tsx, add-bank.tsx     # in-app KYC/payout forms
+    │   ├── guide/[id].tsx, g/[slug].tsx, eta/[shareId].tsx    # guides + public ETA viewer
+    │   ├── account.tsx, privacy.tsx, customize-nav.tsx, customize-sidebar.tsx, settings.tsx
+    │   └── admin-* (users, payments, revenue, badges, bot, integrations, audit)
     └── src/
         ├── api/client.ts      # typed API client (reads EXPO_PUBLIC_BACKEND_URL/MAPBOX_TOKEN)
         ├── api/mapbox.ts      # geocoding, category search, directions
-        ├── utils/embeds.ts    # YouTube/Twitch/Vimeo + image/GIF link detection
-        ├── components/        # PostCard, CommentsSheet, EmbedCard, InlineMedia, EmojiText,
-        │                      #   CustomEmojiSheet, FakePaymentSheet, VerifiedBadge, MapboxWebView, …
-        ├── context/           # Auth, Sidebar, NavBar contexts
-        └── utils/             # secure storage, e2e helpers
+        ├── components/        # PostCard, CommentsSheet, EmbedCard, InlineMedia, MapboxWebView, …
+        ├── context/           # Auth, Confirm, Sidebar, NavBar contexts
+        └── utils/             # secure storage, e2e helpers, nav, embeds
 ```
 
 ---
@@ -234,9 +289,9 @@ Nampo-deploy-readyzip/
 - **Python 3.11**
 - A **PostgreSQL** database (local or managed) reachable via a connection string
 - The **Expo CLI** (run via `npx expo`, no global install needed)
-- For device testing: the **Expo Go** app, or an iOS Simulator / Android Emulator
-- A **Mapbox access token** (free tier) for maps, geocoding, and directions
-- *(Optional)* a **Foursquare Places API key** for business-profile enrichment
+- For device testing: **Expo Go**, or an iOS Simulator / Android Emulator
+- A **Mapbox access token** (free tier) for maps/geocoding/directions
+- *(Optional)* keys for Foursquare, Stripe, Cloudinary, Twilio, SMTP, LiveKit, TransitLand, and Anthropic — each feature degrades gracefully when its key is absent
 
 ---
 
@@ -244,70 +299,63 @@ Nampo-deploy-readyzip/
 
 ### Backend
 
-| Variable          | Required | Secret | Default        | Description |
-| ----------------- | :------: | :----: | -------------- | ----------- |
-| `DATABASE_URL`    | **Yes**  | **Yes**| —              | PostgreSQL DSN the app connects to (asyncpg). |
-| `CORS_ORIGINS`    | No       | No     | `*`            | Comma-separated allowed origins, or `*` for all. |
-| `MESSAGE_ENC_KEY` | No       | **Yes**| *(none)*       | Fernet key. If set, messages are encrypted at rest; if absent/invalid, messaging still works in plaintext. |
-| `FSQ_API_KEY`     | No       | **Yes**| `""`           | Foursquare Places API key for `/api/foursquare/match`. Without it, place matching returns nothing. |
-| `TRANSITLAND_API_KEY` | No   | **Yes**| `""`           | [TransitLand](https://www.transit.land/) API key for `/api/transit/nearby` (live bus/train departures in Directions → **Transit**). Without it, the Transit sheet shows a "not set up" message. |
-| `ADMIN_EMAILS`    | No       | **Yes**| `""`           | Comma-separated emails auto-granted the **admin** role (verify users, set roles, moderate posts). |
-| `STRIPE_SECRET_KEY` | No     | **Yes**| *(none)*       | Stripe secret key (`sk_live_…`/`sk_test_…`). When set, real payments activate (Connect, Checkout, payouts); otherwise the app uses simulated payments. |
-| `STRIPE_WEBHOOK_SECRET` | No | **Yes**| *(none)*      | Signing secret for the `checkout.session.completed` / `checkout.session.expired` webhook (`/api/payments/webhook`). Enforced when set. |
-| `STRIPE_PUBLISHABLE_KEY` | No| No     | *(none)*       | Stripe publishable key returned to the client for embedded Connect onboarding/checkout. (The web client uses `EXPO_PUBLIC_STRIPE_KEY`.) |
-| `PLATFORM_FEE_PERCENT` | No  | No     | `0`            | Default platform cut of subscriptions/tips (admin-tunable at runtime via `/admin/fees`). |
-| `ANTHROPIC_API_KEY` | No     | **Yes**| *(none)*       | Enables the in-app **@claude** assistant bot. `CLAUDE_BOT_MODEL` / `CLAUDE_BOT_ALLOW` tune the model and the username allowlist. |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` | No | **Yes** | *(none)* | Twilio credentials that power all SMS: **phone verification, phone OTP login, SMS two-factor, password reset by text, and SMS notifications**. When unset, codes are returned in the API response (`dev_code`) instead of being texted, so the flows still work in development. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | **Yes** | `SMTP_PORT=587` | SMTP mail server for **password-reset emails** (`/api/auth/forgot-password`). Needs at least `SMTP_HOST` + `SMTP_FROM`. Without it, email reset is unavailable — users can reset by SMS or the owner can use `RECOVERY_SECRET`. |
-| `RECOVERY_SECRET` | No       | **Yes**| *(none)*       | Break-glass owner recovery. When set, the holder can reset any account's password via `/api/auth/recover-password` (no email needed). |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` | No | **Yes** | *(none)* | [LiveKit](https://cloud.livekit.io/) (self-host or Cloud) for **in-app voice/video calls** (WebRTC). The backend mints room tokens; `LIVEKIT_URL` is the `wss://…` host. Without it, the call button is disabled. |
-| `EXPO_ACCESS_TOKEN` | No       | **Yes**| *(none)*       | Optional Expo access token to raise push rate limits. Calls send a high-priority **Expo push** on ring (`POST /push/register` stores device tokens). Works without it for normal volumes. |
-| `PORT`            | No       | No     | `8080`         | Port Uvicorn binds to (Render injects this). |
+| Variable | Required | Secret | Default | Description |
+| --- | :---: | :---: | --- | --- |
+| `DATABASE_URL` | **Yes** | **Yes** | — | PostgreSQL DSN (asyncpg). |
+| `CORS_ORIGINS` | No | No | `*` | Comma-separated allowed origins, or `*`. |
+| `WEB_APP_URL` | No | No | `https://nampo-web.onrender.com` | Public web app origin, used for payment return URLs and the canonical links in embeds/oEmbed. |
+| `MESSAGE_ENC_KEY` | No | **Yes** | *(none)* | Fernet key. If set, messages are encrypted at rest; otherwise plaintext. |
+| `FSQ_API_KEY` | No | **Yes** | `""` | Foursquare Places API key for `/api/foursquare/match`. |
+| `TRANSITLAND_API_KEY` | No | **Yes** | `""` | [TransitLand](https://www.transit.land/) key for `/api/transit/nearby`. |
+| `ADMIN_EMAILS` | No | **Yes** | `""` | Comma-separated emails auto-granted the **admin** role. |
+| `STRIPE_SECRET_KEY` | No | **Yes** | *(none)* | Stripe secret (`sk_live_…`/`sk_test_…`). Enables real payments/payouts; otherwise simulated. |
+| `STRIPE_WEBHOOK_SECRET` | No | **Yes** | *(none)* | Signing secret for `/api/payments/webhook` (enforced when set). |
+| `STRIPE_PUBLISHABLE_KEY` | No | No | *(none)* | Publishable key for embedded onboarding/checkout (web uses `EXPO_PUBLIC_STRIPE_KEY`). |
+| `PLATFORM_FEE_PERCENT` | No | No | `0` | Default platform cut of subscriptions/tips (admin-tunable at runtime). |
+| `ANTHROPIC_API_KEY` | No | **Yes** | *(none)* | Enables Claude **vision + text**: roadside photo moderation, document verification, listing spam checks, and the **@claude** assistant. |
+| `CLAUDE_VISION_MODEL` / `CLAUDE_TEXT_MODEL` | No | No | *(sane defaults)* | Override the Claude models used for vision/text. |
+| `OLLAMA_HOST` | No | No | *(none)* | Optional self-hosted **Ollama** host for AI vision instead of Claude. |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM_NUMBER` | No | **Yes** | *(none)* | Twilio for all SMS (phone verification, OTP login, 2FA, password reset, notifications). When unset, codes are returned in the API response (`dev_code`). |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | No | **Yes** | `SMTP_PORT=587` | SMTP for password-reset emails and **form submission emails**. Needs at least `SMTP_HOST` + `SMTP_FROM`. |
+| `RECOVERY_SECRET` | No | **Yes** | *(none)* | Break-glass owner password recovery via `/api/auth/recover-password`. |
+| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` | No | **Yes** | *(none)* | [LiveKit](https://cloud.livekit.io/) for in-app voice/video calls (WebRTC). |
+| `EXPO_ACCESS_TOKEN` | No | **Yes** | *(none)* | Optional Expo token to raise push rate limits. |
+| `PORT` | No | No | `8080` | Port Uvicorn binds to (Render injects this). |
 
-> **Admin → Integrations & SDKs:** signed in as an admin, open **Settings → Integrations & SDKs (admin)** for a live status board of every service above — what's configured, a one-tap "Run live tests" to confirm credentials actually work, and the exact env var(s) to set for anything that isn't. (Endpoint: `GET /api/admin/integrations?live=1`.)
+> **Admin → Integrations & SDKs:** signed in as an admin, open **Settings → Integrations & SDKs (admin)** for a live status board of every service above — what's configured, a one-tap "Run live tests" to confirm credentials work, and the exact env var(s) to set for anything missing (`GET /api/admin/integrations?live=1`).
+
+> **Notes:** auth is email/password only (Google sign-in was removed). `RENDER_EXTERNAL_URL` / `PUBLIC_BASE_URL` are read automatically for absolute URLs. The DB is configured **only** via `DATABASE_URL` (`DB_NAME` is unused).
 
 ### Voice/video calls & background ringing
 
-Calls use **LiveKit** (WebRTC). The web app works out of the box once `LIVEKIT_*`
-is set. On **native** (iOS/Android) calling needs an **EAS dev/production build**
-(WebRTC isn't in Expo Go):
+Calls use **LiveKit** (WebRTC). The web app works once `LIVEKIT_*` is set. On
+**native**, calling needs an **EAS dev/production build** (WebRTC isn't in Expo Go):
 
-```
+```bash
 cd frontend
 eas login && eas init
 eas build --profile development --platform ios   # or android
 ```
 
-**Background ringing** is layered:
-
-1. **Push notification (built in).** The native app registers a device push
-   token (`POST /api/push/register`) and `/calls/{id}/ring` sends a high-priority
-   **Expo push**; tapping it opens the call. Works once you have a dev build and
-   notification permission — no extra credentials beyond your EAS project.
-2. **Full-screen CallKit/ConnectionService ring (manual next step).** For the
-   native "phone ringing" UI when the app is killed, add `react-native-callkeep`
-   + a **VoIP (PushKit) push** path: an APNs **VoIP key** (iOS) / FCM
-   high-priority data message (Android), CallKeep `displayIncomingCall` on the
-   VoIP push, and `UIBackgroundModes: ["voip","audio"]`. The token-registration
-   and ring endpoints above are already in place to drive it.
-
-> Auth is email/password only — Google sign-in was removed. `RENDER_EXTERNAL_URL` / `PUBLIC_BASE_URL` are read automatically for building absolute URLs.
-
-> **Note:** the database connection is configured **only** through `DATABASE_URL`; `DB_NAME` is unused. The Render Blueprint (`render.yaml`) provisions a Postgres instance and wires `DATABASE_URL` into the service automatically.
+**Background ringing** is layered: (1) a high-priority **Expo push** on ring
+(`POST /api/push/register` stores device tokens; `/calls/{id}/ring` sends it) —
+works with a dev build + notification permission; (2) a full-screen
+CallKit/ConnectionService ring is a manual next step (add `react-native-callkeep`
++ a VoIP/PushKit path). The token-registration and ring endpoints are already in place.
 
 ### Frontend
 
-Create `frontend/.env` (Expo automatically exposes `EXPO_PUBLIC_*` vars to the client bundle):
+Create `frontend/.env` (Expo exposes `EXPO_PUBLIC_*` vars to the client bundle):
 
-| Variable                   | Required | Secret | Description |
-| -------------------------- | :------: | :----: | ----------- |
-| `EXPO_PUBLIC_BACKEND_URL`  | **Yes** (native & prod web) | No | Base URL of the backend, no trailing slash and no `/api` (the client appends `/api`). Optional for local web dev (the Metro proxy serves `/api` same-origin); required for a deployed web build so it can reach the API cross-origin. |
-| `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes**  | No*    | Mapbox public access token for maps, geocoding, and directions. |
-| `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` | No | No* | Cloudinary cloud name. When set with the upload preset below, media (esp. video) uploads to the Cloudinary CDN and only a URL is stored — no size cap and a lighter feed. Without it, media falls back to base64 in the DB (≤25 MB/item). |
-| `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | No | No* | An **unsigned** Cloudinary upload preset name. See `frontend/CLOUDINARY_SETUP.md`. **Required for video/reels uploads** — without it, videos fall back to inline base64 (≤25 MB) and most clips are rejected. |
-| `EXPO_PUBLIC_STRIPE_KEY`   | No       | No*    | Stripe **publishable** key (`pk_live_…`/`pk_test_…`). When set, Stripe Checkout & Connect onboarding render **embedded in the web app**; otherwise they fall back to a hosted redirect. |
+| Variable | Required | Secret | Description |
+| --- | :---: | :---: | --- |
+| `EXPO_PUBLIC_BACKEND_URL` | **Yes** (native & prod web) | No | Backend base URL, no trailing slash and no `/api`. Optional for local web dev (Metro proxy serves `/api`); required for a deployed web build. |
+| `EXPO_PUBLIC_MAPBOX_TOKEN` | **Yes** | No\* | Mapbox public token for maps/geocoding/directions. |
+| `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` | No | No\* | Cloudinary cloud name. With the preset below, media uploads to the CDN (URL stored). |
+| `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | No | No\* | An **unsigned** Cloudinary preset. **Required for video/reels uploads** (see `frontend/CLOUDINARY_SETUP.md`). |
+| `EXPO_PUBLIC_STRIPE_KEY` | No | No\* | Stripe **publishable** key. When set, card fields/onboarding render **embedded in the web app**. |
 
-\* `EXPO_PUBLIC_*` values are bundled into the client and are therefore **not secret at runtime**. Use a Mapbox **public** token (URL/domain-scoped where possible).
+\* `EXPO_PUBLIC_*` values are bundled into the client and are **not secret at runtime**. Use a Mapbox **public** token (domain-scoped where possible).
 
 ---
 
@@ -319,49 +367,39 @@ The backend and frontend run as two separate processes.
 
 ```bash
 cd backend
+pip install -r requirements.txt              # a virtualenv is recommended
 
-# Install dependencies (a virtualenv is recommended)
-pip install -r requirements.txt
-
-# Point at your PostgreSQL database
 export DATABASE_URL="postgresql://user:password@localhost:5432/nampo"
-# Optional:
-# export CORS_ORIGINS="*"
-# export FSQ_API_KEY="..."
+# Optional, e.g.:
 # export MESSAGE_ENC_KEY="$(python -c 'from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())')"
 
-# Run with auto-reload on port 8080
-uvicorn server:app --reload --port 8080
+uvicorn server:app --reload --port 8080      # auto-reload on :8080
 ```
 
 Health checks:
 - `GET /health` → `{"status":"ok"}`
 - `GET /` → `{"status":"ok","app":"Nami App API"}`
-- `GET /api/` → API root for the auth router
+- `GET /api/v1/info` → machine-readable API overview & capabilities
 
 ### 2. Frontend (Expo)
 
 ```bash
 cd frontend
 
-# Create your env file
 cat > .env <<'EOF'
 EXPO_PUBLIC_BACKEND_URL=http://localhost:8080
 EXPO_PUBLIC_MAPBOX_TOKEN=pk.your_mapbox_public_token
 EOF
 
-# Install dependencies
 npm install        # or: yarn
-
-# Start the dev server (then press i / a / w, or scan the QR in Expo Go)
-npx expo start
+npx expo start     # then press i / a / w, or scan the QR in Expo Go
 ```
 
 Useful scripts (`frontend/package.json`): `npm run android`, `npm run ios`, `npm run web`, `npm run lint`.
 
-> On **web**, the Metro dev server proxies `/api/*` and `/health` to `http://localhost:8080`, so the frontend and backend share an origin and you don't need `EXPO_PUBLIC_BACKEND_URL`. On **native devices**, set it to a URL your device can reach (your machine's LAN IP or a tunnel), not `localhost`.
+> On **web**, the Metro dev server proxies `/api/*` and `/health` to `http://localhost:8080`, so you don't need `EXPO_PUBLIC_BACKEND_URL`. On **native devices**, set it to a URL the device can reach (LAN IP or a tunnel), not `localhost`.
 
-Create your first account from the app's sign-up screen, or directly against the API:
+Create your first account from the sign-up screen, or directly against the API:
 
 ```bash
 curl -X POST http://localhost:8080/api/auth/register \
@@ -375,10 +413,11 @@ A successful response returns a `session_token` and your user object.
 
 ## Deployment
 
-- **Render (recommended):** `render.yaml` is a Render **Blueprint** that provisions a managed Postgres database (`nampo-db`), deploys the FastAPI API from `backend/Dockerfile` (`nampo-backend`, with a `/health` check and `autoDeploy`), **and** deploys the Expo web build as a static site (`nampo-web`). The database connection string is injected into the API as `DATABASE_URL` automatically (`fromDatabase`); the static site is configured with `EXPO_PUBLIC_BACKEND_URL` + `EXPO_PUBLIC_MAPBOX_TOKEN` (and optional `EXPO_PUBLIC_CLOUDINARY_*`). Mobile binaries are built separately with **EAS** — see **`frontend/IOS_BUILD.md`** for the iOS/App Store flow (no Mac required). Full backend step-by-step in **`DEPLOY.md`** (~15 minutes).
-- **Docker:** `backend/Dockerfile` produces a self-contained image that runs `uvicorn server:app` on `$PORT` (default `8080`). Build/run it anywhere that supports containers and can reach a Postgres database via `DATABASE_URL`.
-- **AWS App Runner:** `backend/apprunner.yaml` is provided for source-based App Runner deploys.
-- **Other Postgres providers:** to bring your own database (Neon, Supabase, local), drop the `databases:` block from `render.yaml` and set `DATABASE_URL` yourself.
+- **Render (recommended):** `render.yaml` is a Render **Blueprint** that provisions a managed Postgres database (`nampo-db`), deploys the FastAPI API from `backend/Dockerfile` (`nampo-backend`, with a `/health` check and `autoDeploy`), **and** deploys the Expo web build as a static site (`nampo-web`). `DATABASE_URL` is injected automatically (`fromDatabase`); the static site gets `EXPO_PUBLIC_BACKEND_URL` + `EXPO_PUBLIC_MAPBOX_TOKEN` (and optional `EXPO_PUBLIC_CLOUDINARY_*`). Full backend step-by-step in **`DEPLOY.md`** (~15 minutes).
+- **Docker:** `backend/Dockerfile` produces a self-contained image running `uvicorn server:app` on `$PORT` (default `8080`). Run it anywhere that can reach Postgres via `DATABASE_URL`.
+- **AWS App Runner:** `backend/apprunner.yaml` is provided for source-based deploys.
+- **Mobile binaries:** built with **EAS** — see **`frontend/IOS_BUILD.md`** for the iOS/App Store flow (no Mac required) and `frontend/EAS_SETUP.md`.
+- **Other Postgres providers:** to bring your own (Neon, Supabase, local), drop the `databases:` block from `render.yaml` and set `DATABASE_URL` yourself.
 
 After the backend is live, set the frontend's `EXPO_PUBLIC_BACKEND_URL` to the deployed URL (no trailing slash, no `/api`) and rebuild/restart Expo.
 
@@ -386,57 +425,76 @@ After the backend is live, set the frontend's `EXPO_PUBLIC_BACKEND_URL` to the d
 
 ## API overview
 
-All routes are mounted under the **`/api`** prefix and (except auth/registration and a few public endpoints) require an `Authorization: Bearer <session_token>` header.
+All routes are mounted under the versioned **`/api/v1`** prefix (with **`/api`** as
+a legacy alias) and — except registration and a handful of public endpoints —
+require an `Authorization: Bearer <session token | API key>` header.
 
-| Route group        | Base paths (examples) | What it does |
-| ------------------ | --------------------- | ------------ |
-| **Auth**           | `/auth/register`, `/auth/login`, `/auth/login/2fa`, `/auth/2fa`, `/auth/login/phone/start\|verify`, `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/phone/send-code\|verify`, `/auth/forgot-password{,/sms}`, `/auth/reset-password{,/code}`, `/auth/recover-password`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password registration & login (bcrypt, session tokens); **SMS two-factor** (`/auth/login` returns a `twofa_required` challenge, `/auth/login/2fa` finishes, `/auth/2fa` toggles); **phone OTP login**; **verify phone via SMS code**; **password reset by email or SMS** (+ owner `recover-password`); profile read/patch, username claim, change email/password; **developer API keys**; ToS/Privacy versions + acceptance. |
-| **Users**          | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip`, `/users/{id}/subscribe`, `/wallet`, `/admin/users/{id}` | User search, public profiles, follow/friends; **tips & subscriptions** + the creator **wallet** (earned **and sent**); **admin** verify/role/ban/suspend management + audit log. |
-| **Payments**       | `/payments/config`, `/payments/pay-intent`(+`/confirm`), `/payments/checkout`, `/payments/payouts/status\|requirements\|verification\|verification-document\|debit-card\|bank-account\|cashout`, `/payments/webhook`, `/payments/api-plan*`, `/payments/api-usage*` | **Inline card payments** (PaymentIntent/Subscription for tips/subscriptions/promote), **fully in-app payout setup** (KYC requirements + verification + ID upload, attach debit card / bank account), **instant debit-card cash-out** ($5 min, $1.99 fee), the webhook, and paid Developer-API plans/usage. `/payments/checkout` remains as a hosted/embedded fallback. |
-| **Money & wallet** | `/money/security`, `/money/send`, `/money/transfers*` (accept/decline/**reverse**/history), `/money/request*`, `/wallet/balance\|topup\|topup/confirm\|topup/sync\|topup/{id}/cancel\|topups\|activity\|currency`, `/currencies`, `/payments/pay-wallet` | Peer-to-peer send/request (security question, 5-min reversal), wallet **balance/top-up/cash-out**, pay-from-balance, **display currency**, top-up history, and the unified **`/wallet/activity`** feed. |
-| **Admin (money)**  | `/admin/test-payments`, `/admin/fees`, `/admin/revenue`, `/admin/ad-revenue`, `/admin/reset/money\|analytics`, `/admin/mobile-only`, `/admin/users/{id}/wallet` | Toggle simulated payments, set the **revenue split + transaction fee**, view **platform revenue** (computed from the platform-revenue ledger: send fees + cash-out fees, with paid-to-creators), the **ad-revenue** dashboard, reset fake money/analytics, toggle **mobile-only** mode, and **set a user's wallet balance**. |
-| **Ads**            | `/ads/next`, `/ads/{id}/event\|hide\|report`, `/ads/reels*` (CRUD + `serve`/`event`), `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*`, `/media/resolve-video` | Sponsored posts, **reel video ads** (budget-weighted serving + CTR), prepaid ad accounts, link ads, the publisher network (embed ads + earn), and verified-host video link resolution. |
-| **Posts / Feed**   | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/bookmarks`, `/hashtags/{tag}` | Create/edit/delete posts, feeds, replies + **full comment threads**, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, **pinning**, hashtags. Forum posts carry `community_id` + `title`. |
-| **Stories**        | `/stories`, `/stories/tray`, `/stories/user/{id}`, `/stories/{id}/view\|viewers\|reply` | Create 24h ephemeral stories, story tray, view counts, viewer lists, and replies. |
-| **Messaging**      | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`, `/conversations/{id}/messages/{mid}/react`, `/conversations/{id}/read`, `/emojis` | DMs and group chats; text/place/media/voice/gif/file/contact/post messages; replies, ❤️ reactions, edits, receipts, deletion; **custom emoji** registry (`/emojis` GET/POST/DELETE). |
-| **Communities**    | `/communities`, `/communities/{name}`, `/communities/{name}/join`, `/communities/{name}/posts?sort=hot\|new\|top` | Reddit-style forum: create/discover, join/leave, and the community's threads with Hot/New/Top sorting. |
-| **Groups**         | `/groups`, `/groups/{id}/join\|leave\|posts\|pins\|requests\|members/*` | Public/private chat communities: membership & join requests, posts, pinned posts, member roles (promote/demote/remove). |
-| **Marketplace**    | `/listings?lat&lng&radius_km&sort`, `/listings/{id}`, `/listings/{id}/contact\|save`, `/marketplace/users/{id}` | Create/update/delete listings, **location + radius** browse and nearby sort, save, seller profiles & reviews, and start a DM with a seller. |
-| **Places**         | `/places`, `/recents` | Saved map places and recent searches (create/list/delete). |
-| **Guides**         | `/guides`, `/guides/{id}/places/{pid}`, `/public/guides/{slug}`, `/public/guides/{slug}/clone` | Curated place collections; add/remove places; publish via slug; view/clone public guides. |
-| **Reviews**        | `/reviews` | Create/list/delete 1–5★ place reviews. |
-| **ETA**            | `/eta`, `/eta/{id}/update\|stop`, `/public/eta/{id}`, **WS** `/ws/eta/{share_id}` | Create and update live ETA shares; public read; real-time location stream over WebSocket. |
-| **Notifications**  | `/notifications`, `/notifications/unread`, `/notifications/read-all` | Notification feed, unread counts, mark single/all read, delete. |
-| **Foursquare**     | `/foursquare/match` | Match a place against Foursquare for a business profile (needs `FSQ_API_KEY`). |
-| **Transit**        | `/transit/nearby?lat&lon&radius&dest_lat&dest_lon` | Nearby public-transit stops + next departures via TransitLand (real-time where available). Pass `dest_lat`/`dest_lon` to keep only routes heading toward the destination. Needs `TRANSITLAND_API_KEY`. |
-| **Calls**          | `/calls/{conversation_id}/token`, `/calls/{conversation_id}/ring` | Mint a LiveKit room token (members only) and ring the other participant (in-app notification + Expo push) for voice/video calls. Needs `LIVEKIT_*`. |
-| **Push**           | `/push/register`, `DELETE /push/register` | Register/remove a device push token (used to ring calls in the background). |
-| **Admin**          | `/admin/users`, `/admin/users/{id}/*`, `/admin/audit`, `/admin/badges`, `/admin/revenue`, `/admin/fees`, `/admin/integrations?live=1` | Admin-only: user moderation (ban/suspend/role/verify), audit log, custom badges, revenue, fee config, and the **integrations/SDK status board** (configured + live health checks + remediation). |
+| Route group | Base paths (examples) | What it does |
+| --- | --- | --- |
+| **Auth** | `/auth/register`, `/auth/login`(+`/2fa`,`/phone`), `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/forgot-password{,/sms}`, `/auth/reset-password{,/code}`, `/auth/recover-password`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password auth (bcrypt, session tokens), **SMS 2FA**, **phone OTP login**, phone verification, password reset by email/SMS, developer **API keys**, ToS/Privacy acceptance. |
+| **Users** | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip\|subscribe`, `/wallet`, `/admin/users/{id}` | Search, public profiles, follow/friends, **tips & subscriptions**, the creator **wallet**, and admin verify/role/ban/suspend + audit. |
+| **Posts / Feed** | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/bookmarks`, `/hashtags/{tag}` | Posts, feeds, full comment threads, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, pinning, hashtags. |
+| **Stories** | `/stories`, `/stories/tray`, `/stories/{id}/view\|viewers\|reply` | 24h stories, tray, views, viewer lists, replies. |
+| **Messaging** | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`(+`/react`,`/read`,`/presence`), `/emojis` | DMs & group chats; text/place/media/voice/gif/file/contact/post; reactions, edits, receipts, presence, custom emoji. |
+| **Calls / Push** | `/calls/{id}/token\|ring`, `/push/register` | LiveKit room tokens + ring; device push-token registration. |
+| **Maps** | `/eta`(+`/update`,`/stop`), `/public/eta/{id}`, **WS** `/ws/eta/{id}`, `/foursquare/match`, `/transit/nearby` | Live ETA shares (REST + WS + public read), Foursquare business profiles, transit departures. |
+| **Marketplace** | `/listings?lat&lng&radius_km&sort`, `/listings/{id}`(+`/contact`,`/save`), `/marketplace/users/{id}` | Listings, location/radius browse, save, seller profiles & reviews, start a DM. |
+| **Communities / Groups** | `/communities`(+`/{name}/join\|posts`), `/groups`(+`/{id}/join\|posts\|pins\|requests\|members/*`) | Reddit-style forum (Hot/New/Top) and public/private chat groups. |
+| **Roadside** | `/roadside/requests`(+`/{id}/accept\|decline\|enroute\|arrived\|cancel`), `/admin/roadside/*` | Request roadside help, helper accept/decline + en route/on location (GPS-gated), photo AI moderation, staff verification. |
+| **Support** | `/support/tickets`(+`/{id}/messages`), `/admin/support/*` | Open tickets/disputes, message staff, admin triage/resolve. |
+| **Forms** | `/forms`(+`/{id}`,`/{id}/submissions{,.csv}`), `/pub/form`, `/pub/form-submit`, `/pub/form-embed.js`, `/pub/form-unit` | Build forms, list/export responses, and public (no-auth) render/submit/themeable embeds. |
+| **Embed content** | `/pub/post/{id}`, `/pub/profile/{username}`(+`/posts`), `/pub/listing/{id}`, `/pub/post-card`, `/pub/profile-card`, `/pub/listing-card`, `/pub/content-embed.js`, `/pub/oembed` | Public JSON, themeable iframe cards (posts, profiles, marketplace listings), a `<script>` loader, cursor-paginated profile feed, and an **oEmbed** provider. |
+| **Webhooks** | `/webhooks`(+`/{id}`,`/{id}/test`,`/{id}/deliveries`), `/webhooks/events` | Register signed event webhooks (20+ events), test pings, and delivery logs. |
+| **Login with Nami (OAuth2)** | `/oauth/apps`, `/oauth/authorize`, `/oauth/token`, `/oauth/userinfo`, `/oauth/connections` | OAuth2 authorization-code provider so other sites can "Sign in with Nami". |
+| **Publisher / Ads** | `/ads/next`, `/ads/{id}/event`, `/ads/reels*`, `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*`, `/pub/embed.js`, `/pub/unit`, `/pub/ad` | Sponsored posts, reel video ads, prepaid ad accounts, link ads, and the publisher network (customizable embeddable ad units + earn). |
+| **Payments / Money** | `/payments/config\|pay-intent\|checkout\|payouts/*\|webhook\|api-plan*\|api-usage*`, `/money/*`, `/wallet/*`, `/currencies` | Inline card payments, in-app payout setup, instant cash-out, P2P send/request (security question, reversal), wallet top-up/cash-out, display currency, and Developer-API plans/usage. |
+| **Admin** | `/admin/users\|audit\|badges\|revenue\|ad-revenue\|fees\|test-payments\|mobile-only\|reset/*`, `/admin/users/{id}/wallet`, `/admin/integrations?live=1` | User moderation, audit log, badges, revenue/fees, simulated-payment toggle, set a wallet balance, and the integrations/SDK status board. |
+| **Meta** | `/version`, `/v1/info`, `/public/app-config` | API name/version, machine-readable capability overview, and public client config. |
 
-The full set of endpoints is the source of truth — see each module under `backend/routes/`. For a developer-facing reference see **`API.md`**, the in-app **Developer API** screen (Settings → Developer API, with API-key management), the machine-readable `GET /api/v1/info`, and the interactive **Swagger docs at `/docs`** (`/openapi.json` for the schema) which FastAPI exposes by default.
+The full set of endpoints is the source of truth — see each module under
+`backend/routes/`. For a developer-facing reference see **`API.md`**, the in-app
+**Developer API** screen, the machine-readable **`GET /api/v1/info`**, and the
+interactive **Swagger docs at `/docs`** (`/openapi.json` for the schema).
 
 ---
 
-## Testing / scripts
+## Developer API & embedding
 
-- **Backend tests** live in `backend/tests/` (pytest), covering auth, posts/newsfeed, reposts, recents/guides, ETA & race conditions, notifications, groups, and several feature iterations. Run with:
+The Developer API (Settings → Developer API) is a paid add-on for building on
+Nami and embedding it on any site or app.
+
+- **API keys** — generate labeled keys (shown once) with **read** or **read+write** scopes; list and revoke. Keys are long-lived bearer tokens.
+- **Plans, usage & quotas** — tiered plans (more keys, write access, webhooks, higher rate limits) with a usage meter and **pay-as-you-go** request packs (Stripe, with a test-mode fallback).
+- **Webhooks** — subscribe to **20+ signed event types** (follows, messages, tips, subscriptions, likes/replies/reposts, roadside, support, `form.submission`, …). Delivery is **HMAC-signed** (`X-Nami-Signature`), **retried with backoff**, and recorded in a **delivery log**; a **test ping** verifies your endpoint. Choose specific events or receive all.
+- **Login with Nami (OAuth2)** — register an app for a client ID/secret and use the authorization-code flow (`/oauth/authorize` → `/oauth/token` → `/oauth/userinfo`) to add a "Sign in with Nami" button.
+- **Custom forms** — build a form and embed it anywhere via a `<script>` snippet or iframe; theme it with `data-*` / query params (`theme`, `accent`, `bg`, `radius`, `hide_title`, `redirect`, prefill). Collect responses in-app, export **CSV**, and receive `form.submission` webhooks.
+- **Embeddable content + oEmbed** — public JSON and **themeable iframe cards** for posts, profiles, and **marketplace listings**; a drop-in `content-embed.js` loader (`data-post` / `data-profile` / `data-listing`); a **cursor-paginated profile feed** for building a Nami feed widget; and an **oEmbed** provider so pasted Nami links auto-expand in WordPress/Discourse/Notion. Only public content is served (no subscriber-only posts, no sold/flagged listings, no banned users).
+- **Publisher ad network** — embed customizable Nami ad units on your site and earn a revenue share.
+- **Conventions** — versioned base **`/api/v1`** (with `/api` legacy alias), open **CORS**, a consistent error envelope (`{"error":{"code","message"}}`), `?limit=`/`?offset=` plus **cursor** pagination where supported, **`Idempotency-Key`** on writes (retries replay the first response), and fair-use rate limits (429).
+- **SDKs** — it's plain JSON+HTTPS, so it works from any language. Generate a typed client from `/openapi.json` (e.g. `dart-dio` for Dart/Flutter, plus Swift, Kotlin, Go, `typescript-fetch`, …). A Flutter `WebView` can embed any of the `/pub/*` units directly.
+
+---
+
+## Testing & scripts
+
+- **Backend tests** live in `backend/tests/` (pytest), covering auth, posts/newsfeed, reposts, recents/guides, ETA & race conditions, notifications, groups, and feature iterations:
   ```bash
   cd backend
   pip install pytest pytest-asyncio httpx
   pytest
   ```
-  > Heads-up: several test files were written against the earlier MongoDB build (they import `pymongo` and read `MONGO_URL`/`DB_NAME`). Treat them as reference/regression material; adapt fixtures if you run them against the current PostgreSQL backend.
-
+  > Heads-up: several test files were written against the earlier MongoDB build (they import `pymongo` and read `MONGO_URL`/`DB_NAME`). Treat them as reference/regression material; adapt fixtures to run them against the current PostgreSQL backend.
 - **Frontend lint:** `npm run lint` (eslint-config-expo).
-- **Helper scripts** (`frontend/scripts/`): `check-pkg.js` (preinstall guard), `install-guard.sh`, and `reset-project.js` (Expo starter reset — not needed for normal development).
-- `test_result.md` documents the project's agent-driven testing protocol and the latest test plan/status.
+- **Helper scripts** (`frontend/scripts/`): `check-pkg.js` (preinstall guard), `install-guard.sh`, `reset-project.js` (Expo starter reset).
+- `test_result.md` documents the project's agent-driven testing protocol and latest status.
 
 ---
 
-## License / notes
+## License & notes
 
-No license file is present in the repository. Treat this project as **proprietary / unlicensed** unless a `LICENSE` is added by the owner.
+No license file is present in the repository. Treat this project as
+**proprietary / unlicensed** unless a `LICENSE` is added by the owner.
 
-Additional context:
-- The design system (colors, typography, component styles, map styles) is documented in `design_guidelines.json`.
-- The product requirements live in `memory/PRD.md`.
+- The design system (colors, typography, components, map styles) is in `design_guidelines.json`.
+- Product requirements live in `memory/PRD.md`.
+- Feature setup guides: `backend/STRIPE_SETUP.md`, `frontend/CLOUDINARY_SETUP.md`, `frontend/EAS_SETUP.md`, `frontend/IOS_BUILD.md`.
