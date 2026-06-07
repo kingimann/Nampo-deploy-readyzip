@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as Clipboard from "expo-clipboard";
-import { api, ApiKey, DevWebhook, OAuthApp } from "@/src/api/client";
+import { api, ApiKey, DevWebhook, OAuthApp, WebhookDelivery } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://nampo-backend.onrender.com";
@@ -154,7 +154,19 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/webhooks", desc: "Your registered webhooks.", auth: true },
       { method: "POST", path: "/webhooks", desc: "Register an endpoint (Pro+). Returns a signing secret once.", auth: true, body: `{"url","events":[]}` },
       { method: "POST", path: "/webhooks/{id}/test", desc: "Send a signed sample ping; returns your endpoint's status.", auth: true },
+      { method: "GET", path: "/webhooks/{id}/deliveries", desc: "Recent delivery attempts (status, retries, errors).", auth: true },
       { method: "DELETE", path: "/webhooks/{id}", desc: "Delete a webhook.", auth: true },
+    ],
+  },
+  {
+    title: "Embed content", icon: "share-social",
+    endpoints: [
+      { method: "GET", path: "/pub/post/{id}", desc: "Public JSON for a post (public posts only).", auth: false },
+      { method: "GET", path: "/pub/profile/{username}", desc: "Public JSON for a user profile.", auth: false },
+      { method: "GET", path: "/pub/post-card?post=ID", desc: "Themeable iframe card for a post (theme/accent/radius).", auth: false },
+      { method: "GET", path: "/pub/profile-card?profile=USER", desc: "Themeable iframe card for a profile.", auth: false },
+      { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post or data-profile + data-theme/accent/radius.", auth: false },
+      { method: "GET", path: "/pub/oembed?url=URL", desc: "oEmbed provider — paste a Nami link into WordPress/Discourse to auto-embed.", auth: false },
     ],
   },
   {
@@ -243,6 +255,9 @@ final c = WebViewController()
     "&theme=dark&accent=7C3AED"));
 
 // in build(): WebViewWidget(controller: c)`;
+const CONTENT_SNIPPET = `<!-- Embed a Nami post (or use data-profile="username") -->
+<script async src="${BASE}/api/pub/content-embed.js"
+  data-post="POST_ID" data-theme="dark" data-accent="7C3AED"></script>`;
 const EMBED_ATTRS: [string, string][] = [
   ["theme", "light (default) or dark"],
   ["accent", "button colour, 3/6-digit hex (no #)"],
@@ -271,6 +286,10 @@ export default function DeveloperScreen() {
   const [whBusy, setWhBusy] = useState(false);
   const [whTesting, setWhTesting] = useState<string | null>(null);
   const [whEvents, setWhEvents] = useState<{ event: string; description: string }[]>([]);
+  const [whSelected, setWhSelected] = useState<string[]>([]);
+  const [openLogs, setOpenLogs] = useState<string | null>(null);
+  const [logs, setLogs] = useState<Record<string, WebhookDelivery[]>>({});
+  const [logsBusy, setLogsBusy] = useState(false);
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
@@ -366,13 +385,26 @@ export default function DeveloperScreen() {
     if (!whUrl.trim()) return;
     setWhBusy(true);
     try {
-      const w = await api.createWebhook(whUrl.trim());
+      const w = await api.createWebhook(whUrl.trim(), whSelected.length ? whSelected : undefined);
       setFreshSecret(w.secret || null);
-      setWhUrl("");
+      setWhUrl(""); setWhSelected([]);
       await load();
     } catch (e: any) {
       Alert.alert("Couldn't add webhook", errText(e));
     } finally { setWhBusy(false); }
+  };
+
+  const toggleEvent = (e: string) =>
+    setWhSelected((s) => (s.includes(e) ? s.filter((x) => x !== e) : [...s, e]));
+
+  const toggleLogs = async (id: string) => {
+    if (openLogs === id) { setOpenLogs(null); return; }
+    setOpenLogs(id);
+    if (!logs[id]) {
+      setLogsBusy(true);
+      try { const r = await api.listWebhookDeliveries(id); setLogs((m) => ({ ...m, [id]: r.deliveries })); }
+      catch {} finally { setLogsBusy(false); }
+    }
   };
 
   const removeWebhook = (id: string) => {
@@ -612,7 +644,22 @@ export default function DeveloperScreen() {
                 <TouchableOpacity onPress={() => setFreshSecret(null)}><Text style={styles.dismiss}>Done</Text></TouchableOpacity>
               </View>
             )}
-            <View style={styles.keyInputRow}>
+            {whEvents.length > 0 && (
+              <>
+                <Text style={[styles.body, { marginBottom: 6 }]}>Choose events to subscribe to (none = all {whEvents.length}):</Text>
+                <View style={styles.eventWrap}>
+                  {whEvents.map((e) => {
+                    const on = whSelected.includes(e.event);
+                    return (
+                      <TouchableOpacity key={e.event} style={[styles.eventChip, on && styles.eventChipOn]} onPress={() => toggleEvent(e.event)} testID={`wh-ev-${e.event}`}>
+                        <Text style={[styles.eventChipText, on && { color: theme.primary }]}>{e.event}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+            <View style={[styles.keyInputRow, { marginTop: 10 }]}>
               <TextInput
                 style={styles.keyInput} placeholder="https://your-server.com/hook" placeholderTextColor={theme.textMuted}
                 value={whUrl} onChangeText={setWhUrl} autoCapitalize="none" autoCorrect={false} testID="webhook-url"
@@ -624,32 +671,40 @@ export default function DeveloperScreen() {
             {webhooks.length === 0 ? (
               <Text style={styles.empty}>No webhooks yet.</Text>
             ) : webhooks.map((w) => (
-              <View key={w.id} style={styles.keyRow}>
-                <View style={styles.keyIcon}><Ionicons name="git-network-outline" size={15} color={theme.primary} /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.keyLabel} numberOfLines={1}>{w.url}</Text>
-                  <Text style={styles.keyMeta}>{(w.events || []).length} events · {fmtDate(w.created_at)}</Text>
+              <View key={w.id}>
+                <View style={styles.keyRow}>
+                  <View style={styles.keyIcon}><Ionicons name="git-network-outline" size={15} color={theme.primary} /></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.keyLabel} numberOfLines={1}>{w.url}</Text>
+                    <Text style={styles.keyMeta}>{(w.events || []).length} events · {fmtDate(w.created_at)}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => toggleLogs(w.id)} hitSlop={8} style={styles.whTestBtn} testID={`webhook-logs-${w.id}`}>
+                    <Text style={styles.whTestText}>{openLogs === w.id ? "Hide" : "Logs"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => testWebhook(w.id)} disabled={whTesting === w.id} hitSlop={8} style={styles.whTestBtn} testID={`webhook-test-${w.id}`}>
+                    {whTesting === w.id ? <ActivityIndicator color={theme.primary} size="small" /> : <Text style={styles.whTestText}>Test</Text>}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => removeWebhook(w.id)} hitSlop={8} testID={`webhook-del-${w.id}`}>
+                    <Ionicons name="trash-outline" size={18} color={theme.error} />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={() => testWebhook(w.id)} disabled={whTesting === w.id} hitSlop={8} style={styles.whTestBtn} testID={`webhook-test-${w.id}`}>
-                  {whTesting === w.id ? <ActivityIndicator color={theme.primary} size="small" /> : <Text style={styles.whTestText}>Test</Text>}
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => removeWebhook(w.id)} hitSlop={8} testID={`webhook-del-${w.id}`}>
-                  <Ionicons name="trash-outline" size={18} color={theme.error} />
-                </TouchableOpacity>
+                {openLogs === w.id && (
+                  <View style={styles.logsBox}>
+                    {logsBusy && !logs[w.id] ? (
+                      <ActivityIndicator color={theme.primary} size="small" />
+                    ) : (logs[w.id] || []).length === 0 ? (
+                      <Text style={styles.empty}>No deliveries yet. Use Test to send a ping.</Text>
+                    ) : (logs[w.id] || []).map((d) => (
+                      <View key={d.id} style={styles.logRow}>
+                        <View style={[styles.logDot, { backgroundColor: d.ok ? theme.success : theme.error }]} />
+                        <Text style={styles.logEvent} numberOfLines={1}>{d.event}</Text>
+                        <Text style={styles.logMeta}>{d.status || "—"}{d.attempts > 1 ? ` ·${d.attempts}x` : ""} · {fmtDate(d.created_at)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             ))}
-            {whEvents.length > 0 && (
-              <>
-                <Text style={[styles.body, { marginTop: 14, marginBottom: 6 }]}>Events you can subscribe to ({whEvents.length}):</Text>
-                <View style={styles.eventWrap}>
-                  {whEvents.map((e) => (
-                    <View key={e.event} style={styles.eventChip}>
-                      <Text style={styles.eventChipText}>{e.event}</Text>
-                    </View>
-                  ))}
-                </View>
-              </>
-            )}
           </>
         )}
 
@@ -733,6 +788,16 @@ export default function DeveloperScreen() {
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(FLUTTER_WEBVIEW, "Flutter snippet")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{FLUTTER_WEBVIEW}</Text>
         </TouchableOpacity>
+
+        <Text style={[styles.body, { marginTop: 12 }]}>
+          You can also embed Nami <Text style={styles.codeInline}>content</Text> — posts and profiles — as themeable cards, or rely on <Text style={styles.codeInline}>oEmbed</Text> so a pasted Nami link auto-expands in WordPress, Discourse, Notion and other oEmbed-aware tools:
+        </Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(CONTENT_SNIPPET, "Content embed")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{CONTENT_SNIPPET}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>
+          oEmbed endpoint: <Text style={styles.codeInline}>{`${BASE}/api/pub/oembed?url=<nami link>`}</Text> — only public content is served (no subscriber-only posts, no banned users).
+        </Text>
 
         <Text style={[styles.groupTitle, { marginTop: 22 }]}>SDKs & client generation</Text>
         <Text style={styles.body}>
@@ -867,7 +932,13 @@ const styles = StyleSheet.create({
   whTestText: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
   eventWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   eventChip: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 },
+  eventChipOn: { borderColor: theme.primary, backgroundColor: "rgba(0,168,132,0.10)" },
   eventChipText: { color: theme.textSecondary, fontSize: 11.5, fontWeight: "700", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  logsBox: { backgroundColor: theme.surfaceAlt, borderRadius: 10, padding: 10, marginTop: -2, marginBottom: 8, gap: 6 },
+  logRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  logDot: { width: 7, height: 7, borderRadius: 4 },
+  logEvent: { flex: 1, color: theme.textPrimary, fontSize: 12.5, fontWeight: "700", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  logMeta: { color: theme.textMuted, fontSize: 11.5 },
   keyIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" },
   keyLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   keyMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },

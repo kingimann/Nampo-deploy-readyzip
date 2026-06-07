@@ -144,6 +144,8 @@ export const api = {
     request<DevWebhook>("/webhooks", { method: "POST", body: JSON.stringify({ url, events }) }),
   testWebhook: (id: string) =>
     request<{ ok: boolean; status: number; error?: string }>(`/webhooks/${id}/test`, { method: "POST" }),
+  listWebhookDeliveries: (id: string) =>
+    request<{ deliveries: WebhookDelivery[] }>(`/webhooks/${id}/deliveries`),
   deleteWebhook: (id: string) =>
     request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>
@@ -1056,6 +1058,7 @@ export type OAuthApp = { client_id: string; name: string; redirect_uris: string[
 export type OAuthConnection = { client_id: string; name: string; scope: string; granted_at?: string | null; tokens: number };
 export type ApiPlan = { id: string; name: string; price: number; level: number; max_keys: number; write: boolean; webhooks: boolean; rate_per_min: number };
 export type DevWebhook = { id: string; url: string; events: string[]; active: boolean; created_at: string; secret_prefix?: string; secret?: string };
+export type WebhookDelivery = { id: string; event: string; ok: boolean; status: number; attempts: number; error?: string | null; created_at: string };
 export type OveragePack = { id: string; name: string; requests: number; price: number };
 export type ApiUsage = { plan?: string | null; used: number; quota: number; extra_credits: number; limit: number; resets_at?: string | null; packs: OveragePack[]; stripe_enabled: boolean };
 export type FriendStatus = "none" | "request_sent" | "request_received" | "friends";
