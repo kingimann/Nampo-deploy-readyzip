@@ -260,6 +260,7 @@ export const api = {
   getPayoutStatus: () =>
     request<{
       enabled: boolean; connected: boolean; payouts_enabled: boolean; charges_enabled?: boolean; details_submitted: boolean;
+      id_verified?: boolean; hold_until?: string | null;
       has_external_account?: boolean; has_debit_card?: boolean; account_id?: string; account_currency?: string; country?: string;
       debit_card?: { brand?: string; last4?: string } | null; bank_account?: { bank?: string; last4?: string } | null;
       capabilities?: { transfers?: string; card_payments?: string };
