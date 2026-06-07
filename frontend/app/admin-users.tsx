@@ -182,8 +182,17 @@ export default function AdminUsersScreen() {
     setBusy(true);
     setUsers((arr) => arr.map((x) => (x.user_id === u.user_id ? { ...x, ...optimistic } : x)));
     setSel((s) => (s && s.user_id === u.user_id ? { ...s, ...optimistic } : s));
-    try { await fn(); } catch (e: any) { Alert.alert("Couldn't update", String(e?.message || e).replace(/^\d{3}:\s*/, "")); load(q); }
-    finally { setBusy(false); }
+    try {
+      const res = await fn();
+      // Apply the server's authoritative view so the toggle reflects the real
+      // saved state (and isn't reverted by a racing list refresh).
+      if (res && typeof res === "object" && res.user_id) {
+        setUsers((arr) => arr.map((x) => (x.user_id === res.user_id ? { ...x, ...res } : x)));
+        setSel((s) => (s && s.user_id === res.user_id ? { ...s, ...res } : s));
+      }
+    } catch (e: any) {
+      Alert.alert("Couldn't update", String(e?.message || e).replace(/^\d{3}:\s*/, "")); load(q);
+    } finally { setBusy(false); }
   };
 
   const verifyMe = async () => {
