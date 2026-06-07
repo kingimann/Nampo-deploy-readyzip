@@ -93,6 +93,7 @@ export default function PostComposer({
   const [pollHours, setPollHours] = useState(24);
   const [likesOff, setLikesOff] = useState(false);
   const [commentPolicy, setCommentPolicy] = useState<"everyone" | "followers" | "friends" | "nobody">("everyone");
+  const [subTier, setSubTier] = useState(0); // 0 = public; 1-3 = subscribers-only
   const [privacyOpen, setPrivacyOpen] = useState(false);
 
   // Privacy controls only make sense for a brand-new top-level (non-group) post.
@@ -111,6 +112,7 @@ export default function PostComposer({
       setPollHours(24);
       setLikesOff(false);
       setCommentPolicy("everyone");
+      setSubTier(0);
     }
   }, [visible, editing]);
 
@@ -277,7 +279,7 @@ export default function PostComposer({
             options: pollOptions.map((o) => o.trim()).filter(Boolean),
             duration_hours: pollHours,
           } : undefined,
-          ...(showPrivacy ? { likes_disabled: likesOff, comment_policy: commentPolicy } : {}),
+          ...(showPrivacy ? { likes_disabled: likesOff, comment_policy: commentPolicy, min_sub_tier: subTier } : {}),
         });
       }
       onPosted(p);
@@ -486,8 +488,9 @@ export default function PostComposer({
                 >
                   <Ionicons name={(COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.icon as any) || "earth-outline"} size={16} color={theme.primary} />
                   <Text style={styles.audienceText} numberOfLines={1}>
-                    {COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.label}
+                    {subTier > 0 ? `Tier ${subTier}+` : COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.label}
                   </Text>
+                  {subTier > 0 && <Ionicons name="star" size={13} color="#F5A623" />}
                   {likesOff && <Ionicons name="heart-dislike-outline" size={14} color={theme.textMuted} />}
                 </TouchableOpacity>
               )}
@@ -528,6 +531,22 @@ export default function PostComposer({
                 return (
                   <TouchableOpacity key={o.k} style={styles.pOpt} onPress={() => setCommentPolicy(o.k)} testID={`composer-comment-${o.k}`}>
                     <Ionicons name={o.icon as any} size={18} color={on ? theme.primary : theme.textMuted} />
+                    <Text style={[styles.pOptLabel, on && { color: theme.primary }]}>{o.label}</Text>
+                    <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
+                  </TouchableOpacity>
+                );
+              })}
+              <Text style={styles.pSection}>Subscribers only</Text>
+              {[
+                { lvl: 0, label: "Everyone (public)" },
+                { lvl: 1, label: "Tier 1 subscribers & up" },
+                { lvl: 2, label: "Tier 2 subscribers & up" },
+                { lvl: 3, label: "Tier 3 subscribers only" },
+              ].map((o) => {
+                const on = subTier === o.lvl;
+                return (
+                  <TouchableOpacity key={o.lvl} style={styles.pOpt} onPress={() => setSubTier(o.lvl)} testID={`composer-tier-${o.lvl}`}>
+                    <Ionicons name={o.lvl === 0 ? "earth-outline" : "star"} size={18} color={on ? theme.primary : (o.lvl === 0 ? theme.textMuted : "#F5A623")} />
                     <Text style={[styles.pOptLabel, on && { color: theme.primary }]}>{o.label}</Text>
                     <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
                   </TouchableOpacity>

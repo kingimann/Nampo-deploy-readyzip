@@ -478,7 +478,7 @@ export const api = {
     request<Post>("/posts", { method: "POST", body: JSON.stringify(body) }),
   editPost: (id: string, body: { text?: string; media?: PostMedia[] }) =>
     request<Post>(`/posts/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  editPostPrivacy: (id: string, body: { likes_disabled?: boolean; comment_policy?: string }) =>
+  editPostPrivacy: (id: string, body: { likes_disabled?: boolean; comment_policy?: string; min_sub_tier?: number }) =>
     request<Post>(`/posts/${id}/privacy`, { method: "PATCH", body: JSON.stringify(body) }),
   reportPost: (id: string, reason?: string) =>
     request<{ ok: boolean }>(`/posts/${id}/report`, {
@@ -1240,6 +1240,8 @@ export type Post = {
   views_count?: number;
   likes_disabled?: boolean;
   comment_policy?: string;
+  min_sub_tier?: number;   // 0 = public; 1-3 = subscribers-only
+  locked?: boolean;        // gated content the viewer hasn't unlocked
   can_comment?: boolean;
   liked_by_me: boolean; disliked_by_me?: boolean; reposted_by_me?: boolean; bookmarked_by_me?: boolean;
   promoted?: boolean; promoted_until?: string | null;
@@ -1276,6 +1278,7 @@ export type PostCreate = {
   community_id?: string; title?: string;
   likes_disabled?: boolean;
   comment_policy?: string;
+  min_sub_tier?: number;   // 0 = public; 1-3 = subscribers-only
 };
 
 export type Community = {

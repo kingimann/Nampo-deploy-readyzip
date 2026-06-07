@@ -551,6 +551,7 @@ class PostCreate(BaseModel):
     title: Optional[str] = None         # forum thread title
     likes_disabled: Optional[bool] = None              # turn off likes for this post
     comment_policy: Optional[str] = None               # everyone | followers | friends | nobody
+    min_sub_tier: Optional[int] = None                 # 0 = public; 1-3 = subscribers-only (Twitch-style)
 
 
 class CommunityCreate(BaseModel):
@@ -584,6 +585,7 @@ class PostPatch(BaseModel):
 class PostPrivacyPatch(BaseModel):
     likes_disabled: Optional[bool] = None
     comment_policy: Optional[str] = None   # everyone | followers | friends | nobody
+    min_sub_tier: Optional[int] = None     # 0 = public; 1-3 = subscribers-only
 
 
 class PostAuthor(BaseModel):
@@ -629,6 +631,8 @@ class Post(BaseModel):
     views_count: int = 0
     likes_disabled: bool = False
     comment_policy: str = "everyone"   # everyone | followers | friends | nobody
+    min_sub_tier: int = 0              # 0 = public; 1-3 = subscribers-only (Twitch-style)
+    locked: bool = False              # gated content the viewer hasn't unlocked (content stripped)
     can_comment: bool = True           # may the current viewer comment?
     liked_by_me: bool = False
     disliked_by_me: bool = False

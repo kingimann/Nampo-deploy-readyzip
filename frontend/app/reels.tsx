@@ -155,7 +155,23 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
 
   return (
     <View style={{ width: screenW, height: screenH, backgroundColor: "#000" }}>
-      {videoUri ? (
+      {content.locked ? (
+        <View style={[StyleSheet.absoluteFill, styles.reelLock]}>
+          <View style={styles.reelLockIcon}><Ionicons name="lock-closed" size={34} color="#F5A623" /></View>
+          <Text style={styles.reelLockTitle}>Subscribers-only reel</Text>
+          <Text style={styles.reelLockSub}>
+            Subscribe to @{content.author.name} at Tier {content.min_sub_tier || 1}{(content.min_sub_tier || 1) < 3 ? "+" : ""} to watch.
+          </Text>
+          <TouchableOpacity
+            style={styles.reelLockBtn}
+            onPress={() => router.push({ pathname: "/user/[name]", params: { name: content.author.name, subscribe: "1" } })}
+            testID={`reel-subscribe-${post.id}`}
+          >
+            <Ionicons name="star" size={15} color="#fff" />
+            <Text style={styles.reelLockBtnText}>Subscribe</Text>
+          </TouchableOpacity>
+        </View>
+      ) : videoUri ? (
         <Pressable
           style={StyleSheet.absoluteFill}
           onPress={handleTap}
@@ -439,8 +455,12 @@ export default function ReelsScreen() {
         if (seen.has(p.id)) return false;
         // Reposts of reels carry the video on reposted_post.
         const src = (p.repost_of && p.reposted_post) ? p.reposted_post : p;
-        const uri = mediaUri(src.media?.find((m) => m.type === "video"));
-        if (!(uri.startsWith("data:") || uri.startsWith("http"))) return false;
+        // Subscribers-only reels have their media stripped — keep them so we
+        // can show a paywall instead of silently dropping them.
+        if (!src.locked) {
+          const uri = mediaUri(src.media?.find((m) => m.type === "video"));
+          if (!(uri.startsWith("data:") || uri.startsWith("http"))) return false;
+        }
         seen.add(p.id);
         return true;
       });
@@ -689,6 +709,12 @@ const styles = StyleSheet.create({
   editCancelText: { color: "rgba(255,255,255,0.7)", fontSize: 15, fontWeight: "700" },
   editSave: { backgroundColor: theme.primary, borderRadius: 12, paddingHorizontal: 22, paddingVertical: 11 },
   editSaveText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  reelLock: { alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 40, backgroundColor: "#0b0b0b" },
+  reelLockIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(245,166,35,0.15)" },
+  reelLockTitle: { color: "#fff", fontSize: 19, fontWeight: "800" },
+  reelLockSub: { color: "rgba(255,255,255,0.7)", fontSize: 14, lineHeight: 20, textAlign: "center" },
+  reelLockBtn: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 8, backgroundColor: "#F5A623", borderRadius: 999, paddingHorizontal: 24, paddingVertical: 12 },
+  reelLockBtnText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   caption: { color: "rgba(255,255,255,0.9)", fontSize: 14, marginTop: 6, lineHeight: 20, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 4 },
   captionMore: { color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: "700", marginTop: 2 },
 });
