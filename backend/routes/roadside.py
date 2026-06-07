@@ -189,6 +189,10 @@ class RoadsideCheck(BaseModel):
     note: Optional[str] = None
 
 
+class RoadsidePhotoCheck(BaseModel):
+    photo: Optional[str] = None              # single base64 data URI, just captured
+
+
 class RoadsideVerify(BaseModel):
     photos: Optional[List[str]] = None       # "after" proof photos taken at completion
 
@@ -392,6 +396,15 @@ async def check_form(body: RoadsideCheck, authorization: Optional[str] = Header(
     await get_current_user(authorization)
     from services.ollama import review_form
     return await review_form(body.model_dump())
+
+
+@router.post("/roadside/check-photo")
+async def check_photo(body: RoadsidePhotoCheck, authorization: Optional[str] = Header(None)):
+    """Verify a freshly-taken roadside photo shows the vehicle / the problem and
+    isn't blank or random. Called right after capture. Returns {ok, reason}."""
+    await get_current_user(authorization)
+    from services.ollama import verify_vehicle_photo
+    return await verify_vehicle_photo(body.photo or "")
 
 
 @router.get("/roadside/eligibility")
