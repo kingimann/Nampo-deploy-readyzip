@@ -11,6 +11,14 @@ import { api, SellerProfile, MarketplaceReview } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 
+const REVIEW_CATEGORIES = [
+  { key: "communication", label: "Communication" },
+  { key: "as_described", label: "Item as described" },
+  { key: "shipping", label: "Handoff / shipping" },
+  { key: "friendliness", label: "Friendliness" },
+];
+const DEFAULT_RATINGS: Record<string, number> = { communication: 5, as_described: 5, shipping: 5, friendliness: 5 };
+
 function Stars({ value, size = 14 }: { value: number; size?: number }) {
   return (
     <View style={{ flexDirection: "row", gap: 1 }}>
@@ -35,7 +43,7 @@ export default function SellerProfileScreen() {
   const [reviews, setReviews] = useState<MarketplaceReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [writeOpen, setWriteOpen] = useState(false);
-  const [draftRating, setDraftRating] = useState(5);
+  const [draftRatings, setDraftRatings] = useState<Record<string, number>>({ ...DEFAULT_RATINGS });
   const [draftText, setDraftText] = useState("");
   const [saving, setSaving] = useState(false);
   const [verifyOpen, setVerifyOpen] = useState(false);
@@ -72,15 +80,20 @@ export default function SellerProfileScreen() {
     if (!id || saving) return;
     setSaving(true);
     try {
-      await api.addSellerReview(id, draftRating, draftText.trim());
-      setWriteOpen(false); setDraftText(""); setDraftRating(5);
+      await api.addSellerReview(id, draftRatings, draftText.trim());
+      setWriteOpen(false); setDraftText(""); setDraftRatings({ ...DEFAULT_RATINGS });
       await load();
     } catch {} finally { setSaving(false); }
   };
 
   const openReview = () => {
     const existing = reviews.find((r) => r.reviewer.user_id === user?.user_id);
-    if (existing) { setDraftRating(existing.rating); setDraftText(existing.text || ""); }
+    if (existing) {
+      setDraftRatings({ ...DEFAULT_RATINGS, ...(existing.ratings || {}) });
+      setDraftText(existing.text || "");
+    } else {
+      setDraftRatings({ ...DEFAULT_RATINGS }); setDraftText("");
+    }
     setWriteOpen(true);
   };
 
@@ -115,6 +128,23 @@ export default function SellerProfileScreen() {
                 {profile.review_count > 0 ? `${profile.rating.toFixed(1)} · ${profile.review_count} review${profile.review_count === 1 ? "" : "s"}` : "No reviews yet"}
               </Text>
             </View>
+
+            {!!profile.category_ratings && Object.keys(profile.category_ratings).length > 0 && (
+              <View style={styles.catBreakdown}>
+                {REVIEW_CATEGORIES.map((c) => {
+                  const v = profile.category_ratings?.[c.key];
+                  if (v == null) return null;
+                  return (
+                    <View key={c.key} style={styles.catBreakRow}>
+                      <Text style={styles.catBreakLabel}>{c.label}</Text>
+                      <Stars value={v} size={12} />
+                      <Text style={styles.catBreakVal}>{v.toFixed(1)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
             <Text style={styles.subStat}>{profile.listing_count} listing{profile.listing_count === 1 ? "" : "s"}</Text>
 
             <View style={styles.topBtns}>
@@ -188,6 +218,21 @@ export default function SellerProfileScreen() {
                       <Stars value={r.rating} />
                     </View>
                   </View>
+                  {!!r.ratings && Object.keys(r.ratings).length > 0 && (
+                    <View style={styles.reviewCats}>
+                      {REVIEW_CATEGORIES.map((c) => {
+                        const v = r.ratings?.[c.key];
+                        if (v == null) return null;
+                        return (
+                          <View key={c.key} style={styles.reviewCatChip}>
+                            <Text style={styles.reviewCatChipText}>{c.label}</Text>
+                            <Ionicons name="star" size={11} color="#F6C455" />
+                            <Text style={styles.reviewCatChipVal}>{v}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
                   {!!r.text && <Text style={styles.reviewText}>{r.text}</Text>}
                 </View>
               ))}
@@ -201,14 +246,19 @@ export default function SellerProfileScreen() {
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !saving && setWriteOpen(false)} />
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.handle} />
-            <Text style={styles.sheetTitle}>Rate this seller</Text>
-            <View style={styles.starPick}>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <TouchableOpacity key={i} onPress={() => setDraftRating(i)} testID={`star-${i}`}>
-                  <Ionicons name={draftRating >= i ? "star" : "star-outline"} size={34} color="#F6C455" />
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Text style={styles.sheetTitle}>Rate this trade</Text>
+            {REVIEW_CATEGORIES.map((c) => (
+              <View key={c.key} style={styles.catRow}>
+                <Text style={styles.catLabel}>{c.label}</Text>
+                <View style={styles.catStars}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <TouchableOpacity key={i} onPress={() => setDraftRatings((r) => ({ ...r, [c.key]: i }))} testID={`star-${c.key}-${i}`}>
+                      <Ionicons name={(draftRatings[c.key] || 0) >= i ? "star" : "star-outline"} size={26} color="#F6C455" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))}
             <TextInput
               style={styles.reviewInput}
               placeholder="Share your experience (optional)"
@@ -333,6 +383,17 @@ const styles = StyleSheet.create({
   handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 14 },
   sheetTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center", marginBottom: 14 },
   starPick: { flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 16 },
+  catRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  catLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "600", flex: 1 },
+  catStars: { flexDirection: "row", gap: 4 },
+  catBreakdown: { width: "100%", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6, marginTop: 10, gap: 2 },
+  catBreakRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 5 },
+  catBreakLabel: { color: theme.textSecondary, fontSize: 13, fontWeight: "600", flex: 1 },
+  catBreakVal: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700", width: 26, textAlign: "right" },
+  reviewCats: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  reviewCatChip: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: theme.surfaceAlt, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 },
+  reviewCatChipText: { color: theme.textSecondary, fontSize: 11.5, fontWeight: "600" },
+  reviewCatChipVal: { color: theme.textPrimary, fontSize: 11.5, fontWeight: "800" },
   reviewInput: {
     backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 12, minHeight: 90, textAlignVertical: "top",
