@@ -146,6 +146,8 @@ export const api = {
     request<{ ok: boolean; status: number; error?: string }>(`/webhooks/${id}/test`, { method: "POST" }),
   listWebhookDeliveries: (id: string) =>
     request<{ deliveries: WebhookDelivery[] }>(`/webhooks/${id}/deliveries`),
+  redeliverWebhook: (id: string, deliveryId: string) =>
+    request<{ ok: boolean; status: number; attempts: number }>(`/webhooks/${id}/deliveries/${deliveryId}/redeliver`, { method: "POST" }),
   deleteWebhook: (id: string) =>
     request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>

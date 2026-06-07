@@ -53,12 +53,14 @@ export default function LiquidTabBar(_: any) {
         delayLongPress={350}
         android_ripple={{ color: "rgba(255,255,255,0.06)", borderless: false }}
         style={styles.item}
-        hitSlop={6}
+        hitSlop={10}
         accessibilityRole="button"
         accessibilityState={active ? { selected: true } : {}}
         testID={`tab-${s.id}`}
       >
-        <Ionicons name={active ? s.iconFilled : s.iconOutline} size={24} color={active ? ACTIVE : INACTIVE} />
+        <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+          <Ionicons name={active ? s.iconFilled : s.iconOutline} size={24} color={active ? ACTIVE : INACTIVE} />
+        </View>
         <Text numberOfLines={1} style={[styles.label, { color: active ? ACTIVE : INACTIVE }, active && { fontWeight: "700" }]}>
           {s.label}
         </Text>
@@ -74,7 +76,7 @@ export default function LiquidTabBar(_: any) {
   const searchActive = (pathname || "").replace(/\/+$/, "") === "/search";
 
   return (
-    <View style={[styles.bar, { paddingBottom: insets.bottom, height: 62 + insets.bottom }]}>
+    <View style={[styles.bar, { paddingBottom: insets.bottom, height: 66 + insets.bottom }]}>
       <View style={styles.divider} pointerEvents="none" />
       <View style={styles.row}>
         {left.map(renderItem)}
@@ -117,7 +119,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 6,
-    gap: 2,
+    minHeight: 50,
+    gap: 3,
+  },
+  iconWrap: {
+    paddingHorizontal: 16,
+    paddingVertical: 3,
+    borderRadius: 16,
+  },
+  iconWrapActive: {
+    backgroundColor: ACTIVE + "22",
   },
   centerItem: {
     flex: 1,
@@ -138,8 +149,8 @@ const styles = StyleSheet.create({
   searchCircleActive: { backgroundColor: theme.primaryActive ?? ACTIVE },
   searchLabel: { color: ACTIVE, marginTop: -2 },
   label: {
-    fontSize: 10.5,
+    fontSize: 11,
     letterSpacing: 0.1,
-    fontWeight: "500",
+    fontWeight: "600",
   },
 });

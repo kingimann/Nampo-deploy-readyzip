@@ -155,6 +155,7 @@ const GROUPS: Group[] = [
       { method: "POST", path: "/webhooks", desc: "Register an endpoint (Pro+). Returns a signing secret once.", auth: true, body: `{"url","events":[]}` },
       { method: "POST", path: "/webhooks/{id}/test", desc: "Send a signed sample ping; returns your endpoint's status.", auth: true },
       { method: "GET", path: "/webhooks/{id}/deliveries", desc: "Recent delivery attempts (status, retries, errors).", auth: true },
+      { method: "POST", path: "/webhooks/{id}/deliveries/{delivery_id}/redeliver", desc: "Re-send a past delivery's original payload.", auth: true },
       { method: "DELETE", path: "/webhooks/{id}", desc: "Delete a webhook.", auth: true },
     ],
   },
@@ -165,10 +166,14 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/pub/profile/{username}", desc: "Public JSON for a user profile.", auth: false },
       { method: "GET", path: "/pub/profile/{username}/posts", desc: "A user's public posts (cursor paginated: ?limit=&cursor=).", auth: false },
       { method: "GET", path: "/pub/listing/{id}", desc: "Public JSON for an active marketplace listing.", auth: false },
+      { method: "GET", path: "/pub/guide/{slug}", desc: "Public JSON for a public guide (places + owner).", auth: false },
+      { method: "GET", path: "/pub/community/{name}", desc: "Public JSON for a community (title, members).", auth: false },
       { method: "GET", path: "/pub/post-card?post=ID", desc: "Themeable iframe card for a post (theme/accent/radius).", auth: false },
       { method: "GET", path: "/pub/profile-card?profile=USER", desc: "Themeable iframe card for a profile.", auth: false },
       { method: "GET", path: "/pub/listing-card?listing=ID", desc: "Themeable iframe card for a listing.", auth: false },
-      { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post / data-profile / data-listing + data-theme/accent/radius.", auth: false },
+      { method: "GET", path: "/pub/guide-card?guide=SLUG", desc: "Themeable iframe card for a guide.", auth: false },
+      { method: "GET", path: "/pub/community-card?community=NAME", desc: "Themeable iframe card for a community.", auth: false },
+      { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post / -profile / -listing / -guide / -community + data-theme/accent/radius.", auth: false },
       { method: "GET", path: "/pub/oembed?url=URL", desc: "oEmbed provider — paste a Nami link into WordPress/Discourse to auto-embed.", auth: false },
     ],
   },
@@ -258,8 +263,8 @@ final c = WebViewController()
     "&theme=dark&accent=7C3AED"));
 
 // in build(): WebViewWidget(controller: c)`;
-const CONTENT_SNIPPET = `<!-- Embed a Nami post, profile, or marketplace listing -->
-<!-- swap data-post for data-profile="username" or data-listing="LISTING_ID" -->
+const CONTENT_SNIPPET = `<!-- Embed a Nami post, profile, listing, guide, or community -->
+<!-- swap data-post for data-profile / data-listing / data-guide / data-community -->
 <script async src="${BASE}/api/pub/content-embed.js"
   data-post="POST_ID" data-theme="dark" data-accent="7C3AED"></script>`;
 const WEBHOOK_VERIFY = `// Verify the X-Nami-Signature header (Node / Express)
@@ -308,6 +313,7 @@ export default function DeveloperScreen() {
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   const [logs, setLogs] = useState<Record<string, WebhookDelivery[]>>({});
   const [logsBusy, setLogsBusy] = useState(false);
+  const [redelivering, setRedelivering] = useState<string | null>(null);
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
@@ -415,14 +421,25 @@ export default function DeveloperScreen() {
   const toggleEvent = (e: string) =>
     setWhSelected((s) => (s.includes(e) ? s.filter((x) => x !== e) : [...s, e]));
 
+  const loadLogs = async (id: string) => {
+    try { const r = await api.listWebhookDeliveries(id); setLogs((m) => ({ ...m, [id]: r.deliveries })); } catch {}
+  };
+
   const toggleLogs = async (id: string) => {
     if (openLogs === id) { setOpenLogs(null); return; }
     setOpenLogs(id);
-    if (!logs[id]) {
-      setLogsBusy(true);
-      try { const r = await api.listWebhookDeliveries(id); setLogs((m) => ({ ...m, [id]: r.deliveries })); }
-      catch {} finally { setLogsBusy(false); }
-    }
+    if (!logs[id]) { setLogsBusy(true); try { await loadLogs(id); } finally { setLogsBusy(false); } }
+  };
+
+  const redeliver = async (webhookId: string, deliveryId: string) => {
+    setRedelivering(deliveryId);
+    try {
+      const r = await api.redeliverWebhook(webhookId, deliveryId);
+      await loadLogs(webhookId);
+      Alert.alert(r.ok ? "Re-sent" : "Re-send failed", r.ok ? `Your endpoint replied ${r.status}.` : r.status ? `Your endpoint replied ${r.status}.` : "Couldn't reach the endpoint.");
+    } catch (e: any) {
+      Alert.alert("Re-send failed", errText(e));
+    } finally { setRedelivering(null); }
   };
 
   const removeWebhook = (id: string) => {
@@ -720,6 +737,9 @@ export default function DeveloperScreen() {
                         <View style={[styles.logDot, { backgroundColor: d.ok ? theme.success : theme.error }]} />
                         <Text style={styles.logEvent} numberOfLines={1}>{d.event}</Text>
                         <Text style={styles.logMeta}>{d.status || "—"}{d.attempts > 1 ? ` ·${d.attempts}x` : ""} · {fmtDate(d.created_at)}</Text>
+                        <TouchableOpacity onPress={() => redeliver(w.id, d.id)} disabled={redelivering === d.id} hitSlop={6} testID={`wh-redeliver-${d.id}`}>
+                          {redelivering === d.id ? <ActivityIndicator color={theme.primary} size="small" /> : <Ionicons name="refresh" size={15} color={theme.primary} />}
+                        </TouchableOpacity>
                       </View>
                     ))}
                   </View>

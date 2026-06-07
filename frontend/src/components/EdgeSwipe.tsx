@@ -32,7 +32,10 @@ export default function EdgeSwipe() {
   return (
     <>
       <PanGestureHandler activeOffsetX={[14, 9999]} failOffsetY={[-22, 22]} onHandlerStateChange={onBack}>
-        <View style={[styles.strip, styles.left]} />
+        <View style={[styles.strip, styles.left]}>
+          {/* Subtle hint that you can swipe in from the edge to go back. */}
+          <View style={styles.handle} pointerEvents="none" />
+        </View>
       </PanGestureHandler>
       <PanGestureHandler activeOffsetX={[-9999, -14]} failOffsetY={[-22, 22]} onHandlerStateChange={onForward}>
         <View style={[styles.strip, styles.right]} />
@@ -45,6 +48,14 @@ const styles = StyleSheet.create({
   // Narrow vertical bands at the screen edges, kept clear of the header and
   // bottom bar so they don't shadow back buttons or the tab bar.
   strip: { position: "absolute", top: 96, bottom: 110, width: 26 },
-  left: { left: 0 },
+  left: { left: 0, justifyContent: "center", alignItems: "flex-start" },
   right: { right: 0 },
+  // A faint vertical grabber at the left edge, vertically centered by the strip.
+  handle: {
+    marginLeft: 2,
+    width: 4,
+    height: 46,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
 });
