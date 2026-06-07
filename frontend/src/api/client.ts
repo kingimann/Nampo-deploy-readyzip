@@ -861,6 +861,9 @@ export type User = {
   work_latitude?: number | null;
   verified?: boolean;
   role?: string; // user | mod | admin
+  messaging_disabled?: boolean;     // admin-imposed restrictions
+  marketplace_disabled?: boolean;
+  posting_disabled?: boolean;
   sub_price?: number;
   payout_frequency?: string; // biweekly | monthly
   payout_threshold?: number;

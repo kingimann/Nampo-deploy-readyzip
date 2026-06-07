@@ -10,12 +10,14 @@ import { api, ConversationView, PublicUser } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
+import RestrictionBanner from "@/src/components/RestrictionBanner";
 
 type Mode = "new-dm" | "new-group" | null;
 
 export default function MessagesScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const msgOff = !!user?.messaging_disabled;
   const insets = useSafeAreaInsets();
   const [convs, setConvs] = useState<ConversationView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,7 +183,12 @@ export default function MessagesScreen() {
           <Text style={styles.title}>Messages</Text>
         </View>
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <TouchableOpacity onPress={() => setMode("new-dm")} style={styles.iconBtn} testID="new-chat-btn">
+          <TouchableOpacity
+            onPress={() => { if (msgOff) return; setMode("new-dm"); }}
+            disabled={msgOff}
+            style={[styles.iconBtn, msgOff && { opacity: 0.4 }]}
+            testID="new-chat-btn"
+          >
             <Ionicons name="create-outline" size={20} color={theme.primary} />
           </TouchableOpacity>
         </View>
@@ -208,6 +215,8 @@ export default function MessagesScreen() {
         <Ionicons name="lock-closed" size={12} color={theme.textMuted} />
         <Text style={styles.encNoteText}>Your chats are encrypted</Text>
       </View>
+
+      <RestrictionBanner kind="messaging" />
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>

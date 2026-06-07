@@ -19,6 +19,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, Message, Post, PublicUser, CustomEmoji } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
+import RestrictionBanner from "@/src/components/RestrictionBanner";
 import EmojiText from "@/src/components/EmojiText";
 import CustomEmojiSheet from "@/src/components/CustomEmojiSheet";
 import VoiceMessage from "@/src/components/VoiceMessage";
@@ -62,6 +63,7 @@ const disappearLabel = (s: number) =>
 export default function ChatScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const msgOff = !!user?.messaging_disabled;
   const confirm = useConfirm();
   const insets = useSafeAreaInsets();
   const { id, name, draft } = useLocalSearchParams<{ id: string; name?: string; draft?: string }>();
@@ -1241,7 +1243,12 @@ export default function ChatScreen() {
             </View>
           )}
 
-          <View style={[styles.composer, { paddingBottom: insets.bottom + 10 }]}>
+          <RestrictionBanner kind="messaging" style={{ marginHorizontal: 10, marginBottom: 0 }} />
+
+          <View
+            style={[styles.composer, { paddingBottom: insets.bottom + 10 }, msgOff && { opacity: 0.45 }]}
+            pointerEvents={msgOff ? "none" : "auto"}
+          >
             {recording ? (
               <>
                 <TouchableOpacity

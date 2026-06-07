@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
 } from "react-native";
@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, SupportTicket } from "@/src/api/client";
+import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { statusMeta, fmtAgo } from "@/app/support";
 
@@ -20,6 +21,8 @@ const FILTERS = [
 export default function AdminSupportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const isStaff = user?.role === "admin" || user?.role === "mod";
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("open");
@@ -28,7 +31,30 @@ export default function AdminSupportScreen() {
     setLoading(true);
     try { setTickets(await api.adminTickets(filter || undefined)); } catch {} finally { setLoading(false); }
   }, [filter]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => { if (isStaff) load(); }, [load, isStaff]));
+
+  // Staff-only Support Centre: bounce everyone else back to user support.
+  useEffect(() => {
+    if (user && !isStaff) router.replace("/support");
+  }, [user, isStaff, router]);
+
+  if (!isStaff) {
+    return (
+      <SafeAreaView edges={["top"]} style={styles.root} testID="admin-support-screen">
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.center}>
+          {user == null ? (
+            <ActivityIndicator color={theme.primary} />
+          ) : (
+            <>
+              <Ionicons name="lock-closed-outline" size={34} color={theme.textMuted} />
+              <Text style={styles.emptyText}>This area is for admins and moderators only.</Text>
+            </>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="admin-support-screen">

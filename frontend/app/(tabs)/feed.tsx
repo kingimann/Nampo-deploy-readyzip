@@ -14,6 +14,7 @@ import PostCard from "@/src/components/PostCard";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
 import PostComposer from "@/src/components/PostComposer";
+import RestrictionBanner from "@/src/components/RestrictionBanner";
 import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
@@ -37,6 +38,8 @@ export default function FeedScreen() {
   useFocusEffect(useCallback(() => {
     api.unreadNotificationsCount().then((r) => setUnreadNotif(r.count)).catch(() => {});
   }, []));
+
+  const postingOff = !!user?.posting_disabled;
 
   // Composer state
   const [composeOpen, setComposeOpen] = useState(false);
@@ -286,20 +289,23 @@ export default function FeedScreen() {
           ListHeaderComponent={
             <View>
               {showStories && <StoryTray onHide={hideStories} />}
-              <TouchableOpacity
-                style={styles.composeStub}
-                onPress={() => { setEditing(null); setReplyTo(null); setComposeOpen(true); }}
-                activeOpacity={0.85}
-                testID="open-composer-stub"
-              >
-                <View style={styles.stubAvatar}>
-                  <Text style={styles.stubAvatarInit}>{(user?.name?.[0] || "?").toUpperCase()}</Text>
-                </View>
-                <Text style={styles.stubText}>What's on your mind?</Text>
-                <View style={styles.stubIconRow}>
-                  <Ionicons name="image-outline" size={20} color={theme.primary} />
-                </View>
-              </TouchableOpacity>
+              <RestrictionBanner kind="posting" style={{ marginHorizontal: 0 }} />
+              {!postingOff && (
+                <TouchableOpacity
+                  style={styles.composeStub}
+                  onPress={() => { setEditing(null); setReplyTo(null); setComposeOpen(true); }}
+                  activeOpacity={0.85}
+                  testID="open-composer-stub"
+                >
+                  <View style={styles.stubAvatar}>
+                    <Text style={styles.stubAvatarInit}>{(user?.name?.[0] || "?").toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.stubText}>What's on your mind?</Text>
+                  <View style={styles.stubIconRow}>
+                    <Ionicons name="image-outline" size={20} color={theme.primary} />
+                  </View>
+                </TouchableOpacity>
+              )}
             </View>
           }
           ListEmptyComponent={
@@ -342,8 +348,9 @@ export default function FeedScreen() {
       />
 
       <TouchableOpacity
-        style={[styles.fab, { bottom: 20 }]}
-        onPress={() => { setEditing(null); setReplyTo(null); setComposeOpen(true); }}
+        style={[styles.fab, { bottom: 20 }, postingOff && styles.fabDisabled]}
+        onPress={() => { if (postingOff) return; setEditing(null); setReplyTo(null); setComposeOpen(true); }}
+        disabled={postingOff}
         testID="open-composer"
         activeOpacity={0.9}
       >
@@ -520,6 +527,7 @@ const styles = StyleSheet.create({
     shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
+  fabDisabled: { backgroundColor: theme.surfaceAlt, opacity: 0.6 },
 
   actionBackdrop: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end",

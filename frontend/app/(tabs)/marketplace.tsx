@@ -13,6 +13,7 @@ import { api, Listing } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
+import RestrictionBanner from "@/src/components/RestrictionBanner";
 
 const CATEGORIES = [
   { key: "all", label: "All" },
@@ -81,6 +82,7 @@ const EMPTY_DRAFT = {
 export default function MarketplaceScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const marketOff = !!user?.marketplace_disabled;
   const insets = useSafeAreaInsets();
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
@@ -299,6 +301,8 @@ export default function MarketplaceScreen() {
         </View>
       </View>
 
+      <RestrictionBanner kind="marketplace" />
+
       <View style={styles.searchRow}>
         <View style={styles.searchPill}>
           <Ionicons name="search" size={17} color={theme.textMuted} />
@@ -401,8 +405,9 @@ export default function MarketplaceScreen() {
       )}
 
       <TouchableOpacity
-        style={[styles.fab, { bottom: 16 }]}
-        onPress={openCompose}
+        style={[styles.fab, { bottom: 16 }, marketOff && styles.fabDisabled]}
+        onPress={() => { if (marketOff) return; openCompose(); }}
+        disabled={marketOff}
         testID="new-listing-fab"
       >
         <Ionicons name="add" size={26} color="#fff" />
@@ -855,6 +860,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 14, elevation: 8,
   },
+  fabDisabled: { backgroundColor: theme.surfaceAlt, opacity: 0.6 },
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: {
     backgroundColor: "#0E0E10",
