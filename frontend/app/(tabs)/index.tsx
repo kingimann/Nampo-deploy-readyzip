@@ -178,6 +178,36 @@ export default function MapScreen() {
     mapRef.current?.setPlaceMarkers(markers);
   }, [places, mapReady]);
 
+  const watcherRef = useRef<Location.LocationSubscription | null>(null);
+  const watchingRef = useRef(false);
+
+  // Start the continuous GPS subscription (idempotent). Kept separate so it can
+  // begin the moment permission is granted — including on web / first run, where
+  // the user grants permission AFTER this screen has already mounted.
+  const startWatcher = useCallback(async () => {
+    if (watchingRef.current) return;
+    watchingRef.current = true;
+    try {
+      watcherRef.current?.remove();
+      watcherRef.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 8 },
+        (loc) => {
+          // Drop low-quality fixes that would make the dot jump wildly.
+          const acc = loc.coords.accuracy;
+          if (acc != null && acc > 100) return;
+          const c: [number, number] = [loc.coords.longitude, loc.coords.latitude];
+          setUserLoc(c);
+          mapRef.current?.setUserLocation(
+            c[0], c[1], acc ?? undefined,
+            (loc.coords.heading != null && loc.coords.heading >= 0) ? loc.coords.heading : undefined,
+          );
+          // Follow mode: glide the camera with the user until they pan.
+          if (followModeRef.current) mapRef.current?.panTo(c[0], c[1]);
+        },
+      );
+    } catch { watchingRef.current = false; }
+  }, [setUserLoc]);
+
   const requestLocation = useCallback(async () => {
     setLocating(true);
     try {
@@ -203,26 +233,25 @@ export default function MapScreen() {
       mapRef.current?.flyTo(coords[0], coords[1], 16);
       // Enable follow mode — camera will track the user until they pan.
       setFollowMode(true);
+      // Begin live tracking now that permission is granted (this is what makes
+      // the dot + camera keep moving on web / first run).
+      startWatcher();
     } catch {} finally {
       setLocating(false);
     }
-  }, []);
+  }, [startWatcher]);
 
-  // ── Live location watcher: keep the blue dot in sync as the user moves.
-  //    Does NOT recenter the camera (user can pan freely); the locate button
-  //    is still used for explicit re-centering.
-  const watcherRef = useRef<Location.LocationSubscription | null>(null);
+  // ── Live location watcher.
+  // On mount, if permission is ALREADY granted (e.g. a returning native user),
+  // center on the first fix and start tracking right away. On web / first run
+  // permission is granted later via the locate button, and requestLocation
+  // starts the watcher then — so live follow works there too.
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status !== "granted") return;
-        // Initial fix at the best available accuracy
-        const initial = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        if (cancelled) return;
+        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         const c0: [number, number] = [initial.coords.longitude, initial.coords.latitude];
         setUserLoc(c0);
         mapRef.current?.setUserLocation(
@@ -230,47 +259,17 @@ export default function MapScreen() {
           initial.coords.accuracy ?? undefined,
           (initial.coords.heading != null && initial.coords.heading >= 0) ? initial.coords.heading : undefined,
         );
-        // Center on the user's first fix so the map opens where they are,
-        // instead of the neutral world view.
+        // Open the map where the user is, rather than the neutral world view.
         mapRef.current?.flyTo(c0[0], c0[1], 14);
-        // Continuous high-accuracy subscription (Google-Maps-grade)
-        watcherRef.current?.remove();
-        watcherRef.current = await Location.watchPositionAsync(
-          {
-            // The casual map tab doesn't need navigation-grade GPS (that's heavy
-            // on CPU/battery); High accuracy with a calmer cadence is plenty.
-            accuracy: Location.Accuracy.High,
-            timeInterval: 3000,
-            distanceInterval: 8,
-          },
-          (loc) => {
-            if (cancelled) return;
-            // Drop low-quality fixes that would make the dot jump wildly
-            const acc = loc.coords.accuracy;
-            if (acc != null && acc > 100) return;
-            const c: [number, number] = [loc.coords.longitude, loc.coords.latitude];
-            setUserLoc(c);
-            mapRef.current?.setUserLocation(
-              c[0], c[1],
-              acc ?? undefined,
-              (loc.coords.heading != null && loc.coords.heading >= 0) ? loc.coords.heading : undefined,
-            );
-            // Follow mode: glide the camera with the user (Google-Maps "blue dot
-            // follow"). panTo is a short linear ease — far smoother than flyTo
-            // when fired on every GPS fix.
-            if (followModeRef.current) {
-              mapRef.current?.panTo(c[0], c[1]);
-            }
-          },
-        );
+        startWatcher();
       } catch {}
     })();
     return () => {
-      cancelled = true;
       watcherRef.current?.remove();
       watcherRef.current = null;
+      watchingRef.current = false;
     };
-  }, []);
+  }, [startWatcher, setUserLoc]);
 
   // Debounced search
   useEffect(() => {
