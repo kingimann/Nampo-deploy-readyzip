@@ -8,8 +8,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { safeBack } from "@/src/utils/nav";
+import { reverseGeocode } from "@/src/api/mapbox";
 import { pickImages, captureImage } from "@/src/utils/thumbnail";
-import { api, RoadsideRequest, RoadsideService, RoadsideParty, RoadsideQuote } from "@/src/api/client";
+import { api, RoadsideRequest, RoadsideService, RoadsideParty, RoadsideQuote, RoadsideEligibility } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const SERVICE_META: Record<RoadsideService, { label: string; icon: any; desc: string }> = {
@@ -89,6 +90,7 @@ export default function RoadsideScreen() {
   const [helping, setHelping] = useState<RoadsideRequest | null>(null);
   const [nearby, setNearby] = useState<RoadsideRequest[]>([]);
   const [quote, setQuote] = useState<RoadsideQuote | null>(null);
+  const [elig, setElig] = useState<RoadsideEligibility | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [noLocation, setNoLocation] = useState(false);
@@ -121,14 +123,22 @@ export default function RoadsideScreen() {
         status = r.status;
       }
       if (status !== "granted") return null;
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const c: [number, number] = [pos.coords.longitude, pos.coords.latitude];
       let name = "";
+      // Mapbox reverse geocode → exact street address (works on web + native).
       try {
-        const places = await Location.reverseGeocodeAsync({ latitude: c[1], longitude: c[0] });
-        const p = places?.[0];
-        if (p) name = [p.name, p.street, p.city, p.region].filter(Boolean).join(", ");
+        const f = await reverseGeocode(c[0], c[1]);
+        if (f) name = f.full_address || f.name || "";
       } catch {}
+      // Native fallback if Mapbox is unavailable.
+      if (!name && Platform.OS !== "web") {
+        try {
+          const places = await Location.reverseGeocodeAsync({ latitude: c[1], longitude: c[0] });
+          const p = places?.[0];
+          if (p) name = [p.name, p.street, p.city, p.region, p.postalCode].filter(Boolean).join(", ");
+        } catch {}
+      }
       return { coords: c, name };
     } catch {
       return null;
@@ -145,8 +155,12 @@ export default function RoadsideScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [a, h, q] = await Promise.all([api.roadsideActive(), api.roadsideHelping(), api.roadsideQuote().catch(() => null)]);
-      setActive(a); setHelping(h); if (q) setQuote(q);
+      const [a, h, q, e] = await Promise.all([
+        api.roadsideActive(), api.roadsideHelping(),
+        api.roadsideQuote().catch(() => null),
+        api.roadsideEligibility().catch(() => null),
+      ]);
+      setActive(a); setHelping(h); if (q) setQuote(q); if (e) setElig(e);
     } catch {}
     const loc = await detect(false);
     if (loc) {
@@ -329,6 +343,27 @@ export default function RoadsideScreen() {
         <Ionicons name={r.helper_verified ? "checkmark-circle" : "ellipse-outline"} size={15} color={r.helper_verified ? theme.success : theme.textMuted} />
         <Text style={styles.verifyChipText}>Helper</Text>
       </View>
+    </View>
+  );
+
+  const EligibilityCard = ({ e }: { e: RoadsideEligibility }) => (
+    <View style={[styles.card, { borderColor: theme.warning + "66" }]}>
+      <View style={styles.helpingTag}>
+        <Ionicons name="shield-checkmark" size={16} color={theme.warning} />
+        <Text style={[styles.helpingTagText, { color: theme.warning }]}>Become a roadside helper</Text>
+      </View>
+      <Text style={[styles.hint, { marginTop: 8 }]}>To keep stranded members safe, you can accept jobs once you meet all of these:</Text>
+      <View style={{ marginTop: 12, gap: 9 }}>
+        {e.requirements.map((req) => (
+          <View key={req.key} style={styles.reqRow}>
+            <Ionicons name={req.met ? "checkmark-circle" : "ellipse-outline"} size={18} color={req.met ? theme.success : theme.textMuted} />
+            <Text style={[styles.reqText, req.met && { color: theme.textMuted, textDecorationLine: "line-through" }]}>{req.label}</Text>
+          </View>
+        ))}
+      </View>
+      <TouchableOpacity style={[styles.actBtn, styles.actPrimary, { marginTop: 14 }]} onPress={() => router.push("/account")} testID="rs-get-verified">
+        <Text style={styles.actPrimaryText}>Manage verification</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -526,22 +561,30 @@ export default function RoadsideScreen() {
                   <Text style={styles.emptyText}>Enable location to see nearby members who need a hand.</Text>
                   <TouchableOpacity style={styles.locBtn} onPress={useMyLocation} testID="rs-enable-location"><Ionicons name="navigate" size={16} color={theme.primary} /><Text style={styles.locBtnText}>Use my location</Text></TouchableOpacity>
                 </View>
-              ) : nearby.length === 0 ? (
-                <View style={styles.empty}><Ionicons name="checkmark-done-outline" size={36} color={theme.textMuted} /><Text style={styles.emptyText}>No one needs roadside help near you right now.</Text></View>
               ) : (
-                nearby.map((r) => (
-                  <View key={r.id} style={styles.card}>
-                    <View style={styles.cardHead}>
-                      <ServicePill svc={r.service} />
-                      {r.distance_km != null && <Text style={styles.dist}>{r.distance_km} km away</Text>}
-                    </View>
-                    <PartyRow p={r.requester} role="Needs a hand" />
-                    <Meta r={r} />
-                    <TouchableOpacity style={[styles.actBtn, styles.actPrimary, { marginTop: 12 }]} onPress={() => accept(r)} disabled={busyId === r.id} testID={`rs-accept-${r.id}`}>
-                      <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : `Accept & help · earn $${(r.price || 80).toFixed(2)}`}</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
+                <>
+                  {elig && !elig.eligible && <EligibilityCard e={elig} />}
+                  {nearby.length === 0 ? (
+                    <View style={styles.empty}><Ionicons name="checkmark-done-outline" size={36} color={theme.textMuted} /><Text style={styles.emptyText}>No one needs roadside help near you right now.</Text></View>
+                  ) : (
+                    nearby.map((r) => {
+                      const blocked = !!elig && !elig.eligible;
+                      return (
+                        <View key={r.id} style={styles.card}>
+                          <View style={styles.cardHead}>
+                            <ServicePill svc={r.service} />
+                            {r.distance_km != null && <Text style={styles.dist}>{r.distance_km} km away</Text>}
+                          </View>
+                          <PartyRow p={r.requester} role="Needs a hand" />
+                          <Meta r={r} />
+                          <TouchableOpacity style={[styles.actBtn, styles.actPrimary, { marginTop: 12 }, blocked && { opacity: 0.5 }]} onPress={() => accept(r)} disabled={busyId === r.id || blocked} testID={`rs-accept-${r.id}`}>
+                            <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : blocked ? "Verify to help" : `Accept & help · earn $${(r.price || 80).toFixed(2)}`}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })
+                  )}
+                </>
               )}
             </>
           )}
@@ -565,11 +608,11 @@ const styles = StyleSheet.create({
 
   sectionLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 16, marginBottom: 10 },
   svcGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  svcCard: { width: "47.5%", flexGrow: 1, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 16, padding: 14 },
+  svcCard: { width: "47.5%", flexGrow: 1, minHeight: 104, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12 },
   svcCardOn: { borderColor: theme.primary, backgroundColor: theme.primary + "12" },
-  svcIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: theme.primary + "1f", alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  svcLabel: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
-  svcDesc: { color: theme.textMuted, fontSize: 12, marginTop: 3, lineHeight: 16 },
+  svcIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: theme.primary + "1f", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  svcLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  svcDesc: { color: theme.textMuted, fontSize: 11.5, marginTop: 2, lineHeight: 15 },
 
   row2: { flexDirection: "row", gap: 10 },
   dropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13 },
@@ -639,6 +682,8 @@ const styles = StyleSheet.create({
 
   helpingTag: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
   helpingTagText: { color: theme.primary, fontSize: 13, fontWeight: "900", flexShrink: 1 },
+  reqRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  reqText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600", flex: 1 },
 
   empty: { alignItems: "center", gap: 12, paddingVertical: 50 },
   emptyText: { color: theme.textMuted, fontSize: 14, textAlign: "center", paddingHorizontal: 30, lineHeight: 20 },

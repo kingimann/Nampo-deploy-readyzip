@@ -16,6 +16,7 @@ Money (wallet escrow):
   requester forfeits half the $80 ($40) to the helper and the rest is refunded.
 """
 import math
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
@@ -23,7 +24,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from core import db, get_current_user
+from core import db, get_current_user, account_age_days, _norm_dt
 from routes.notifications import emit_notification
 from routes.money import _wallet_balance, _debit_wallet, _credit_wallet, _record_platform_fee
 
@@ -36,6 +37,39 @@ _LABELS = {"tow": "tow", "lockout": "lockout", "battery": "battery boost", "tire
 ROADSIDE_BASE = 80.0       # flat service fee paid to the helper
 ROADSIDE_TAX_RATE = 0.10   # tax & fees, kept by the platform
 MAX_PHOTOS = 6
+# To HELP others, a member must clear a trust bar.
+ROADSIDE_HELPER_MIN_AGE_DAYS = int(os.environ.get("ROADSIDE_HELPER_MIN_AGE_DAYS", "90") or 90)
+
+
+def _helper_eligibility(u: dict) -> dict:
+    """Trust requirements to accept (help with) someone's roadside request:
+    ID + email + phone verified, account at least 3 months old, and no bans,
+    suspensions or warnings."""
+    now = datetime.now(timezone.utc)
+    su = u.get("suspended_until")
+    suspended = False
+    try:
+        suspended = bool(su and _norm_dt(su) > now)
+    except Exception:
+        suspended = False
+    warnings = int(u.get("warnings_count", 0) or 0) + len(u.get("warnings") or [])
+    months = max(1, ROADSIDE_HELPER_MIN_AGE_DAYS // 30)
+    checks = [
+        ("id_verified", "ID verified", bool(u.get("id_verified"))),
+        ("email_verified", "Email verified", bool(u.get("email_verified"))),
+        ("phone_verified", "Phone verified", bool(u.get("phone_verified"))),
+        ("account_age", f"Account {months}+ months old", account_age_days(u) >= ROADSIDE_HELPER_MIN_AGE_DAYS),
+        ("no_bans", "No bans or suspensions", not u.get("banned") and not suspended),
+        ("no_warnings", "No active warnings", warnings == 0),
+    ]
+    requirements = [{"key": k, "label": lbl, "met": met} for (k, lbl, met) in checks]
+    missing = [lbl for (_, lbl, met) in checks if not met]
+    return {
+        "eligible": len(missing) == 0,
+        "requirements": requirements,
+        "missing": missing,
+        "min_age_days": ROADSIDE_HELPER_MIN_AGE_DAYS,
+    }
 
 
 def _label(svc: str) -> str:
@@ -276,6 +310,13 @@ async def quote(authorization: Optional[str] = Header(None)):
     return {"base": base, "tax": tax, "total": total, "tax_rate": ROADSIDE_TAX_RATE, "wallet_balance": bal}
 
 
+@router.get("/roadside/eligibility")
+async def helper_eligibility(authorization: Optional[str] = Header(None)):
+    """Whether the current member meets the trust bar to help others."""
+    user = await get_current_user(authorization)
+    return _helper_eligibility(user)
+
+
 @router.post("/roadside/requests", response_model=RoadsideRequest)
 async def create_request(body: RoadsideCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -422,6 +463,13 @@ async def accept(rid: str, authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=400, detail="You can't accept your own request.")
     if doc["status"] != "open":
         raise HTTPException(status_code=400, detail={"code": "not_open", "message": "This request is no longer open."})
+    elig = _helper_eligibility(user)
+    if not elig["eligible"]:
+        raise HTTPException(status_code=403, detail={
+            "code": "not_eligible",
+            "message": "To help on roadside you must be ID, email and phone verified, have an account at least 3 months old, and no bans or warnings.",
+            "missing": elig["missing"],
+        })
     now = datetime.now(timezone.utc)
     # Atomic claim — only succeeds if it's still open, so two helpers can't both win.
     res = await db.roadside_requests.update_one(
