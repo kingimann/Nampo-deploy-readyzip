@@ -236,6 +236,26 @@ export default function PostCard({
       {!!display.title && (
         <Text style={styles.threadTitle}>{display.title}</Text>
       )}
+
+      {display.locked && (
+        <TouchableOpacity
+          style={styles.paywall}
+          activeOpacity={0.9}
+          onPress={(e) => { e.stopPropagation?.(); router.push({ pathname: "/user/[name]", params: { name: display.author.name, subscribe: "1" } }); }}
+          testID={`paywall-${post.id}`}
+        >
+          <View style={styles.paywallIcon}><Ionicons name="lock-closed" size={22} color="#F5A623" /></View>
+          <Text style={styles.paywallTitle}>Subscribers-only post</Text>
+          <Text style={styles.paywallSub}>
+            Subscribe to {display.author.name} at Tier {display.min_sub_tier || 1}{(display.min_sub_tier || 1) < 3 ? "+" : ""} to unlock.
+          </Text>
+          <View style={styles.paywallBtn}>
+            <Ionicons name="star" size={14} color="#fff" />
+            <Text style={styles.paywallBtnText}>Subscribe</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {!!display.text && (
         <RichText text={display.text} style={styles.body} />
       )}
@@ -658,6 +678,12 @@ const styles = StyleSheet.create({
   dot: { color: theme.textMuted, fontSize: 12 },
   time: { color: theme.textMuted, fontSize: 12.5 },
   body: { color: theme.textPrimary, fontSize: 16, lineHeight: 23 },
+  paywall: { alignItems: "center", gap: 6, paddingVertical: 22, paddingHorizontal: 18, marginVertical: 4, borderRadius: 16, borderWidth: 1, borderColor: "rgba(245,166,35,0.35)", backgroundColor: "rgba(245,166,35,0.07)" },
+  paywallIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(245,166,35,0.15)" },
+  paywallTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  paywallSub: { color: theme.textMuted, fontSize: 13, lineHeight: 18, textAlign: "center" },
+  paywallBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, backgroundColor: "#F5A623", borderRadius: 999, paddingHorizontal: 18, paddingVertical: 9 },
+  paywallBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   communityTag: { color: theme.primary, fontSize: 12, fontWeight: "800", marginBottom: 2 },
   threadTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", lineHeight: 22, marginBottom: 4 },
   placeRow: {

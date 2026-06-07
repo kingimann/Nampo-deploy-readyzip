@@ -344,12 +344,15 @@ def _has_api_access(user: dict) -> bool:
 
 
 # Fixed subscription tiers a fan chooses from (creators don't set custom prices).
+# Twitch-style hierarchy: a higher tier (level) unlocks everything below it.
 SUBSCRIPTION_TIERS = [
-    {"id": "basic", "name": "Basic", "price": 2.99},
-    {"id": "plus",  "name": "Plus",  "price": 4.99},
-    {"id": "vip",   "name": "VIP",   "price": 9.99},
+    {"id": "basic", "name": "Tier 1", "price": 2.99, "level": 1},
+    {"id": "plus",  "name": "Tier 2", "price": 4.99, "level": 2},
+    {"id": "vip",   "name": "Tier 3", "price": 9.99, "level": 3},
 ]
 SUBSCRIPTION_TIERS_BY_ID = {t["id"]: t for t in SUBSCRIPTION_TIERS}
+SUBSCRIPTION_TIER_LEVEL = {t["id"]: t["level"] for t in SUBSCRIPTION_TIERS}
+SUBSCRIPTION_LEVEL_TIER = {t["level"]: t["id"] for t in SUBSCRIPTION_TIERS}
 
 
 # Display currencies. USD is the settlement/storage currency — these are fixed,

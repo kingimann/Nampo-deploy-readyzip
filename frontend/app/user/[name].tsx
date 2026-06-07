@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Linking, Modal,
 } from "react-native";
@@ -42,7 +42,7 @@ const friendBtnStyle = (s?: FriendStatus) => {
 };
 
 export default function UserProfileScreen() {
-  const { name } = useLocalSearchParams<{ name: string }>();
+  const { name, subscribe } = useLocalSearchParams<{ name: string; subscribe?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user: me } = useAuth();
@@ -75,6 +75,16 @@ export default function UserProfileScreen() {
     }
     setTierOpen(true);   // choose a tier
   };
+
+  // Opened from a paywall ("Subscribe" on gated content): jump straight to the
+  // tier picker once the profile loads, if not already subscribed.
+  const autoSubRef = useRef(false);
+  useEffect(() => {
+    if (subscribe === "1" && user && !user.is_subscribed && user.user_id !== me?.user_id && !autoSubRef.current) {
+      autoSubRef.current = true;
+      setTierOpen(true);
+    }
+  }, [subscribe, user, me?.user_id]);
 
   const chooseTier = async (tier: SubTier) => {
     if (!user) return;

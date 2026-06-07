@@ -214,6 +214,23 @@ def _normalize_media(items: Optional[list]) -> list:
     return out
 
 
+async def _viewer_sub_level(viewer_id: Optional[str], creator_id: str) -> int:
+    """The viewer's active subscription level (1-3) for this creator, 0 if none.
+    The creator always sees their own gated content (treated as max level)."""
+    if not viewer_id:
+        return 0
+    if viewer_id == creator_id:
+        return 3
+    sub = await db.subscriptions.find_one(
+        {"subscriber_id": viewer_id, "creator_id": creator_id, "status": "active"},
+        {"_id": 0, "tier": 1},
+    )
+    if not sub:
+        return 0
+    from core import SUBSCRIPTION_TIER_LEVEL
+    return SUBSCRIPTION_TIER_LEVEL.get(sub.get("tier"), 1)
+
+
 async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
     _community_name = None
     if doc.get("community_id"):
@@ -275,20 +292,28 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         link_prev_obj = LinkPreview(**{k: lp.get(k) for k in (
             "url", "title", "description", "image", "site_name"
         )})
+    # Subscribers-only gating (Twitch-style). When the viewer's subscription
+    # level is below the required tier, strip the content so it can't be read
+    # off the wire — the client shows a paywall instead.
+    min_tier = int(doc.get("min_sub_tier") or 0)
+    locked = False
+    if min_tier > 0:
+        locked = (await _viewer_sub_level(viewer_id, doc["user_id"])) < min_tier
     return Post(
-        id=doc["id"], user_id=doc["user_id"], author=author, text=doc["text"],
+        id=doc["id"], user_id=doc["user_id"], author=author,
+        text="" if locked else doc["text"],
         parent_id=doc.get("parent_id"),
         repost_of=doc.get("repost_of"),
         quote_of=doc.get("quote_of"),
         reposted_post=reposted_post,
         quoted_post=quoted_post,
-        place_name=doc.get("place_name"),
-        place_longitude=doc.get("place_longitude"),
-        place_latitude=doc.get("place_latitude"),
-        media=doc.get("media", []) or [],
-        link_preview=link_prev_obj,
-        poll=poll_obj,
-        hashtags=doc.get("hashtags", []) or [],
+        place_name=None if locked else doc.get("place_name"),
+        place_longitude=None if locked else doc.get("place_longitude"),
+        place_latitude=None if locked else doc.get("place_latitude"),
+        media=[] if locked else (doc.get("media", []) or []),
+        link_preview=None if locked else link_prev_obj,
+        poll=None if locked else poll_obj,
+        hashtags=[] if locked else (doc.get("hashtags", []) or []),
         likes_count=doc.get("likes_count", 0),
         dislikes_count=doc.get("dislikes_count", 0),
         reactions=_reaction_list(doc.get("reactions")),
@@ -301,6 +326,8 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         views_count=doc.get("views_count", 0),
         likes_disabled=bool(doc.get("likes_disabled", False)),
         comment_policy=doc.get("comment_policy") or "everyone",
+        min_sub_tier=min_tier,
+        locked=locked,
         can_comment=await _viewer_can_comment(doc, viewer_id),
         liked_by_me=liked,
         disliked_by_me=disliked,
@@ -376,6 +403,11 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
     if comment_policy not in COMMENT_POLICIES:
         comment_policy = "everyone"
 
+    # Subscribers-only gating (only on top-level posts, never replies).
+    min_sub_tier = int(body.min_sub_tier or 0)
+    if min_sub_tier not in (0, 1, 2, 3) or parent_id:
+        min_sub_tier = 0
+
     hashtags = _extract_hashtags(text)
     poll_doc = None
     if has_poll:
@@ -409,6 +441,7 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         "title": title,
         "likes_disabled": likes_disabled,
         "comment_policy": comment_policy,
+        "min_sub_tier": min_sub_tier,
         "likes_count": 0,
         "replies_count": 0,
         "reposts_count": 0,
@@ -504,6 +537,9 @@ async def edit_post_privacy(
         if body.comment_policy not in COMMENT_POLICIES:
             raise HTTPException(status_code=400, detail="Invalid comment policy")
         patch["comment_policy"] = body.comment_policy
+    if body.min_sub_tier is not None and not doc.get("parent_id"):
+        tier = int(body.min_sub_tier)
+        patch["min_sub_tier"] = tier if tier in (0, 1, 2, 3) else 0
     if patch:
         await db.posts.update_one({"id": post_id}, {"$set": patch})
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
