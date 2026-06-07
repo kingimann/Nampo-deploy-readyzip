@@ -65,6 +65,8 @@ export default function FormBuilderScreen() {
   const [embedHideTitle, setEmbedHideTitle] = useState(false);
   const [embedAccent, setEmbedAccent] = useState("");   // "" = default green
   const [embedRedirect, setEmbedRedirect] = useState("");
+  const [prefill, setPrefill] = useState<Record<string, string>>({});
+  const [showPrefill, setShowPrefill] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -136,16 +138,20 @@ export default function FormBuilderScreen() {
     } catch {} finally { setExporting(false); }
   };
 
+  const prefillEntries = Object.entries(prefill).filter(([, v]) => (v || "").trim());
+  const prefillJson = prefillEntries.length ? JSON.stringify(Object.fromEntries(prefillEntries)) : "";
   const dataAttrs =
     (embedDark ? ` data-theme="dark"` : "") +
     (embedAccent ? ` data-accent="${embedAccent}"` : "") +
     (embedHideTitle ? ` data-hide-title="1"` : "") +
-    (embedRedirect.trim() ? ` data-redirect="${embedRedirect.trim()}"` : "");
+    (embedRedirect.trim() ? ` data-redirect="${embedRedirect.trim()}"` : "") +
+    (prefillJson ? ` data-prefill='${prefillJson}'` : "");
   const linkParams =
     (embedDark ? "&theme=dark" : "") +
     (embedAccent ? `&accent=${embedAccent}` : "") +
     (embedHideTitle ? "&hide_title=1" : "") +
-    (embedRedirect.trim() ? `&redirect=${encodeURIComponent(embedRedirect.trim())}` : "");
+    (embedRedirect.trim() ? `&redirect=${encodeURIComponent(embedRedirect.trim())}` : "") +
+    prefillEntries.map(([k, v]) => `&pf_${encodeURIComponent(k)}=${encodeURIComponent(v.trim())}`).join("");
   const snippet = form ? `<script async src="${apiOrigin()}/api/pub/form-embed.js?form=${form.form_key}"${dataAttrs}></script>` : "";
   const directLink = form ? `${apiOrigin()}/api/pub/form-unit?form=${form.form_key}${linkParams}` : "";
   const copy = async (what: string, text: string) => { await Clipboard.setStringAsync(text); setCopied(what); setTimeout(() => setCopied(""), 1500); };
@@ -290,6 +296,37 @@ export default function FormBuilderScreen() {
                   keyboardType="url"
                   testID="embed-redirect"
                 />
+
+                {(form.fields || []).length > 0 && (
+                  <>
+                    <TouchableOpacity style={styles.prefillToggle} onPress={() => setShowPrefill((s) => !s)} testID="embed-prefill-toggle">
+                      <Text style={styles.custLabel}>Pre-fill fields (optional)</Text>
+                      <Ionicons name={showPrefill ? "chevron-up" : "chevron-down"} size={16} color={theme.textMuted} />
+                    </TouchableOpacity>
+                    {showPrefill && (
+                      <View style={{ marginTop: 4 }}>
+                        <Text style={styles.hint}>Ship the embed with default values already filled in (e.g. a campaign source).</Text>
+                        {(form.fields || []).map((f, i) => {
+                          const key = f.id || `f${i + 1}`;
+                          return (
+                            <View key={key} style={styles.prefillRow}>
+                              <Text style={styles.prefillKey} numberOfLines={1}>{f.label || key}</Text>
+                              <TextInput
+                                style={styles.prefillInput}
+                                value={prefill[key] || ""}
+                                onChangeText={(t) => setPrefill((p) => ({ ...p, [key]: t }))}
+                                placeholder="default value"
+                                placeholderTextColor={theme.textMuted}
+                                testID={`embed-prefill-${key}`}
+                              />
+                            </View>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </>
+                )}
+
                 <TouchableOpacity style={styles.previewBtn} onPress={() => Linking.openURL(directLink)} testID="embed-preview">
                   <Ionicons name="eye-outline" size={16} color={theme.primary} />
                   <Text style={styles.copyText}>Preview styled form</Text>
@@ -410,6 +447,10 @@ const styles = StyleSheet.create({
   swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   swatch: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
   swatchOn: { borderColor: theme.textPrimary },
+  prefillToggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 14, paddingVertical: 4 },
+  prefillRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
+  prefillKey: { flex: 0.4, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
+  prefillInput: { flex: 0.6, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: theme.textPrimary, fontSize: 14, ...webInput },
   previewBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 11, marginTop: 14 },
   codeBox: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 12 },
   code: { color: theme.textPrimary, fontSize: 12.5, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },

@@ -141,8 +141,20 @@ const GROUPS: Group[] = [
     endpoints: [
       { method: "POST", path: "/pub/sites", desc: "Register a site to show Nami ads & earn. Returns a site_key.", auth: true, body: `{"name","domain"}` },
       { method: "GET", path: "/pub/sites", desc: "Your publisher sites + earnings.", auth: true },
-      { method: "GET", path: "/pub/embed.js?site=KEY", desc: "Drop-in <script> embed (no auth).", auth: false },
+      { method: "DELETE", path: "/pub/sites/{id}", desc: "Remove a publisher site.", auth: true },
+      { method: "GET", path: "/pub/embed.js?site=KEY", desc: "Drop-in <script> embed; style via data-theme/accent/radius/label/width/height.", auth: false },
+      { method: "GET", path: "/pub/unit?site=KEY", desc: "Hosted ad unit. Params: theme, accent, radius, label.", auth: false },
       { method: "GET", path: "/pub/ad?site=KEY", desc: "Public JSON ad for custom integrations.", auth: false },
+    ],
+  },
+  {
+    title: "Webhooks", icon: "git-network",
+    endpoints: [
+      { method: "GET", path: "/webhooks/events", desc: "List subscribable event types + descriptions.", auth: false },
+      { method: "GET", path: "/webhooks", desc: "Your registered webhooks.", auth: true },
+      { method: "POST", path: "/webhooks", desc: "Register an endpoint (Pro+). Returns a signing secret once.", auth: true, body: `{"url","events":[]}` },
+      { method: "POST", path: "/webhooks/{id}/test", desc: "Send a signed sample ping; returns your endpoint's status.", auth: true },
+      { method: "DELETE", path: "/webhooks/{id}", desc: "Delete a webhook.", auth: true },
     ],
   },
   {
@@ -257,6 +269,8 @@ export default function DeveloperScreen() {
   const [webhooks, setWebhooks] = useState<DevWebhook[]>([]);
   const [whUrl, setWhUrl] = useState("");
   const [whBusy, setWhBusy] = useState(false);
+  const [whTesting, setWhTesting] = useState<string | null>(null);
+  const [whEvents, setWhEvents] = useState<{ event: string; description: string }[]>([]);
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.getApiUsage>> | null>(null);
   const [buyingPack, setBuyingPack] = useState<string | null>(null);
@@ -273,6 +287,10 @@ export default function DeveloperScreen() {
     try { setKeys((await api.listApiKeys()).keys); } catch {} finally { setLoading(false); }
     try { setPlan(await api.getApiPlan()); } catch {}
     try { setWebhooks((await api.listWebhooks()).webhooks); } catch {}
+    try {
+      const r = await api.listWebhookEvents();
+      setWhEvents(r.event_info || (r.events || []).map((e) => ({ event: e, description: "" })));
+    } catch {}
     try { setUsage(await api.getApiUsage()); } catch {}
     try { setOauthApps((await api.listOAuthApps()).apps); } catch {}
   }, []);
@@ -362,6 +380,20 @@ export default function DeveloperScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteWebhook(id); await load(); } catch {} } },
     ]);
+  };
+
+  const testWebhook = async (id: string) => {
+    setWhTesting(id);
+    try {
+      const r = await api.testWebhook(id);
+      Alert.alert(
+        r.ok ? "Test delivered" : "Test failed",
+        r.ok ? `Your endpoint replied ${r.status}. Check for the signed "ping" event.`
+             : r.status ? `Your endpoint replied ${r.status}.` : `Couldn't reach the endpoint.${r.error ? `\n${r.error}` : ""}`,
+      );
+    } catch (e: any) {
+      Alert.alert("Test failed", errText(e));
+    } finally { setWhTesting(null); }
   };
 
   const revoke = (k: ApiKey) => {
@@ -598,11 +630,26 @@ export default function DeveloperScreen() {
                   <Text style={styles.keyLabel} numberOfLines={1}>{w.url}</Text>
                   <Text style={styles.keyMeta}>{(w.events || []).length} events · {fmtDate(w.created_at)}</Text>
                 </View>
+                <TouchableOpacity onPress={() => testWebhook(w.id)} disabled={whTesting === w.id} hitSlop={8} style={styles.whTestBtn} testID={`webhook-test-${w.id}`}>
+                  {whTesting === w.id ? <ActivityIndicator color={theme.primary} size="small" /> : <Text style={styles.whTestText}>Test</Text>}
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => removeWebhook(w.id)} hitSlop={8} testID={`webhook-del-${w.id}`}>
                   <Ionicons name="trash-outline" size={18} color={theme.error} />
                 </TouchableOpacity>
               </View>
             ))}
+            {whEvents.length > 0 && (
+              <>
+                <Text style={[styles.body, { marginTop: 14, marginBottom: 6 }]}>Events you can subscribe to ({whEvents.length}):</Text>
+                <View style={styles.eventWrap}>
+                  {whEvents.map((e) => (
+                    <View key={e.event} style={styles.eventChip}>
+                      <Text style={styles.eventChipText}>{e.event}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
           </>
         )}
 
@@ -816,6 +863,11 @@ const styles = StyleSheet.create({
   genBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   empty: { color: theme.textMuted, fontSize: 13, marginTop: 12 },
   keyRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  whTestBtn: { borderWidth: 1, borderColor: theme.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, minWidth: 52, alignItems: "center", justifyContent: "center" },
+  whTestText: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
+  eventWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  eventChip: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 },
+  eventChipText: { color: theme.textSecondary, fontSize: 11.5, fontWeight: "700", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   keyIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" },
   keyLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   keyMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },

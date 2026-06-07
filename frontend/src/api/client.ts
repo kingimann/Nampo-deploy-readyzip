@@ -137,10 +137,13 @@ export const api = {
   activateUsage: (pack: string) =>
     request<{ ok: boolean; added: number }>("/payments/api-usage/activate", { method: "POST", body: JSON.stringify({ pack }) }),
   // Developer webhooks
-  listWebhookEvents: () => request<{ events: string[] }>("/webhooks/events"),
+  listWebhookEvents: () =>
+    request<{ events: string[]; event_info?: { event: string; description: string }[] }>("/webhooks/events"),
   listWebhooks: () => request<{ webhooks: DevWebhook[] }>("/webhooks"),
   createWebhook: (url: string, events?: string[]) =>
     request<DevWebhook>("/webhooks", { method: "POST", body: JSON.stringify({ url, events }) }),
+  testWebhook: (id: string) =>
+    request<{ ok: boolean; status: number; error?: string }>(`/webhooks/${id}/test`, { method: "POST" }),
   deleteWebhook: (id: string) =>
     request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>

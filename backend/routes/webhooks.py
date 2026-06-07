@@ -21,14 +21,39 @@ from core import db, get_current_user, _active_plan
 
 router = APIRouter()
 
-# Event types a webhook can subscribe to (mirror notification types + a few more).
-WEBHOOK_EVENTS = [
-    "follow", "friend_request", "friend_accept",
-    "message", "group_message",
-    "tip", "subscribe",
-    "post_like", "post_reply", "mention",
-    "form.submission",
-]
+# Event types a webhook can subscribe to. These mirror the notification types we
+# actually emit (see emit_notification call sites), so every event here can really
+# fire — plus form.submission, which is delivered directly with the full payload.
+WEBHOOK_EVENT_INFO = {
+    # Social
+    "follow": "Someone followed you",
+    "friend_request": "You received a friend request",
+    "friend_accept": "Your friend request was accepted",
+    "poke": "Someone poked you",
+    # Posts
+    "like": "Someone liked your post",
+    "reply": "Someone replied to your post",
+    "repost": "Someone reposted your post",
+    "tag": "You were tagged or mentioned",
+    # Messaging
+    "message": "You received a direct message",
+    "group_message": "New message in a group you're in",
+    "group_invite": "You were invited to a group",
+    "story_reply": "Someone replied to your story",
+    # Money
+    "tip": "You received a tip",
+    "subscribe": "Someone subscribed to you",
+    "payout": "A payout was processed",
+    "wallet_topup": "Your wallet was topped up",
+    # Services & ops
+    "roadside": "A roadside assistance update",
+    "support": "A support ticket update",
+    "call": "An incoming call",
+    "moderation": "A moderation action affected your content",
+    # Forms
+    "form.submission": "A custom form received a submission",
+}
+WEBHOOK_EVENTS = list(WEBHOOK_EVENT_INFO.keys())
 
 
 class WebhookCreate(BaseModel):
@@ -52,7 +77,11 @@ def _public(doc: dict, secret: Optional[str] = None) -> dict:
 
 @router.get("/webhooks/events")
 async def list_events():
-    return {"events": WEBHOOK_EVENTS}
+    # `events` stays a flat list for back-compat; `event_info` adds descriptions.
+    return {
+        "events": WEBHOOK_EVENTS,
+        "event_info": [{"event": e, "description": d} for e, d in WEBHOOK_EVENT_INFO.items()],
+    }
 
 
 @router.get("/webhooks")
@@ -93,6 +122,33 @@ async def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(
     user = await get_current_user(authorization)
     await db.dev_webhooks.delete_one({"id": webhook_id, "user_id": user["user_id"]})
     return {"deleted": True}
+
+
+@router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
+    """Send a signed sample `ping` event to the endpoint so developers can verify
+    connectivity and signature checking. Returns the endpoint's HTTP status."""
+    user = await get_current_user(authorization)
+    hook = await db.dev_webhooks.find_one({"id": webhook_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not hook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    payload = {
+        "event": "ping",
+        "data": {"message": "Test event from Nami", "webhook_id": webhook_id},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    body = json.dumps(payload, default=str).encode("utf-8")
+    sig = hmac.new(hook.get("secret", "").encode("utf-8"), body, hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.post(
+                hook["url"], content=body,
+                headers={"Content-Type": "application/json",
+                         "X-Nami-Signature": f"sha256={sig}", "X-Nami-Event": "ping"},
+            )
+        return {"ok": 200 <= r.status_code < 300, "status": r.status_code}
+    except Exception as e:
+        return {"ok": False, "status": 0, "error": str(e)[:200]}
 
 
 async def _post(url: str, secret: str, payload: dict):
