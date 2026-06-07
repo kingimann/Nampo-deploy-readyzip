@@ -32,7 +32,7 @@ import { stripeCardPay } from "@/src/lib/stripeEmbed";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { useConfirm } from "@/src/context/ConfirmContext";
-import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, encryptDataForRecipients, decryptData, isE2EMedia, isE2E, tryDecrypt } from "@/src/utils/e2e";
+import { ensureKeyPair, getPeerPublicKey, encryptForPeer, encryptForRecipients, encryptDataForRecipients, decryptData, isE2EMedia, isE2E, tryDecrypt, hasBackup } from "@/src/utils/e2e";
 
 // Conversation color themes (Messenger-style). `bg` paints the thread,
 // `bubble` recolors the messages you send.
@@ -174,23 +174,40 @@ export default function ChatScreen() {
     return () => { cancelled = true; };
   }, [id, user?.user_id]);
 
+  // How many E2E text messages couldn't be decrypted on this device (key lost /
+  // not yet restored). Drives the "restore your key" banner.
+  const [lockedCount, setLockedCount] = useState(0);
+  const [keyBackedUp, setKeyBackedUp] = useState<boolean | null>(null);
+  useEffect(() => { hasBackup().then(setKeyBackedUp).catch(() => setKeyBackedUp(null)); }, []);
+  // Show a backup nudge once the user has actually sent encrypted messages.
+  const sentEncrypted = messages.some((m) => m.sender_id === user?.user_id && isE2E(m.text || ""));
+  const showRestore = lockedCount > 0;
+  const showBackup = !showRestore && keyBackedUp === false && sentEncrypted;
+
   // Decrypt any incoming ciphertext lazily.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const next: Record<string, string> = { ...decrypted };
       let changed = false;
+      let failed = 0;
       for (const m of messages) {
-        if (m.type === "text" && m.text && isE2E(m.text) && next[m.id] === undefined) {
-          // Decrypt with the sender's public key (group: per-member; DM: peer).
-          const senderPub = m.sender_id === user?.user_id
-            ? null                                   // self-box is tried automatically
-            : (isGroup ? keyByUser[m.sender_id] || null : peerKey);
-          const plain = await tryDecrypt(m.text, senderPub);
-          if (plain !== null) { next[m.id] = plain; changed = true; }
+        if (m.type === "text" && m.text && isE2E(m.text)) {
+          if (next[m.id] === undefined) {
+            // Decrypt with the sender's public key (group: per-member; DM: peer).
+            const senderPub = m.sender_id === user?.user_id
+              ? null                                   // self-box is tried automatically
+              : (isGroup ? keyByUser[m.sender_id] || null : peerKey);
+            const plain = await tryDecrypt(m.text, senderPub);
+            if (plain !== null) { next[m.id] = plain; changed = true; }
+            else failed += 1;
+          }
         }
       }
-      if (changed && !cancelled) setDecrypted(next);
+      if (!cancelled) {
+        if (changed) setDecrypted(next);
+        setLockedCount(failed);
+      }
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -829,6 +846,23 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
+      {(showRestore || showBackup) && (
+        <TouchableOpacity
+          style={styles.keyBanner}
+          activeOpacity={0.85}
+          onPress={() => router.push("/encryption-key")}
+          testID="chat-key-banner"
+        >
+          <Ionicons name={showRestore ? "lock-closed" : "key-outline"} size={16} color={theme.primary} />
+          <Text style={styles.keyBannerText} numberOfLines={2}>
+            {showRestore
+              ? `${lockedCount} message${lockedCount === 1 ? "" : "s"} can't be read on this device. Restore your key with your PIN.`
+              : "Set a PIN to back up your encryption key so you never lose your messages."}
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+        </TouchableOpacity>
+      )}
+
       <Modal visible={optionsOpen} transparent animationType="fade" onRequestClose={() => setOptionsOpen(false)}>
         <TouchableOpacity style={styles.optBackdrop} activeOpacity={1} onPress={() => setOptionsOpen(false)}>
           <View style={styles.optSheet}>
@@ -1464,6 +1498,8 @@ const styles = StyleSheet.create({
   title: { color: theme.textPrimary, fontSize: 17, fontWeight: "700", textAlign: "center" },
   encRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 1 },
   encText: { color: theme.textMuted, fontSize: 10.5, fontWeight: "600" },
+  keyBanner: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: theme.surfaceAlt, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  keyBannerText: { flex: 1, color: theme.textSecondary, fontSize: 12.5, fontWeight: "600", lineHeight: 17 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: { paddingTop: 60, alignItems: "center" },
   emptyText: { color: theme.textMuted, fontSize: 13 },

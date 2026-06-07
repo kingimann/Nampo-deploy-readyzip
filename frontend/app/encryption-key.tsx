@@ -23,26 +23,29 @@ export default function EncryptionKeyScreen() {
 
   useEffect(() => { hasBackup().then(setBackupExists).catch(() => setBackupExists(false)); }, []);
 
+  const onlyDigits = (t: string) => t.replace(/[^0-9]/g, "").slice(0, 6);
+
   const doBackup = async () => {
-    if (pass.length < 6) { setMsg({ ok: false, text: "Use at least 6 characters." }); return; }
-    if (pass !== pass2) { setMsg({ ok: false, text: "Passphrases don't match." }); return; }
+    if (!/^\d{4,6}$/.test(pass)) { setMsg({ ok: false, text: "Choose a 4–6 digit PIN." }); return; }
+    if (pass !== pass2) { setMsg({ ok: false, text: "PINs don't match." }); return; }
     setBusy("backup"); setMsg(null);
     try {
       await backupKey(pass);
       setBackupExists(true); setPass(""); setPass2("");
-      setMsg({ ok: true, text: "Backup saved. Keep your passphrase safe — it can't be recovered." });
+      setMsg({ ok: true, text: "Backup saved. Remember your PIN — it can't be recovered." });
     } catch (e: any) {
       setMsg({ ok: false, text: String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Backup failed." });
     } finally { setBusy(null); }
   };
 
   const doRestore = async () => {
-    if (!restorePass) { setMsg({ ok: false, text: "Enter your passphrase." }); return; }
+    if (!/^\d{4,6}$/.test(restorePass)) { setMsg({ ok: false, text: "Enter your 4–6 digit PIN." }); return; }
     setBusy("restore"); setMsg(null);
     try {
-      await restoreKey(restorePass);
+      const ok = await restoreKey(restorePass);
       setRestorePass("");
-      setMsg({ ok: true, text: "Key restored on this device. Your encrypted chats will decrypt now." });
+      if (ok) setMsg({ ok: true, text: "Key restored on this device. Your encrypted chats will decrypt now." });
+      else setMsg({ ok: false, text: "That PIN didn't match the backup. Try again." });
     } catch (e: any) {
       setMsg({ ok: false, text: String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Couldn't restore." });
     } finally { setBusy(null); }
@@ -63,7 +66,7 @@ export default function EncryptionKeyScreen() {
         <View style={styles.intro}>
           <Ionicons name="key" size={18} color={theme.primary} />
           <Text style={styles.introText}>
-            Your messages are end-to-end encrypted with a key stored only on this device. Back it up with a passphrase so you can restore your chats on a new device. We never see your passphrase or your key.
+            Your messages are end-to-end encrypted with a key stored only on this device. Back it up with a 4–6 digit PIN so you can restore your chats on a new device. We never see your PIN or your key.
           </Text>
         </View>
 
@@ -74,22 +77,22 @@ export default function EncryptionKeyScreen() {
             <Text style={styles.statusText}>A backup already exists. Saving again replaces it.</Text>
           </View>
         )}
-        <TextInput style={styles.input} value={pass} onChangeText={setPass} placeholder="Backup passphrase" placeholderTextColor={theme.textMuted} secureTextEntry testID="enc-pass" />
-        <TextInput style={styles.input} value={pass2} onChangeText={setPass2} placeholder="Confirm passphrase" placeholderTextColor={theme.textMuted} secureTextEntry testID="enc-pass2" />
+        <TextInput style={styles.input} value={pass} onChangeText={(t) => setPass(onlyDigits(t))} placeholder="Choose a 4–6 digit PIN" placeholderTextColor={theme.textMuted} secureTextEntry keyboardType="number-pad" maxLength={6} testID="enc-pass" />
+        <TextInput style={styles.input} value={pass2} onChangeText={(t) => setPass2(onlyDigits(t))} placeholder="Confirm PIN" placeholderTextColor={theme.textMuted} secureTextEntry keyboardType="number-pad" maxLength={6} testID="enc-pass2" />
         <TouchableOpacity style={[styles.btn, busy === "backup" && { opacity: 0.6 }]} onPress={doBackup} disabled={busy !== null} testID="enc-backup">
           {busy === "backup" ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Back up key</Text>}
         </TouchableOpacity>
 
         <Text style={styles.section}>Restore on this device</Text>
-        <Text style={styles.note}>Enter the passphrase you used when backing up. This replaces this device's key.</Text>
-        <TextInput style={styles.input} value={restorePass} onChangeText={setRestorePass} placeholder="Backup passphrase" placeholderTextColor={theme.textMuted} secureTextEntry testID="enc-restore-pass" />
+        <Text style={styles.note}>Enter the PIN you used when backing up. This replaces this device's key.</Text>
+        <TextInput style={styles.input} value={restorePass} onChangeText={(t) => setRestorePass(onlyDigits(t))} placeholder="Your 4–6 digit PIN" placeholderTextColor={theme.textMuted} secureTextEntry keyboardType="number-pad" maxLength={6} testID="enc-restore-pass" />
         <TouchableOpacity style={[styles.btn, styles.btnGhost, busy === "restore" && { opacity: 0.6 }]} onPress={doRestore} disabled={busy !== null} testID="enc-restore">
           {busy === "restore" ? <ActivityIndicator color={theme.primary} /> : <Text style={[styles.btnText, { color: theme.primary }]}>Restore key</Text>}
         </TouchableOpacity>
 
         {msg && <Text style={[styles.msg, { color: msg.ok ? "#22C55E" : theme.error }]}>{msg.text}</Text>}
 
-        <Text style={styles.warn}>If you lose your passphrase and your device, end-to-end encrypted messages can't be recovered — that's what keeps them private.</Text>
+        <Text style={styles.warn}>If you forget your PIN and lose this device, end-to-end encrypted messages can't be recovered — that's what keeps them private.</Text>
       </ScrollView>
     </SafeAreaView>
   );
