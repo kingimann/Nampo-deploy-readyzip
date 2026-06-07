@@ -132,6 +132,7 @@ async def _hydrate_listing(
         contact_phone=doc.get("contact_phone"),
         distance_km=distance_km,
         status=doc.get("status", "active"),
+        flag_reasons=doc.get("flag_reasons"),
         views_count=doc.get("views_count", 0),
         saved_count=saved_count,
         saved_by_me=saved_by_me,
@@ -219,6 +220,16 @@ async def create_listing(body: ListingCreate, authorization: Optional[str] = Hea
             })
 
     photos = _clean_photos(body)
+    # AI + rule spam moderation. Reused photos across the seller's own listings
+    # are a common spam signal, so check that here (DB-side) and pass it in.
+    dup_existing = False
+    if photos:
+        other = await db.listings.find_one(
+            {"user_id": user["user_id"], "status": "active", "photos": {"$all": photos}}, {"_id": 0, "id": 1}
+        )
+        dup_existing = bool(other)
+    from services.ollama import moderate_listing
+    mod = await moderate_listing(title, body.description or "", photos, dup_existing)
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["user_id"],
@@ -240,11 +251,20 @@ async def create_listing(body: ListingCreate, authorization: Optional[str] = Hea
         "delivery": body.delivery if body.delivery in ("pickup", "shipping", "both") else "pickup",
         "contact_email": (body.contact_email or "").strip()[:120] or None,
         "contact_phone": (body.contact_phone or "").strip()[:40] or None,
-        "status": "active",
+        "status": "flagged" if mod["flagged"] else "active",
+        "flag_reasons": mod["reasons"] if mod["flagged"] else None,
+        "flagged_at": datetime.now(timezone.utc) if mod["flagged"] else None,
         "views_count": 0,
         "created_at": datetime.now(timezone.utc),
     }
     await db.listings.insert_one(doc.copy())
+    if mod["flagged"]:
+        from routes.notifications import emit_notification
+        await emit_notification(
+            user_id=user["user_id"], actor_id=None, ntype="moderation",
+            message=("Your listing “" + title[:60] + "” was unpublished by our automated check: "
+                     + "; ".join(mod["reasons"][:3]) + " Fix it and it'll go live, or contact support."),
+        )
     return await _hydrate_listing(doc, viewer_id=user["user_id"])
 
 
@@ -332,7 +352,12 @@ async def saved_listings(authorization: Optional[str] = Header(None)):
 @router.get("/listings/user/{user_id}", response_model=List[Listing])
 async def listings_by_user(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
-    cursor = db.listings.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1)
+    filt: dict = {"user_id": user_id}
+    # Owners see their own flagged (unpublished) listings so they can fix them;
+    # everyone else does not.
+    if me["user_id"] != user_id:
+        filt["status"] = {"$ne": "flagged"}
+    cursor = db.listings.find(filt, {"_id": 0}).sort("created_at", -1)
     docs = await cursor.to_list(100)
     saved_ids = await _saved_ids_for(me["user_id"])
     return [await _hydrate_listing(d, saved_ids=saved_ids) for d in docs]
@@ -343,6 +368,9 @@ async def get_listing(listing_id: str, authorization: Optional[str] = Header(Non
     user = await get_current_user(authorization)
     doc = await db.listings.find_one({"id": listing_id}, {"_id": 0})
     if not doc:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    # A flagged (unpublished) listing is only visible to its owner.
+    if doc.get("status") == "flagged" and doc["user_id"] != user["user_id"]:
         raise HTTPException(status_code=404, detail="Listing not found")
     # Count a view (not for the owner).
     if doc["user_id"] != user["user_id"]:
@@ -426,6 +454,26 @@ async def patch_listing(
         patch["contact_email"] = (body.contact_email or "").strip()[:120] or None
     if body.contact_phone is not None:
         patch["contact_phone"] = (body.contact_phone or "").strip()[:40] or None
+    # Re-moderate when the content (title/description/photos) changed — fixing a
+    # flagged listing republishes it; editing one into spam re-flags it. Skip if
+    # the caller is explicitly setting a status (e.g. marking sold).
+    content_changed = any(k in patch for k in ("title", "description", "photos"))
+    if content_changed and body.status is None and doc.get("status") in ("active", "flagged", None):
+        title = patch.get("title", doc.get("title", ""))
+        desc = patch.get("description", doc.get("description", ""))
+        photos = patch.get("photos", doc.get("photos") or [])
+        from services.ollama import moderate_listing
+        mod = await moderate_listing(title, desc or "", photos, False)
+        was_flagged = doc.get("status") == "flagged"
+        patch["status"] = "flagged" if mod["flagged"] else "active"
+        patch["flag_reasons"] = mod["reasons"] if mod["flagged"] else None
+        if mod["flagged"] and not was_flagged:
+            from routes.notifications import emit_notification
+            await emit_notification(
+                user_id=user["user_id"], actor_id=None, ntype="moderation",
+                message=("Your listing was unpublished by our automated check: "
+                         + "; ".join(mod["reasons"][:3]) + " Fix it and it'll go live, or contact support."),
+            )
     if patch:
         await db.listings.update_one({"id": listing_id}, {"$set": patch})
     updated = await db.listings.find_one({"id": listing_id}, {"_id": 0})
@@ -501,6 +549,7 @@ async def seller_profile(user_id: str, authorization: Optional[str] = Header(Non
     listing_docs = await db.listings.find(
         {"user_id": user_id, "status": {"$ne": "sold"}}, {"_id": 0}
     ).sort("created_at", -1).to_list(60)
+    listing_docs = [d for d in listing_docs if d.get("status") != "flagged"]   # hide unpublished
     saved_ids = await _saved_ids_for(me["user_id"])
     listings = [await _hydrate_listing(d, saved_ids=saved_ids) for d in listing_docs]
     listing_count = await db.listings.count_documents({"user_id": user_id})

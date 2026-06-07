@@ -184,3 +184,68 @@ async def verify_documents(
     match = bool(parsed.get("match"))
     reason = str(parsed.get("reason") or "")[:300]
     return {"decision": "approve" if match else "reject", "reason": reason}
+
+
+# ── Marketplace listing moderation ──────────────────────────────────────────
+_SPAM_WORDS = [
+    "free money", "make money fast", "click here", "wire transfer", "western union",
+    "gift card", "crypto giveaway", "double your", "investment opportunity",
+    "whatsapp me", "100% guaranteed", "act now", "limited offer", "dm me to buy",
+    "cash app only", "telegram", "no scam", "get rich",
+]
+
+
+def _listing_rule_flags(title: str, description: str, photos, dup_existing: bool = False) -> list:
+    """Deterministic spam checks — run with or without the AI."""
+    reasons: list = []
+    title = (title or "").strip()
+    desc = (description or "").strip()
+    pics = [p for p in (photos or []) if isinstance(p, str) and p.strip()]
+    if not pics:
+        reasons.append("The listing has no photos.")
+    elif len(set(pics)) < len(pics):
+        reasons.append("The same photo is used more than once.")
+    if dup_existing:
+        reasons.append("These photos are already used in another of your listings.")
+    if len(desc) < 10:
+        reasons.append("The description is missing or too short.")
+    low = f"{title} {desc}".lower()
+    if any(w in low for w in _SPAM_WORDS):
+        reasons.append("The title or description reads like spam.")
+    if re.search(r"https?://|www\.", low) or re.search(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b", low):
+        reasons.append("Remove links and phone numbers from the title/description — use the contact fields.")
+    if title and sum(1 for c in title if c.isupper()) > max(8, int(len(title) * 0.6)):
+        reasons.append("The title is mostly capital letters.")
+    return reasons
+
+
+async def moderate_listing(title: str, description: str, photos, dup_existing: bool = False) -> dict:
+    """Decide whether a marketplace listing is spam / low-quality. Returns
+    {flagged: bool, reasons: [str]}. Rule checks always run; the AI (when
+    configured) adds a spam/scam judgement on the title + description."""
+    reasons = _listing_rule_flags(title, description, photos, dup_existing)
+    if ollama_enabled():
+        prompt = (
+            "You moderate a peer-to-peer marketplace. Decide if this listing is spam, a scam, "
+            "or an obviously low-quality placeholder. Genuine items for sale are fine — don't "
+            "flag those.\n"
+            f"Title: {title}\nDescription: {description}\n"
+            'Reply with ONLY JSON: {"spam": true|false, "reason": "<one short sentence>"}'
+        )
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(f"{OLLAMA_HOST}/api/chat", json={
+                    "model": OLLAMA_TEXT_MODEL, "stream": False, "format": "json",
+                    "options": {"temperature": 0},
+                    "messages": [{"role": "user", "content": prompt}],
+                })
+                resp.raise_for_status()
+                content = ((resp.json() or {}).get("message") or {}).get("content") or ""
+            parsed = json.loads(content)
+            if isinstance(parsed, dict) and parsed.get("spam"):
+                r = str(parsed.get("reason") or "This looks like spam.").strip()[:200]
+                if r and r not in reasons:
+                    reasons.append(r)
+        except Exception:
+            pass
+    return {"flagged": len(reasons) > 0, "reasons": reasons}

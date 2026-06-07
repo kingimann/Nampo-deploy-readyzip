@@ -835,6 +835,7 @@ export type Listing = {
   contact_phone?: string | null;
   distance_km?: number | null;
   status: string;
+  flag_reasons?: string[] | null;
   views_count?: number;
   saved_count?: number;
   saved_by_me?: boolean;
@@ -1314,7 +1315,7 @@ export type Notification = {
   id: string;
   user_id: string;
   type: "like" | "repost" | "reply" | "tag" | "message" | "group_invite" | "group_message" | "follow" | "poke"
-    | "call" | "support" | "roadside"
+    | "call" | "support" | "roadside" | "moderation"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;
