@@ -86,10 +86,9 @@ export default function MarketplaceScreen() {
   const [coords, setCoords] = useState<[number, number] | null>(null);
   const [locality, setLocality] = useState("");
   const [radius, setRadius] = useState(0); // km; 0 = any distance
-  const [radiusOpen, setRadiusOpen] = useState(false);
   const [locating, setLocating] = useState(false);
 
-  const filtersActive = cat !== "all" || condFilter !== "all" || sort !== "recent" || !!minPrice || !!maxPrice;
+  const filtersActive = cat !== "all" || condFilter !== "all" || sort !== "recent" || !!minPrice || !!maxPrice || (!!coords && radius > 0);
 
   // Resolve the device location + a human-readable locality.
   const detectLocation = useCallback(async (prompt = true): Promise<{ coords: [number, number]; locality: string } | null> => {
@@ -138,7 +137,7 @@ export default function MarketplaceScreen() {
   }, [cat, q, sort, condFilter, minPrice, maxPrice, savedView, coords, radius]);
 
   const resetFilters = () => {
-    setCat("all"); setCondFilter("all"); setSort("recent"); setMinPrice(""); setMaxPrice("");
+    setCat("all"); setCondFilter("all"); setSort("recent"); setMinPrice(""); setMaxPrice(""); setRadius(0);
   };
 
   // On first mount, use the location only if permission is already granted —
@@ -258,29 +257,6 @@ export default function MarketplaceScreen() {
           </TouchableOpacity>
         )}
       </View>
-
-      {!savedView && (
-        <View style={styles.locBar}>
-          <TouchableOpacity style={styles.locChip} onPress={useMyLocation} disabled={locating} testID="market-locate">
-            {locating
-              ? <ActivityIndicator size="small" color={theme.primary} />
-              : <Ionicons name="location" size={15} color={theme.primary} />}
-            <Text style={styles.locText} numberOfLines={1}>
-              {locality || (coords ? "Near you" : "Set your location")}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.radiusChip, coords && radius > 0 && styles.radiusChipActive]}
-            onPress={() => setRadiusOpen(true)}
-            testID="market-radius"
-          >
-            <Ionicons name="resize" size={14} color={coords && radius > 0 ? theme.primary : theme.textSecondary} />
-            <Text style={[styles.radiusText, coords && radius > 0 && { color: theme.primary }]}>
-              {radius > 0 ? `${radius} km` : "Any"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
@@ -551,6 +527,32 @@ export default function MarketplaceScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Location lives inside Filters now (was a separate bar/sheet). */}
+              <Text style={styles.filterLabel}>Location</Text>
+              <TouchableOpacity style={styles.locateRow} onPress={useMyLocation} disabled={locating} testID="market-locate">
+                <Ionicons name="navigate" size={16} color={theme.primary} />
+                <Text style={styles.locateRowText} numberOfLines={1}>
+                  {locality ? `Using: ${locality}` : (coords ? "Near you" : "Use my current location")}
+                </Text>
+                {locating && <ActivityIndicator size="small" color={theme.primary} />}
+              </TouchableOpacity>
+              <Text style={styles.filterSubLabel}>Distance</Text>
+              {!coords && (
+                <Text style={styles.radiusHint}>Set your location to filter listings by distance.</Text>
+              )}
+              <View style={styles.condWrap}>
+                {RADII.map((r) => {
+                  const a = radius === r.km;
+                  return (
+                    <TouchableOpacity key={r.km} onPress={() => setRadius(r.km)} style={[styles.condChip, a && styles.condChipActive]} testID={`radius-${r.km}`}>
+                      <Text style={[styles.condChipText, { color: a ? theme.primary : theme.textMuted }]}>{r.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={styles.filterDivider} />
+
               <Text style={styles.filterLabel}>Category</Text>
               <View style={styles.condWrap}>
                 {CATEGORIES.map((c) => {
@@ -563,6 +565,8 @@ export default function MarketplaceScreen() {
                 })}
               </View>
 
+              <View style={styles.filterDivider} />
+
               <Text style={styles.filterLabel}>Condition</Text>
               <View style={styles.condWrap}>
                 {[{ key: "all", label: "Any" }, ...CONDITIONS].map((c) => {
@@ -574,6 +578,8 @@ export default function MarketplaceScreen() {
                   );
                 })}
               </View>
+
+              <View style={styles.filterDivider} />
 
               <Text style={styles.filterLabel}>Price range ($)</Text>
               <View style={styles.priceRow}>
@@ -598,6 +604,8 @@ export default function MarketplaceScreen() {
                 />
               </View>
 
+              <View style={styles.filterDivider} />
+
               <Text style={styles.filterLabel}>Sort by</Text>
               {SORTS.map((s) => (
                 <TouchableOpacity key={s.key} style={styles.sortRow} onPress={() => setSort(s.key)} testID={`market-sort-${s.key}`}>
@@ -610,37 +618,6 @@ export default function MarketplaceScreen() {
                 <Text style={styles.applyText}>Show results</Text>
               </TouchableOpacity>
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={radiusOpen} transparent animationType="slide" onRequestClose={() => setRadiusOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setRadiusOpen(false)} />
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "75%" }]}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Distance</Text>
-            <TouchableOpacity style={styles.locateRow} onPress={useMyLocation} disabled={locating} testID="radius-use-location">
-              <Ionicons name="navigate" size={16} color={theme.primary} />
-              <Text style={styles.locateRowText} numberOfLines={1}>
-                {locality ? `Using: ${locality}` : "Use my current location"}
-              </Text>
-              {locating && <ActivityIndicator size="small" color={theme.primary} />}
-            </TouchableOpacity>
-            {!coords && (
-              <Text style={styles.radiusHint}>Set your location to filter listings by distance.</Text>
-            )}
-            {RADII.map((r) => (
-              <TouchableOpacity
-                key={r.km}
-                style={styles.sortRow}
-                onPress={() => { setRadius(r.km); setRadiusOpen(false); }}
-                testID={`radius-${r.km}`}
-              >
-                <Text style={[styles.sortRowText, radius === r.km && { color: theme.primary, fontWeight: "800" }]}>{r.label}</Text>
-                {radius === r.km && <Ionicons name="checkmark" size={18} color={theme.primary} />}
-              </TouchableOpacity>
-            ))}
           </View>
         </View>
       </Modal>
@@ -714,17 +691,19 @@ const styles = StyleSheet.create({
   tab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10 },
   tabActive: { backgroundColor: theme.surfaceAlt },
   tabText: { fontSize: 13.5, fontWeight: "700" },
-  filterLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 14, marginBottom: 8 },
-  condWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filterLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "800", letterSpacing: 0.2, marginBottom: 12 },
+  filterSubLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 14, marginBottom: 8 },
+  filterDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginVertical: 18 },
+  condWrap: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   applyBtn: { marginTop: 20, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center" },
   applyText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   condChip: {
-    flexShrink: 0, height: 30, paddingHorizontal: 12, borderRadius: 15,
+    flexShrink: 0, height: 38, paddingHorizontal: 16, borderRadius: 19,
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
-  condChipActive: { borderColor: theme.primary },
-  condChipText: { fontSize: 12, fontWeight: "700" },
+  condChipActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  condChipText: { fontSize: 13.5, fontWeight: "700" },
   photoThumb: {
     width: 80, height: 80, borderRadius: 12, overflow: "hidden",
     backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border,
@@ -800,20 +779,6 @@ const styles = StyleSheet.create({
   postErr: { color: theme.error, fontSize: 13, fontWeight: "600", marginBottom: 8, textAlign: "center" },
 
   // Location + radius bar (browse)
-  locBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
-  locChip: {
-    flex: 1, flexDirection: "row", alignItems: "center", gap: 7, height: 38,
-    backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 12,
-  },
-  locText: { flex: 1, color: theme.textPrimary, fontSize: 13.5, fontWeight: "600" },
-  radiusChip: {
-    flexDirection: "row", alignItems: "center", gap: 6, height: 38,
-    backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 12,
-  },
-  radiusChipActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
-  radiusText: { color: theme.textSecondary, fontSize: 13, fontWeight: "700" },
   locateRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
