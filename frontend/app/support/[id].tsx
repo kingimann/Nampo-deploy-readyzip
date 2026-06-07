@@ -58,7 +58,7 @@ export default function TicketScreen() {
         <View style={styles.center}>{loading ? <ActivityIndicator color={theme.primary} /> : <Text style={styles.emptyText}>Ticket not found.</Text>}</View>
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 16 }}>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
             {(ticket.messages || []).map((msg) => {
               const mine = msg.sender_id === user?.user_id;
               return (

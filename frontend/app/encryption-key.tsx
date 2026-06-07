@@ -62,7 +62,7 @@ export default function EncryptionKeyScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
         <View style={styles.intro}>
           <Ionicons name="key" size={18} color={theme.primary} />
           <Text style={styles.introText}>

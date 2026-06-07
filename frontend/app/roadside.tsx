@@ -12,6 +12,7 @@ import { reverseGeocode } from "@/src/api/mapbox";
 import { pickDocumentBase64 } from "@/src/utils/thumbnail";
 import CameraCapture from "@/src/components/CameraCapture";
 import { api, RoadsideRequest, RoadsideService, RoadsideParty, RoadsideQuote, RoadsideEligibility, RoadsideVerificationStatus, RoadsideCheckResult } from "@/src/api/client";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 const SERVICE_META: Record<RoadsideService, { label: string; icon: any; desc: string }> = {
@@ -92,6 +93,7 @@ function Photos({ uris, onRemove }: { uris: string[]; onRemove?: (i: number) => 
 
 export default function RoadsideScreen() {
   const router = useRouter();
+  const confirm = useConfirm();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<"request" | "nearby" | "history">("request");
   const [active, setActive] = useState<RoadsideRequest | null>(null);
@@ -366,20 +368,22 @@ export default function RoadsideScreen() {
     finally { setBusyId(null); }
   };
 
-  const cancelReq = (r: RoadsideRequest) => {
+  const cancelReq = async (r: RoadsideRequest) => {
     const fee = r.en_route && r.status === "accepted" ? (r.price || 80) / 2 : 0;
     const body = fee > 0
       ? `Your helper is already en route. You'll be refunded $${((r.total || 0) - fee).toFixed(2)} and they keep $${fee.toFixed(2)} for setting off.`
       : "You'll get a full refund.";
-    const go = async () => {
-      setBusyId(r.id);
-      try { await api.cancelRoadside(r.id); setActive(null); } catch (e: any) { Alert.alert("Couldn't cancel", String(e?.message || e)); } finally { setBusyId(null); }
-    };
-    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm(`Cancel this request?\n\n${body}`)) go(); }
-    else Alert.alert("Cancel request", body, [
-      { text: "Keep", style: "cancel" },
-      { text: "Cancel request", style: "destructive", onPress: go },
-    ]);
+    // In-app confirm modal (works the same on web + native) — no browser dialog.
+    const ok = await confirm({
+      title: "Cancel request",
+      message: body,
+      confirmLabel: "Cancel request",
+      cancelLabel: "Keep",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusyId(r.id);
+    try { await api.cancelRoadside(r.id); setActive(null); } catch (e: any) { Alert.alert("Couldn't cancel", String(e?.message || e)); } finally { setBusyId(null); }
   };
 
   const accept = async (r: RoadsideRequest) => {
@@ -407,21 +411,23 @@ export default function RoadsideScreen() {
       Alert.alert("Couldn't submit review", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setReviewBusy(false); }
   };
-  const openDispute = (r: RoadsideRequest) => {
-    const go = async () => {
-      try {
-        await api.disputeRoadside(r.id);
-      } catch (e: any) {
-        Alert.alert("Couldn't open dispute", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
-        return;
-      }
-      router.push({ pathname: "/support", params: { compose: "1", category: "dispute", subject: `Roadside dispute · ${SERVICE_META[r.service].label}`, related_type: "roadside", related_id: r.id } });
-    };
-    if (Platform.OS === "web") { if (typeof window !== "undefined" && window.confirm("Open a dispute for this roadside job and start a support ticket?")) go(); }
-    else Alert.alert("Open a dispute", "Flag this job and open a support ticket? Available up to 7 days after the service.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Dispute", style: "destructive", onPress: go },
-    ]);
+  const openDispute = async (r: RoadsideRequest) => {
+    // In-app confirm modal (works the same on web + native) — no browser dialog.
+    const ok = await confirm({
+      title: "Open a dispute",
+      message: "Flag this job and open a support ticket? Available up to 7 days after the service.",
+      confirmLabel: "Dispute",
+      cancelLabel: "Cancel",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.disputeRoadside(r.id);
+    } catch (e: any) {
+      Alert.alert("Couldn't open dispute", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+      return;
+    }
+    router.push({ pathname: "/support", params: { compose: "1", category: "dispute", subject: `Roadside dispute · ${SERVICE_META[r.service].label}`, related_type: "roadside", related_id: r.id } });
   };
 
   const messageUser = async (uid: string, name?: string) => {

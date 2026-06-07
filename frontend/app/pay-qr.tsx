@@ -52,7 +52,7 @@ export default function PayQRScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30, alignItems: "center" }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30, alignItems: "center" }} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
           <LinearGradient
             colors={[theme.primaryHover, theme.primary]}

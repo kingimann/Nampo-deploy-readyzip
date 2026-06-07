@@ -154,7 +154,7 @@ export default function ListingDetailScreen() {
       {loading || !listing ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 120 }} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 120 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {photos.length > 0 ? (
             <View>
               <ScrollView

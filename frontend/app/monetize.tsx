@@ -70,7 +70,7 @@ export default function MonetizeScreen() {
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
           <View style={styles.intro}>
             <Ionicons name="cash" size={18} color={theme.primary} />
             <Text style={styles.introText}>
