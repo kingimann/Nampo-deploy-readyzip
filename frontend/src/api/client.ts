@@ -193,6 +193,8 @@ export const api = {
     request<{ ok: boolean }>(`/admin/users/${userId}/unban`, { method: "POST" }),
   adminSuspendUser: (userId: string, days: number, reason = "") =>
     request<{ ok: boolean; until: string }>(`/admin/users/${userId}/suspend`, { method: "POST", body: JSON.stringify({ days, reason }) }),
+  adminSetRestrictions: (userId: string, body: { messaging_disabled?: boolean; marketplace_disabled?: boolean; posting_disabled?: boolean }) =>
+    request<AdminUser>(`/admin/users/${userId}/restrictions`, { method: "POST", body: JSON.stringify(body) }),
   adminRemoveUser: (userId: string) =>
     request<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
   adminSetWallet: (userId: string, balance: number) =>
@@ -961,7 +963,9 @@ export type FriendStatus = "none" | "request_sent" | "request_received" | "frien
 export type AdminUser = {
   user_id: string; name: string; username?: string | null; email?: string | null;
   picture?: string | null; role: string; verified: boolean; banned: boolean;
-  suspended: boolean; suspended_until?: string | null; created_at?: string;
+  suspended: boolean; suspended_until?: string | null;
+  messaging_disabled?: boolean; marketplace_disabled?: boolean; posting_disabled?: boolean;
+  created_at?: string;
 };
 export type AdminAuditEntry = {
   id: string; admin_id: string; admin_name: string; action: string;

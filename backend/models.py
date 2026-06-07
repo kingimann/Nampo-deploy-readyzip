@@ -33,6 +33,10 @@ class User(BaseModel):
     work_latitude: Optional[float] = None
     verified: bool = False
     role: str = "user"            # user | mod | admin
+    # Admin-set capability locks (apply to this user only).
+    messaging_disabled: bool = False     # can't send chat messages
+    marketplace_disabled: bool = False   # can't create marketplace listings
+    posting_disabled: bool = False       # can't create newsfeed posts
     sub_price: float = 4.99       # monthly subscription price others pay this user
     payout_frequency: str = "monthly"  # biweekly | monthly
     payout_threshold: float = 0   # hold earnings until balance reaches this

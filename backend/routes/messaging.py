@@ -498,6 +498,11 @@ async def send_message(
     authorization: Optional[str] = Header(None),
 ):
     user = await get_current_user(authorization)
+    if user.get("messaging_disabled"):
+        raise HTTPException(status_code=403, detail={
+            "code": "messaging_disabled",
+            "message": "Messaging has been disabled on your account by an administrator.",
+        })
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or user["user_id"] not in conv["participant_ids"]:
         raise HTTPException(status_code=404, detail="Conversation not found")

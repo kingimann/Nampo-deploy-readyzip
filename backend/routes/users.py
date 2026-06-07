@@ -101,6 +101,9 @@ def _admin_user_view(u: dict) -> dict:
         "role": _effective_role(u), "verified": bool(u.get("verified", False)),
         "banned": bool(u.get("banned", False)),
         "suspended": suspended, "suspended_until": su if suspended else None,
+        "messaging_disabled": bool(u.get("messaging_disabled", False)),
+        "marketplace_disabled": bool(u.get("marketplace_disabled", False)),
+        "posting_disabled": bool(u.get("posting_disabled", False)),
         "created_at": u.get("created_at"),
     }
 
@@ -183,6 +186,35 @@ async def admin_suspend_user(user_id: str, body: ModerationBody, authorization: 
     nice = f"{int(days)}d" if float(days).is_integer() else f"{days}d"
     await _audit(me, f"suspended · {nice}", target, body.reason or "")
     return {"ok": True, "until": until}
+
+
+class RestrictionsBody(BaseModel):
+    messaging_disabled: Optional[bool] = None
+    marketplace_disabled: Optional[bool] = None
+    posting_disabled: Optional[bool] = None
+
+
+@router.post("/admin/users/{user_id}/restrictions")
+async def admin_set_restrictions(user_id: str, body: RestrictionsBody, authorization: Optional[str] = Header(None)):
+    """Admin-only: turn another user's messaging, marketplace, or newsfeed
+    posting on/off. Can't be used on yourself or another admin."""
+    me = await get_current_user(authorization)
+    target = await _require_admin_target(user_id, me)
+    patch: dict = {}
+    changes = []
+    for field, label in (("messaging_disabled", "messaging"),
+                         ("marketplace_disabled", "marketplace"),
+                         ("posting_disabled", "posting")):
+        val = getattr(body, field)
+        if val is not None:
+            patch[field] = bool(val)
+            changes.append((label, bool(val)))
+    if patch:
+        await db.users.update_one({"user_id": user_id}, {"$set": patch})
+        for label, off in changes:
+            await _audit(me, f"{'disabled' if off else 'enabled'} {label}", target)
+    fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return _admin_user_view(fresh or {"user_id": user_id})
 
 
 class WalletSet(BaseModel):

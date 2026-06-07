@@ -367,6 +367,11 @@ def _is_promoted(doc: dict) -> bool:
 @router.post("/posts", response_model=Post)
 async def create_post(body: PostCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    if user.get("posting_disabled"):
+        raise HTTPException(status_code=403, detail={
+            "code": "posting_disabled",
+            "message": "Posting has been disabled on your account by an administrator.",
+        })
     text = (body.text or "").strip()[:500]
     media = _normalize_media(body.media)
     has_quote = bool(body.quote_of)

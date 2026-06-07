@@ -278,6 +278,11 @@ export default function AdminUsersScreen() {
                 <Action icon="time-outline" label="Suspend…" onPress={() => openMod(sel, "suspend")} />
               )}
               {!sel.banned && <Action icon="ban-outline" label="Ban…" danger onPress={() => openMod(sel, "ban")} />}
+
+              <Action icon={sel.messaging_disabled ? "chatbubble-outline" : "chatbubble-ellipses-outline"} label={sel.messaging_disabled ? "Enable messaging" : "Disable messaging"} onPress={patch(sel, () => api.adminSetRestrictions(sel.user_id, { messaging_disabled: !sel.messaging_disabled }), { messaging_disabled: !sel.messaging_disabled })} />
+              <Action icon="pricetags-outline" label={sel.marketplace_disabled ? "Enable marketplace" : "Disable marketplace"} onPress={patch(sel, () => api.adminSetRestrictions(sel.user_id, { marketplace_disabled: !sel.marketplace_disabled }), { marketplace_disabled: !sel.marketplace_disabled })} />
+              <Action icon="create-outline" label={sel.posting_disabled ? "Enable posting" : "Disable posting"} onPress={patch(sel, () => api.adminSetRestrictions(sel.user_id, { posting_disabled: !sel.posting_disabled }), { posting_disabled: !sel.posting_disabled })} />
+
               <Action icon="wallet-outline" label="Set wallet balance (USD)…" onPress={() => { const u = sel; setSel(null); setWalletVal(""); setWalletUser(u); }} />
               <Action icon="add-circle-outline" label="Re-add lost transaction…" onPress={() => { const u = sel; openAddTxn(u); }} />
               <Action icon="list-outline" label="View / edit transactions…" onPress={() => loadTxnList(sel)} />

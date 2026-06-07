@@ -169,6 +169,11 @@ def _clean_photos(body) -> list:
 @router.post("/listings", response_model=Listing)
 async def create_listing(body: ListingCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    if user.get("marketplace_disabled"):
+        raise HTTPException(status_code=403, detail={
+            "code": "marketplace_disabled",
+            "message": "Marketplace selling has been disabled on your account by an administrator.",
+        })
     require_account_age(user, "sell on the marketplace", MARKETPLACE_MIN_AGE_DAYS)
     title = (body.title or "").strip()[:120]
     if not title:
