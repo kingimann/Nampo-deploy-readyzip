@@ -37,6 +37,13 @@ const TYPES: { k: FormFieldType; label: string; icon: any }[] = [
   { k: "consent", label: "Agreement / consent", icon: "shield-checkmark-outline" },
   { k: "payment", label: "Payment (Stripe)", icon: "card-outline" },
 ];
+// Field types grouped for a cleaner, organized picker.
+const TYPE_GROUPS: { title: string; keys: FormFieldType[] }[] = [
+  { title: "Basic", keys: ["text", "textarea", "email", "phone", "number", "url", "date", "time"] },
+  { title: "Choice", keys: ["select", "radio", "checkbox", "rating"] },
+  { title: "Advanced", keys: ["heading", "signature", "photo", "consent", "payment"] },
+];
+
 // Accent presets for the embed customizer ("" = default theme green).
 const ACCENTS = ["", "7C3AED", "0EA5E9", "F97316", "EF4444", "EAB308", "EC4899"];
 const typeLabel = (t: string) => TYPES.find((x) => x.k === t)?.label || t;
@@ -452,12 +459,23 @@ export default function FormBuilderScreen() {
         <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setTypePicker(null)}>
           <View style={styles.pickerCard}>
             <Text style={styles.pickerTitle}>Field type</Text>
-            {TYPES.map((t) => (
-              <TouchableOpacity key={t.k} style={styles.pickerRow} onPress={() => { if (typePicker !== null) patchField(typePicker, { type: t.k, options: hasOptions(t.k) ? (fields[typePicker].options || ["Option 1"]) : null }); setTypePicker(null); }} testID={`type-${t.k}`}>
-                <Ionicons name={t.icon} size={18} color={theme.primary} />
-                <Text style={styles.pickerRowText}>{t.label}</Text>
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled">
+              {TYPE_GROUPS.map((g) => (
+                <View key={g.title}>
+                  <Text style={styles.pickerGroup}>{g.title}</Text>
+                  {g.keys.map((kk) => {
+                    const t = TYPES.find((x) => x.k === kk);
+                    if (!t) return null;
+                    return (
+                      <TouchableOpacity key={t.k} style={styles.pickerRow} onPress={() => { if (typePicker !== null) patchField(typePicker, { type: t.k, options: hasOptions(t.k) ? (fields[typePicker].options || ["Option 1"]) : null }); setTypePicker(null); }} testID={`type-${t.k}`}>
+                        <Ionicons name={t.icon} size={18} color={theme.primary} />
+                        <Text style={styles.pickerRowText}>{t.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -533,7 +551,8 @@ const styles = StyleSheet.create({
   sigImg: { width: 220, height: 90, backgroundColor: "#fff", borderRadius: 8, marginTop: 4, borderWidth: 1, borderColor: theme.border },
   pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 28 },
   pickerCard: { width: "100%", maxWidth: 360, backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8 },
-  pickerTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 },
+  pickerTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "800", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  pickerGroup: { color: theme.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
   pickerRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 13 },
   pickerRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
 });
