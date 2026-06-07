@@ -26,7 +26,7 @@ from core import db, get_current_user
 router = APIRouter()
 
 FIELD_TYPES = {"text", "email", "phone", "number", "textarea", "select", "checkbox", "radio",
-               "date", "signature", "photo", "consent"}
+               "date", "time", "url", "rating", "heading", "signature", "photo", "consent", "payment"}
 MAX_FIELDS = 40
 MAX_VALUE_LEN = 5000
 SIG_MAX_LEN = 400_000     # drawn signature → PNG data URL
@@ -75,6 +75,9 @@ class FormField(BaseModel):
     placeholder: Optional[str] = None
     options: Optional[List[str]] = None      # select / radio / checkbox
     text: Optional[str] = None               # consent: the terms / liability text to agree to
+    amount: Optional[float] = None           # payment: fixed price
+    amount_open: Optional[bool] = None       # payment: let the payer choose the amount
+    currency: Optional[str] = None           # payment: ISO currency (default USD)
 
 
 class FormCreate(BaseModel):
@@ -152,7 +155,7 @@ def _clean_fields(fields: List[FormField]) -> list:
         opts = None
         if t in ("select", "radio", "checkbox"):
             opts = [str(o).strip()[:120] for o in (f.options or []) if str(o).strip()][:30] or ["Option 1"]
-        out.append({
+        item = {
             "id": (f.id or f"f{i + 1}").strip()[:40] or f"f{i + 1}",
             "type": t,
             "label": (f.label or "").strip()[:120] or f"Field {i + 1}",
@@ -160,7 +163,16 @@ def _clean_fields(fields: List[FormField]) -> list:
             "placeholder": (f.placeholder or "").strip()[:160] or None,
             "options": opts,
             "text": ((f.text or "").strip()[:CONSENT_TEXT_MAX] or None) if t == "consent" else None,
-        })
+        }
+        if t == "payment":
+            try:
+                amt = round(float(f.amount or 0), 2)
+            except (TypeError, ValueError):
+                amt = 0.0
+            item["amount"] = max(0.0, amt)
+            item["amount_open"] = bool(f.amount_open)
+            item["currency"] = (f.currency or "USD").strip().upper()[:3] or "USD"
+        out.append(item)
     return out
 
 
@@ -297,35 +309,48 @@ async def public_form(form: str = Query(...)):
     return _public_form_view(doc)
 
 
-@router.post("/pub/form-submit")
-async def public_submit(request: Request, body: FormSubmit, form: str = Query(...)):
-    doc = await db.forms.find_one({"form_key": form}, {"_id": 0})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Form not found")
-    # Honeypot: a bot filled the hidden field — accept silently, store nothing.
-    if (body.hp or "").strip():
-        return {"ok": True}
-    ip = _client_ip(request)
-    if not _rate_ok(form, ip):
-        raise HTTPException(status_code=429, detail="Too many submissions — wait a minute and try again.")
-    fields = doc.get("fields") or []
-    by_id = {f["id"]: f for f in fields}
-    values = body.values if isinstance(body.values, dict) else {}
+def _payment_field(doc: dict) -> Optional[dict]:
+    for f in (doc.get("fields") or []):
+        if f.get("type") == "payment":
+            return f
+    return None
+
+
+def _clean_values(fields: list, values: dict) -> dict:
+    """Coerce + validate submitted values against the form's fields."""
+    values = values if isinstance(values, dict) else {}
     clean: dict = {}
     for f in fields:
-        raw = values.get(f["id"])
         ft = f.get("type")
+        if ft == "heading":
+            continue
+        raw = values.get(f["id"])
         cap = PHOTO_MAX_LEN if ft == "photo" else SIG_MAX_LEN if ft == "signature" else MAX_VALUE_LEN
         val = (", ".join(str(x) for x in raw) if isinstance(raw, list) else ("" if raw is None else str(raw)))[:cap]
-        if f.get("required") and not val.strip():
+        if f.get("required") and ft != "payment" and not val.strip():
             raise HTTPException(status_code=400, detail=f"{f.get('label') or 'A field'} is required.")
         clean[f["id"]] = val
+    return clean
+
+
+def _email_short(v) -> str:
+    s = str(v)
+    return "[attachment]" if s.startswith("data:") else s[:500]
+
+
+async def _record_submission(doc: dict, clean: dict, ip: str, payment: Optional[dict] = None) -> str:
+    """Persist a submission and fan out notification + webhook + email. Shared by
+    the free submit path and the paid (Stripe) finalize path."""
+    fields = doc.get("fields") or []
+    by_id = {f["id"]: f for f in fields}
     sub = {
         "id": str(uuid.uuid4()),
         "form_id": doc["id"], "owner_id": doc["owner_id"],
-        "values": clean, "ip": ip[:60],
+        "values": clean, "ip": (ip or "")[:60],
         "submitted_at": datetime.now(timezone.utc),
     }
+    if payment:
+        sub["payment"] = payment
     await db.form_submissions.insert_one(sub.copy())
     await db.forms.update_one({"id": doc["id"]}, {"$inc": {"submissions": 1}})
     try:
@@ -335,11 +360,11 @@ async def public_submit(request: Request, body: FormSubmit, form: str = Query(..
     except Exception:
         pass
     try:
-        # Developers can subscribe a webhook to receive submissions on their server.
         from routes.webhooks import deliver_event
         await deliver_event(doc["owner_id"], "form.submission", {
             "form_id": doc["id"], "form_key": doc.get("form_key"), "title": doc.get("title"),
-            "submission_id": sub["id"], "values": clean, "submitted_at": _fmt_dt(sub["submitted_at"]),
+            "submission_id": sub["id"], "values": clean, "payment": payment,
+            "submitted_at": _fmt_dt(sub["submitted_at"]),
         })
     except Exception:
         pass
@@ -351,12 +376,132 @@ async def public_submit(request: Request, body: FormSubmit, form: str = Query(..
         if recipient:
             from services.email import send_email, email_enabled
             if email_enabled():
-                lines = "\n".join(f"- {by_id.get(k, {}).get('label', k)}: {v}" for k, v in clean.items())
+                lines = "\n".join(f"- {by_id.get(k, {}).get('label', k)}: {_email_short(v)}" for k, v in clean.items())
+                if payment:
+                    lines = f"- Payment: {payment.get('currency', 'USD')} {payment.get('amount')} (paid)\n" + lines
                 send_email(recipient, f"New submission: {doc.get('title')}",
                            f"You received a new form submission:\n\n{lines}")
     except Exception:
         pass
+    return sub["id"]
+
+
+@router.post("/pub/form-submit")
+async def public_submit(request: Request, body: FormSubmit, form: str = Query(...)):
+    doc = await db.forms.find_one({"form_key": form}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Form not found")
+    if (body.hp or "").strip():          # honeypot — accept silently, store nothing
+        return {"ok": True}
+    if _payment_field(doc):
+        raise HTTPException(status_code=402, detail="This form requires payment — use the payment button.")
+    ip = _client_ip(request)
+    if not _rate_ok(form, ip):
+        raise HTTPException(status_code=429, detail="Too many submissions — wait a minute and try again.")
+    clean = _clean_values(doc.get("fields") or [], body.values)
+    await _record_submission(doc, clean, ip)
     return {"ok": True}
+
+
+async def finalize_form_payment(pending_id: str) -> bool:
+    """Turn a paid pending payment into a real submission (idempotent — the
+    status flip is the lock so the webhook and the on-return confirm can't double)."""
+    res = await db.form_pending.update_one({"id": pending_id, "status": "pending"}, {"$set": {"status": "paid"}})
+    if not res or getattr(res, "matched_count", 0) == 0:
+        return False
+    p = await db.form_pending.find_one({"id": pending_id}, {"_id": 0})
+    doc = await db.forms.find_one({"id": p["form_id"]}, {"_id": 0}) if p else None
+    if not doc:
+        return False
+    await _record_submission(
+        doc, p.get("values") or {}, p.get("ip", ""),
+        payment={"amount": p.get("amount"), "currency": p.get("currency"), "status": "paid"},
+    )
+    return True
+
+
+@router.post("/pub/form-checkout")
+async def form_checkout(request: Request, body: FormSubmit, form: str = Query(...)):
+    """Create a Stripe Checkout session for a paid form — the charge is routed to
+    the form owner's connected account; the submission is recorded on payment."""
+    doc = await db.forms.find_one({"form_key": form}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Form not found")
+    pay = _payment_field(doc)
+    if not pay:
+        raise HTTPException(status_code=400, detail="This form has no payment.")
+    if (body.hp or "").strip():
+        return {"ok": True}
+    ip = _client_ip(request)
+    if not _rate_ok(form, ip):
+        raise HTTPException(status_code=429, detail="Too many attempts — wait a minute.")
+    clean = _clean_values(doc.get("fields") or [], body.values)
+    cur = (pay.get("currency") or "USD").upper()
+    if pay.get("amount_open"):
+        try:
+            amt = round(float((body.values or {}).get(pay["id"]) or 0), 2)
+        except (TypeError, ValueError):
+            amt = 0.0
+    else:
+        amt = round(float(pay.get("amount") or 0), 2)
+    if amt < 0.50:
+        raise HTTPException(status_code=400, detail="Enter a valid amount.")
+    from routes.payments import stripe, stripe_enabled, platform_fee_percent, transaction_fee_cents
+    if not stripe_enabled():
+        raise HTTPException(status_code=400, detail="Payments aren't enabled on this site.")
+    owner = await db.users.find_one({"user_id": doc["owner_id"]}, {"_id": 0, "stripe_account_id": 1})
+    dest = (owner or {}).get("stripe_account_id")
+    if not dest:
+        raise HTTPException(status_code=400, detail="The form owner hasn't set up payouts yet.")
+    gross_cents = int(round(amt * 100))
+    try:
+        fee_cents = int(round(gross_cents * (await platform_fee_percent()) / 100.0)) + (await transaction_fee_cents())
+    except Exception:
+        fee_cents = 0
+    fee_cents = max(0, min(fee_cents, gross_cents - 1))
+    pending = {
+        "id": str(uuid.uuid4()), "form_id": doc["id"], "owner_id": doc["owner_id"], "form_key": form,
+        "values": clean, "amount": amt, "currency": cur, "ip": ip[:60],
+        "status": "pending", "created_at": datetime.now(timezone.utc),
+    }
+    await db.form_pending.insert_one(pending.copy())
+    base = _public_base(request)
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            line_items=[{"price_data": {
+                "currency": cur.lower(),
+                "product_data": {"name": (doc.get("title") or "Form payment")[:120]},
+                "unit_amount": gross_cents,
+            }, "quantity": 1}],
+            payment_intent_data={"application_fee_amount": fee_cents, "transfer_data": {"destination": dest}},
+            success_url=f"{base}/api/pub/form-unit?form={form}&paid={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{base}/api/pub/form-unit?form={form}&pay=cancel",
+            metadata={"kind": "form_payment", "pending_id": pending["id"], "form_key": form},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Couldn't start checkout: {str(e)[:140]}")
+    await db.form_pending.update_one({"id": pending["id"]}, {"$set": {"session_id": session.get("id")}})
+    return {"url": session.get("url")}
+
+
+@router.get("/pub/form-paid")
+async def form_paid(session: str = Query(...)):
+    """On-return confirm (belt-and-braces with the webhook): if the session is paid,
+    finalize its submission."""
+    from routes.payments import stripe, stripe_enabled
+    if not stripe_enabled():
+        return {"ok": False}
+    try:
+        s = stripe.checkout.Session.retrieve(session)
+    except Exception:
+        return {"ok": False}
+    if s.get("payment_status") == "paid":
+        meta = s.get("metadata") or {}
+        if meta.get("kind") == "form_payment" and meta.get("pending_id"):
+            await finalize_form_payment(meta["pending_id"])
+            return {"ok": True}
+    return {"ok": False}
 
 
 _EMBED_JS = """(function(){
@@ -409,6 +554,11 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
   .consent{border:1px solid var(--border);border-radius:var(--rad);background:var(--field);max-height:170px;overflow:auto;padding:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;margin-bottom:8px}
   .prog{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin:2px 0 16px}
   .prog>span{display:block;height:100%;width:0;background:var(--acc);transition:width .25s ease}
+  h3.sec{font-size:16px;font-weight:800;margin:22px 0 2px;border-top:1px solid var(--border);padding-top:16px}
+  .payamt{font-size:22px;font-weight:800;color:var(--acc)}
+  .rating{display:flex;gap:6px}
+  .rating .star{font-size:30px;line-height:1;color:var(--border);cursor:pointer;user-select:none}
+  .rating .star.on{color:var(--acc)}
   button{margin-top:16px;width:100%;background:var(--acc);color:#fff;border:0;border-radius:var(--rad);padding:12px;font-size:15px;font-weight:700;cursor:pointer}
   button:disabled{opacity:.6}
   .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
@@ -427,19 +577,27 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
   rs.setProperty('--rad',CFG.radius+'px');
   var root=document.getElementById("root");
   function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];});}
+  // Returning from Stripe Checkout: confirm + thank-you, or note a cancellation.
+  var Q=new URLSearchParams(location.search);
+  if(Q.get('paid')){root.innerHTML='<div class="msg ok">Confirming your payment…</div>';fetch(BASE+"/api/pub/form-paid?session="+encodeURIComponent(Q.get('paid'))).then(function(){root.innerHTML='<div class="msg ok">Thanks! Your payment was received and your response submitted.</div>';}).catch(function(){root.innerHTML='<div class="msg ok">Thanks! Your response was submitted.</div>';});return;}
   fetch(BASE+"/api/pub/form?form="+encodeURIComponent(FORM)).then(function(r){return r.json()}).then(function(f){
     if(!f||!f.fields){root.innerHTML='<div class="msg err">This form is unavailable.</div>';return;}
     var pf=CFG.prefill||{};
+    var payFld=null;(f.fields||[]).forEach(function(fl){if(fl.type==='payment')payFld=fl;});
     var h='';
     if(!CFG.hideTitle){h+='<h2>'+esc(f.title||"Form")+'</h2>';if(f.description) h+='<p class="desc">'+esc(f.description)+'</p>';}
     h+='<form id="nf"><div class="hp"><label>Leave this empty<input type="text" name="_hp" autocomplete="off" tabindex="-1"></label></div>';
     h+='<div class="prog"><span id="pbar"></span></div>';
     (f.fields||[]).forEach(function(fl){
+      var t=fl.type;
+      if(t==='heading'){h+='<h3 class="sec">'+esc(fl.label)+'</h3>';return;}
       var req=fl.required?' <span class="req">*</span>':'';
       var pv=pf[fl.id]!=null?String(pf[fl.id]):"";
       h+='<label>'+esc(fl.label)+req+'</label>';
-      var t=fl.type;
       if(t==='textarea'){h+='<textarea data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'"'+(fl.required?' required':'')+'>'+esc(pv)+'</textarea>';}
+      else if(t==='time'||t==='url'){var ut=(t==='url')?'url':'time';h+='<input type="'+ut+'" data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'" value="'+esc(pv)+'"'+(fl.required?' required':'')+'>';}
+      else if(t==='rating'){h+='<div class="rating" data-rating="'+esc(fl.id)+'">';for(var s=1;s<=5;s++){h+='<span class="star" data-val="'+s+'">\\u2605</span>';}h+='</div>';}
+      else if(t==='payment'){if(fl.amount_open){h+='<input type="number" min="0.5" step="0.01" data-fid="'+esc(fl.id)+'" placeholder="Amount in '+esc(fl.currency||"USD")+'"'+(fl.required?' required':'')+'>';}else{h+='<div class="payamt">'+esc(fl.currency||"USD")+' '+esc(Number(fl.amount||0).toFixed(2))+'</div>';}}
       else if(t==='select'){h+='<select data-fid="'+esc(fl.id)+'"'+(fl.required?' required':'')+'><option value="">Choose…</option>';(fl.options||[]).forEach(function(o){h+='<option'+(o===pv?' selected':'')+'>'+esc(o)+'</option>';});h+='</select>';}
       else if(t==='radio'||t==='checkbox'){(fl.options||[]).forEach(function(o){var ck=(t==='radio'?o===pv:String(pv).split(",").indexOf(o)>=0)?' checked':'';h+='<label class="opt"><input type="'+t+'" name="'+esc(fl.id)+'" value="'+esc(o)+'"'+ck+'>'+esc(o)+'</label>';});}
       else if(t==='signature'){h+='<div class="sigwrap"><canvas class="sig" data-sig="'+esc(fl.id)+'"></canvas><button type="button" class="sigclear" data-sigclear="'+esc(fl.id)+'">Clear</button></div>';}
@@ -447,7 +605,8 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
       else if(t==='consent'){h+='<div class="consent">'+esc(fl.text||"I agree to the terms above.")+'</div><label class="opt"><input type="checkbox" data-consent="'+esc(fl.id)+'"'+(fl.required?' required':'')+'> I agree</label>';}
       else {var it=(t==='email'||t==='number'||t==='date')?t:(t==='phone'?'tel':'text');h+='<input type="'+it+'" data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'" value="'+esc(pv)+'"'+(fl.required?' required':'')+'>';}
     });
-    h+='<button type="submit">'+esc(f.submit_label||"Submit")+'</button><div id="err" class="err" style="display:none"></div></form>';
+    var btnLabel=payFld?(payFld.amount_open?'Continue to payment':('Pay '+(payFld.currency||"USD")+' '+Number(payFld.amount||0).toFixed(2))):(f.submit_label||"Submit");
+    h+='<button type="submit">'+esc(btnLabel)+'</button><div id="err" class="err" style="display:none"></div></form>';
     root.innerHTML=h;
     var form=document.getElementById("nf");
     // Completion progress bar.
@@ -457,6 +616,7 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
       if(fl.type==='signature'){var sc=form.querySelector('canvas[data-sig="'+fl.id+'"]');return !!(sc&&sc.__dirty&&sc.__dirty());}
       if(fl.type==='photo'){var pi=form.querySelector('input[data-photo="'+fl.id+'"]');return !!(pi&&pi.__data);}
       if(fl.type==='consent'){var cc=form.querySelector('input[data-consent="'+fl.id+'"]');return !!(cc&&cc.checked);}
+      if(fl.type==='rating'){var rt=form.querySelector('.rating[data-rating="'+fl.id+'"]');return !!(rt&&rt.__val);}
       var el=form.querySelector('[data-fid="'+fl.id+'"]');return !!(el&&String(el.value).trim());
     }
     function updateProgress(){var n=0,tot=(f.fields||[]).length||1;(f.fields||[]).forEach(function(fl){if(fieldFilled(fl))n++;});var pb=document.getElementById('pbar');if(pb)pb.style.width=Math.round(n/tot*100)+'%';}
@@ -486,6 +646,12 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
         rd.readAsDataURL(file);
       });
     });
+    // Wire up rating stars.
+    form.querySelectorAll('.rating').forEach(function(rt){
+      var stars=rt.querySelectorAll('.star');
+      stars.forEach(function(st){st.addEventListener('click',function(){var v=parseInt(st.getAttribute('data-val'),10);rt.__val=String(v);stars.forEach(function(s2){s2.className='star'+(parseInt(s2.getAttribute('data-val'),10)<=v?' on':'');});updateProgress();});});
+    });
+    if(Q.get('pay')==='cancel'){var ec=document.getElementById('err');if(ec){ec.style.display='block';ec.textContent='Payment cancelled — you can try again.';}}
     form.addEventListener('input',updateProgress);
     form.addEventListener('change',updateProgress);
     updateProgress();
@@ -499,9 +665,17 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
         else if(fl.type==='signature'){var sc=form.querySelector('canvas[data-sig="'+fl.id+'"]');vals[fl.id]=(sc&&sc.__dirty&&sc.__dirty())?sc.toDataURL('image/png'):"";}
         else if(fl.type==='photo'){var pi=form.querySelector('input[data-photo="'+fl.id+'"]');vals[fl.id]=(pi&&pi.__data)||"";}
         else if(fl.type==='consent'){var cc=form.querySelector('input[data-consent="'+fl.id+'"]');vals[fl.id]=(cc&&cc.checked)?"I agree":"";}
+        else if(fl.type==='rating'){var rt=form.querySelector('.rating[data-rating="'+fl.id+'"]');vals[fl.id]=(rt&&rt.__val)||"";}
         else {var el=form.querySelector('[data-fid="'+fl.id+'"]');vals[fl.id]=el?el.value:"";}
       });
       var hp=form.querySelector('input[name="_hp"]');
+      if(payFld){
+        fetch(BASE+"/api/pub/form-checkout?form="+encodeURIComponent(FORM),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values:vals,hp:hp?hp.value:""})})
+          .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
+          .then(function(res){if(res.ok&&res.j&&res.j.url){window.location.href=res.j.url;return;}var e3=document.getElementById("err");e3.style.display="block";e3.textContent=(res.j&&res.j.detail)||"Couldn\\'t start checkout.";btn.disabled=false;})
+          .catch(function(){var e3=document.getElementById("err");e3.style.display="block";e3.textContent="Network error. Try again.";btn.disabled=false;});
+        return;
+      }
       fetch(BASE+"/api/pub/form-submit?form="+encodeURIComponent(FORM),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values:vals,hp:hp?hp.value:""})})
         .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j}})})
         .then(function(res){

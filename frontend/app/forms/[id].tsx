@@ -28,9 +28,14 @@ const TYPES: { k: FormFieldType; label: string; icon: any }[] = [
   { k: "select", label: "Dropdown", icon: "chevron-down-circle-outline" },
   { k: "radio", label: "Single choice", icon: "radio-button-on-outline" },
   { k: "checkbox", label: "Checkboxes", icon: "checkbox-outline" },
+  { k: "time", label: "Time", icon: "time-outline" },
+  { k: "url", label: "Website / link", icon: "link-outline" },
+  { k: "rating", label: "Star rating", icon: "star-outline" },
+  { k: "heading", label: "Section heading", icon: "text" },
   { k: "signature", label: "Signature", icon: "create-outline" },
   { k: "photo", label: "Photo (take/upload)", icon: "camera-outline" },
   { k: "consent", label: "Agreement / consent", icon: "shield-checkmark-outline" },
+  { k: "payment", label: "Payment (Stripe)", icon: "card-outline" },
 ];
 // Accent presets for the embed customizer ("" = default theme green).
 const ACCENTS = ["", "7C3AED", "0EA5E9", "F97316", "EF4444", "EAB308", "EC4899"];
@@ -238,13 +243,29 @@ export default function FormBuilderScreen() {
                     </View>
                   ) : f.type === "consent" ? (
                     <TextInput style={[styles.input, styles.area, { marginTop: 8 }]} value={f.text || ""} onChangeText={(t) => patchField(i, { text: t })} placeholder="Terms / liability text the signer must agree to" placeholderTextColor={theme.textMuted} multiline />
-                  ) : (f.type === "signature" || f.type === "photo") ? null : (
+                  ) : f.type === "payment" ? (
+                    <View style={{ marginTop: 8, gap: 8 }}>
+                      <View style={styles.reqRow}>
+                        <Text style={styles.reqText}>Let the payer choose the amount</Text>
+                        <Switch value={!!f.amount_open} onValueChange={(v) => patchField(i, { amount_open: v })} trackColor={{ true: theme.primary }} />
+                      </View>
+                      {!f.amount_open && (
+                        <View style={styles.payRow}>
+                          <TextInput style={[styles.optInput, { flex: 0.4 }]} value={f.currency || "USD"} onChangeText={(t) => patchField(i, { currency: t.toUpperCase().slice(0, 3) })} placeholder="USD" placeholderTextColor={theme.textMuted} autoCapitalize="characters" />
+                          <TextInput style={[styles.optInput, { flex: 0.6 }]} value={f.amount != null ? String(f.amount) : ""} onChangeText={(t) => { const n = t.replace(/[^0-9.]/g, ""); patchField(i, { amount: n ? Number(n) : null }); }} placeholder="Amount (e.g. 25)" placeholderTextColor={theme.textMuted} keyboardType="decimal-pad" />
+                        </View>
+                      )}
+                      <Text style={styles.payHint}>Charged via Stripe to your connected payout account. Set up payouts in Settings → Monetize first.</Text>
+                    </View>
+                  ) : (["signature", "photo", "heading", "rating"].includes(f.type)) ? null : (
                     <TextInput style={[styles.input, { marginTop: 8 }]} value={f.placeholder || ""} onChangeText={(t) => patchField(i, { placeholder: t })} placeholder="Placeholder (optional)" placeholderTextColor={theme.textMuted} />
                   )}
-                  <View style={styles.reqRow}>
-                    <Text style={styles.reqText}>Required</Text>
-                    <Switch value={!!f.required} onValueChange={(v) => patchField(i, { required: v })} trackColor={{ true: theme.primary }} testID={`field-req-${i}`} />
-                  </View>
+                  {f.type !== "heading" && (
+                    <View style={styles.reqRow}>
+                      <Text style={styles.reqText}>Required</Text>
+                      <Switch value={!!f.required} onValueChange={(v) => patchField(i, { required: v })} trackColor={{ true: theme.primary }} testID={`field-req-${i}`} />
+                    </View>
+                  )}
                 </View>
               ))}
               <TouchableOpacity style={styles.addField} onPress={addField} testID="form-add-field">
@@ -471,6 +492,8 @@ const styles = StyleSheet.create({
   optInput: { flex: 1, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: theme.textPrimary, fontSize: 14, ...webInput },
   addOpt: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 4 },
   addOptText: { color: theme.primary, fontSize: 13, fontWeight: "700" },
+  payRow: { flexDirection: "row", gap: 8 },
+  payHint: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16 },
   reqRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
   reqText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "700" },
   addField: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.surfaceAlt, borderRadius: 12, paddingVertical: 12, marginTop: 2 },

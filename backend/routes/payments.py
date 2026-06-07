@@ -969,7 +969,13 @@ async def _fulfill_payment(meta: dict, now):
     creator_id = meta.get("creator_id")
     buyer_id = meta.get("buyer_id")
     net = round(float(meta.get("net") or 0), 2)
-    if kind == "promote" and meta.get("post_id"):
+    if kind == "form_payment" and meta.get("pending_id"):
+        try:
+            from routes.forms import finalize_form_payment
+            await finalize_form_payment(meta["pending_id"])
+        except Exception:
+            pass
+    elif kind == "promote" and meta.get("post_id"):
         days = max(1, min(30, int(meta.get("days") or 7)))
         promo: dict = {"promoted_until": now + timedelta(days=days)}
         if meta.get("budget"):
