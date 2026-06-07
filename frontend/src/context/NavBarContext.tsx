@@ -80,9 +80,9 @@ export const NAV_CATALOG: NavShortcut[] = [
   },
 ];
 
-export const DEFAULT_NAV_IDS = ["feed", "map", "messages", "notifications", "groups"];
+export const DEFAULT_NAV_IDS = ["feed", "map", "messages", "notifications"];
 const MIN_TABS = 3;
-const MAX_TABS = 5;
+const MAX_TABS = 4;
 const STORAGE_KEY = "nav_bar_tabs_v1";
 
 type Ctx = {

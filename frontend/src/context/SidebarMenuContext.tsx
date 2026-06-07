@@ -17,24 +17,19 @@ export type SidebarItem = {
 export const SIDEBAR_CATALOG: SidebarItem[] = [
   { id: "notifications", label: "Notifications", icon: "notifications", route: "/notifications", color: "#EF4444" },
   { id: "reels", label: "Reels", icon: "videocam", route: "/reels", color: "#EC4899" },
-  { id: "bookmarks", label: "Bookmarks", icon: "bookmark", route: "/bookmarks", color: "#00A884" },
   { id: "groups", label: "Groups", icon: "people", route: "/(tabs)/groups", color: "#7C3AED" },
   { id: "communities", label: "Communities", icon: "chatbubbles", route: "/communities", color: "#EF4444" },
   { id: "marketplace", label: "Marketplace", icon: "storefront", route: "/(tabs)/marketplace", color: "#F59E0B" },
-  { id: "favorites", label: "Saved Places", icon: "location", route: "/(tabs)/favorites", color: "#22C55E" },
   { id: "settings", label: "Settings", icon: "settings", route: "/settings", color: "#64748B" },
   { id: "advertise", label: "Advertise", icon: "megaphone", route: "/advertise", color: "#F97316" },
   { id: "wallet", label: "Wallet", icon: "wallet", route: "/wallet", color: "#10B981" },
-  { id: "people", label: "Find People", icon: "person-add", route: "/people", color: "#0EA5E9" },
   { id: "feed", label: "Feed", icon: "home", route: "/(tabs)/feed", color: "#3B82F6" },
   { id: "map", label: "Map", icon: "map", route: "/(tabs)", color: "#14B8A6" },
   { id: "messages", label: "Messages", icon: "chatbubbles", route: "/(tabs)/messages", color: "#06B6D4" },
-  { id: "directions", label: "Directions", icon: "navigate", route: "/(tabs)/directions", color: "#8B5CF6" },
-  { id: "customize-nav", label: "Customize nav bar", icon: "grid", route: "/customize-nav", color: "#0EA5E9" },
 ];
 
 export const DEFAULT_SIDEBAR_IDS = [
-  "feed", "notifications", "reels", "bookmarks", "groups", "marketplace", "favorites", "settings",
+  "feed", "notifications", "reels", "groups", "marketplace", "settings",
 ];
 // Items that are always present and can't be removed (only reordered).
 export const LOCKED_SIDEBAR_IDS = ["feed", "settings"];
