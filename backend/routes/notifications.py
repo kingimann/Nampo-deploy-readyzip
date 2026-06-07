@@ -161,6 +161,111 @@ async def list_notifications(authorization: Optional[str] = Header(None)):
     return [await _hydrate(d) for d in docs]
 
 
+# ── "Activity" tab: recent actions by people in your network ─────────────────
+class ActivityItem(BaseModel):
+    id: str
+    actor_id: str
+    actor_name: str
+    actor_picture: Optional[str] = None
+    type: str                  # like | comment | repost
+    post_id: Optional[str] = None
+    target_kind: str = "post"  # post | video
+    text: Optional[str] = None # comment text or post preview
+    created_at: datetime
+
+
+async def _network_ids(me_id: str) -> list:
+    """People you follow ∪ people who follow you ∪ friends (minus yourself)."""
+    ids = set()
+    f1 = await db.follows.find({"follower_id": me_id}, {"_id": 0, "followee_id": 1}).to_list(3000)
+    f2 = await db.follows.find({"followee_id": me_id}, {"_id": 0, "follower_id": 1}).to_list(3000)
+    fr = await db.friendships.find({"$or": [{"a": me_id}, {"b": me_id}]}, {"_id": 0, "a": 1, "b": 1}).to_list(3000)
+    for f in f1:
+        ids.add(f.get("followee_id"))
+    for f in f2:
+        ids.add(f.get("follower_id"))
+    for f in fr:
+        ids.add(f.get("a"))
+        ids.add(f.get("b"))
+    ids.discard(me_id)
+    ids.discard(None)
+    return list(ids)
+
+
+@router.get("/notifications/activity", response_model=List[ActivityItem])
+async def network_activity(authorization: Optional[str] = Header(None)):
+    """Instagram-style activity feed: what people in your network recently did —
+    liked, commented on, or reposted a post or video."""
+    user = await get_current_user(authorization)
+    me = user["user_id"]
+    net = await _network_ids(me)
+    if not net:
+        return []
+    from core import _norm_dt
+    raw = []
+    reacts = await db.post_reactions.find(
+        {"user_id": {"$in": net}}, {"_id": 0}
+    ).sort("created_at", -1).limit(80).to_list(80)
+    for r in reacts:
+        if r.get("post_id") and r.get("created_at"):
+            raw.append({"type": "like", "actor": r["user_id"], "post_id": r["post_id"], "created_at": r["created_at"]})
+    acts = await db.posts.find(
+        {"user_id": {"$in": net}, "$or": [{"parent_id": {"$ne": None}}, {"repost_of": {"$ne": None}}]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(80).to_list(80)
+    for p in acts:
+        if p.get("repost_of"):
+            raw.append({"type": "repost", "actor": p["user_id"], "post_id": p["repost_of"], "created_at": p.get("created_at")})
+        elif p.get("parent_id"):
+            raw.append({"type": "comment", "actor": p["user_id"], "post_id": p["parent_id"], "created_at": p.get("created_at"), "text": (p.get("text") or "")[:140]})
+
+    def _ts(x):
+        try:
+            return _norm_dt(x["created_at"])
+        except Exception:
+            return datetime.min.replace(tzinfo=timezone.utc)
+    raw.sort(key=_ts, reverse=True)
+
+    actor_cache: dict = {}
+    post_cache: dict = {}
+    out: List[ActivityItem] = []
+    seq = 0
+    for a in raw:
+        if len(out) >= 40:
+            break
+        pid = a.get("post_id")
+        if not pid:
+            continue
+        pdoc = post_cache.get(pid)
+        if pdoc is None:
+            pdoc = await db.posts.find_one({"id": pid}, {"_id": 0, "media": 1, "text": 1, "user_id": 1}) or {}
+            post_cache[pid] = pdoc
+        if not pdoc:
+            continue
+        # Activity on YOUR own posts already shows in the Notifications tab.
+        if pdoc.get("user_id") == me:
+            continue
+        adoc = actor_cache.get(a["actor"])
+        if adoc is None:
+            adoc = await db.users.find_one({"user_id": a["actor"]}, {"_id": 0, "name": 1, "picture": 1}) or {}
+            actor_cache[a["actor"]] = adoc
+        kind = "video" if any((m or {}).get("type") == "video" for m in (pdoc.get("media") or [])) else "post"
+        preview = a.get("text") or ((pdoc.get("text") or "")[:140] or None)
+        seq += 1
+        out.append(ActivityItem(
+            id=f"{a['type']}:{a['actor']}:{pid}:{seq}",
+            actor_id=a["actor"],
+            actor_name=adoc.get("name", "Someone"),
+            actor_picture=adoc.get("picture"),
+            type=a["type"],
+            post_id=pid,
+            target_kind=kind,
+            text=preview,
+            created_at=a["created_at"],
+        ))
+    return out
+
+
 @router.get("/notifications/unread")
 async def unread_count(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)

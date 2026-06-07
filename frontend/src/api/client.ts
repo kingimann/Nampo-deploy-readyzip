@@ -445,6 +445,7 @@ export const api = {
 
   // Notifications
   listNotifications: () => request<Notification[]>("/notifications"),
+  listActivity: () => request<ActivityItem[]>("/notifications/activity"),
   unreadNotificationsCount: () =>
     request<{ count: number }>("/notifications/unread"),
   markNotificationRead: (id: string) =>
@@ -1158,6 +1159,18 @@ export type Notification = {
   group_id?: string | null;
   message?: string | null;
   read: boolean;
+  created_at: string;
+};
+
+export type ActivityItem = {
+  id: string;
+  actor_id: string;
+  actor_name: string;
+  actor_picture?: string | null;
+  type: "like" | "comment" | "repost";
+  post_id?: string | null;
+  target_kind: "post" | "video";
+  text?: string | null;
   created_at: string;
 };
 

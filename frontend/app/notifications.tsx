@@ -6,9 +6,19 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, Stack } from "expo-router";
-import { api, Notification } from "@/src/api/client";
+import { api, Notification, ActivityItem } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { safeBack } from "@/src/utils/nav";
+
+const ACT_ICON: Record<ActivityItem["type"], { name: any; color: string }> = {
+  like:    { name: "heart",      color: "#EF4444" },
+  comment: { name: "chatbubble", color: "#3B82F6" },
+  repost:  { name: "repeat",     color: "#22C55E" },
+};
+const actVerb = (a: ActivityItem) =>
+  a.type === "like" ? `liked a ${a.target_kind}`
+  : a.type === "comment" ? `commented on a ${a.target_kind}`
+  : `reposted a ${a.target_kind}`;
 
 const ICON: Record<Notification["type"], { name: any; color: string }> = {
   like:          { name: "heart",            color: "#EF4444" },
@@ -51,9 +61,13 @@ const VERB: Record<Notification["type"], string> = {
 export default function NotificationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [tab, setTab] = useState<"you" | "activity">("you");
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [actLoading, setActLoading] = useState(false);
+  const [actLoaded, setActLoaded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -65,7 +79,24 @@ export default function NotificationsScreen() {
     }
   }, []);
 
+  const loadActivity = useCallback(async () => {
+    setActLoading(true);
+    try { setActivity(await api.listActivity()); setActLoaded(true); }
+    catch {} finally { setActLoading(false); setRefreshing(false); }
+  }, []);
+
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const switchTab = (t: "you" | "activity") => {
+    setTab(t);
+    if (t === "activity" && !actLoaded) loadActivity();
+  };
+
+  const onActivityTap = (a: ActivityItem) => {
+    if (!a.post_id) return;
+    if (a.target_kind === "video") router.push({ pathname: "/reels", params: { focus: a.post_id } });
+    else router.push({ pathname: "/post/[id]", params: { id: a.post_id } });
+  };
 
   const onTap = async (n: Notification) => {
     if (!n.read) {
@@ -117,17 +148,70 @@ export default function NotificationsScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Notifications</Text>
-        <TouchableOpacity
-          onPress={markAll}
-          disabled={unread === 0}
-          style={[styles.markAllBtn, unread === 0 && { opacity: 0.4 }]}
-          testID="mark-all-read"
-        >
-          <Text style={styles.markAllText}>Mark all read</Text>
-        </TouchableOpacity>
+        {tab === "you" ? (
+          <TouchableOpacity
+            onPress={markAll}
+            disabled={unread === 0}
+            style={[styles.markAllBtn, unread === 0 && { opacity: 0.4 }]}
+            testID="mark-all-read"
+          >
+            <Text style={styles.markAllText}>Mark all read</Text>
+          </TouchableOpacity>
+        ) : <View style={{ width: 40 }} />}
       </View>
 
-      {loading ? (
+      <View style={styles.tabs}>
+        {([["you", "Notifications"], ["activity", "Activity"]] as const).map(([k, label]) => (
+          <TouchableOpacity key={k} style={styles.tab} onPress={() => switchTab(k)} testID={`notif-tab-${k}`}>
+            <Text style={[styles.tabText, tab === k && styles.tabTextActive]}>{label}</Text>
+            {tab === k && <View style={styles.tabUnderline} />}
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {tab === "activity" ? (
+        actLoading && !activity.length ? (
+          <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
+        ) : (
+          <FlatList
+            data={activity}
+            keyExtractor={(i) => i.id}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadActivity(); }} tintColor={theme.primary} />}
+            contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 8 }}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}><Ionicons name="people-outline" size={32} color={theme.textMuted} /></View>
+                <Text style={styles.emptyTitle}>No activity yet</Text>
+                <Text style={styles.emptySub}>When friends and people you follow like, comment on, or repost posts and videos, you'll see it here.</Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const ic = ACT_ICON[item.type] || ACT_ICON.like;
+              return (
+                <TouchableOpacity style={styles.row} onPress={() => onActivityTap(item)} testID={`act-${item.id}`} activeOpacity={0.85}>
+                  <View style={styles.avatarWrap}>
+                    {item.actor_picture ? (
+                      <Image source={{ uri: item.actor_picture }} style={styles.avatarImg} />
+                    ) : (
+                      <View style={styles.avatarFallback}><Text style={styles.avatarInit}>{(item.actor_name?.[0] || "?").toUpperCase()}</Text></View>
+                    )}
+                    <View style={[styles.iconChip, { backgroundColor: ic.color }]}><Ionicons name={ic.name} size={10} color="#fff" /></View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.text} numberOfLines={2}>
+                      <Text style={{ fontWeight: "700" }}>{item.actor_name || "Someone"}</Text>
+                      <Text>  {actVerb(item)}</Text>
+                    </Text>
+                    {!!item.text && <Text style={styles.preview} numberOfLines={2}>“{item.text}”</Text>}
+                    <Text style={styles.time}>{fmtTime(item.created_at)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )
+      ) : loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <FlatList
@@ -212,6 +296,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
   },
   markAllText: { color: theme.primary, fontSize: 12, fontWeight: "700" },
+  tabs: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  tab: { flex: 1, alignItems: "center", paddingVertical: 11 },
+  tabText: { color: theme.textMuted, fontSize: 14.5, fontWeight: "700" },
+  tabTextActive: { color: theme.textPrimary, fontWeight: "800" },
+  tabUnderline: { position: "absolute", bottom: -StyleSheet.hairlineWidth, height: 2.5, width: 60, borderRadius: 2, backgroundColor: theme.primary },
 
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: { paddingTop: 80, alignItems: "center", gap: 10 },
