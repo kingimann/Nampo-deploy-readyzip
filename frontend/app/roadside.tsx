@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
   TextInput, RefreshControl, Image, Alert, Linking, Platform, Modal, Pressable, KeyboardAvoidingView,
@@ -123,6 +123,7 @@ export default function RoadsideScreen() {
   const [destName, setDestName] = useState("");
   const [fuelType, setFuelType] = useState("");
   const [fuelAmount, setFuelAmount] = useState("");
+  const [vehicleOpen, setVehicleOpen] = useState(false);
   const [vYear, setVYear] = useState("");
   const [vMake, setVMake] = useState("");
   const [vModel, setVModel] = useState("");
@@ -261,6 +262,14 @@ export default function RoadsideScreen() {
       Alert.alert("Couldn't review", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setChecking(false); }
   };
+
+  // The AI helps automatically — re-review whenever the draft changes.
+  useEffect(() => {
+    if (!service) { setCheckRes(null); return; }
+    const t = setTimeout(() => { runCheck(); }, 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service, coords, placeName, destName, fuelType, fuelAmount, vYear, vMake, vModel, vColor, vPlate, note]);
 
   const submit = async () => {
     if (!service) { setErr("Choose what you need help with."); return; }
@@ -583,7 +592,7 @@ export default function RoadsideScreen() {
           <View style={[styles.statusBadge, { backgroundColor: s.color + "22", borderColor: s.color }]}><Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text></View>
         </View>
         <Meta r={r} />
-        <Text style={styles.priceLine}>You paid ${(r.total || 0).toFixed(2)} (held) · helper earns ${(r.price || 0).toFixed(2)} on completion</Text>
+        <Text style={styles.priceLine}>You paid ${(r.total || 0).toFixed(2)} (held) · helper earns ${((r.price || 0) + (r.fuel_cost || 0)).toFixed(2)} on completion</Text>
         {r.status === "open" && <Text style={styles.hint}>Notifying nearby members. You'll hear the moment someone accepts.</Text>}
         {r.status === "accepted" && <PartyRow p={r.helper} role={r.en_route ? "On the way to you" : "Assigned — getting ready"} />}
         {!!(r.before_photos?.length || r.after_photos?.length) && (
@@ -615,7 +624,7 @@ export default function RoadsideScreen() {
   const HelpingCard = ({ r }: { r: RoadsideRequest }) => (
     <View style={[styles.card, { borderColor: theme.primary + "66" }]}>
       <View style={styles.cardHead}>
-        <View style={styles.helpingTag}><Ionicons name="navigate" size={13} color={theme.primary} /><Text style={styles.helpingTagText}>You're helping · earn ${(r.price || 0).toFixed(2)}</Text></View>
+        <View style={styles.helpingTag}><Ionicons name="navigate" size={13} color={theme.primary} /><Text style={styles.helpingTagText}>You're helping · earn ${((r.price || 0) + (r.fuel_cost || 0)).toFixed(2)}</Text></View>
         <ServicePill svc={r.service} />
       </View>
       <PartyRow p={r.requester} role="Stranded member" />
@@ -647,13 +656,23 @@ export default function RoadsideScreen() {
           )}
         </View>
       )}
-      <Text style={styles.refundNote}>Add a ‘before’ photo, do the job, then both take an ‘after’ photo and verify to release the ${(r.price || 0).toFixed(2)}.</Text>
+      <Text style={styles.refundNote}>Add a ‘before’ photo, do the job, then both take an ‘after’ photo and verify to release the ${((r.price || 0) + (r.fuel_cost || 0)).toFixed(2)}.</Text>
     </View>
   );
 
-  const total = quote?.total ?? 88;
+  const vehicleSummary = (() => {
+    const head = [vYear, vMake, vModel.trim()].filter(Boolean).join(" ");
+    const extra = [vColor.trim(), vPlate.trim()].filter(Boolean).join(" · ");
+    return [head, extra].filter(Boolean).join(" · ");
+  })();
+  const baseFee = quote?.base ?? 80;
+  const taxAmt = quote?.tax ?? 8;
+  const gasCost = service === "gas" ? (parseFloat((fuelAmount || "").replace(/[^0-9.]/g, "")) || 0) : 0;
+  const walletTotal = baseFee + taxAmt + gasCost;
+  const cashTotal = baseFee + gasCost;
+  const total = payMethod === "cash" ? cashTotal : walletTotal;
   const bal = quote?.wallet_balance ?? 0;
-  const lowFunds = !!quote && bal + 1e-9 < total;
+  const lowFunds = payMethod === "wallet" && !!quote && bal + 1e-9 < walletTotal;
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="roadside-screen">
@@ -706,15 +725,11 @@ export default function RoadsideScreen() {
                   {!!service && <Text style={styles.svcDescLine}>{SERVICE_META[service].desc}</Text>}
 
                   <Text style={styles.sectionLabel}>Vehicle</Text>
-                  <View style={styles.row2}>
-                    <View style={{ flex: 1 }}><Dropdown value={vYear} placeholder="Year" options={YEARS} onChange={setVYear} testID="rs-year" /></View>
-                    <View style={{ flex: 1 }}><Dropdown value={vMake} placeholder="Make" options={MAKES} onChange={setVMake} testID="rs-make" /></View>
-                  </View>
-                  <View style={[styles.row2, { marginTop: 8 }]}>
-                    <TextInput style={[styles.input, { flex: 1.3, marginTop: 0 }]} placeholder="Model" placeholderTextColor={theme.textMuted} value={vModel} onChangeText={setVModel} maxLength={60} testID="rs-model" />
-                    <TextInput style={[styles.input, { flex: 1, marginTop: 0 }]} placeholder="Color" placeholderTextColor={theme.textMuted} value={vColor} onChangeText={setVColor} maxLength={30} testID="rs-color" />
-                    <TextInput style={[styles.input, { flex: 0.9, marginTop: 0 }]} placeholder="Plate" placeholderTextColor={theme.textMuted} value={vPlate} onChangeText={setVPlate} autoCapitalize="characters" maxLength={16} testID="rs-plate" />
-                  </View>
+                  <TouchableOpacity style={styles.vehRow} onPress={() => setVehicleOpen(true)} testID="rs-vehicle-open">
+                    <Ionicons name="car-outline" size={18} color={theme.primary} />
+                    <Text style={[styles.vehRowText, !vehicleSummary && { color: theme.textMuted }]} numberOfLines={1}>{vehicleSummary || "Add vehicle details"}</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+                  </TouchableOpacity>
 
                   <Text style={styles.sectionLabel}>Your location</Text>
                   <TouchableOpacity style={styles.locBtn} onPress={useMyLocation} disabled={locating} testID="rs-use-location">
@@ -770,38 +785,42 @@ export default function RoadsideScreen() {
 
                   {payMethod === "cash" ? (
                     <View style={styles.priceBox}>
-                      <View style={[styles.priceRow, { marginBottom: 0 }]}><Text style={styles.priceKt}>Pay your helper</Text><Text style={styles.priceVt}>${(quote?.base ?? 80).toFixed(2)} cash</Text></View>
-                      <Text style={[styles.priceNote, { marginTop: 8 }]}>No card or hold needed — hand your helper ${(quote?.base ?? 80).toFixed(2)} in cash when the job's done. Both of you still verify with photos.</Text>
+                      <View style={styles.priceRow}><Text style={styles.priceK}>Service fee</Text><Text style={styles.priceV}>${baseFee.toFixed(2)}</Text></View>
+                      {gasCost > 0 && <View style={styles.priceRow}><Text style={styles.priceK}>Gas</Text><Text style={styles.priceV}>${gasCost.toFixed(2)}</Text></View>}
+                      <View style={[styles.priceRow, styles.priceTotal, { marginBottom: 0 }]}><Text style={styles.priceKt}>Pay your helper (cash)</Text><Text style={styles.priceVt}>${cashTotal.toFixed(2)}</Text></View>
+                      <Text style={[styles.priceNote, { marginTop: 8 }]}>No card or hold needed — hand your helper ${cashTotal.toFixed(2)} in cash when the job's done. Both of you still verify with photos.</Text>
                     </View>
                   ) : (
                     <View style={styles.priceBox}>
-                      <View style={styles.priceRow}><Text style={styles.priceK}>Service fee</Text><Text style={styles.priceV}>${(quote?.base ?? 80).toFixed(2)}</Text></View>
-                      <View style={styles.priceRow}><Text style={styles.priceK}>Tax &amp; fees{quote ? ` (${Math.round((quote.tax_rate || 0) * 100)}%)` : ""}</Text><Text style={styles.priceV}>${(quote?.tax ?? 8).toFixed(2)}</Text></View>
-                      <View style={[styles.priceRow, styles.priceTotal]}><Text style={styles.priceKt}>Total (held until done)</Text><Text style={styles.priceVt}>${total.toFixed(2)}</Text></View>
-                      <Text style={styles.priceNote}>Wallet balance ${bal.toFixed(2)}. The $80 goes to your helper once both of you verify; tax is a platform fee.</Text>
+                      <View style={styles.priceRow}><Text style={styles.priceK}>Service fee</Text><Text style={styles.priceV}>${baseFee.toFixed(2)}</Text></View>
+                      {gasCost > 0 && <View style={styles.priceRow}><Text style={styles.priceK}>Gas</Text><Text style={styles.priceV}>${gasCost.toFixed(2)}</Text></View>}
+                      <View style={styles.priceRow}><Text style={styles.priceK}>Tax &amp; fees{quote ? ` (${Math.round((quote.tax_rate || 0) * 100)}%)` : ""}</Text><Text style={styles.priceV}>${taxAmt.toFixed(2)}</Text></View>
+                      <View style={[styles.priceRow, styles.priceTotal]}><Text style={styles.priceKt}>Total (held until done)</Text><Text style={styles.priceVt}>${walletTotal.toFixed(2)}</Text></View>
+                      <Text style={styles.priceNote}>Wallet balance ${bal.toFixed(2)}. The service fee{gasCost > 0 ? " + gas" : ""} goes to your helper once both of you verify; tax is a platform fee.</Text>
                       {lowFunds && (
                         <TouchableOpacity style={styles.topupBtn} onPress={() => router.push("/wallet")} testID="rs-topup">
                           <Ionicons name="add-circle" size={16} color="#fff" />
-                          <Text style={styles.topupText}>Top up ${(total - bal).toFixed(2)} more</Text>
+                          <Text style={styles.topupText}>Top up ${(walletTotal - bal).toFixed(2)} more</Text>
                         </TouchableOpacity>
                       )}
                     </View>
                   )}
 
-                  <TouchableOpacity style={styles.checkBtn} onPress={runCheck} disabled={checking} testID="rs-ai-check">
-                    {checking ? <ActivityIndicator color={theme.primary} size="small" /> : <Ionicons name="sparkles-outline" size={16} color={theme.primary} />}
-                    <Text style={styles.checkBtnText}>Review my request with AI</Text>
-                  </TouchableOpacity>
-                  {checkRes && (
+                  {checking ? (
+                    <View style={styles.checkCard}>
+                      <ActivityIndicator color={theme.primary} size="small" />
+                      <Text style={styles.checkOkText}>AI is reviewing your request…</Text>
+                    </View>
+                  ) : checkRes ? (
                     checkRes.ok ? (
                       <View style={[styles.checkCard, { borderColor: theme.success + "66" }]}>
                         <Ionicons name="checkmark-circle" size={18} color={theme.success} />
-                        <Text style={styles.checkOkText}>Looks good — everything's filled out.</Text>
+                        <Text style={styles.checkOkText}>AI checked it — looks good, everything's filled out.</Text>
                       </View>
                     ) : (
                       <View style={styles.checkCard}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.checkTitle}>Recommended fixes</Text>
+                          <View style={styles.checkHead}><Ionicons name="sparkles" size={14} color={theme.primary} /><Text style={styles.checkTitle}>AI suggestions</Text></View>
                           {checkRes.issues.map((it, i) => (
                             <View key={i} style={styles.checkIssue}>
                               <Ionicons name="alert-circle" size={14} color={theme.warning} style={{ marginTop: 2 }} />
@@ -811,14 +830,14 @@ export default function RoadsideScreen() {
                         </View>
                       </View>
                     )
-                  )}
+                  ) : null}
 
                   {!!err && <Text style={styles.err}>{err}</Text>}
                   {(() => {
                     const blockFunds = payMethod === "wallet" && lowFunds;
                     return (
                       <TouchableOpacity style={[styles.submit, (!service || !coords || submitting || blockFunds) && { opacity: 0.5 }]} onPress={submit} disabled={!service || !coords || submitting || blockFunds} testID="rs-submit">
-                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{payMethod === "cash" ? `Request help · $${(quote?.base ?? 80).toFixed(2)} cash` : `Request help · $${total.toFixed(2)}`}</Text>}
+                        {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>{payMethod === "cash" ? `Request help · $${cashTotal.toFixed(2)} cash` : `Request help · $${walletTotal.toFixed(2)}`}</Text>}
                       </TouchableOpacity>
                     );
                   })()}
@@ -851,7 +870,7 @@ export default function RoadsideScreen() {
                           <PartyRow p={r.requester} role="Needs a hand" />
                           <Meta r={r} />
                           <TouchableOpacity style={[styles.actBtn, styles.actPrimary, { marginTop: 12 }, blocked && { opacity: 0.5 }]} onPress={() => accept(r)} disabled={busyId === r.id || blocked} testID={`rs-accept-${r.id}`}>
-                            <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : blocked ? "Verify to help" : `Accept & help · earn $${(r.price || 80).toFixed(2)}`}</Text>
+                            <Text style={styles.actPrimaryText}>{busyId === r.id ? "…" : blocked ? "Verify to help" : `Accept & help · earn $${((r.price || 80) + (r.fuel_cost || 0)).toFixed(2)}`}</Text>
                           </TouchableOpacity>
                         </View>
                       );
@@ -891,6 +910,28 @@ export default function RoadsideScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={vehicleOpen} transparent animationType="slide" onRequestClose={() => setVehicleOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.vehBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setVehicleOpen(false)} />
+          <View style={[styles.vehSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.vehHead}>
+              <Text style={styles.vehTitle}>Vehicle details</Text>
+              <TouchableOpacity onPress={() => setVehicleOpen(false)} testID="rs-vehicle-close"><Ionicons name="close" size={22} color={theme.textPrimary} /></TouchableOpacity>
+            </View>
+            <View style={styles.row2}>
+              <View style={{ flex: 1 }}><Dropdown value={vYear} placeholder="Year" options={YEARS} onChange={setVYear} testID="rs-year" /></View>
+              <View style={{ flex: 1 }}><Dropdown value={vMake} placeholder="Make" options={MAKES} onChange={setVMake} testID="rs-make" /></View>
+            </View>
+            <TextInput style={styles.input} placeholder="Model (e.g. Civic)" placeholderTextColor={theme.textMuted} value={vModel} onChangeText={setVModel} maxLength={60} testID="rs-model" />
+            <View style={[styles.row2, { marginTop: 8 }]}>
+              <TextInput style={[styles.input, { flex: 1, marginTop: 0 }]} placeholder="Color" placeholderTextColor={theme.textMuted} value={vColor} onChangeText={setVColor} maxLength={30} testID="rs-color" />
+              <TextInput style={[styles.input, { flex: 1, marginTop: 0 }]} placeholder="Plate" placeholderTextColor={theme.textMuted} value={vPlate} onChangeText={setVPlate} autoCapitalize="characters" maxLength={16} testID="rs-plate" />
+            </View>
+            <TouchableOpacity style={styles.vehDone} onPress={() => setVehicleOpen(false)} testID="rs-vehicle-done"><Text style={styles.vehDoneText}>Done</Text></TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -914,6 +955,14 @@ const styles = StyleSheet.create({
   svcDescLine: { color: theme.textMuted, fontSize: 12.5, marginTop: 8 },
 
   row2: { flexDirection: "row", gap: 8 },
+  vehRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13 },
+  vehRowText: { flex: 1, color: theme.textPrimary, fontSize: 14.5, fontWeight: "600" },
+  vehBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  vehSheet: { backgroundColor: theme.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: theme.border, paddingHorizontal: 16, paddingTop: 14 },
+  vehHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  vehTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  vehDone: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 16 },
+  vehDoneText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   dropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13 },
   dropdownText: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "600", flex: 1, marginRight: 8 },
   ddBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", padding: 30 },
@@ -932,7 +981,8 @@ const styles = StyleSheet.create({
   checkBtnText: { color: theme.primary, fontSize: 14, fontWeight: "800" },
   checkCard: { flexDirection: "row", gap: 10, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, marginTop: 10 },
   checkOkText: { flex: 1, color: theme.textSecondary, fontSize: 13.5, fontWeight: "600" },
-  checkTitle: { color: theme.textPrimary, fontSize: 13.5, fontWeight: "800", marginBottom: 8 },
+  checkHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  checkTitle: { color: theme.textPrimary, fontSize: 13.5, fontWeight: "800" },
   checkIssue: { flexDirection: "row", gap: 8, marginTop: 6 },
   checkIssueText: { flex: 1, color: theme.textSecondary, fontSize: 13.5, lineHeight: 18 },
   disclaimer: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 14, textAlign: "center" },
