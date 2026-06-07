@@ -12,7 +12,7 @@ import { api, ApiKey, OAuthApp } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://nampo-backend.onrender.com";
-const API_BASE = `${BASE}/api`;
+const API_BASE = `${BASE}/api/v1`;
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 type Endpoint = { method: Method; path: string; desc: string; body?: string; auth?: boolean };
@@ -356,6 +356,9 @@ export default function DeveloperScreen() {
           <Text style={styles.code} selectable>{API_BASE}</Text>
           <Ionicons name="copy-outline" size={16} color={theme.textMuted} />
         </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>
+          Versioned and stable — build against <Text style={styles.codeInline}>/api/v1</Text>. The unversioned <Text style={styles.codeInline}>/api</Text> still works as a legacy alias.
+        </Text>
 
         <Text style={styles.groupTitle}>Authentication</Text>
         <Text style={styles.body}>
@@ -621,8 +624,9 @@ export default function DeveloperScreen() {
         <Text style={styles.groupTitle}>Conventions</Text>
         <View style={styles.convCard}>
           <Text style={styles.convItem}><Text style={styles.convKey}>Format </Text>JSON request & response bodies; `Content-Type: application/json`.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Versioning </Text>The stable base is `/api/v1`. The unversioned `/api` is kept as a legacy alias so existing keys keep working.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Pagination </Text>List endpoints accept `?limit=` and `?offset=` where supported.</Text>
-          <Text style={styles.convItem}><Text style={styles.convKey}>Errors </Text>Non-2xx responses return `{"{"}"detail": "message"{"}"}`. 401 = bad/missing token, 403 = not allowed, 404 = not found, 413 = too large, 429 = rate-limited.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Errors </Text>Every non-2xx reply uses one shape: `{"{"}"error":{"{"}"code","message"{"}"}{"}"}` (also mirrored under `detail`). e.g. 401 unauthorized, 403 forbidden, 404 not_found, 413 payload_too_large, 422 validation_error, 429 rate_limited.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Rate limits </Text>Fair-use; heavy automated traffic may be throttled (429).</Text>
         </View>
 
@@ -718,6 +722,7 @@ const styles = StyleSheet.create({
 
   codeRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   code: { flex: 1, color: theme.textPrimary, fontSize: 13, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  codeInline: { color: theme.textPrimary, fontSize: 12.5, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   codeBlock: { backgroundColor: "#0E0E10", borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 14 },
   codeBlockText: { color: "#9FE7C8", fontSize: 12.5, lineHeight: 19, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 

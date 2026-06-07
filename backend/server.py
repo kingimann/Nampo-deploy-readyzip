@@ -2,8 +2,11 @@
 import logging
 import os
 
-from fastapi import APIRouter, FastAPI, WebSocket
+from fastapi import APIRouter, FastAPI, Request, WebSocket
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from core import init_pool, logger
 from routes import (
@@ -77,6 +80,26 @@ from starlette.responses import JSONResponse as _JSON
 from core import db as _db
 
 
+# ── Consistent error envelope ────────────────────────────────────────────────
+# Every non-2xx reply uses one shape so any client parses errors the same way:
+#   { "error": { "code", "message", ... }, "detail": { "code", "message", ... } }
+# `detail` is kept (and always structured) for backwards compatibility.
+_ERR_CODES = {
+    400: "bad_request", 401: "unauthorized", 402: "payment_required",
+    403: "forbidden", 404: "not_found", 405: "method_not_allowed",
+    409: "conflict", 413: "payload_too_large", 415: "unsupported_media_type",
+    422: "validation_error", 429: "rate_limited", 500: "server_error",
+    502: "bad_gateway", 503: "unavailable",
+}
+
+
+def _err_body(status, code, message, extra=None):
+    err = {"code": code, "message": message}
+    if extra:
+        err.update(extra)
+    return {"error": err, "detail": err}
+
+
 @app.middleware("http")
 async def enforce_api_key_scopes(request: _Req, call_next):
     """Read-only API keys may only call safe (GET/HEAD/OPTIONS) methods.
@@ -94,12 +117,43 @@ async def enforce_api_key_scopes(request: _Req, call_next):
             if sess and sess.get("kind") == "api_key" and "write" not in (sess.get("scopes") or []):
                 return _JSON(
                     status_code=403,
-                    content={"detail": {
-                        "code": "write_not_allowed",
-                        "message": "This API key is read-only. Create a key with the 'write' scope (Pro plan or higher).",
-                    }},
+                    content=_err_body(
+                        403, "write_not_allowed",
+                        "This API key is read-only. Create a key with the 'write' scope (Pro plan or higher).",
+                    ),
                 )
     return await call_next(request)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _on_http_exc(request: Request, exc: StarletteHTTPException):
+    d = exc.detail
+    if isinstance(d, dict):
+        code = d.get("code") or _ERR_CODES.get(exc.status_code, f"http_{exc.status_code}")
+        message = d.get("message") or d.get("detail") or _ERR_CODES.get(exc.status_code, "error")
+        extra = {k: v for k, v in d.items() if k not in ("code", "message")} or None
+    else:
+        code = _ERR_CODES.get(exc.status_code, f"http_{exc.status_code}")
+        message = str(d) if d not in (None, "") else _ERR_CODES.get(exc.status_code, "error")
+        extra = None
+    return _JSON(
+        status_code=exc.status_code,
+        content=_err_body(exc.status_code, code, message, extra),
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _on_validation_exc(request: Request, exc: RequestValidationError):
+    fields = []
+    for e in exc.errors():
+        loc = ".".join(str(x) for x in e.get("loc", []) if x != "body")
+        fields.append({"field": loc or "body", "message": e.get("msg", "invalid")})
+    summary = "; ".join(f"{f['field']}: {f['message']}" for f in fields[:6]) or "Invalid request"
+    return _JSON(
+        status_code=422,
+        content=_err_body(422, "validation_error", f"Request validation failed — {summary}", {"fields": fields}),
+    )
 
 
 @app.get("/")
@@ -111,41 +165,83 @@ async def health():
     return {"status": "ok"}
 
 
-api_router = APIRouter(prefix="/api")
-api_router.include_router(meta_routes.router)
-api_router.include_router(auth_routes.router)
-api_router.include_router(users_routes.router)
-api_router.include_router(places_routes.router)
-api_router.include_router(guides_routes.router)
-api_router.include_router(reviews_routes.router)
-api_router.include_router(messaging_routes.router)
-api_router.include_router(notifications_routes.router)
-api_router.include_router(eta_routes.router)
-api_router.include_router(posts_routes.router)
-api_router.include_router(marketplace_routes.router)
-api_router.include_router(groups_routes.router)
-api_router.include_router(communities_routes.router)
-api_router.include_router(fsq_routes.router)
-api_router.include_router(stories_routes.router)
-api_router.include_router(payments_routes.router)
-api_router.include_router(webhooks_routes.router)
-api_router.include_router(ads_routes.router)
-api_router.include_router(adnetwork_routes.router)
-api_router.include_router(payouts_routes.router)
-api_router.include_router(oauth_routes.router)
-api_router.include_router(money_routes.router)
-api_router.include_router(transit_routes.router)
-api_router.include_router(integrations_routes.router)
-api_router.include_router(calls_routes.router)
-api_router.include_router(push_routes.router)
-api_router.include_router(roadside_routes.router)
-api_router.include_router(support_routes.router)
+def _register(parent: APIRouter):
+    parent.include_router(meta_routes.router)
+    parent.include_router(auth_routes.router)
+    parent.include_router(users_routes.router)
+    parent.include_router(places_routes.router)
+    parent.include_router(guides_routes.router)
+    parent.include_router(reviews_routes.router)
+    parent.include_router(messaging_routes.router)
+    parent.include_router(notifications_routes.router)
+    parent.include_router(eta_routes.router)
+    parent.include_router(posts_routes.router)
+    parent.include_router(marketplace_routes.router)
+    parent.include_router(groups_routes.router)
+    parent.include_router(communities_routes.router)
+    parent.include_router(fsq_routes.router)
+    parent.include_router(stories_routes.router)
+    parent.include_router(payments_routes.router)
+    parent.include_router(webhooks_routes.router)
+    parent.include_router(ads_routes.router)
+    parent.include_router(adnetwork_routes.router)
+    parent.include_router(payouts_routes.router)
+    parent.include_router(oauth_routes.router)
+    parent.include_router(money_routes.router)
+    parent.include_router(transit_routes.router)
+    parent.include_router(integrations_routes.router)
+    parent.include_router(calls_routes.router)
+    parent.include_router(push_routes.router)
+    parent.include_router(roadside_routes.router)
+    parent.include_router(support_routes.router)
 
-app.include_router(api_router)
+
+# `/api/v1` is the documented, stable base. `/api` stays as a back-compat alias
+# (hidden from the OpenAPI schema so the docs present a single, versioned API).
+_v1_router = APIRouter(prefix="/api/v1")
+_register(_v1_router)
+app.include_router(_v1_router)
+
+_legacy_router = APIRouter(prefix="/api")
+_register(_legacy_router)
+app.include_router(_legacy_router, include_in_schema=False)
+
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=app.title, version=API_VERSION, description=app.description, routes=app.routes,
+    )
+    comps = schema.setdefault("components", {})
+    comps.setdefault("securitySchemes", {})["BearerAuth"] = {
+        "type": "http", "scheme": "bearer", "bearerFormat": "Token",
+        "description": (
+            "Send `Authorization: Bearer <API key or session token>` on every request. "
+            "Create API keys in the app under Settings → Developer API."
+        ),
+    }
+    schema["security"] = [{"BearerAuth": []}]
+    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if base:
+        schema["servers"] = [
+            {"url": f"{base}/api/v1", "description": "Production · v1"},
+            {"url": f"{base}/api", "description": "Production · unversioned (legacy)"},
+        ]
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _custom_openapi
 
 
 @app.websocket("/api/ws/eta/{share_id}")
 async def _ws_eta(websocket: WebSocket, share_id: str):
+    await eta_routes.ws_eta(websocket, share_id)
+
+
+@app.websocket("/api/v1/ws/eta/{share_id}")
+async def _ws_eta_v1(websocket: WebSocket, share_id: str):
     await eta_routes.ws_eta(websocket, share_id)
 
 
