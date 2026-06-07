@@ -472,6 +472,22 @@ export default function MapScreen() {
     setSelected(null);
   };
 
+  // Open the full custom business profile for the selected place.
+  const viewProfile = () => {
+    if (!selected) return;
+    router.push({
+      pathname: "/place/[id]",
+      params: {
+        id: fsq?.fsq_id || "_",
+        name: selected.name,
+        lng: String(selected.longitude),
+        lat: String(selected.latitude),
+        address: selected.address || fsq?.address || "",
+        category: fsq?.category || "",
+      },
+    });
+  };
+
   // Jump straight to directions for a search result / recent (skips the card).
   const directionsToFeature = (lng: number, lat: number, name: string) => {
     setShowResults(false);
@@ -883,6 +899,16 @@ export default function MapScreen() {
 
             {!placeCollapsed && (
             <>
+            <TouchableOpacity
+              style={styles.pcProfileBtn}
+              onPress={viewProfile}
+              testID="pc-view-profile"
+              activeOpacity={0.85}
+            >
+              <Ionicons name="business-outline" size={18} color={theme.primary} />
+              <Text style={styles.pcProfileText}>View business profile</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
             <View style={styles.pcButtonsRow}>
               <TouchableOpacity
                 style={styles.pcSecondary}
@@ -1298,6 +1324,12 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   pcSecondaryText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
+  pcProfileBtn: {
+    flexDirection: "row", alignItems: "center", gap: 9,
+    backgroundColor: theme.primary + "14", borderWidth: 1, borderColor: theme.primary + "55",
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8,
+  },
+  pcProfileText: { flex: 1, color: theme.primary, fontSize: 14.5, fontWeight: "800" },
 
   reviewsSection: { marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
   fsqCard: {
