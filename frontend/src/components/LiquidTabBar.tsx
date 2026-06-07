@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, StyleSheet, Pressable, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname, useRouter } from "expo-router";
@@ -35,36 +35,63 @@ function isActivePath(pathname: string, shortcut: { route: string; activeOn?: st
   });
 }
 
+function TabItem({ s, active, onPress, onLongPress }: {
+  s: { id: string; route: string; label: string; iconFilled: any; iconOutline: any };
+  active: boolean; onPress: () => void; onLongPress: () => void;
+}) {
+  const press = useRef(new Animated.Value(1)).current;
+  const pop = useRef(new Animated.Value(active ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(pop, { toValue: active ? 1 : 0, useNativeDriver: true, friction: 6, tension: 140 }).start();
+  }, [active, pop]);
+  const onIn = () => Animated.spring(press, { toValue: 0.85, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
+  const onOut = () => Animated.spring(press, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start();
+  const popScale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.14] });
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
+      onPressIn={onIn}
+      onPressOut={onOut}
+      android_ripple={{ color: "rgba(255,255,255,0.06)", borderless: false }}
+      style={styles.item}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityState={active ? { selected: true } : {}}
+      testID={`tab-${s.id}`}
+    >
+      <Animated.View style={[styles.itemInner, { transform: [{ scale: press }] }]}>
+        <Animated.View style={[styles.iconWrap, active && styles.iconWrapActive, { transform: [{ scale: popScale }] }]}>
+          <Ionicons name={active ? s.iconFilled : s.iconOutline} size={24} color={active ? ACTIVE : INACTIVE} />
+        </Animated.View>
+        <Text numberOfLines={1} style={[styles.label, { color: active ? ACTIVE : INACTIVE }, active && { fontWeight: "700" }]}>
+          {s.label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export default function LiquidTabBar(_: any) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
   const { shortcuts } = useNavBar();
+  const searchScale = useRef(new Animated.Value(1)).current;
 
   const goCustomize = () => router.push("/customize-nav" as any);
 
   const renderItem = (s: typeof shortcuts[number]) => {
     const active = isActivePath(pathname || "/", s);
     return (
-      <Pressable
+      <TabItem
         key={s.id}
+        s={s}
+        active={active}
         onPress={() => { if (!active) router.push(s.route as any); }}
         onLongPress={goCustomize}
-        delayLongPress={350}
-        android_ripple={{ color: "rgba(255,255,255,0.06)", borderless: false }}
-        style={styles.item}
-        hitSlop={10}
-        accessibilityRole="button"
-        accessibilityState={active ? { selected: true } : {}}
-        testID={`tab-${s.id}`}
-      >
-        <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
-          <Ionicons name={active ? s.iconFilled : s.iconOutline} size={24} color={active ? ACTIVE : INACTIVE} />
-        </View>
-        <Text numberOfLines={1} style={[styles.label, { color: active ? ACTIVE : INACTIVE }, active && { fontWeight: "700" }]}>
-          {s.label}
-        </Text>
-      </Pressable>
+      />
     );
   };
 
@@ -82,6 +109,8 @@ export default function LiquidTabBar(_: any) {
         {left.map(renderItem)}
         <Pressable
           onPress={() => { if (!searchActive) router.push("/search" as any); }}
+          onPressIn={() => Animated.spring(searchScale, { toValue: 0.88, useNativeDriver: true, speed: 50, bounciness: 0 }).start()}
+          onPressOut={() => Animated.spring(searchScale, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start()}
           android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
           style={styles.centerItem}
           hitSlop={6}
@@ -89,9 +118,9 @@ export default function LiquidTabBar(_: any) {
           accessibilityLabel="Search the site"
           testID="tab-search"
         >
-          <View style={[styles.searchCircle, searchActive && styles.searchCircleActive]}>
+          <Animated.View style={[styles.searchCircle, searchActive && styles.searchCircleActive, { transform: [{ scale: searchScale }] }]}>
             <Ionicons name="search" size={22} color="#fff" />
-          </View>
+          </Animated.View>
           <Text numberOfLines={1} style={[styles.label, styles.searchLabel, searchActive && { fontWeight: "700" }]}>Search</Text>
         </Pressable>
         {right.map(renderItem)}
@@ -120,6 +149,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 6,
     minHeight: 50,
+  },
+  itemInner: {
+    alignItems: "center",
+    justifyContent: "center",
     gap: 3,
   },
   iconWrap: {

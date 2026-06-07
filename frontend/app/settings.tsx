@@ -9,6 +9,8 @@ import { safeBack } from "@/src/utils/nav";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import FadeIn from "@/src/components/FadeIn";
+import PressableScale from "@/src/components/PressableScale";
 
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbnxlbnwwfHx8fDE3ODA1NTgzMjh8MA&ixlib=rb-4.1.0&q=85";
@@ -76,10 +78,10 @@ export default function SettingsScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
+        <FadeIn>
+        <PressableScale
           style={styles.account}
           onPress={() => router.push("/(tabs)/profile")}
-          activeOpacity={0.85}
           testID="settings-account"
         >
           <Image source={{ uri: user?.picture || DEFAULT_AVATAR }} style={styles.accAvatar} />
@@ -89,7 +91,7 @@ export default function SettingsScreen() {
             {!!user?.email && <Text style={styles.accEmail} numberOfLines={1}>{user.email}</Text>}
           </View>
           <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
-        </TouchableOpacity>
+        </PressableScale>
 
         <Text style={styles.groupTitle}>Account</Text>
         <View style={styles.group}>
@@ -139,6 +141,7 @@ export default function SettingsScreen() {
         </View>
 
         <Text style={styles.version}>Nami App · v1.0.0</Text>
+        </FadeIn>
       </ScrollView>
     </SafeAreaView>
   );
