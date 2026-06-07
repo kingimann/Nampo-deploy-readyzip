@@ -1148,10 +1148,10 @@ export type Place = {
   id: string; user_id: string; title: string; notes?: string;
   longitude: number; latitude: number; address?: string; category: string; created_at: string;
 };
-export type FormFieldType = "text" | "email" | "phone" | "number" | "textarea" | "select" | "checkbox" | "radio" | "date" | "signature";
+export type FormFieldType = "text" | "email" | "phone" | "number" | "textarea" | "select" | "checkbox" | "radio" | "date" | "signature" | "photo" | "consent";
 export type FormField = {
   id?: string; type: FormFieldType; label: string; required?: boolean;
-  placeholder?: string | null; options?: string[] | null;
+  placeholder?: string | null; options?: string[] | null; text?: string | null;
 };
 export type FormDef = {
   id: string; owner_id?: string; form_key: string; title: string;

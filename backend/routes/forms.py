@@ -25,10 +25,13 @@ from core import db, get_current_user
 
 router = APIRouter()
 
-FIELD_TYPES = {"text", "email", "phone", "number", "textarea", "select", "checkbox", "radio", "date", "signature"}
+FIELD_TYPES = {"text", "email", "phone", "number", "textarea", "select", "checkbox", "radio",
+               "date", "signature", "photo", "consent"}
 MAX_FIELDS = 40
 MAX_VALUE_LEN = 5000
-SIG_MAX_LEN = 400_000   # a drawn signature is a PNG data URL — much larger than a text field
+SIG_MAX_LEN = 400_000     # drawn signature → PNG data URL
+PHOTO_MAX_LEN = 8_000_000  # an uploaded/taken photo data URL
+CONSENT_TEXT_MAX = 6000   # terms / liability agreement text shown to the signer
 MAX_TITLE = 120
 
 # Lightweight in-memory rate limit for the public submit endpoint (single
@@ -71,6 +74,7 @@ class FormField(BaseModel):
     required: bool = False
     placeholder: Optional[str] = None
     options: Optional[List[str]] = None      # select / radio / checkbox
+    text: Optional[str] = None               # consent: the terms / liability text to agree to
 
 
 class FormCreate(BaseModel):
@@ -155,6 +159,7 @@ def _clean_fields(fields: List[FormField]) -> list:
             "required": bool(f.required),
             "placeholder": (f.placeholder or "").strip()[:160] or None,
             "options": opts,
+            "text": ((f.text or "").strip()[:CONSENT_TEXT_MAX] or None) if t == "consent" else None,
         })
     return out
 
@@ -309,7 +314,8 @@ async def public_submit(request: Request, body: FormSubmit, form: str = Query(..
     clean: dict = {}
     for f in fields:
         raw = values.get(f["id"])
-        cap = SIG_MAX_LEN if f.get("type") == "signature" else MAX_VALUE_LEN
+        ft = f.get("type")
+        cap = PHOTO_MAX_LEN if ft == "photo" else SIG_MAX_LEN if ft == "signature" else MAX_VALUE_LEN
         val = (", ".join(str(x) for x in raw) if isinstance(raw, list) else ("" if raw is None else str(raw)))[:cap]
         if f.get("required") and not val.strip():
             raise HTTPException(status_code=400, detail=f"{f.get('label') or 'A field'} is required.")
@@ -396,6 +402,13 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
   .sigwrap{position:relative}
   .sig{width:100%;height:150px;border:1px solid var(--border);border-radius:var(--rad);background:var(--field);touch-action:none;display:block;cursor:crosshair}
   .sigclear{position:absolute;top:8px;right:8px;width:auto;margin:0;background:transparent;color:var(--muted);font-size:12px;font-weight:600;padding:4px 9px;border:1px solid var(--border);border-radius:8px}
+  .photo{display:flex;align-items:center;gap:12px}
+  .photo input[type=file]{display:none}
+  .photobtn{width:auto;margin:0;background:var(--field);color:var(--text);border:1px solid var(--border);font-size:14px;font-weight:600;padding:10px 14px;border-radius:var(--rad);cursor:pointer}
+  .photoprev{width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--border);display:none}
+  .consent{border:1px solid var(--border);border-radius:var(--rad);background:var(--field);max-height:170px;overflow:auto;padding:12px;font-size:13px;line-height:1.5;white-space:pre-wrap;margin-bottom:8px}
+  .prog{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin:2px 0 16px}
+  .prog>span{display:block;height:100%;width:0;background:var(--acc);transition:width .25s ease}
   button{margin-top:16px;width:100%;background:var(--acc);color:#fff;border:0;border-radius:var(--rad);padding:12px;font-size:15px;font-weight:700;cursor:pointer}
   button:disabled{opacity:.6}
   .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
@@ -420,6 +433,7 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
     var h='';
     if(!CFG.hideTitle){h+='<h2>'+esc(f.title||"Form")+'</h2>';if(f.description) h+='<p class="desc">'+esc(f.description)+'</p>';}
     h+='<form id="nf"><div class="hp"><label>Leave this empty<input type="text" name="_hp" autocomplete="off" tabindex="-1"></label></div>';
+    h+='<div class="prog"><span id="pbar"></span></div>';
     (f.fields||[]).forEach(function(fl){
       var req=fl.required?' <span class="req">*</span>':'';
       var pv=pf[fl.id]!=null?String(pf[fl.id]):"";
@@ -429,11 +443,23 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
       else if(t==='select'){h+='<select data-fid="'+esc(fl.id)+'"'+(fl.required?' required':'')+'><option value="">Choose…</option>';(fl.options||[]).forEach(function(o){h+='<option'+(o===pv?' selected':'')+'>'+esc(o)+'</option>';});h+='</select>';}
       else if(t==='radio'||t==='checkbox'){(fl.options||[]).forEach(function(o){var ck=(t==='radio'?o===pv:String(pv).split(",").indexOf(o)>=0)?' checked':'';h+='<label class="opt"><input type="'+t+'" name="'+esc(fl.id)+'" value="'+esc(o)+'"'+ck+'>'+esc(o)+'</label>';});}
       else if(t==='signature'){h+='<div class="sigwrap"><canvas class="sig" data-sig="'+esc(fl.id)+'"></canvas><button type="button" class="sigclear" data-sigclear="'+esc(fl.id)+'">Clear</button></div>';}
+      else if(t==='photo'){h+='<div class="photo"><label class="photobtn" for="ph_'+esc(fl.id)+'">Take or upload photo</label><input id="ph_'+esc(fl.id)+'" type="file" accept="image/*" data-photo="'+esc(fl.id)+'"><img class="photoprev" data-prev="'+esc(fl.id)+'"></div>';}
+      else if(t==='consent'){h+='<div class="consent">'+esc(fl.text||"I agree to the terms above.")+'</div><label class="opt"><input type="checkbox" data-consent="'+esc(fl.id)+'"'+(fl.required?' required':'')+'> I agree</label>';}
       else {var it=(t==='email'||t==='number'||t==='date')?t:(t==='phone'?'tel':'text');h+='<input type="'+it+'" data-fid="'+esc(fl.id)+'" placeholder="'+esc(fl.placeholder||"")+'" value="'+esc(pv)+'"'+(fl.required?' required':'')+'>';}
     });
     h+='<button type="submit">'+esc(f.submit_label||"Submit")+'</button><div id="err" class="err" style="display:none"></div></form>';
     root.innerHTML=h;
     var form=document.getElementById("nf");
+    // Completion progress bar.
+    function fieldFilled(fl){
+      if(fl.type==='checkbox'){return form.querySelectorAll('input[name="'+fl.id+'"]:checked').length>0;}
+      if(fl.type==='radio'){return !!form.querySelector('input[name="'+fl.id+'"]:checked');}
+      if(fl.type==='signature'){var sc=form.querySelector('canvas[data-sig="'+fl.id+'"]');return !!(sc&&sc.__dirty&&sc.__dirty());}
+      if(fl.type==='photo'){var pi=form.querySelector('input[data-photo="'+fl.id+'"]');return !!(pi&&pi.__data);}
+      if(fl.type==='consent'){var cc=form.querySelector('input[data-consent="'+fl.id+'"]');return !!(cc&&cc.checked);}
+      var el=form.querySelector('[data-fid="'+fl.id+'"]');return !!(el&&String(el.value).trim());
+    }
+    function updateProgress(){var n=0,tot=(f.fields||[]).length||1;(f.fields||[]).forEach(function(fl){if(fieldFilled(fl))n++;});var pb=document.getElementById('pbar');if(pb)pb.style.width=Math.round(n/tot*100)+'%';}
     // Wire up any signature canvases (mouse + touch drawing).
     form.querySelectorAll('canvas[data-sig]').forEach(function(cv){
       var ctx=cv.getContext('2d'); var r=cv.getBoundingClientRect();
@@ -443,14 +469,26 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
       function pos(e){var b=cv.getBoundingClientRect();var t=(e.touches&&e.touches[0])||e;return {x:t.clientX-b.left,y:t.clientY-b.top};}
       function down(e){drawing=true;dirty=true;var p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault();}
       function mv(e){if(!drawing)return;var p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault();}
-      function up(){drawing=false;}
+      function up(){drawing=false;updateProgress();}
       cv.addEventListener('mousedown',down);cv.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
       cv.addEventListener('touchstart',down,{passive:false});cv.addEventListener('touchmove',mv,{passive:false});cv.addEventListener('touchend',up);
-      cv.__dirty=function(){return dirty;};cv.__clear=function(){ctx.clearRect(0,0,cv.width,cv.height);dirty=false;};
+      cv.__dirty=function(){return dirty;};cv.__clear=function(){ctx.clearRect(0,0,cv.width,cv.height);dirty=false;updateProgress();};
     });
     form.querySelectorAll('[data-sigclear]').forEach(function(b){
       b.addEventListener('click',function(e){e.preventDefault();var cv=form.querySelector('canvas[data-sig="'+b.getAttribute('data-sigclear')+'"]');if(cv&&cv.__clear)cv.__clear();});
     });
+    // Wire up photo inputs (take or upload → data URL + preview).
+    form.querySelectorAll('input[data-photo]').forEach(function(inp){
+      inp.addEventListener('change',function(){
+        var file=inp.files&&inp.files[0]; if(!file)return;
+        var rd=new FileReader();
+        rd.onload=function(){inp.__data=rd.result;var pv=form.querySelector('img[data-prev="'+inp.getAttribute('data-photo')+'"]');if(pv){pv.src=rd.result;pv.style.display='block';}updateProgress();};
+        rd.readAsDataURL(file);
+      });
+    });
+    form.addEventListener('input',updateProgress);
+    form.addEventListener('change',updateProgress);
+    updateProgress();
     form.addEventListener("submit",function(e){
       e.preventDefault();
       var btn=form.querySelector("button"); btn.disabled=true;
@@ -459,6 +497,8 @@ _UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
         if(fl.type==='checkbox'){var arr=[];form.querySelectorAll('input[name="'+fl.id+'"]:checked').forEach(function(c){arr.push(c.value)});vals[fl.id]=arr;}
         else if(fl.type==='radio'){var c=form.querySelector('input[name="'+fl.id+'"]:checked');vals[fl.id]=c?c.value:"";}
         else if(fl.type==='signature'){var sc=form.querySelector('canvas[data-sig="'+fl.id+'"]');vals[fl.id]=(sc&&sc.__dirty&&sc.__dirty())?sc.toDataURL('image/png'):"";}
+        else if(fl.type==='photo'){var pi=form.querySelector('input[data-photo="'+fl.id+'"]');vals[fl.id]=(pi&&pi.__data)||"";}
+        else if(fl.type==='consent'){var cc=form.querySelector('input[data-consent="'+fl.id+'"]');vals[fl.id]=(cc&&cc.checked)?"I agree":"";}
         else {var el=form.querySelector('[data-fid="'+fl.id+'"]');vals[fl.id]=el?el.value:"";}
       });
       var hp=form.querySelector('input[name="_hp"]');

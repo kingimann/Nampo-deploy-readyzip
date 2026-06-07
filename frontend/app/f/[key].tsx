@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, Image,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, FormField } from "@/src/api/client";
@@ -30,6 +31,28 @@ export default function PublicFormScreen() {
 
   const fid = (f: FormField, i: number) => f.id || `f${i + 1}`;
   const setVal = (k: string, v: any) => setValues((s) => ({ ...s, [k]: v }));
+
+  const pickPhoto = async (k: string, fromCamera: boolean) => {
+    try {
+      if (fromCamera) {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) { setErr("Camera permission denied."); return; }
+      }
+      const res = fromCamera
+        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.6 })
+        : await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.6 });
+      const a = !res.canceled ? res.assets?.[0] : null;
+      if (a?.base64) setVal(k, `data:image/jpeg;base64,${a.base64}`);
+    } catch { setErr("Couldn't add the photo."); }
+  };
+
+  // Completion progress (0..1) across all fields.
+  const filledCount = (form?.fields || []).reduce((n, f, i) => {
+    const v = values[fid(f, i)];
+    const has = f.type === "checkbox" ? (Array.isArray(v) && v.length > 0) : !!String(v ?? "").trim();
+    return n + (has ? 1 : 0);
+  }, 0);
+  const progress = form && form.fields.length ? filledCount / form.fields.length : 0;
   const toggleCheck = (k: string, opt: string) => setValues((s) => {
     const arr: string[] = Array.isArray(s[k]) ? s[k] : [];
     return { ...s, [k]: arr.includes(opt) ? arr.filter((x) => x !== opt) : [...arr, opt] };
@@ -75,6 +98,9 @@ export default function PublicFormScreen() {
         <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>{form.title}</Text>
           {!!form.description && <Text style={styles.desc}>{form.description}</Text>}
+          {form.fields.length > 1 && (
+            <View style={styles.progTrack}><View style={[styles.progBar, { width: `${Math.round(progress * 100)}%` }]} /></View>
+          )}
 
           {form.fields.map((f, i) => {
             const k = fid(f, i);
@@ -112,6 +138,28 @@ export default function PublicFormScreen() {
                       </TouchableOpacity>
                     );
                   })
+                ) : f.type === "consent" ? (
+                  <View>
+                    <ScrollView style={styles.consentBox} nestedScrollEnabled>
+                      <Text style={styles.consentText}>{f.text || "I agree to the terms above."}</Text>
+                    </ScrollView>
+                    <TouchableOpacity style={styles.optRow} onPress={() => setVal(k, values[k] === "I agree" ? "" : "I agree")} testID={`pf-${k}`}>
+                      <Ionicons name={values[k] === "I agree" ? "checkbox" : "square-outline"} size={20} color={values[k] === "I agree" ? theme.primary : theme.textMuted} />
+                      <Text style={styles.optText}>I agree</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : f.type === "photo" ? (
+                  <View>
+                    {!!values[k] && <Image source={{ uri: values[k] }} style={styles.photoPrev} resizeMode="cover" />}
+                    <View style={styles.photoBtns}>
+                      <TouchableOpacity style={styles.photoBtn} onPress={() => pickPhoto(k, true)} testID={`pf-${k}-camera`}>
+                        <Ionicons name="camera-outline" size={18} color={theme.primary} /><Text style={styles.photoBtnText}>Take photo</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.photoBtn} onPress={() => pickPhoto(k, false)} testID={`pf-${k}-upload`}>
+                        <Ionicons name="image-outline" size={18} color={theme.primary} /><Text style={styles.photoBtnText}>Upload</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 ) : f.type === "signature" ? (
                   <View>
                     <TextInput
@@ -173,6 +221,14 @@ const styles = StyleSheet.create({
   optText: { color: theme.textPrimary, fontSize: 15, flex: 1 },
   sigInput: { fontStyle: "italic", fontSize: 18 },
   sigHint: { color: theme.textMuted, fontSize: 12, marginTop: 5 },
+  progTrack: { height: 5, borderRadius: 3, backgroundColor: theme.surfaceAlt, overflow: "hidden", marginTop: 14 },
+  progBar: { height: 5, borderRadius: 3, backgroundColor: theme.primary },
+  consentBox: { maxHeight: 170, borderWidth: 1, borderColor: theme.border, borderRadius: 12, backgroundColor: theme.surface, padding: 12, marginBottom: 8 },
+  consentText: { color: theme.textSecondary, fontSize: 13, lineHeight: 19 },
+  photoPrev: { width: "100%", height: 180, borderRadius: 12, backgroundColor: theme.surfaceAlt, marginBottom: 8 },
+  photoBtns: { flexDirection: "row", gap: 10 },
+  photoBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingVertical: 12 },
+  photoBtnText: { color: theme.primary, fontSize: 14, fontWeight: "700" },
   err: { color: theme.error, fontSize: 13.5, marginTop: 14, fontWeight: "600" },
   submit: { backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 20 },
   submitText: { color: "#fff", fontWeight: "800", fontSize: 15 },

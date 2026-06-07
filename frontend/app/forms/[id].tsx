@@ -29,12 +29,15 @@ const TYPES: { k: FormFieldType; label: string; icon: any }[] = [
   { k: "radio", label: "Single choice", icon: "radio-button-on-outline" },
   { k: "checkbox", label: "Checkboxes", icon: "checkbox-outline" },
   { k: "signature", label: "Signature", icon: "create-outline" },
+  { k: "photo", label: "Photo (take/upload)", icon: "camera-outline" },
+  { k: "consent", label: "Agreement / consent", icon: "shield-checkmark-outline" },
 ];
 // Accent presets for the embed customizer ("" = default theme green).
 const ACCENTS = ["", "7C3AED", "0EA5E9", "F97316", "EF4444", "EAB308", "EC4899"];
 const typeLabel = (t: string) => TYPES.find((x) => x.k === t)?.label || t;
 const hasOptions = (t: string) => t === "select" || t === "radio" || t === "checkbox";
 const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+const escapeHtml = (s: string) => String(s).replace(/[&<>"]/g, (c) => (({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" } as Record<string, string>)[c]));
 
 export default function FormBuilderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -153,6 +156,26 @@ export default function FormBuilderScreen() {
     (embedHideTitle ? "&hide_title=1" : "") +
     (embedRedirect.trim() ? `&redirect=${encodeURIComponent(embedRedirect.trim())}` : "") +
     prefillEntries.map(([k, v]) => `&pf_${encodeURIComponent(k)}=${encodeURIComponent(v.trim())}`).join("");
+  const printSubmission = (s: FormSubmission) => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const flds = subFields.length ? subFields : Object.keys(s.values).map((k) => ({ id: k, label: k, type: "text" as FormFieldType }));
+    const rows = flds.map((f) => {
+      const v = s.values[f.id || ""] || "";
+      const cell = String(v).startsWith("data:image")
+        ? `<img src="${v}" style="max-width:340px;max-height:170px;border:1px solid #ddd;border-radius:6px"/>`
+        : `<div style="white-space:pre-wrap">${escapeHtml(String(v) || "—")}</div>`;
+      return `<tr><td style="padding:8px 12px;color:#666;font-weight:600;vertical-align:top;border-bottom:1px solid #eee;white-space:nowrap">${escapeHtml(f.label)}</td><td style="padding:8px 12px;border-bottom:1px solid #eee">${cell}</td></tr>`;
+    }).join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(form?.title || "Form")} — response</title></head>`
+      + `<body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;color:#111">`
+      + `<h2 style="margin:0 0 4px">${escapeHtml(form?.title || "Form")}</h2>`
+      + `<p style="color:#888;margin:0 0 18px">Submitted ${escapeHtml(fmtDate(s.submitted_at))}</p>`
+      + `<table style="border-collapse:collapse;width:100%;font-size:14px">${rows}</table>`
+      + `<script>window.onload=function(){window.print();}</script></body></html>`;
+    const w = window.open("", "_blank");
+    if (w) { w.document.write(html); w.document.close(); }
+  };
+
   const snippet = form ? `<script async src="${apiOrigin()}/api/pub/form-embed.js?form=${form.form_key}"${dataAttrs}></script>` : "";
   const directLink = form ? `${apiOrigin()}/api/pub/form-unit?form=${form.form_key}${linkParams}` : "";
   const copy = async (what: string, text: string) => { await Clipboard.setStringAsync(text); setCopied(what); setTimeout(() => setCopied(""), 1500); };
@@ -213,7 +236,9 @@ export default function FormBuilderScreen() {
                       ))}
                       <TouchableOpacity onPress={() => addOpt(i)} style={styles.addOpt}><Ionicons name="add" size={15} color={theme.primary} /><Text style={styles.addOptText}>Add option</Text></TouchableOpacity>
                     </View>
-                  ) : (
+                  ) : f.type === "consent" ? (
+                    <TextInput style={[styles.input, styles.area, { marginTop: 8 }]} value={f.text || ""} onChangeText={(t) => patchField(i, { text: t })} placeholder="Terms / liability text the signer must agree to" placeholderTextColor={theme.textMuted} multiline />
+                  ) : (f.type === "signature" || f.type === "photo") ? null : (
                     <TextInput style={[styles.input, { marginTop: 8 }]} value={f.placeholder || ""} onChangeText={(t) => patchField(i, { placeholder: t })} placeholder="Placeholder (optional)" placeholderTextColor={theme.textMuted} />
                   )}
                   <View style={styles.reqRow}>
@@ -375,7 +400,15 @@ export default function FormBuilderScreen() {
                 </View>
                 {subs.map((s) => (
                   <View key={s.id} style={styles.subCard}>
-                    <Text style={styles.subDate}>{fmtDate(s.submitted_at)}</Text>
+                    <View style={styles.subCardTop}>
+                      <Text style={styles.subDate}>{fmtDate(s.submitted_at)}</Text>
+                      {Platform.OS === "web" && (
+                        <TouchableOpacity style={styles.pdfBtn} onPress={() => printSubmission(s)} testID={`sub-pdf-${s.id}`}>
+                          <Ionicons name="document-text-outline" size={14} color={theme.primary} />
+                          <Text style={styles.pdfText}>PDF</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                     {(subFields.length ? subFields : Object.keys(s.values).map((k) => ({ id: k, label: k, type: "text" as FormFieldType }))).map((f) => (
                       <View key={f.id} style={styles.subRow}>
                         <Text style={styles.subKey}>{f.label}</Text>
@@ -467,7 +500,10 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 50, gap: 10 },
   emptySub: { color: theme.textMuted, fontSize: 14, textAlign: "center" },
   subCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, padding: 12, marginBottom: 10 },
-  subDate: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700", marginBottom: 8 },
+  subCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  subDate: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700" },
+  pdfBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: theme.surfaceAlt, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  pdfText: { color: theme.primary, fontSize: 12, fontWeight: "800" },
   subRow: { marginBottom: 6 },
   subKey: { color: theme.textMuted, fontSize: 11.5, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.3 },
   subVal: { color: theme.textPrimary, fontSize: 14.5, lineHeight: 20, marginTop: 1 },
