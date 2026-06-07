@@ -261,7 +261,7 @@ class Review(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    type: Literal["text", "place", "media", "voice", "post", "gif", "file", "contact", "tip"] = "text"
+    type: Literal["text", "place", "media", "voice", "post", "gif", "file", "contact", "tip", "form"] = "text"
     text: Optional[str] = ""
     amount: Optional[float] = None           # type == "tip"
     place_name: Optional[str] = None
@@ -280,6 +280,7 @@ class MessageCreate(BaseModel):
     contact_user_id: Optional[str] = None    # type == "contact" (an app user)
     contact_name: Optional[str] = None
     contact_picture: Optional[str] = None
+    form_id: Optional[str] = None            # type == "form" (a shared saved form)
     reply_to: Optional[str] = None           # id of the message being replied to
 
 
@@ -330,6 +331,9 @@ class Message(BaseModel):
     contact_user_id: Optional[str] = None    # type == "contact"
     contact_name: Optional[str] = None
     contact_picture: Optional[str] = None
+    form_id: Optional[str] = None            # type == "form" (a shared saved form)
+    form_key: Optional[str] = None           # public key to open the shared form
+    form_title: Optional[str] = None         # denormalized title of the shared form
     amount: Optional[float] = None           # type == "tip"
     link_preview: Optional[dict] = None      # OpenGraph preview for links in text
     deleted: bool = False                    # soft-deleted tombstone

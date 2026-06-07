@@ -15,9 +15,9 @@ import {
   RecordingPresets,
   setAudioModeAsync,
 } from "expo-audio";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, Message, Post, PublicUser, CustomEmoji } from "@/src/api/client";
+import { api, Message, Post, PublicUser, CustomEmoji, FormDef } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import EmojiText from "@/src/components/EmojiText";
@@ -28,6 +28,7 @@ import LinkPreviewCard from "@/src/components/LinkPreviewCard";
 import QuoteCard from "@/src/components/QuoteCard";
 import GifPickerSheet from "@/src/components/GifPickerSheet";
 import ContactPickerSheet from "@/src/components/ContactPickerSheet";
+import FormPickerSheet from "@/src/components/FormPickerSheet";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import { stripeCardPay } from "@/src/lib/stripeEmbed";
 import { theme } from "@/src/theme";
@@ -80,6 +81,11 @@ export default function ChatScreen() {
   const [groupOtherCount, setGroupOtherCount] = useState(0);
   const groupE2E = isGroup && groupRecipients.length > 0;
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
+  // Bumped whenever the screen regains focus so that restoring/unlocking the
+  // encryption key (done on a different screen) immediately re-attempts
+  // decryption of the WHOLE chat — without needing an app reload.
+  const [keyVersion, setKeyVersion] = useState(0);
+  useFocusEffect(useCallback(() => { setKeyVersion((v) => v + 1); }, []));
   // Decrypted media/voice/file payloads (data URIs), keyed e.g. v:<id>, f:<id>, m:<id>:<idx>.
   const [blobs, setBlobs] = useState<Record<string, string>>({});
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -118,6 +124,7 @@ export default function ChatScreen() {
   const [sharedPosts, setSharedPosts] = useState<Record<string, Post>>({});
   const [gifOpen, setGifOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   // Conversation settings (Messenger-style): color theme, disappearing timer, group name.
@@ -180,7 +187,7 @@ export default function ChatScreen() {
   // not yet restored). Drives the "restore your key" banner.
   const [lockedCount, setLockedCount] = useState(0);
   const [keyBackedUp, setKeyBackedUp] = useState<boolean | null>(null);
-  useEffect(() => { hasBackup().then(setKeyBackedUp).catch(() => setKeyBackedUp(null)); }, []);
+  useEffect(() => { hasBackup().then(setKeyBackedUp).catch(() => setKeyBackedUp(null)); }, [keyVersion]);
   // Show a backup nudge once the user has actually sent encrypted messages.
   const sentEncrypted = messages.some((m) => m.sender_id === user?.user_id && isE2E(m.text || ""));
   const showRestore = lockedCount > 0;
@@ -213,7 +220,7 @@ export default function ChatScreen() {
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, peerKey, keyByUser, isGroup]);
+  }, [messages, peerKey, keyByUser, isGroup, keyVersion]);
 
   // Recipients to seal attachments to (DM peer or all group members), or null.
   const e2eRecipients = (): Uint8Array[] | null => {
@@ -259,7 +266,7 @@ export default function ChatScreen() {
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, peerKey, keyByUser, isGroup]);
+  }, [messages, peerKey, keyByUser, isGroup, keyVersion]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -623,6 +630,14 @@ export default function ChatScreen() {
         contact_name: u.name,
         contact_picture: u.picture || undefined,
       });
+      setMessages((m) => [...m, msg]);
+    } catch {}
+  };
+
+  const sendForm = async (f: FormDef) => {
+    if (!id) return;
+    try {
+      const msg = await api.sendMessage(id, { type: "form", form_id: f.id });
       setMessages((m) => [...m, msg]);
     } catch {}
   };
@@ -1141,6 +1156,19 @@ export default function ChatScreen() {
                           )}
                         </View>
                       </View>
+                    ) : item.type === "form" ? (
+                      <TouchableOpacity
+                        style={styles.formCard}
+                        onPress={() => item.form_key && router.push({ pathname: "/f/[key]", params: { key: item.form_key } })}
+                        testID={`form-msg-${item.id}`}
+                      >
+                        <View style={styles.formIcon}><Ionicons name="document-text" size={20} color="#fff" /></View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.formTitle, mine && { color: "#fff" }]} numberOfLines={2}>{item.form_title || "Form"}</Text>
+                          <Text style={[styles.formSub, mine && { color: "rgba(255,255,255,0.8)" }]}>Tap to open & fill out</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={18} color={mine ? "rgba(255,255,255,0.8)" : theme.textMuted} />
+                      </TouchableOpacity>
                     ) : (
                       <View>
                         <EmojiText text={bodyText} emojis={emojiMap} style={[styles.bubbleText, mine && { color: "#fff" }]} />
@@ -1204,6 +1232,7 @@ export default function ChatScreen() {
                     { key: "gif", label: "GIF", icon: "film", color: "#EC4899", onPress: () => { setAttachOpen(false); setGifOpen(true); } },
                     { key: "file", label: "File", icon: "document", color: "#F59E0B", onPress: () => { setAttachOpen(false); pickFile(); } },
                     { key: "contact", label: "Contact", icon: "person", color: "#3B82F6", onPress: () => { setAttachOpen(false); setContactOpen(true); } },
+                    { key: "form", label: "Form", icon: "document-text", color: "#0EA5A0", onPress: () => { setAttachOpen(false); setFormOpen(true); } },
                     ...(peer ? [{ key: "tip", label: "Send tip", icon: "cash", color: theme.primary, onPress: () => { setAttachOpen(false); setTipOpen(true); } }] : []),
                   ].map((t: any) => (
                     <TouchableOpacity key={t.key} style={styles.attachTile} onPress={t.onPress} disabled={sending} testID={`attach-${t.key}`}>
@@ -1339,6 +1368,7 @@ export default function ChatScreen() {
       />
       <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
       <ContactPickerSheet visible={contactOpen} onClose={() => setContactOpen(false)} onPick={sendContact} />
+      <FormPickerSheet visible={formOpen} onClose={() => setFormOpen(false)} onPick={sendForm} />
       <FakePaymentSheet
         visible={tipOpen}
         title={`Tip ${peer?.name || "this user"}`}
@@ -1582,6 +1612,10 @@ const styles = StyleSheet.create({
   tipAmount: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
   tipSub: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
   tipNote: { color: theme.textSecondary, fontSize: 13, marginTop: 3, fontStyle: "italic" },
+  formCard: { flexDirection: "row", alignItems: "center", gap: 10, width: 230 },
+  formIcon: { width: 38, height: 38, borderRadius: 11, backgroundColor: "#0EA5A0", alignItems: "center", justifyContent: "center" },
+  formTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
+  formSub: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
   placeHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   placeName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", flex: 1 },
   placeAddr: { color: theme.textSecondary, fontSize: 12 },

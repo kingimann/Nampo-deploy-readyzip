@@ -550,6 +550,24 @@ async def send_message(
             raise HTTPException(status_code=413, detail="File too large (8MB limit)")
     if body.type == "contact" and not (body.contact_user_id or body.contact_name):
         raise HTTPException(status_code=400, detail="Contact required")
+    # Shared saved form: anyone in the conversation can open it via its public
+    # form_key, so we denormalize key + title onto the message (the recipient
+    # isn't the owner and can't read the owner-only form record).
+    form_id: Optional[str] = None
+    form_key: Optional[str] = None
+    form_title: Optional[str] = None
+    if body.type == "form":
+        form_id = body.form_id
+        if not form_id:
+            raise HTTPException(status_code=400, detail="form_id required")
+        fdoc = await db.forms.find_one(
+            {"id": form_id, "owner_id": user["user_id"]},
+            {"_id": 0, "id": 1, "form_key": 1, "title": 1},
+        )
+        if not fdoc:
+            raise HTTPException(status_code=404, detail="Form not found")
+        form_key = fdoc.get("form_key")
+        form_title = (fdoc.get("title") or "Form")[:200]
     # Tip: send money to the other participant of a DM, recorded both as a wallet
     # earning for them and as a tip in the chat for display.
     tip_amount: Optional[float] = None
@@ -620,6 +638,9 @@ async def send_message(
         "contact_user_id": body.contact_user_id if body.type == "contact" else None,
         "contact_name": (body.contact_name or "")[:120] if body.type == "contact" else None,
         "contact_picture": body.contact_picture if body.type == "contact" else None,
+        "form_id": form_id,
+        "form_key": form_key,
+        "form_title": form_title,
         "amount": tip_amount,
         "link_preview": link_prev,
         "reactions": {},
@@ -654,6 +675,8 @@ async def send_message(
         preview = f"📎 {(body.file_name or 'file')[:60]}"
     elif body.type == "contact":
         preview = f"👤 {(body.contact_name or 'contact')[:60]}"
+    elif body.type == "form":
+        preview = f"📝 shared a form: {(form_title or 'Form')[:60]}"
     elif body.type == "tip":
         preview = f"💸 sent a ${tip_amount:.2f} tip"
     else:
@@ -779,6 +802,7 @@ async def delete_message(
             "deleted": True, "text": "", "media": [], "audio_base64": None,
             "audio_duration_ms": None, "place_name": None, "place_address": None,
             "place_longitude": None, "place_latitude": None, "post_id": None,
+            "form_id": None, "form_key": None, "form_title": None,
             "link_preview": None, "reactions": {}, "reply_to_id": None,
         }},
     )

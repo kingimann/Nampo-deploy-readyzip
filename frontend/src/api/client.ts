@@ -1215,7 +1215,7 @@ export type FsqSearchResult = {
   rating?: number | null;
   price?: number | null;
 };
-export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact" | "tip";
+export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact" | "tip" | "form";
 export type Message = {
   id: string; conversation_id: string; sender_id: string;
   type: MsgType; text?: string;
@@ -1229,6 +1229,7 @@ export type Message = {
   gif_url?: string | null;
   file_base64?: string | null; file_name?: string | null; file_size?: number | null; file_mime?: string | null;
   contact_user_id?: string | null; contact_name?: string | null; contact_picture?: string | null;
+  form_id?: string | null; form_key?: string | null; form_title?: string | null;
   link_preview?: LinkPreview | null;
   deleted?: boolean;
   reactions?: Record<string, string> | null;  // { user_id: emoji }
@@ -1255,6 +1256,7 @@ export type MessageCreate = {
   gif_url?: string;
   file_base64?: string; file_name?: string; file_size?: number; file_mime?: string;
   contact_user_id?: string; contact_name?: string; contact_picture?: string;
+  form_id?: string;
   reply_to?: string;
 };
 export type ConversationView = {
