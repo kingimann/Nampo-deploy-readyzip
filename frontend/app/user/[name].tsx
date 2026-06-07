@@ -211,6 +211,42 @@ export default function UserProfileScreen() {
                 <Text style={styles.roleTag}>{user.role === "admin" ? "ADMIN" : "MODERATOR"}</Text>
               )}
               {!!user.bio && <Text style={styles.bio}>{user.bio}</Text>}
+
+              {(!!user.occupation || !!user.pronouns || !!user.location || !!user.birthday || !!user.website) && (
+                <View style={styles.detailsWrap}>
+                  {!!user.occupation && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="briefcase-outline" size={14} color={theme.textMuted} />
+                      <Text style={styles.detailText} numberOfLines={1}>{user.occupation}</Text>
+                    </View>
+                  )}
+                  {!!user.pronouns && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="person-circle-outline" size={14} color={theme.textMuted} />
+                      <Text style={styles.detailText} numberOfLines={1}>{user.pronouns}</Text>
+                    </View>
+                  )}
+                  {!!user.location && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="location-outline" size={14} color={theme.textMuted} />
+                      <Text style={styles.detailText} numberOfLines={1}>{user.location}</Text>
+                    </View>
+                  )}
+                  {!!user.birthday && (
+                    <View style={styles.detailRow}>
+                      <Ionicons name="gift-outline" size={14} color={theme.textMuted} />
+                      <Text style={styles.detailText} numberOfLines={1}>{user.birthday}</Text>
+                    </View>
+                  )}
+                  {!!user.website && (
+                    <TouchableOpacity style={styles.detailRow} onPress={() => Linking.openURL(user.website!).catch(() => {})} testID="user-website">
+                      <Ionicons name="link-outline" size={14} color={theme.primary} />
+                      <Text style={[styles.detailText, styles.detailLink]} numberOfLines={1}>{user.website!.replace(/^https?:\/\//, "")}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               <View style={styles.socialRow}>
                 <View style={styles.socialItem}>
                   <Text style={styles.socialNum}>{posts.length}</Text>
@@ -468,6 +504,10 @@ const styles = StyleSheet.create({
   },
   adminBtnText: { color: theme.textPrimary, fontSize: 12, fontWeight: "700" },
   bio: { color: theme.textSecondary, fontSize: 13, textAlign: "center", marginTop: 2, paddingHorizontal: 24 },
+  detailsWrap: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12, marginTop: 10, paddingHorizontal: 16 },
+  detailRow: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" },
+  detailText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "600", flexShrink: 1 },
+  detailLink: { color: theme.primary },
   socialRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     alignSelf: "stretch", marginTop: 14,

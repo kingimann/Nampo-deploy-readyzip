@@ -811,6 +811,11 @@ export type User = {
   twofa_enabled?: boolean;
   sms_notifications?: boolean;
   bio?: string;
+  location?: string | null;
+  website?: string | null;
+  pronouns?: string | null;
+  occupation?: string | null;
+  birthday?: string | null;
   home_name?: string | null;
   home_longitude?: number | null;
   home_latitude?: number | null;
@@ -828,6 +833,8 @@ export type User = {
 };
 export type ProfilePatch = {
   name?: string; bio?: string; picture?: string;
+  location?: string | null; website?: string | null; pronouns?: string | null;
+  occupation?: string | null; birthday?: string | null;
   home_name?: string | null; home_longitude?: number | null; home_latitude?: number | null;
   work_name?: string | null; work_longitude?: number | null; work_latitude?: number | null;
   sub_price?: number;
@@ -952,6 +959,11 @@ export type PublicUser = {
   username?: string | null;
   picture?: string | null;
   bio?: string;
+  location?: string | null;
+  website?: string | null;
+  pronouns?: string | null;
+  occupation?: string | null;
+  birthday?: string | null;
   verified?: boolean;
   role?: string;
   online?: boolean;

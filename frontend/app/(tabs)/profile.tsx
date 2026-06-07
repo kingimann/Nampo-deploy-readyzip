@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator,
-  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl,
+  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,6 +31,11 @@ export default function ProfileScreen() {
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
   const [editUsername, setEditUsername] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editWebsite, setEditWebsite] = useState("");
+  const [editPronouns, setEditPronouns] = useState("");
+  const [editOccupation, setEditOccupation] = useState("");
+  const [editBirthday, setEditBirthday] = useState("");
   const [usernameCheck, setUsernameCheck] = useState<{ checking: boolean; available: boolean | null }>({ checking: false, available: null });
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -142,6 +147,11 @@ export default function ProfileScreen() {
     setEditName(user?.name || "");
     setEditBio(user?.bio || "");
     setEditUsername(user?.username || "");
+    setEditLocation(user?.location || "");
+    setEditWebsite(user?.website || "");
+    setEditPronouns(user?.pronouns || "");
+    setEditOccupation(user?.occupation || "");
+    setEditBirthday(user?.birthday || "");
     setUsernameCheck({ checking: false, available: true });
     setEditOpen(true);
   };
@@ -181,7 +191,11 @@ export default function ProfileScreen() {
         }
         await api.setUsername(u);
       }
-      await api.updateMe({ name: editName, bio: editBio });
+      await api.updateMe({
+        name: editName, bio: editBio,
+        location: editLocation, website: editWebsite, pronouns: editPronouns,
+        occupation: editOccupation, birthday: editBirthday,
+      });
       await refresh();
       setEditOpen(false);
     } catch (e: any) {
@@ -237,6 +251,42 @@ export default function ProfileScreen() {
               <Text style={styles.handle} numberOfLines={1}>@{user.username}</Text>
             )}
             {!!user?.bio && <Text style={styles.bio}>{user.bio}</Text>}
+
+            {(!!user?.occupation || !!user?.pronouns || !!user?.location || !!user?.birthday || !!user?.website) && (
+              <View style={styles.detailsWrap}>
+                {!!user?.occupation && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="briefcase-outline" size={14} color={theme.textMuted} />
+                    <Text style={styles.detailText} numberOfLines={1}>{user.occupation}</Text>
+                  </View>
+                )}
+                {!!user?.pronouns && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="person-circle-outline" size={14} color={theme.textMuted} />
+                    <Text style={styles.detailText} numberOfLines={1}>{user.pronouns}</Text>
+                  </View>
+                )}
+                {!!user?.location && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="location-outline" size={14} color={theme.textMuted} />
+                    <Text style={styles.detailText} numberOfLines={1}>{user.location}</Text>
+                  </View>
+                )}
+                {!!user?.birthday && (
+                  <View style={styles.detailRow}>
+                    <Ionicons name="gift-outline" size={14} color={theme.textMuted} />
+                    <Text style={styles.detailText} numberOfLines={1}>{user.birthday}</Text>
+                  </View>
+                )}
+                {!!user?.website && (
+                  <TouchableOpacity style={styles.detailRow} onPress={() => Linking.openURL(user.website!).catch(() => {})} testID="profile-website">
+                    <Ionicons name="link-outline" size={14} color={theme.primary} />
+                    <Text style={[styles.detailText, styles.detailLink]} numberOfLines={1}>{user.website!.replace(/^https?:\/\//, "")}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             {!!user?.email && <Text style={styles.email} numberOfLines={1}>{user.email}</Text>}
 
             <View style={styles.socialBar}>
@@ -417,9 +467,10 @@ export default function ProfileScreen() {
       <Modal visible={editOpen} transparent animationType="slide" onRequestClose={() => setEditOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalBackdrop}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setEditOpen(false)} />
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 24 }]}>
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 24, maxHeight: "88%" }]}>
             <View style={styles.sheetHandle} />
             <Text style={styles.modalTitle}>Edit profile</Text>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Text style={styles.label}>Name</Text>
             <TextInput
               style={styles.input}
@@ -461,6 +512,65 @@ export default function ProfileScreen() {
               testID="edit-bio"
             />
             <Text style={styles.helper}>{editBio.length}/280</Text>
+
+            <Text style={styles.label}>Pronouns</Text>
+            <TextInput
+              style={styles.input}
+              value={editPronouns}
+              onChangeText={setEditPronouns}
+              placeholder="she/her · he/him · they/them"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="none"
+              maxLength={40}
+              testID="edit-pronouns"
+            />
+
+            <Text style={styles.label}>Occupation</Text>
+            <TextInput
+              style={styles.input}
+              value={editOccupation}
+              onChangeText={setEditOccupation}
+              placeholder="What you do (e.g. Photographer)"
+              placeholderTextColor={theme.textMuted}
+              maxLength={80}
+              testID="edit-occupation"
+            />
+
+            <Text style={styles.label}>Location</Text>
+            <TextInput
+              style={styles.input}
+              value={editLocation}
+              onChangeText={setEditLocation}
+              placeholder="City, Country"
+              placeholderTextColor={theme.textMuted}
+              maxLength={80}
+              testID="edit-location"
+            />
+
+            <Text style={styles.label}>Website</Text>
+            <TextInput
+              style={styles.input}
+              value={editWebsite}
+              onChangeText={setEditWebsite}
+              placeholder="yoursite.com"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="none"
+              keyboardType="url"
+              maxLength={200}
+              testID="edit-website"
+            />
+
+            <Text style={styles.label}>Birthday</Text>
+            <TextInput
+              style={styles.input}
+              value={editBirthday}
+              onChangeText={setEditBirthday}
+              placeholder="e.g. June 7 or 2000-06-07"
+              placeholderTextColor={theme.textMuted}
+              maxLength={40}
+              testID="edit-birthday"
+            />
+
             <TouchableOpacity
               style={[styles.saveBtn, saving && { opacity: 0.6 }]}
               onPress={saveEdit}
@@ -469,6 +579,7 @@ export default function ProfileScreen() {
             >
               {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save</Text>}
             </TouchableOpacity>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -513,6 +624,10 @@ const styles = StyleSheet.create({
   name: { color: theme.textPrimary, fontSize: 24, fontWeight: "800", marginTop: 12, letterSpacing: -0.3 },
   handle: { color: theme.primary, fontSize: 14.5, fontWeight: "700", marginTop: 4 },
   bio: { color: theme.textPrimary, fontSize: 15, marginTop: 12, lineHeight: 22, textAlign: "center" },
+  detailsWrap: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 14, marginTop: 12, paddingHorizontal: 8 },
+  detailRow: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" },
+  detailText: { color: theme.textMuted, fontSize: 13, fontWeight: "600", flexShrink: 1 },
+  detailLink: { color: theme.primary },
   email: { color: theme.textMuted, fontSize: 13, marginTop: 9 },
 
   socialBar: {

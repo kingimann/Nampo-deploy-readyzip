@@ -18,6 +18,12 @@ class User(BaseModel):
     twofa_enabled: bool = False        # SMS two-factor on login
     sms_notifications: bool = False    # mirror in-app notifications to SMS
     bio: Optional[str] = ""
+    # Public profile details users fill in to display on their profile.
+    location: Optional[str] = None      # city / country
+    website: Optional[str] = None       # personal link
+    pronouns: Optional[str] = None      # e.g. she/her, they/them
+    occupation: Optional[str] = None    # job title / headline
+    birthday: Optional[str] = None      # YYYY-MM-DD or free text
     home_name: Optional[str] = None
     home_longitude: Optional[float] = None
     home_latitude: Optional[float] = None
@@ -52,6 +58,11 @@ class PublicUser(BaseModel):
     username: Optional[str] = None
     picture: Optional[str] = None
     bio: Optional[str] = ""
+    location: Optional[str] = None
+    website: Optional[str] = None
+    pronouns: Optional[str] = None
+    occupation: Optional[str] = None
+    birthday: Optional[str] = None
     verified: bool = False
     role: str = "user"
     badges: List[Badge] = []
@@ -81,6 +92,11 @@ class ProfilePatch(BaseModel):
     name: Optional[str] = None
     bio: Optional[str] = None
     picture: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
+    pronouns: Optional[str] = None
+    occupation: Optional[str] = None
+    birthday: Optional[str] = None
     home_name: Optional[str] = None
     home_longitude: Optional[float] = None
     home_latitude: Optional[float] = None
