@@ -48,8 +48,14 @@ async def _viewer_can_comment(post: dict, viewer_id: Optional[str]) -> bool:
     policy = post.get("comment_policy") or "everyone"
     if policy == "everyone":
         return True
+    # Policy is restrictive from here — admins are immune to it. Only look up
+    # the viewer when needed so the common "everyone" path stays a no-op.
+    if viewer_id:
+        viewer = await db.users.find_one({"user_id": viewer_id}, {"_id": 0, "role": 1, "email": 1})
+        if viewer and is_admin(viewer):
+            return True
     if policy == "nobody" or not viewer_id:
-        return policy == "everyone"
+        return False
     if policy == "followers":
         return bool(await db.follows.find_one(
             {"follower_id": viewer_id, "followee_id": author}, {"_id": 0, "follower_id": 1}))
@@ -225,10 +231,14 @@ async def _viewer_sub_level(viewer_id: Optional[str], creator_id: str) -> int:
         {"subscriber_id": viewer_id, "creator_id": creator_id, "status": "active"},
         {"_id": 0, "tier": 1},
     )
-    if not sub:
-        return 0
-    from core import SUBSCRIPTION_TIER_LEVEL
-    return SUBSCRIPTION_TIER_LEVEL.get(sub.get("tier"), 1)
+    if sub:
+        from core import SUBSCRIPTION_TIER_LEVEL
+        return SUBSCRIPTION_TIER_LEVEL.get(sub.get("tier"), 1)
+    # Admins are immune to creator paywalls — they can see all gated content.
+    viewer = await db.users.find_one({"user_id": viewer_id}, {"_id": 0, "role": 1, "email": 1})
+    if viewer and is_admin(viewer):
+        return 3
+    return 0
 
 
 async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
@@ -367,7 +377,7 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
         comm = await db.communities.find_one({"id": body.community_id}, {"_id": 0, "id": 1})
         if not comm:
             raise HTTPException(status_code=404, detail="Community not found")
-        if not await db.community_members.find_one(
+        if not is_admin(user) and not await db.community_members.find_one(
             {"community_id": body.community_id, "user_id": user["user_id"]}, {"_id": 0, "id": 1}
         ):
             raise HTTPException(status_code=403, detail="Join the community to post here")
@@ -783,7 +793,7 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
         _dec(existing.get("emoji", ""))
         reactions[emoji] = int(reactions.get(emoji, 0)) + 1
     else:
-        if doc.get("likes_disabled"):
+        if doc.get("likes_disabled") and not is_admin(user):
             raise HTTPException(status_code=403, detail="Reactions are turned off for this post")
         try:
             await db.post_reactions.insert_one({
