@@ -255,9 +255,11 @@ async def payouts_status(authorization: Optional[str] = Header(None)):
     # it can show as a trust badge in the marketplace.
     indiv = acct.get("individual", {}) or {}
     veri_status = ((indiv.get("verification") or {}).get("status"))
-    id_verified = bool(payouts_enabled or veri_status == "verified")
-    if id_verified != bool(user.get("id_verified")):
-        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"id_verified": id_verified}})
+    id_verified = bool(user.get("id_verified") or payouts_enabled or veri_status == "verified")
+    # Set-only: once verified (by payouts or by standalone Stripe Identity), stays
+    # verified — losing payout eligibility shouldn't drop the ID badge.
+    if id_verified and not user.get("id_verified"):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"id_verified": True}})
 
     # When payouts aren't on and nothing is "due", the blocker is usually upstream:
     # the transfers capability is still being activated, or the PLATFORM Stripe
@@ -469,6 +471,56 @@ async def add_bank_account(body: DebitCardBody, authorization: Optional[str] = H
             "message": "That wasn't a bank account. Please check the details and try again.",
         })
     return {"ok": True, "has_bank_account": True, "bank": ext.get("bank_name"), "last4": ext.get("last4")}
+
+
+# ── Standalone ID verification via Stripe Identity (not tied to payouts) ──────
+@router.post("/payments/identity/start")
+async def start_identity(authorization: Optional[str] = Header(None)):
+    """Begin Stripe Identity verification: the user uploads a government ID +
+    selfie on a Stripe-hosted page. On success a webhook (and the status
+    endpoint) marks them `id_verified`. Works even if they never set up payouts."""
+    _require_stripe()
+    user = await get_current_user(authorization)
+    if user.get("id_verified"):
+        return {"already_verified": True}
+    try:
+        session = stripe.identity.VerificationSession.create(
+            type="document",
+            metadata={"user_id": user["user_id"]},
+            return_url=f"{WEB_APP_URL}/account?identity=done",
+            options={"document": {"require_matching_selfie": True}},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail={
+            "code": "identity_error",
+            "message": f"Couldn't start ID verification: {str(e)[:160]}",
+        })
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"identity_session_id": session.get("id")}}
+    )
+    return {"url": session.get("url"), "client_secret": session.get("client_secret"), "id": session.get("id")}
+
+
+@router.get("/payments/identity/status")
+async def identity_status(authorization: Optional[str] = Header(None)):
+    """Where the user's standalone ID verification stands. Also flips the stored
+    `id_verified` flag if Stripe now reports the session as verified."""
+    user = await get_current_user(authorization)
+    if user.get("id_verified"):
+        return {"status": "verified", "id_verified": True}
+    if not stripe_enabled():
+        return {"status": "unsupported", "id_verified": False}
+    sid = user.get("identity_session_id")
+    if not sid:
+        return {"status": "none", "id_verified": False}
+    try:
+        s = stripe.identity.VerificationSession.retrieve(sid)
+    except Exception:
+        return {"status": "error", "id_verified": False}
+    verified = s.get("status") == "verified"
+    if verified:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"id_verified": True}})
+    return {"status": s.get("status"), "id_verified": verified}
 
 
 # ── Inline identity verification (KYC collected in-app, submitted via API) ─────
@@ -1079,6 +1131,14 @@ async def stripe_webhook(request: Request):
         if (obj.get("metadata") or {}).get("kind") == "wallet_topup" and obj.get("id"):
             from routes.money import _mark_topup_failed
             await _mark_topup_failed(obj["id"])
+        return {"ok": True}
+
+    # Stripe Identity finished verifying a government ID → mark the user id_verified.
+    if event.get("type") == "identity.verification_session.verified":
+        obj = event.get("data", {}).get("object", {}) or {}
+        uid = (obj.get("metadata") or {}).get("user_id")
+        if uid:
+            await db.users.update_one({"user_id": uid}, {"$set": {"id_verified": True}})
         return {"ok": True}
 
     if event.get("type") == "checkout.session.completed":

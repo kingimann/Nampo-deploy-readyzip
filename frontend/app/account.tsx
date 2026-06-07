@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { useAuth } from "@/src/context/AuthContext";
 import { api } from "@/src/api/client";
@@ -48,6 +48,28 @@ export default function AccountScreen() {
     } catch (e: any) { setEmailVerifyMsg({ kind: "err", text: String(e?.message || e).replace(/^\d{3}:\s*/, "") }); }
     finally { setEmailVerifyBusy(false); }
   };
+
+  // Government-ID verification via Stripe Identity.
+  const [idBusy, setIdBusy] = useState(false);
+  const [idMsg, setIdMsg] = useState<Status>(null);
+  const startIdVerify = async () => {
+    setIdBusy(true); setIdMsg(null);
+    try {
+      const r = await api.startIdentityVerification();
+      if (r.already_verified) { setIdMsg({ kind: "ok", text: "Your ID is already verified." }); await refresh(); return; }
+      if (r.url) {
+        await Linking.openURL(r.url);
+        setIdMsg({ kind: "ok", text: "Finish verifying in the Stripe window, then return here." });
+      } else { setIdMsg({ kind: "err", text: "Couldn't start ID verification." }); }
+    } catch (e: any) { setIdMsg({ kind: "err", text: String(e?.message || e).replace(/^\d{3}:\s*/, "") }); }
+    finally { setIdBusy(false); }
+  };
+  // When returning from Stripe Identity, re-check status and refresh the badge.
+  useFocusEffect(useCallback(() => {
+    if (user && !user.id_verified) {
+      api.identityStatus().then((s) => { if (s.id_verified) refresh(); }).catch(() => {});
+    }
+  }, [user?.id_verified]));
 
   // Password
   const [curPw, setCurPw] = useState("");
@@ -223,6 +245,29 @@ export default function AccountScreen() {
           <TouchableOpacity style={[styles.btn, emailBusy && styles.btnDim]} onPress={saveEmail} disabled={emailBusy} testID="account-save-email">
             {emailBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Update email</Text>}
           </TouchableOpacity>
+        </View>
+
+        {/* Identity (ID) verification */}
+        <Text style={styles.groupTitle}>ID verification</Text>
+        <View style={styles.group}>
+          <View style={styles.verifRow}>
+            <Text style={styles.current}>Government ID</Text>
+            <View style={styles.verifBadge}>
+              <Ionicons name={user?.id_verified ? "checkmark-circle" : "alert-circle"} size={12} color={user?.id_verified ? "#22C55E" : theme.textMuted} />
+              <Text style={[styles.badgeText, user?.id_verified && { color: "#22C55E" }]}>{user?.id_verified ? "Verified" : "Unverified"}</Text>
+            </View>
+          </View>
+          <Text style={styles.hint}>
+            {user?.id_verified
+              ? "Your identity is verified — buyers and sellers see your ID badge."
+              : "Verify your identity with Stripe (government ID + selfie). Your ID badge builds trust in the marketplace."}
+          </Text>
+          {!user?.id_verified && (
+            <TouchableOpacity style={[styles.btn, idBusy && styles.btnDim]} onPress={startIdVerify} disabled={idBusy} testID="account-verify-id">
+              {idBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Verify my ID</Text>}
+            </TouchableOpacity>
+          )}
+          {idMsg && <Text style={idMsg.kind === "ok" ? styles.ok : styles.err}>{idMsg.text}</Text>}
         </View>
 
         {/* Password */}

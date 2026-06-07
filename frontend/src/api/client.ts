@@ -113,6 +113,10 @@ export const api = {
     request<{ ok: boolean; sent: boolean; dev_code?: string; note?: string }>("/auth/email/send-code", { method: "POST" }),
   verifyEmailCode: (code: string) =>
     request<User>("/auth/email/verify", { method: "POST", body: JSON.stringify({ code }) }),
+  startIdentityVerification: () =>
+    request<{ url?: string; client_secret?: string; id?: string; already_verified?: boolean }>("/payments/identity/start", { method: "POST" }),
+  identityStatus: () =>
+    request<{ status: string; id_verified: boolean }>("/payments/identity/status"),
   listApiKeys: () => request<{ keys: ApiKey[] }>("/auth/api-keys"),
   createApiKey: (label: string, scopes?: string[]) =>
     request<{ id: string; label: string; scopes: string[]; token: string; created_at: string }>(
