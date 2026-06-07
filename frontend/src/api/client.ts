@@ -405,6 +405,11 @@ export const api = {
     vehicle_year?: string; vehicle_make?: string; vehicle_model?: string;
     vehicle_color?: string; vehicle_plate?: string; note?: string;
   }) => request<RoadsideCheckResult>("/roadside/check", { method: "POST", body: JSON.stringify(body) }),
+  // Verify a just-taken roadside photo shows the vehicle / the problem.
+  checkRoadsidePhoto: (photo: string) =>
+    request<{ ok: boolean; reason?: string }>("/roadside/check-photo", {
+      method: "POST", body: JSON.stringify({ photo }),
+    }),
   // Voice calls (LiveKit). token → join the room; ring → notify the other side.
   callToken: (conversationId: string) =>
     request<{ token: string; url: string; room: string; identity: string }>(

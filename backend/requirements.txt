@@ -20,6 +20,9 @@ cryptography==48.0.0
 # HTTP client (link previews, foursquare matching)
 httpx==0.28.1
 
+# Imaging (blank/black roadside-photo detection)
+Pillow==11.3.0
+
 # Payments (optional — real payouts via Stripe Connect; app runs without it)
 stripe==11.4.1
 

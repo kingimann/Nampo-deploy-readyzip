@@ -395,6 +395,71 @@ async def verify_documents(
     return {"decision": "approve" if match else "reject", "reason": reason}
 
 
+def _image_looks_blank(b64: str) -> bool:
+    """Deterministic black/blank-photo guard. Decodes a thumbnail and rejects
+    near-black, near-white or featureless (no-detail) images. Needs Pillow;
+    if it isn't available we skip this and let the AI handle it."""
+    try:
+        import base64 as _b64
+        import io
+        from PIL import Image
+    except Exception:
+        return False
+    try:
+        raw = _b64.b64decode(_raw_b64(b64), validate=False)
+        im = Image.open(io.BytesIO(raw)).convert("L")
+        im.thumbnail((64, 64))
+        px = list(im.getdata())
+    except Exception:
+        return False
+    if not px:
+        return False
+    mean = sum(px) / len(px)
+    var = sum((p - mean) ** 2 for p in px) / len(px)
+    # Near-black, blown-out white, or almost no variation across the frame.
+    return mean < 12 or mean > 245 or var < 25
+
+
+async def verify_vehicle_photo(b64: str) -> dict:
+    """Check a roadside photo actually shows a vehicle (or the part with the
+    problem). Returns {"ok": bool, "reason": str}. A blank/black photo is
+    rejected deterministically; the vision AI rejects unrelated photos. Fails
+    open (ok) when the AI isn't configured and the image isn't obviously blank."""
+    if not (b64 or "").strip():
+        return {"ok": False, "reason": "No photo was captured — try again."}
+    if _image_looks_blank(b64):
+        return {"ok": False, "reason": "That looks like a blank or all-dark photo. Take a clear photo of your vehicle or the problem."}
+    if not ollama_enabled():
+        return {"ok": True, "reason": ""}
+    prompt = (
+        "This is a photo from a roadside-assistance request. Does it clearly show a "
+        "motor vehicle, or a part of one relevant to the problem (e.g. a flat or "
+        "damaged tyre, engine bay, dead battery, a locked door/window, fuel cap)? "
+        "Answer false for an unrelated subject (a person, a room, food, a screenshot, "
+        "random objects) or a blank/black/too-dark image.\n"
+        'Reply with ONLY JSON: {"shows_vehicle": true|false, "reason": "<one short sentence>"}'
+    )
+    payload = {
+        "model": OLLAMA_VISION_MODEL,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0},
+        "messages": [{"role": "user", "content": prompt, "images": [_raw_b64(b64)]}],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
+            resp.raise_for_status()
+            content = ((resp.json() or {}).get("message") or {}).get("content") or ""
+        parsed = json.loads(content)
+    except Exception:
+        return {"ok": True, "reason": ""}   # don't block on AI hiccups
+    if isinstance(parsed, dict) and parsed.get("shows_vehicle") is False:
+        reason = str(parsed.get("reason") or "").strip()[:200]
+        return {"ok": False, "reason": reason or "That photo doesn't look like your vehicle or the problem. Take a clear photo of the car or the issue."}
+    return {"ok": True, "reason": ""}
+
+
 # ── Marketplace listing moderation ──────────────────────────────────────────
 _SPAM_WORDS = [
     "free money", "make money fast", "click here", "wire transfer", "western union",

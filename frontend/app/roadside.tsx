@@ -9,7 +9,7 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { safeBack } from "@/src/utils/nav";
 import { reverseGeocode } from "@/src/api/mapbox";
-import { pickImages, captureImage, pickDocumentBase64 } from "@/src/utils/thumbnail";
+import { captureImage, pickDocumentBase64 } from "@/src/utils/thumbnail";
 import { api, RoadsideRequest, RoadsideService, RoadsideParty, RoadsideQuote, RoadsideEligibility, RoadsideVerificationStatus, RoadsideCheckResult } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
@@ -234,12 +234,27 @@ export default function RoadsideScreen() {
     } finally { setSubmittingVerif(false); }
   };
 
+  // Roadside photos are camera-only (no library/files) and AI-checked to be a
+  // real shot of the vehicle or the problem — not a blank/black or random photo.
+  const verifyShot = async (uri: string): Promise<boolean> => {
+    try {
+      const res = await api.checkRoadsidePhoto(uri);
+      if (!res.ok) {
+        Alert.alert("Photo not accepted", res.reason || "Take a clear photo of your vehicle or the problem.");
+        return false;
+      }
+      return true;
+    } catch {
+      return true; // don't hard-block on a network hiccup
+    }
+  };
+
   const addPhotos = async () => {
     setPhotoBusy(true);
     try {
-      const got = await pickImages(6 - photos.length);
-      if (got.length) setPhotos((p) => [...p, ...got].slice(0, 6));
-    } catch (e: any) { Alert.alert("Couldn't add photos", String(e?.message || e)); }
+      const uri = await captureImage();   // camera only — one shot per tap
+      if (uri && (await verifyShot(uri))) setPhotos((p) => [...p, uri].slice(0, 6));
+    } catch (e: any) { Alert.alert("Couldn't add photo", String(e?.message || e)); }
     finally { setPhotoBusy(false); }
   };
 
@@ -307,6 +322,7 @@ export default function RoadsideScreen() {
   const doVerify = async (r: RoadsideRequest, clear: () => void) => {
     const uri = await captureImage();
     if (!uri) return;
+    if (!(await verifyShot(uri))) return;
     setBusyId(r.id);
     try {
       const updated = await api.verifyRoadside(r.id, [uri]);
@@ -321,6 +337,7 @@ export default function RoadsideScreen() {
   const addServicePhotos = async (r: RoadsideRequest, phase: "before" | "after") => {
     const uri = await captureImage();
     if (!uri) return;
+    if (!(await verifyShot(uri))) return;
     setBusyId(r.id);
     try {
       const updated = await api.addRoadsidePhotos(r.id, phase, [uri]);
@@ -764,8 +781,9 @@ export default function RoadsideScreen() {
                   <Text style={styles.sectionLabel}>Photos (optional)</Text>
                   <TouchableOpacity style={styles.locBtn} onPress={addPhotos} disabled={photoBusy || photos.length >= 6} testID="rs-add-photos">
                     {photoBusy ? <ActivityIndicator color={theme.primary} size="small" /> : <Ionicons name="camera" size={16} color={theme.primary} />}
-                    <Text style={styles.locBtnText}>Add photos of the situation</Text>
+                    <Text style={styles.locBtnText}>Take a photo of the problem</Text>
                   </TouchableOpacity>
+                  <Text style={[styles.hint, { marginTop: 6 }]}>Camera only — snap your vehicle or the issue (a flat tyre, dead battery…). Photos are checked automatically.</Text>
                   <Photos uris={photos} onRemove={(i) => setPhotos((p) => p.filter((_, idx) => idx !== i))} />
 
                   <Text style={styles.sectionLabel}>Notes (optional)</Text>
