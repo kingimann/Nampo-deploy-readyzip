@@ -148,6 +148,22 @@ async def _check_livekit() -> tuple[bool, str]:
         return False, f"Host unreachable: {str(e)[:120]}"
 
 
+async def _check_render() -> tuple[bool, str]:
+    key = os.environ.get("RENDER_API_KEY", "")
+    if not key:
+        return False, "RENDER_API_KEY not set."
+    try:
+        async with httpx.AsyncClient(timeout=12) as c:
+            r = await c.get("https://api.render.com/v1/services",
+                            headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+                            params={"limit": 1})
+        if r.status_code == 200:
+            return True, "Authenticated — manage services in Settings → Render."
+        return False, f"HTTP {r.status_code}: {r.text[:140]}"
+    except Exception as e:
+        return False, f"Render call failed: {str(e)[:120]}"
+
+
 async def _check_anthropic() -> tuple[bool, str]:
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
@@ -265,6 +281,14 @@ _INTEGRATIONS = [
         "fix": "Set RECOVERY_SECRET to a long random string to enable /auth/recover-password.",
         "docs": "https://code.claude.com/docs",
         "configured": lambda: _present("RECOVERY_SECRET"), "live": None,
+    },
+    {
+        "key": "render", "name": "Render (hosting management)", "category": "Hosting",
+        "required": False, "env": ["RENDER_API_KEY"],
+        "summary": "Manage services, deploys and env vars from Settings → Render. Without it, that admin screen can't load.",
+        "fix": "Create an owner API key in Render → Account Settings → API Keys and set RENDER_API_KEY.",
+        "docs": "https://render.com/docs/api",
+        "configured": lambda: _present("RENDER_API_KEY"), "live": _check_render,
     },
 ]
 
