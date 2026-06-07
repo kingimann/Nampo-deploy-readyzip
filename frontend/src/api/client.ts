@@ -315,6 +315,23 @@ export const api = {
   deletePlace: (id: string) =>
     request<{ ok: boolean }>(`/places/${id}`, { method: "DELETE" }),
 
+  // ── Custom forms ──────────────────────────────────────────────────────────
+  listForms: () => request<{ forms: FormDef[] }>("/forms"),
+  createForm: (body: FormCreate) =>
+    request<FormDef>("/forms", { method: "POST", body: JSON.stringify(body) }),
+  getForm: (id: string) => request<FormDef>(`/forms/${id}`),
+  updateForm: (id: string, body: FormCreate) =>
+    request<FormDef>(`/forms/${id}`, { method: "POST", body: JSON.stringify(body) }),
+  deleteForm: (id: string) =>
+    request<{ ok: boolean }>(`/forms/${id}`, { method: "DELETE" }),
+  listFormSubmissions: (id: string) =>
+    request<{ submissions: FormSubmission[]; total: number; fields: FormField[] }>(`/forms/${id}/submissions`),
+  // Public (no auth needed) — used by the in-app form renderer.
+  publicForm: (key: string) =>
+    request<{ id: string; title: string; description?: string | null; submit_label?: string; fields: FormField[] }>(`/pub/form?form=${encodeURIComponent(key)}`),
+  submitPublicForm: (key: string, values: Record<string, any>) =>
+    request<{ ok: boolean }>(`/pub/form-submit?form=${encodeURIComponent(key)}`, { method: "POST", body: JSON.stringify({ values }) }),
+
   listRecents: () => request<Recent[]>("/recents"),
   addRecent: (r: RecentCreate) =>
     request<Recent>("/recents", { method: "POST", body: JSON.stringify(r) }),
@@ -1081,6 +1098,18 @@ export type Place = {
   id: string; user_id: string; title: string; notes?: string;
   longitude: number; latitude: number; address?: string; category: string; created_at: string;
 };
+export type FormFieldType = "text" | "email" | "phone" | "number" | "textarea" | "select" | "checkbox" | "radio" | "date";
+export type FormField = {
+  id?: string; type: FormFieldType; label: string; required?: boolean;
+  placeholder?: string | null; options?: string[] | null;
+};
+export type FormDef = {
+  id: string; owner_id?: string; form_key: string; title: string;
+  description?: string | null; submit_label?: string; fields: FormField[];
+  submissions: number; created_at?: string;
+};
+export type FormCreate = { title: string; description?: string; submit_label?: string; fields: FormField[] };
+export type FormSubmission = { id: string; form_id: string; values: Record<string, string>; ip?: string; submitted_at: string };
 export type PlaceCreate = {
   title: string; notes?: string; longitude: number; latitude: number; address?: string; category?: string;
 };

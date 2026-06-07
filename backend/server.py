@@ -16,6 +16,7 @@ from routes import (
     calls as calls_routes,
     communities as communities_routes,
     eta as eta_routes,
+    forms as forms_routes,
     foursquare as fsq_routes,
     groups as groups_routes,
     guides as guides_routes,
@@ -194,6 +195,7 @@ def _register(parent: APIRouter):
     parent.include_router(push_routes.router)
     parent.include_router(roadside_routes.router)
     parent.include_router(support_routes.router)
+    parent.include_router(forms_routes.router)
 
 
 # `/api/v1` is the documented, stable base. `/api` stays as a back-compat alias

@@ -96,6 +96,7 @@ export default function SettingsScreen() {
           <Row icon="shield-checkmark-outline" label="Account & security" color="#22C55E" onPress={() => router.push("/account")} />
           <Row icon="link-outline" label="Connected apps" color="#A855F7" onPress={() => router.push("/connected-apps")} />
           <Row icon="code-slash-outline" label="Developer API" color="#0EA5E9" onPress={() => router.push("/developer")} />
+          <Row icon="document-text-outline" label="Forms" color="#8B5CF6" onPress={() => router.push("/forms")} />
           <Row icon="megaphone-outline" label="Advertise" color="#F97316" onPress={() => router.push("/advertise")} />
           <Row icon="cash-outline" label="Monetize your site" color="#16A34A" onPress={() => router.push("/monetize")} last={user?.role !== "admin"} />
           {user?.role === "admin" && (
