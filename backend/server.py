@@ -1,6 +1,7 @@
 """Map App backend entry point."""
 import logging
 import os
+import time
 
 from fastapi import APIRouter, FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
@@ -78,7 +79,7 @@ logging.basicConfig(
 )
 
 from starlette.requests import Request as _Req
-from starlette.responses import JSONResponse as _JSON
+from starlette.responses import JSONResponse as _JSON, Response as _Resp
 from core import db as _db
 
 
@@ -125,6 +126,48 @@ async def enforce_api_key_scopes(request: _Req, call_next):
                     ),
                 )
     return await call_next(request)
+
+
+# ── Idempotency keys ─────────────────────────────────────────────────────────
+# A client may send `Idempotency-Key: <unique>` on any write (POST/PUT/PATCH/
+# DELETE). The first call runs normally and we cache the response; retries with
+# the same key (scoped to the caller) replay that exact response instead of
+# re-running the operation — so a flaky network can't double-post or double-pay.
+# In-memory (single instance), 24h TTL.
+_IDEMP: dict = {}
+_IDEMP_TTL = 86400.0
+_IDEMP_MAX = 5000
+
+
+@app.middleware("http")
+async def idempotency(request: _Req, call_next):
+    key = request.headers.get("idempotency-key") if request.method in ("POST", "PUT", "PATCH", "DELETE") else None
+    if not key:
+        return await call_next(request)
+    # Scope the key to the caller (token) so two users can't collide.
+    scope = request.headers.get("authorization", "")[-40:]
+    ck = f"{scope}|{request.method}|{request.url.path}|{key[:200]}"
+    now = time.time()
+    hit = _IDEMP.get(ck)
+    if hit and now - hit["ts"] < _IDEMP_TTL:
+        headers = dict(hit["headers"]); headers["Idempotent-Replay"] = "true"
+        return _Resp(content=hit["body"], status_code=hit["status"], headers=headers)
+    resp = await call_next(request)
+    # Cache only final (non server-error) responses so transient 5xx can retry.
+    if resp.status_code < 500:
+        body = b""
+        async for chunk in resp.body_iterator:
+            body += chunk
+        headers = {k: v for k, v in resp.headers.items() if k.lower() != "content-length"}
+        if len(_IDEMP) >= _IDEMP_MAX:
+            for k2 in [k for k, v in list(_IDEMP.items()) if now - v["ts"] > _IDEMP_TTL]:
+                _IDEMP.pop(k2, None)
+            if len(_IDEMP) >= _IDEMP_MAX:
+                _IDEMP.clear()
+        _IDEMP[ck] = {"status": resp.status_code, "body": body, "headers": headers, "ts": now}
+        return _Resp(content=body, status_code=resp.status_code, headers=headers,
+                     background=getattr(resp, "background", None))
+    return resp
 
 
 @app.exception_handler(StarletteHTTPException)

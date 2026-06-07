@@ -163,6 +163,7 @@ const GROUPS: Group[] = [
     endpoints: [
       { method: "GET", path: "/pub/post/{id}", desc: "Public JSON for a post (public posts only).", auth: false },
       { method: "GET", path: "/pub/profile/{username}", desc: "Public JSON for a user profile.", auth: false },
+      { method: "GET", path: "/pub/profile/{username}/posts", desc: "A user's public posts (cursor paginated: ?limit=&cursor=).", auth: false },
       { method: "GET", path: "/pub/post-card?post=ID", desc: "Themeable iframe card for a post (theme/accent/radius).", auth: false },
       { method: "GET", path: "/pub/profile-card?profile=USER", desc: "Themeable iframe card for a profile.", auth: false },
       { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post or data-profile + data-theme/accent/radius.", auth: false },
@@ -815,7 +816,8 @@ export default function DeveloperScreen() {
         <View style={styles.convCard}>
           <Text style={styles.convItem}><Text style={styles.convKey}>Format </Text>JSON request & response bodies; `Content-Type: application/json`.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Versioning </Text>The stable base is `/api/v1`. The unversioned `/api` is kept as a legacy alias so existing keys keep working.</Text>
-          <Text style={styles.convItem}><Text style={styles.convKey}>Pagination </Text>List endpoints accept `?limit=` and `?offset=` where supported.</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Pagination </Text>List endpoints accept `?limit=` and `?offset=`. Some also support cursor paging — pass the returned `next_cursor` as `?cursor=` (null = end).</Text>
+          <Text style={styles.convItem}><Text style={styles.convKey}>Idempotency </Text>Send an `Idempotency-Key: <unique>` header on writes (POST/PUT/PATCH/DELETE). Retries with the same key replay the first response (header `Idempotent-Replay: true`) — safe against double-submits.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Errors </Text>Every non-2xx reply uses one shape: `{"{"}"error":{"{"}"code","message"{"}"}{"}"}` (also mirrored under `detail`). e.g. 401 unauthorized, 403 forbidden, 404 not_found, 413 payload_too_large, 422 validation_error, 429 rate_limited.</Text>
           <Text style={styles.convItem}><Text style={styles.convKey}>Rate limits </Text>Fair-use; heavy automated traffic may be throttled (429).</Text>
         </View>
