@@ -599,7 +599,7 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
         fuel_type, fuel_amount = None, None
     # The vehicle must be a real make/model/year — block clearly made-up ones.
     from services.ollama import validate_vehicle
-    vc = await validate_vehicle(body.vehicle_year, body.vehicle_make, body.vehicle_model)
+    vc = await validate_vehicle(body.vehicle_year, body.vehicle_make, body.vehicle_model, body.vehicle_color)
     if not vc["valid"]:
         raise HTTPException(status_code=400, detail={
             "code": "vehicle_invalid",
