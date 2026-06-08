@@ -49,7 +49,11 @@ export default function WebPullToRefresh() {
       if (dy > 0) { pullRef.current = Math.min(dy, 120); setPull(pullRef.current); }
     };
     const onEnd = () => {
-      if (active.current && pullRef.current >= THRESHOLD) { window.location.reload(); return; }
+      if (active.current && pullRef.current >= THRESHOLD) {
+        try { sessionStorage.setItem("nami_refreshed", "1"); } catch {}
+        window.location.reload();
+        return;
+      }
       active.current = false; startY.current = null; pullRef.current = 0; setPull(0);
     };
     // Capture phase so list/touchable children can't swallow the gesture before

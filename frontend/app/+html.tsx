@@ -130,6 +130,28 @@ export default function Root({ children }: PropsWithChildren) {
             `,
           }}
         />
+        {/* Vanilla-JS "Refreshed" toast after a pull-to-refresh reload (the flag
+            is set just before reload), matching a native pull-to-refresh feel. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                try {
+                  if (!sessionStorage.getItem('nami_refreshed')) return;
+                  sessionStorage.removeItem('nami_refreshed');
+                  window.addEventListener('load', function(){
+                    var t = document.createElement('div');
+                    t.textContent = '\\u2713 Refreshed';
+                    t.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#0EA5A0;color:#fff;font:600 13px -apple-system,system-ui,sans-serif;padding:9px 16px;border-radius:999px;z-index:100000;box-shadow:0 4px 16px rgba(0,0,0,.4);opacity:0;transition:opacity .25s ease;pointer-events:none';
+                    document.body.appendChild(t);
+                    requestAnimationFrame(function(){ t.style.opacity='1'; });
+                    setTimeout(function(){ t.style.opacity='0'; setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); }, 320); }, 1600);
+                  });
+                } catch(e){}
+              })();
+            `,
+          }}
+        />
         {/* Branded launch screen — removed as soon as the app mounts. */}
         <div id="nami-splash">
           <img src="/icon.png" alt="Nami" />
