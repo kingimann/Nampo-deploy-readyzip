@@ -873,28 +873,28 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
             "code": "subscribers_only",
             "message": f"Subscribe at Tier {_mtier} or higher to react to this post.",
         })
-    reactions = dict(doc.get("reactions") or {})
-
-    def _dec(em: str):
-        n = int(reactions.get(em, 0)) - 1
-        if n > 0:
-            reactions[em] = n
-        else:
-            reactions.pop(em, None)
+    # Track the tally change as per-key deltas applied with $inc, so concurrent
+    # reactions from different users serialize on the locked row (update_one is
+    # SELECT ... FOR UPDATE) instead of clobbering a $set of the whole recomputed
+    # dict. _reaction_list already hides any key left at <= 0.
+    inc: dict = {}
 
     existing = await db.post_reactions.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
     if existing and existing.get("emoji") == emoji:
         # Toggle off.
         await db.post_reactions.delete_one({"post_id": post_id, "user_id": uid})
-        _dec(emoji)
+        inc[f"reactions.{emoji}"] = inc.get(f"reactions.{emoji}", 0) - 1
+        inc["likes_count"] = inc.get("likes_count", 0) - 1
     elif existing:
         # Switch reaction.
         await db.post_reactions.update_one(
             {"post_id": post_id, "user_id": uid},
             {"$set": {"emoji": emoji, "created_at": datetime.now(timezone.utc)}},
         )
-        _dec(existing.get("emoji", ""))
-        reactions[emoji] = int(reactions.get(emoji, 0)) + 1
+        old = existing.get("emoji", "")
+        if old:
+            inc[f"reactions.{old}"] = inc.get(f"reactions.{old}", 0) - 1
+        inc[f"reactions.{emoji}"] = inc.get(f"reactions.{emoji}", 0) + 1
     else:
         if doc.get("likes_disabled") and not is_admin(user):
             raise HTTPException(status_code=403, detail="Reactions are turned off for this post")
@@ -903,17 +903,16 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
                 "post_id": post_id, "user_id": uid, "emoji": emoji,
                 "created_at": datetime.now(timezone.utc),
             })
-            reactions[emoji] = int(reactions.get(emoji, 0)) + 1
+            inc[f"reactions.{emoji}"] = inc.get(f"reactions.{emoji}", 0) + 1
+            inc["likes_count"] = inc.get("likes_count", 0) + 1
             await emit_notification(
                 user_id=doc["user_id"], actor_id=uid, ntype="like",
                 post_id=post_id, message=f"{emoji} {(doc.get('text') or '')[:120]}".strip(),
             )
         except DuplicateKeyError:
             pass
-    total = sum(int(v) for v in reactions.values())
-    await db.posts.update_one(
-        {"id": post_id}, {"$set": {"reactions": reactions, "likes_count": total}}
-    )
+    if inc:
+        await db.posts.update_one({"id": post_id}, {"$inc": inc})
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, uid)
 
@@ -983,6 +982,14 @@ async def toggle_repost(post_id: str, authorization: Optional[str] = Header(None
         await db.posts.delete_one({"id": existing["id"]})
         await db.posts.update_one({"id": post_id}, {"$inc": {"reposts_count": -1}})
     else:
+        # Subscriber-only posts: gate reposting the same way reactions/comments are
+        # gated, so a non-subscriber can't inflate a locked post's repost count.
+        _mtier = int(orig.get("min_sub_tier") or 0)
+        if _mtier > 0 and (await _viewer_sub_level(user["user_id"], orig["user_id"])) < _mtier:
+            raise HTTPException(status_code=403, detail={
+                "code": "subscribers_only",
+                "message": f"Subscribe at Tier {_mtier} or higher to repost this.",
+            })
         await db.posts.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user["user_id"],
@@ -1179,6 +1186,8 @@ async def vote_poll(
     if not doc or not doc.get("poll"):
         raise HTTPException(status_code=404, detail="Poll not found")
     poll = doc["poll"]
+    if poll.get("closed"):
+        raise HTTPException(status_code=400, detail="Poll closed")
     ends_at = poll.get("ends_at")
     if ends_at and ends_at.replace(tzinfo=ends_at.tzinfo or timezone.utc) \
        <= datetime.now(timezone.utc):
@@ -1222,6 +1231,8 @@ async def vote_poll(
 async def record_view(post_id: str, authorization: Optional[str] = Header(None)):
     """Record a unique view (idempotent per user per post)."""
     user = await get_current_user(authorization)
+    if not await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="Post not found")
     try:
         await db.post_views.insert_one({
             "post_id": post_id, "user_id": user["user_id"],
