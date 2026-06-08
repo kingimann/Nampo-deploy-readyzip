@@ -691,6 +691,7 @@ export default function MarketplaceScreen() {
         <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setPicker(null)}>
           <View style={styles.pickerCard}>
             <Text style={styles.pickerTitle}>{picker === "category" ? "Category" : "Condition"}</Text>
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
             {(picker === "category" ? CATEGORIES.filter((c) => c.key !== "all") : CONDITIONS).map((o) => {
               const sel = picker === "category" ? draft.category === o.key : draft.condition === o.key;
               return (
@@ -705,6 +706,7 @@ export default function MarketplaceScreen() {
                 </TouchableOpacity>
               );
             })}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1002,9 +1004,9 @@ const styles = StyleSheet.create({
   },
   dropdownText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
   pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
-  pickerCard: { width: "100%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
+  pickerCard: { width: "100%", maxHeight: "70%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
   pickerTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
-  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12 },
+  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12 },
   pickerRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
   postBtn: {
     marginTop: 20, paddingVertical: 14, borderRadius: 14,
