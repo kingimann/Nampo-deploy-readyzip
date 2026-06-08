@@ -145,6 +145,17 @@ services:
         sync: false
       - key: EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET
         sync: false
+    # Never let the app SHELL go stale: index.html must revalidate every load so
+    # new deploys are picked up immediately (the hashed JS/CSS under
+    # /_expo/static/* keep their default long cache — they're content-hashed and
+    # safe). This is the cure for "I deployed but the PWA still shows the old UI".
+    headers:
+      - path: /
+        name: Cache-Control
+        value: "no-cache, must-revalidate"
+      - path: /index.html
+        name: Cache-Control
+        value: "no-cache, must-revalidate"
     routes:
       # SPA fallback — the app exports a single index.html (web.output: single).
       - type: rewrite

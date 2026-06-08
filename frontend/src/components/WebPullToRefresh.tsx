@@ -16,14 +16,15 @@ export default function WebPullToRefresh() {
   const pullRef = useRef(0);
   const startY = useRef<number | null>(null);
   const active = useRef(false);
-  const THRESHOLD = 85;
+  const THRESHOLD = 70;
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
     const onStart = (e: TouchEvent) => {
       const y = e.touches[0]?.clientY ?? 0;
-      // Engage only from the top zone so we don't interfere with list scrolling.
-      if (y < 110) { startY.current = y; active.current = true; }
+      // Engage from the top zone (header/status-bar) so we don't fight a list's
+      // own pull-to-refresh lower down.
+      if (y < 150) { startY.current = y; active.current = true; }
       else { active.current = false; startY.current = null; }
     };
     const onMove = (e: TouchEvent) => {
