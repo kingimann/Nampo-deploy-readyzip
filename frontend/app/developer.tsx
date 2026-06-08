@@ -223,6 +223,37 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: "Factcheck (community notes)", icon: "shield-checkmark",
+    endpoints: [
+      { method: "GET", path: "/posts/{id}/factchecks", desc: "List a post's notes with your rating + the helpfulness threshold.", auth: true },
+      { method: "POST", path: "/posts/{id}/factchecks", desc: "Add a note (source link required).", auth: true, body: `{"text","source_url"}` },
+      { method: "POST", path: "/factchecks/{id}/rate", desc: "Rate a note. helpful=true/false, or null to clear.", auth: true, body: `{"helpful":true}` },
+      { method: "DELETE", path: "/factchecks/{id}", desc: "Delete a note (author or staff).", auth: true },
+    ],
+  },
+  {
+    title: "Hazards (driver reports)", icon: "warning",
+    endpoints: [
+      { method: "GET", path: "/hazards?longitude=&latitude=&radius=", desc: "Active hazards near a point (+ your own pending).", auth: true },
+      { method: "POST", path: "/hazards", desc: "Report a hazard; clusters with nearby same-type reports.", auth: true, body: `{"type","longitude","latitude"}` },
+      { method: "POST", path: "/hazards/{id}/confirm", desc: "Confirm a hazard is still there.", auth: true },
+      { method: "POST", path: "/hazards/{id}/dismiss", desc: "Vote that a hazard is gone.", auth: true },
+    ],
+  },
+  {
+    title: "Games", icon: "game-controller",
+    endpoints: [
+      { method: "GET", path: "/games", desc: "List games (?mine=true for your own).", auth: true },
+      { method: "POST", path: "/games", desc: "Publish a game (inline html or a hosted url).", auth: true, body: `{"title","description","url","html","thumbnail"}` },
+      { method: "GET", path: "/games/{id}", desc: "Get a game.", auth: true },
+      { method: "DELETE", path: "/games/{id}", desc: "Delete a game (owner or staff).", auth: true },
+      { method: "POST", path: "/games/{id}/score", desc: "Submit a score (host-mediated; best is kept).", auth: true, body: `{"score":100}` },
+      { method: "GET", path: "/games/{id}/leaderboard", desc: "Top scores for a game.", auth: true },
+      { method: "GET", path: "/pub/games/sdk.js", desc: "Public: the Nami Games SDK (NamiGames.ready/submitScore/getPlayer/exit + create3D).", auth: false },
+      { method: "GET", path: "/pub/game/{id}", desc: "Public: the playable game frame (SDK injected for inline games).", auth: false },
+    ],
+  },
+  {
     title: "Meta", icon: "information-circle",
     endpoints: [
       { method: "GET", path: "/version", desc: "API name + version.", auth: false },
