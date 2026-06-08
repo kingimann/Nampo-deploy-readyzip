@@ -74,15 +74,27 @@ export default function MoneyScreen() {
     try { setFeeCents((await api.getPaymentsConfig()).transaction_fee_cents || 0); } catch {}
     try { setHistory((await api.transferHistory()).transfers); } catch {}
   }, []);
-  const acceptTransfer = async (t: MoneyRequest) => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Not yet", String(e?.message || e).replace(/^\d{3}:\s*/, "")); } };
-  const declineTransfer = async (t: MoneyRequest) => { try { await api.declineMoneyTransfer(t.id); await load(); } catch {} };
-  const reverseTransfer = async (t: MoneyRequest) => {
-    if (!(await confirm({ title: "Reverse transfer?", message: `Reverse the $${t.amount.toFixed(2)} you sent ${t.other_user.name}? You'll be refunded.`, confirmLabel: "Reverse", destructive: true }))) return;
-    try { await api.reverseMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Couldn't reverse", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+  // Per-row in-flight guard so a double-tap can't fire two accept/decline/reverse
+  // calls (the second would error after the first already settled the transfer).
+  const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
+  const withRowBusy = async (id: string, fn: () => Promise<void>) => {
+    if (rowBusy.has(id)) return;
+    setRowBusy((s) => new Set(s).add(id));
+    try { await fn(); } finally { setRowBusy((s) => { const n = new Set(s); n.delete(id); return n; }); }
   };
-  // Re-render periodically so the reversal countdown stays current.
+  const acceptTransfer = (t: MoneyRequest) => withRowBusy(t.id, async () => { try { await api.acceptMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Not yet", String(e?.message || e).replace(/^\d{3}:\s*/, "")); } });
+  const declineTransfer = (t: MoneyRequest) => withRowBusy(t.id, async () => { try { await api.declineMoneyTransfer(t.id); await load(); } catch {} });
+  const reverseTransfer = (t: MoneyRequest) => withRowBusy(t.id, async () => {
+    if (!(await confirm({ title: "Reverse transfer?", message: `Reverse the $${t.amount.toFixed(2)} you sent ${t.other_user?.name || "them"}? You'll be refunded.`, confirmLabel: "Reverse", destructive: true }))) return;
+    try { await api.reverseMoneyTransfer(t.id); await load(); } catch (e: any) { Alert.alert("Couldn't reverse", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+  });
+  // Re-render periodically so the reversal countdown stays current, AND refetch so
+  // rows the counterparty already resolved don't keep accepting taps.
   const [, setTick] = useState(0);
-  useEffect(() => { const i = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    const i = setInterval(() => { setTick((x) => x + 1); load(); }, 20000);
+    return () => clearInterval(i);
+  }, [load]);
   const minsLeft = (iso?: string | null) => {
     if (!iso) return 0;
     try { return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 60000)); } catch { return 0; }
@@ -94,9 +106,10 @@ export default function MoneyScreen() {
   };
 
   const submitFlow = async () => {
+    if (busy) return;   // ignore a double-tap while a send/request is in flight
     if (!recipient) { setMsg("Pick someone first."); return; }
     const amt = Number(amount) || 0;
-    if (amt <= 0) { setMsg("Enter an amount."); return; }
+    if (!isFinite(amt) || amt <= 0) { setMsg("Enter an amount."); return; }
     setBusy(true); setMsg(null);
     try {
       if (flow === "send") {
@@ -108,10 +121,13 @@ export default function MoneyScreen() {
         setMsg(`Requested $${amt.toFixed(2)} from ${recipient.name}.`);
       }
       await load();
-      setTimeout(() => { setFlow(null); setMsg(null); }, 1100);
+      // Stay disabled until the sheet closes — clearing `busy` immediately left a
+      // ~1s window where a second tap fired a duplicate send to the same person.
+      setTimeout(() => { setFlow(null); setMsg(null); setBusy(false); }, 1100);
     } catch (e: any) {
       setMsg(String(e?.message || e).replace(/^\d{3}:\s*/, "") || "Something went wrong.");
-    } finally { setBusy(false); }
+      setBusy(false);
+    }
   };
 
   const doPay = async () => {
@@ -191,18 +207,18 @@ export default function MoneyScreen() {
                   <View key={t.id} style={styles.reqRow}>
                     <Avatar u={t.other_user} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.reqName} numberOfLines={1}>{t.other_user.name}</Text>
+                      <Text style={styles.reqName} numberOfLines={1}>{t.other_user?.name}</Text>
                       <Text style={styles.reqMeta}>sent ${t.amount.toFixed(2)}{t.note ? ` · ${t.note}` : ""}</Text>
                       {wait > 0 ? <Text style={styles.holdMeta}>Available in {wait} min</Text> : null}
                     </View>
                     {wait > 0 ? (
                       <View style={[styles.payBtn, { opacity: 0.5 }]}><Ionicons name="time-outline" size={16} color="#fff" /></View>
                     ) : (
-                      <TouchableOpacity style={styles.payBtn} onPress={() => acceptTransfer(t)} testID={`accept-${t.id}`}>
+                      <TouchableOpacity style={[styles.payBtn, rowBusy.has(t.id) && { opacity: 0.5 }]} onPress={() => acceptTransfer(t)} disabled={rowBusy.has(t.id)} testID={`accept-${t.id}`}>
                         <Text style={styles.payBtnText}>Accept</Text>
                       </TouchableOpacity>
                     )}
-                    <TouchableOpacity style={styles.declineBtn} onPress={() => declineTransfer(t)} testID={`decline-tx-${t.id}`}>
+                    <TouchableOpacity style={styles.declineBtn} onPress={() => declineTransfer(t)} disabled={rowBusy.has(t.id)} testID={`decline-tx-${t.id}`}>
                       <Ionicons name="close" size={16} color={theme.textMuted} />
                     </TouchableOpacity>
                   </View>
@@ -220,14 +236,21 @@ export default function MoneyScreen() {
                   <View key={t.id} style={styles.reqRow}>
                     <Avatar u={t.other_user} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.reqName} numberOfLines={1}>To {t.other_user.name}</Text>
+                      <Text style={styles.reqName} numberOfLines={1}>To {t.other_user?.name}</Text>
                       <Text style={styles.reqMeta}>${t.amount.toFixed(2)}{t.note ? ` · ${t.note}` : ""}</Text>
                       <Text style={styles.holdMeta}>{wait > 0 ? `Reversible for ${wait} more min` : "Awaiting them to accept"}</Text>
                     </View>
-                    <TouchableOpacity style={styles.reverseBtn} onPress={() => reverseTransfer(t)} testID={`reverse-${t.id}`}>
-                      <Ionicons name="arrow-undo" size={14} color={theme.error} />
-                      <Text style={styles.reverseText}>Reverse</Text>
-                    </TouchableOpacity>
+                    {wait > 0 && (
+                      <TouchableOpacity
+                        style={[styles.reverseBtn, rowBusy.has(t.id) && { opacity: 0.5 }]}
+                        onPress={() => reverseTransfer(t)}
+                        disabled={rowBusy.has(t.id)}
+                        testID={`reverse-${t.id}`}
+                      >
+                        <Ionicons name="arrow-undo" size={14} color={theme.error} />
+                        <Text style={styles.reverseText}>Reverse</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 );
               })}
@@ -285,7 +308,7 @@ export default function MoneyScreen() {
                 <View key={t.id} style={styles.histRow}>
                   <Avatar u={t.other_user} />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.reqName} numberOfLines={1}>{out ? "To" : "From"} {t.other_user.name}</Text>
+                    <Text style={styles.reqName} numberOfLines={1}>{out ? "To" : "From"} {t.other_user?.name}</Text>
                     <Text style={styles.reqMeta}>{fmtDay(t.resolved_at || t.created_at)}{t.note ? ` · ${t.note}` : ""}</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
@@ -293,7 +316,7 @@ export default function MoneyScreen() {
                     <Text style={[styles.histStatus, { color: st.color }]}>{st.label}</Text>
                   </View>
                   <TouchableOpacity
-                    onPress={() => router.push({ pathname: "/support", params: { compose: "1", category: "dispute", subject: `Dispute: ${out ? "payment to" : "payment from"} ${t.other_user.name} ($${t.amount.toFixed(2)})`, related_type: "transfer", related_id: t.id } })}
+                    onPress={() => router.push({ pathname: "/support", params: { compose: "1", category: "dispute", subject: `Dispute: ${out ? "payment to" : "payment from"} ${t.other_user?.name} ($${t.amount.toFixed(2)})`, related_type: "transfer", related_id: t.id } })}
                     hitSlop={8}
                     style={{ paddingLeft: 8 }}
                     testID={`dispute-transfer-${t.id}`}

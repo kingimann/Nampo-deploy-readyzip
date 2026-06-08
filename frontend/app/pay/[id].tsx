@@ -10,6 +10,16 @@ import { api, PublicUser } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
+// Keep only digits + a single dot + 2 decimals, so a malformed (or QR-supplied)
+// value like "1.2.3" / "1e9" can't seed the amount field.
+function cleanAmount(s?: string): string {
+  let t = (s || "").replace(/[^0-9.]/g, "");
+  const i = t.indexOf(".");
+  if (i >= 0) t = t.slice(0, i + 1) + t.slice(i + 1).replace(/\./g, "");
+  const m = t.match(/^(\d*)(\.\d{0,2})?/);
+  return m ? m[1] + (m[2] || "") : "";
+}
+const MAX_PAY = 100000;
 
 export default function PayScreen() {
   const router = useRouter();
@@ -18,8 +28,8 @@ export default function PayScreen() {
   const [target, setTarget] = useState<PublicUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [security, setSecurity] = useState<{ is_set: boolean; question?: string | null } | null>(null);
-  const [amount, setAmount] = useState(amtParam || "");
-  const [note, setNote] = useState(noteParam || "");
+  const [amount, setAmount] = useState(cleanAmount(amtParam));
+  const [note, setNote] = useState((noteParam || "").slice(0, 200));
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -35,9 +45,10 @@ export default function PayScreen() {
   useEffect(() => { load(); }, [load]);
 
   const pay = async () => {
-    if (!target) return;
+    if (!target || busy) return;
     const amt = Number(amount) || 0;
-    if (amt <= 0) { setMsg({ ok: false, text: "Enter an amount." }); return; }
+    if (!isFinite(amt) || amt <= 0) { setMsg({ ok: false, text: "Enter an amount." }); return; }
+    if (amt > MAX_PAY) { setMsg({ ok: false, text: `Amount can't exceed $${MAX_PAY.toLocaleString()}.` }); return; }
     if (!security?.is_set) { setMsg({ ok: false, text: "Set up your transfer security question in Money first." }); return; }
     setBusy(true); setMsg(null);
     try {
@@ -74,7 +85,7 @@ export default function PayScreen() {
 
           <View style={styles.amtWrap}>
             <Text style={styles.dollar}>$</Text>
-            <TextInput style={styles.amtInput} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.textMuted} autoFocus testID="pay-amount" />
+            <TextInput style={styles.amtInput} value={amount} onChangeText={(t) => setAmount(cleanAmount(t))} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.textMuted} autoFocus testID="pay-amount" />
           </View>
           <TextInput style={styles.noteInput} value={note} onChangeText={setNote} placeholder="What's it for? (optional)" placeholderTextColor={theme.textMuted} testID="pay-note" />
 

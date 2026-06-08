@@ -297,7 +297,10 @@ export default function WalletScreen() {
     catch (e: any) { Alert.alert("Couldn't cancel", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
     finally { setCancelingTopup(false); }
   };
+  const resumingRef = useRef(false);
   const resumeTopup = async (t: Topup) => {
+    if (resumingRef.current) return;   // a double-tap would cancel twice + open two checkouts
+    resumingRef.current = true;
     setTopupDetail(null);
     try {
       await api.cancelTopup(t.id);           // close the stale session first
@@ -305,13 +308,16 @@ export default function WalletScreen() {
       if (credited) await load();
     } catch (e: any) {
       Alert.alert("Couldn't resume", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
-    }
+    } finally { resumingRef.current = false; }
   };
 
   const doCashout = async () => {
+    if (cashingOut) return;
     const amt = Math.round((Number(cashoutAmt) || 0) * 100) / 100;
-    if (amt <= 0) { Alert.alert("Enter an amount", "How much would you like to cash out?"); return; }
+    if (!isFinite(amt) || amt <= 0) { Alert.alert("Enter an amount", "How much would you like to cash out?"); return; }
     if (amt < cashoutMin) { Alert.alert("Below minimum", `The minimum cash-out is $${cashoutMin.toFixed(0)}. A $${cashoutFee.toFixed(0)} fee applies.`); return; }
+    const balNow = bal?.balance ?? w?.balance ?? 0;
+    if (amt > balNow + 1e-9) { Alert.alert("Not enough balance", `You can cash out up to $${balNow.toFixed(2)}.`); return; }
     setCashingOut(true);
     try {
       const r = await api.cashoutToCard(amt);
