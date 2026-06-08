@@ -1,7 +1,7 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Image,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -96,6 +96,7 @@ export default function NotificationsScreen() {
 
   const switchTab = (t: "you" | "activity") => {
     setTab(t);
+    setTopHidden(false); lastScrollY.current = 0;
     if (t === "activity" && !actLoaded) loadActivity();
   };
 
@@ -153,9 +154,45 @@ export default function NotificationsScreen() {
 
   const unread = items.filter((i) => !i.read).length;
 
+  // Floating frosted top bar that hides on scroll-down, returns on scroll-up,
+  // mirroring the feed + marketplace headers.
+  const [topHidden, setTopHidden] = useState(false);
+  const [topBarH, setTopBarH] = useState(104);
+  const topHide = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const onScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    const dy = y - lastScrollY.current;
+    if (y <= 4) setTopHidden(false);
+    else if (dy > 6) setTopHidden(true);
+    else if (dy < -6) setTopHidden(false);
+    lastScrollY.current = y;
+  }, []);
+  useEffect(() => {
+    Animated.timing(topHide, {
+      toValue: topHidden ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [topHidden, topHide]);
+
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="notifications-screen">
       <Stack.Screen options={{ headerShown: false }} />
+      {/* Floating frosted top bar — hides on scroll-down, returns on scroll-up. */}
+      <Animated.View
+        onLayout={(e) => setTopBarH(e.nativeEvent.layout.height)}
+        pointerEvents={topHidden ? "none" : "box-none"}
+        style={[
+          styles.topBar,
+          GLASS,
+          {
+            opacity: topHide.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 0.25, 0] }),
+            transform: [{ translateY: topHide.interpolate({ inputRange: [0, 1], outputRange: [0, -(topBarH + insets.top + 14)] }) }],
+          },
+        ]}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => safeBack("/(tabs)/feed")} style={styles.backBtn} testID="notifications-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
@@ -181,6 +218,7 @@ export default function NotificationsScreen() {
           </TouchableOpacity>
         ))}
       </View>
+      </Animated.View>
 
       {tab === "activity" ? (
         actLoading && !activity.length ? (
@@ -189,8 +227,10 @@ export default function NotificationsScreen() {
           <FlatList
             data={activity}
             keyExtractor={(i) => i.id}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadActivity(); }} tintColor={theme.primary} />}
-            contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 8 }}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            refreshControl={<RefreshControl refreshing={refreshing} progressViewOffset={topBarH} onRefresh={() => { setRefreshing(true); loadActivity(); }} tintColor={theme.primary} />}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: topBarH + 12, paddingBottom: insets.bottom + 24, gap: 8 }}
             ListEmptyComponent={
               <View style={styles.empty}>
                 <View style={styles.emptyIcon}><Ionicons name="people-outline" size={32} color={theme.textMuted} /></View>
@@ -230,14 +270,17 @@ export default function NotificationsScreen() {
         <FlatList
           data={items}
           keyExtractor={(i) => i.id}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
+              progressViewOffset={topBarH}
               onRefresh={() => { setRefreshing(true); load(); }}
               tintColor={theme.primary}
             />
           }
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 8 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: topBarH + 12, paddingBottom: insets.bottom + 24, gap: 8 }}
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
@@ -294,6 +337,13 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  topBar: {
+    position: "absolute", top: 6, left: 8, right: 8,
+    borderRadius: 24, paddingTop: 2,
+    zIndex: 40,
+    shadowColor: "#000", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
   header: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, gap: 12,
@@ -309,7 +359,7 @@ const styles = StyleSheet.create({
     ...GLASS, borderWidth: 1, borderColor: theme.border,
   },
   markAllText: { color: theme.primary, fontSize: 12, fontWeight: "700" },
-  tabs: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  tabs: { flexDirection: "row" },
   tab: { flex: 1, alignItems: "center", paddingVertical: 11 },
   tabText: { color: theme.textMuted, fontSize: 14.5, fontWeight: "700" },
   tabTextActive: { color: theme.textPrimary, fontWeight: "800" },

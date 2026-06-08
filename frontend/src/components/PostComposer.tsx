@@ -46,6 +46,23 @@ export default function PostComposer({
   visible, onClose, onPosted, replyTo, editing, quoting, groupId,
 }: Props) {
   const insets = useSafeAreaInsets();
+  // On mobile web the on-screen keyboard overlaps fixed content (RN's
+  // KeyboardAvoidingView only acts on iOS native). Track how much the keyboard
+  // covers via visualViewport and lift the sheet's bottom above it; it returns
+  // to 0 when the keyboard closes so the toolbar drops back down.
+  const [kbInset, setKbInset] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined" || !(window as any).visualViewport) return;
+    const vv = (window as any).visualViewport;
+    const onResize = () => {
+      const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKbInset(overlap > 60 ? overlap : 0);  // ignore browser chrome; only a real keyboard
+    };
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    onResize();
+    return () => { vv.removeEventListener("resize", onResize); vv.removeEventListener("scroll", onResize); };
+  }, []);
   const [text, setText] = useState("");
   const [media, setMedia] = useState<PostMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -318,7 +335,7 @@ export default function PostComposer({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.backdrop}
       >
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, paddingTop: insets.top + 12 }]}>
+        <View style={[styles.sheet, { paddingBottom: kbInset > 0 ? kbInset + 8 : insets.bottom + 16, paddingTop: insets.top + 12 }]}>
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose} testID="composer-close">
               <Ionicons name="close" size={26} color={theme.textPrimary} />
