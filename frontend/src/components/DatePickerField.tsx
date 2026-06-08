@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
@@ -23,6 +23,12 @@ export default function DatePickerField({
   const [month, setMonth] = useState(parsed ? +parsed[2] : now.getMonth() + 1);
   const [day, setDay] = useState(parsed ? +parsed[3] : now.getDate());
   const days = useMemo(() => Array.from({ length: daysInMonth(year, month) }, (_, i) => i + 1), [year, month]);
+  // Keep the selected day valid (and visibly highlighted) when month/year change
+  // e.g. Jan 31 → Feb should snap to Feb 28/29, not leave 31 selected-but-hidden.
+  useEffect(() => {
+    const max = daysInMonth(year, month);
+    if (day > max) setDay(max);
+  }, [year, month]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirm = () => {
     const d = Math.min(day, daysInMonth(year, month));

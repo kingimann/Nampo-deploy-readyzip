@@ -31,6 +31,6 @@ export async function setupNativeAudio(): Promise<void> {
 
 export async function teardownNativeAudio(): Promise<void> {
   try {
-    require("@livekit/react-native").AudioSession.stopAudioSession();
+    await require("@livekit/react-native").AudioSession.stopAudioSession();
   } catch {}
 }

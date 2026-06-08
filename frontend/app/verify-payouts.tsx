@@ -70,6 +70,16 @@ export default function VerifyPayoutsScreen() {
   const submit = async () => {
     if (!firstName.trim() || !lastName.trim()) { Alert.alert("Name required", "Enter your legal first and last name."); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) { Alert.alert("Date of birth required", "Please select your date of birth."); return; }
+    {
+      const [y, m, d] = dob.split("-").map(Number);
+      const today = new Date();
+      let age = today.getFullYear() - y;
+      if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
+      if (age < 18 || age > 120) {
+        Alert.alert("Check your date of birth", "Enter a valid date of birth — you must be at least 18 to receive payouts.");
+        return;
+      }
+    }
     if (!line1.trim() || !city.trim() || !postal.trim()) { Alert.alert("Address required", "Enter your home address."); return; }
     if (!acceptTos) { Alert.alert("Agreement required", "Please accept the payout agreement to continue."); return; }
     setSaving(true);

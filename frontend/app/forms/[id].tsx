@@ -10,6 +10,7 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-rou
 import { safeBack } from "@/src/utils/nav";
 import { api, FormDef, FormField, FormFieldType, FormSubmission } from "@/src/api/client";
 import { useConfirm } from "@/src/context/ConfirmContext";
+import SignatureImage from "@/src/components/SignatureImage";
 import { theme } from "@/src/theme";
 
 const FALLBACK_BACKEND = "https://nampo-backend.onrender.com";
@@ -454,7 +455,7 @@ export default function FormBuilderScreen() {
                       <View key={f.id} style={styles.subRow}>
                         <Text style={styles.subKey}>{f.label}</Text>
                         {(s.values[f.id || ""] || "").startsWith("data:image") ? (
-                          <Image source={{ uri: s.values[f.id || ""] }} style={styles.sigImg} resizeMode="contain" />
+                          <SignatureImage uri={s.values[f.id || ""]} style={styles.sigImg} />
                         ) : f.type === "password" ? (
                           <Text style={styles.subVal}>{s.values[f.id || ""] ? "••••••" : "—"}</Text>
                         ) : (
