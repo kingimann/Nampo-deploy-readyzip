@@ -10,7 +10,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover, shrink-to-fit=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover, shrink-to-fit=no, interactive-widget=resizes-content"
         />
         {/* Make the web build installable + open standalone, like a native app. */}
         <link rel="manifest" href="/manifest.json" />
@@ -97,6 +97,39 @@ export default function Root({ children }: PropsWithChildren) {
         }}
       >
         {children}
+        {/* Keep the app sized to the VISUAL viewport so the on-screen keyboard
+            never covers bottom inputs (chat composer, compose box, etc.). The
+            layout is position:fixed/full-height, so on mobile the keyboard would
+            otherwise sit on top of it. interactive-widget handles Android;
+            this VisualViewport handler covers iOS Safari, which ignores it. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                var vv = window.visualViewport;
+                if(!vv) return;
+                function rootEl(){ return document.querySelector('body > div'); }
+                function apply(){
+                  var r = rootEl();
+                  if(!r) return;
+                  r.style.position = 'fixed';
+                  r.style.top = vv.offsetTop + 'px';
+                  r.style.left = '0';
+                  r.style.right = '0';
+                  r.style.bottom = 'auto';
+                  r.style.height = vv.height + 'px';
+                }
+                vv.addEventListener('resize', apply);
+                vv.addEventListener('scroll', apply);
+                if(rootEl()){ apply(); }
+                else {
+                  var o = new MutationObserver(function(){ if(rootEl()){ o.disconnect(); apply(); } });
+                  o.observe(document.body, { childList: true });
+                }
+              })();
+            `,
+          }}
+        />
         {/* Branded launch screen — removed as soon as the app mounts. */}
         <div id="nami-splash">
           <img src="/icon.png" alt="Nami" />
