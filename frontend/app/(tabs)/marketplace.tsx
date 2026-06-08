@@ -13,6 +13,7 @@ import * as Location from "expo-location";
 import { api, Listing } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import FadeIn from "@/src/components/FadeIn";
@@ -842,7 +843,7 @@ const styles = StyleSheet.create({
   title: { color: theme.textPrimary, fontSize: 24, fontWeight: "800", letterSpacing: -0.4, flex: 1, textAlign: "center" },
   headerIconBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   headerIconBtnActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
@@ -853,7 +854,7 @@ const styles = StyleSheet.create({
   },
   tile: {
     flex: 1, borderRadius: 18, overflow: "hidden",
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 7, shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
@@ -879,7 +880,7 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6 },
   filterBtn: {
     width: 44, height: 44, borderRadius: 14,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   filterBtnActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
@@ -904,7 +905,7 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row", gap: 8,
     marginHorizontal: 16, marginTop: 10, marginBottom: 6,
-    backgroundColor: theme.surface, borderRadius: 14, padding: 5,
+    ...GLASS, borderRadius: 14, padding: 5,
     borderWidth: 1, borderColor: theme.border,
   },
   tab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10 },
@@ -918,7 +919,7 @@ const styles = StyleSheet.create({
   applyText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   condChip: {
     flexShrink: 0, height: 38, paddingHorizontal: 16, borderRadius: 19,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   condChipActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
@@ -933,7 +934,7 @@ const styles = StyleSheet.create({
   },
   photoAdd: {
     width: 80, height: 80, borderRadius: 12, gap: 2,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderStyle: "dashed",
+    ...GLASS, borderWidth: 1, borderColor: theme.border, borderStyle: "dashed",
     alignItems: "center", justifyContent: "center",
   },
   photoAddText: { color: theme.primary, fontSize: 11, fontWeight: "700" },
@@ -942,7 +943,7 @@ const styles = StyleSheet.create({
   searchPill: {
     flex: 1, height: 44,
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: theme.surface, borderRadius: 14,
+    ...GLASS, borderRadius: 14,
     paddingHorizontal: 14,
     borderWidth: 1, borderColor: theme.border,
   },
@@ -953,7 +954,7 @@ const styles = StyleSheet.create({
   chipRow: { gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
   chip: {
     flexShrink: 0, height: 36, paddingHorizontal: 14,
-    borderRadius: 18, backgroundColor: theme.surface,
+    borderRadius: 18, ...GLASS,
     borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
@@ -962,7 +963,7 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 90, paddingHorizontal: 40, alignItems: "center", gap: 8 },
   emptyIcon: {
     width: 64, height: 64, borderRadius: 32, marginBottom: 6,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   emptyTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
@@ -977,7 +978,7 @@ const styles = StyleSheet.create({
   },
   skelTile: {
     width: "47%", borderRadius: 18, overflow: "hidden",
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
   },
   skelImg: { width: "100%", aspectRatio: 1, backgroundColor: theme.surfaceAlt },
   skelBody: { paddingHorizontal: 13, paddingVertical: 13, gap: 9 },
@@ -1004,19 +1005,19 @@ const styles = StyleSheet.create({
   sheetTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: "800", marginBottom: 12 },
   label: { color: theme.textSecondary, fontSize: 12, fontWeight: "700", marginTop: 12, marginBottom: 6 },
   input: {
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
     color: theme.textPrimary, fontSize: 14,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
   },
   dropdown: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
   },
   dropdownText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
   pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
-  pickerCard: { width: "100%", maxHeight: "70%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
+  pickerCard: { width: "100%", maxHeight: "70%", ...GLASS, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
   pickerTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
   pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12 },
   pickerRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
@@ -1041,19 +1042,19 @@ const styles = StyleSheet.create({
   row2: { flexDirection: "row", gap: 14 },
   stepper: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 6, height: 46,
   },
   stepBtn: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: theme.surfaceAlt },
   stepVal: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
   negChip: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, height: 46,
-    backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderRadius: 12, borderWidth: 1, borderColor: theme.border,
   },
   negChipOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
   negChipText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "700" },
   segment: {
-    flexDirection: "row", gap: 6, backgroundColor: theme.surface,
+    flexDirection: "row", gap: 6, ...GLASS,
     borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 5,
   },
   segBtn: {
@@ -1064,7 +1065,7 @@ const styles = StyleSheet.create({
   segText: { fontSize: 13, fontWeight: "700" },
   locInput: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
   },
   locInputText: { flex: 1, color: theme.textMuted, fontSize: 14 },
