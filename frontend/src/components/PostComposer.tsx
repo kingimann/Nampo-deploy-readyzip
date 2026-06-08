@@ -119,6 +119,22 @@ export default function PostComposer({
   // Privacy controls only make sense for a brand-new top-level (non-group) post.
   const showPrivacy = !editing && !replyTo && !quoting && !groupId;
 
+  // Thread mode: extra connected posts (X-style) posted as a self-reply chain
+  // after the first. Only for brand-new posts (not edit/reply/quote).
+  const canThread = !editing && !replyTo && !quoting;
+  const [thread, setThread] = useState<{ text: string; media: PostMedia[] }[]>([]);
+  const addThreadPart = () => setThread((p) => (p.length >= 9 ? p : [...p, { text: "", media: [] }]));
+  const removeThreadPart = (i: number) => setThread((p) => p.filter((_, j) => j !== i));
+  const setPartText = (i: number, s: string) =>
+    setThread((p) => p.map((part, j) => (j === i ? { ...part, text: s.slice(0, TEXT_MAX) } : part)));
+  const removePartMedia = (i: number, mi: number) =>
+    setThread((p) => p.map((part, j) => (j === i ? { ...part, media: part.media.filter((_, k) => k !== mi) } : part)));
+  const mediaCountOf = (t: "root" | number) => (t === "root" ? media.length : (thread[t]?.media.length || 0));
+  const addMediaTo = (t: "root" | number, toAdd: PostMedia[]) => {
+    if (t === "root") setMedia((arr) => [...arr, ...toAdd].slice(0, MAX_MEDIA));
+    else setThread((ps) => ps.map((p, j) => (j === t ? { ...p, media: [...p.media, ...toAdd].slice(0, MAX_MEDIA) } : p)));
+  };
+
   useEffect(() => {
     if (visible) {
       if (editing) {
@@ -133,11 +149,12 @@ export default function PostComposer({
       setLikesOff(false);
       setCommentPolicy("everyone");
       setSubTier(0);
+      setThread([]);
     }
   }, [visible, editing]);
 
-  const pickMedia = async () => {
-    if (media.length >= MAX_MEDIA) {
+  const pickMedia = async (target: "root" | number = "root") => {
+    if (mediaCountOf(target) >= MAX_MEDIA) {
       Alert.alert("Limit reached", `You can attach up to ${MAX_MEDIA} files.`);
       return;
     }
@@ -158,7 +175,7 @@ export default function PostComposer({
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images", "videos"] as any,
         allowsMultipleSelection: true,
-        selectionLimit: MAX_MEDIA - media.length,
+        selectionLimit: MAX_MEDIA - mediaCountOf(target),
         quality: 0.7,
         base64: true,
         videoMaxDuration: 30,
@@ -239,7 +256,7 @@ export default function PostComposer({
           height: a.height || null,
         });
       }
-      if (toAdd.length) setMedia((arr) => [...arr, ...toAdd].slice(0, MAX_MEDIA));
+      if (toAdd.length) addMediaTo(target, toAdd);
     } catch (e) {
       Alert.alert("Couldn't attach media", String(e));
     } finally {
@@ -316,6 +333,18 @@ export default function PostComposer({
           ...(showPrivacy ? { likes_disabled: likesOff, comment_policy: commentPolicy, min_sub_tier: subTier } : {}),
         });
       }
+      // Post any additional thread parts as a self-reply chain off the root.
+      if (canThread && !editing) {
+        let parentId = p.id;
+        for (const part of thread) {
+          const txt = part.text.trim();
+          if (!txt && part.media.length === 0) continue;
+          const child = groupId
+            ? await api.createGroupPost(groupId, { text: txt || undefined, parent_id: parentId, media: part.media.length ? part.media : undefined })
+            : await api.createPost({ text: txt || undefined, parent_id: parentId, media: part.media.length ? part.media : undefined });
+          parentId = child.id;
+        }
+      }
       onPosted(p);
       onClose();
     } catch (e: any) {
@@ -354,7 +383,7 @@ export default function PostComposer({
             >
               {submitting
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={styles.postBtnText}>{editing ? "Save" : quoting ? "Quote" : replyTo ? "Reply" : "Post"}</Text>}
+                : <Text style={styles.postBtnText}>{editing ? "Save" : quoting ? "Quote" : replyTo ? "Reply" : (thread.length ? `Post all ${thread.length + 1}` : "Post")}</Text>}
             </TouchableOpacity>
           </View>
 
@@ -501,12 +530,70 @@ export default function PostComposer({
                 </View>
               </View>
             )}
+
+            {/* Thread: additional connected posts (X-style self-reply chain) */}
+            {canThread && thread.map((part, i) => (
+              <View key={i} style={styles.threadPart}>
+                <View style={styles.threadRail} />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.threadHeadRow}>
+                    <Text style={styles.threadLabel}>Post {i + 2}</Text>
+                    <TouchableOpacity onPress={() => removeThreadPart(i)} hitSlop={8} testID={`thread-remove-${i}`}>
+                      <Ionicons name="close-circle" size={18} color={theme.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={styles.threadInput}
+                    value={part.text}
+                    onChangeText={(s) => setPartText(i, s)}
+                    placeholder="Add another post…"
+                    placeholderTextColor={theme.textMuted}
+                    multiline
+                    testID={`thread-input-${i}`}
+                  />
+                  {part.media.length > 0 && (
+                    <View style={styles.mediaRow}>
+                      {part.media.map((m, mi) => (
+                        <View key={mi} style={styles.mediaChip}>
+                          {m.type === "video" ? (
+                            <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" }]}>
+                              <Ionicons name="videocam" size={22} color={theme.textSecondary} />
+                            </View>
+                          ) : (
+                            <Image source={{ uri: mediaUri(m) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                          )}
+                          <TouchableOpacity style={styles.removeBtn} onPress={() => removePartMedia(i, mi)}>
+                            <Ionicons name="close" size={14} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    onPress={() => pickMedia(i)}
+                    disabled={part.media.length >= MAX_MEDIA}
+                    style={[styles.threadAttach, part.media.length >= MAX_MEDIA && { opacity: 0.3 }]}
+                    testID={`thread-attach-${i}`}
+                  >
+                    <Ionicons name="image-outline" size={18} color={theme.primary} />
+                    <Text style={styles.threadAttachText}>Photo/video</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+
+            {canThread && (
+              <TouchableOpacity style={styles.addThreadBtn} onPress={addThreadPart} testID="composer-add-thread">
+                <Ionicons name="add-circle-outline" size={18} color={theme.primary} />
+                <Text style={styles.addThreadText}>{thread.length ? "Add another post" : "Add to thread"}</Text>
+              </TouchableOpacity>
+            )}
           </ScrollView>
 
           <View style={styles.toolbar}>
             <View style={{ flexDirection: "row", gap: 6 }}>
               <TouchableOpacity
-                onPress={pickMedia}
+                onPress={() => pickMedia("root")}
                 disabled={media.length >= MAX_MEDIA || processing}
                 style={[styles.toolBtn, (media.length >= MAX_MEDIA || processing) && { opacity: 0.3 }]}
                 testID="composer-attach"
@@ -682,6 +769,28 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
   },
   mediaRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8, paddingBottom: 12 },
+  threadPart: {
+    flexDirection: "row", gap: 10,
+    marginTop: 12, paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border,
+  },
+  threadRail: { width: 2, borderRadius: 1, backgroundColor: theme.border, marginLeft: 6 },
+  threadHeadRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  threadLabel: { color: theme.textMuted, fontSize: 11.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  threadInput: {
+    color: theme.textPrimary, fontSize: 16, lineHeight: 22,
+    minHeight: 44, paddingTop: 6, paddingBottom: 4, textAlignVertical: "top",
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
+  },
+  threadAttach: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 6 },
+  threadAttachText: { color: theme.primary, fontSize: 13, fontWeight: "700" },
+  addThreadBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    alignSelf: "flex-start", marginTop: 14, marginBottom: 4,
+    paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999,
+    borderWidth: 1, borderColor: theme.border, backgroundColor: theme.surface,
+  },
+  addThreadText: { color: theme.primary, fontSize: 13.5, fontWeight: "800" },
   coverRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: theme.surfaceAlt, borderRadius: 14,
