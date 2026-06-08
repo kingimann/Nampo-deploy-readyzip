@@ -14,7 +14,7 @@ import { theme } from "@/src/theme";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
 
-const SDK_SNIPPET = `<!-- Build a whole 3D game with the Nami API (Three.js is bundled) -->
+const SDK_SNIPPET = `<!-- Build a whole 3D game with the OkaySpace API (Three.js is bundled) -->
 <script src="https://nampo-backend.onrender.com/api/pub/games/sdk.js"></script>
 <script>
   NamiGames.create3D({
@@ -147,7 +147,7 @@ export default function GamesScreen() {
               ) : (
                 <TextInput style={[styles.input, styles.code, webInput]} value={html} onChangeText={setHtml} placeholder="<!doctype html> … your Three.js game …" placeholderTextColor={theme.textMuted} multiline autoCapitalize="none" autoCorrect={false} />
               )}
-              <Text style={styles.hint}>Add the Nami Games SDK to your game so scores and the leaderboard work. Tap the {"</>"} icon up top for the snippet.</Text>
+              <Text style={styles.hint}>Add the OkaySpace Games SDK to your game so scores and the leaderboard work. Tap the {"</>"} icon up top for the snippet.</Text>
               <TouchableOpacity style={[styles.submit, saving && { opacity: 0.6 }]} onPress={submit} disabled={saving} testID="game-submit">
                 {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Publish game</Text>}
               </TouchableOpacity>
@@ -162,7 +162,7 @@ export default function GamesScreen() {
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setDocs(false)} />
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "80%" }]}>
             <View style={styles.handle} />
-            <Text style={styles.sheetTitle}>Nami Games SDK</Text>
+            <Text style={styles.sheetTitle}>OkaySpace Games SDK</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.docText}>Include the SDK script in your game, then call it. Scores are submitted through the app (the player is already signed in), so your game never handles auth.</Text>
               <View style={styles.codeBox}><Text style={styles.codeBoxText}>{SDK_SNIPPET}</Text></View>

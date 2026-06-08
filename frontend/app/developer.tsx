@@ -139,7 +139,7 @@ const GROUPS: Group[] = [
   {
     title: "Publisher Network", icon: "globe",
     endpoints: [
-      { method: "POST", path: "/pub/sites", desc: "Register a site to show Nami ads & earn. Returns a site_key.", auth: true, body: `{"name","domain"}` },
+      { method: "POST", path: "/pub/sites", desc: "Register a site to show OkaySpace ads & earn. Returns a site_key.", auth: true, body: `{"name","domain"}` },
       { method: "GET", path: "/pub/sites", desc: "Your publisher sites + earnings.", auth: true },
       { method: "DELETE", path: "/pub/sites/{id}", desc: "Remove a publisher site.", auth: true },
       { method: "GET", path: "/pub/embed.js?site=KEY", desc: "Drop-in <script> embed; style via data-theme/accent/radius/label/width/height.", auth: false },
@@ -174,17 +174,17 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/pub/guide-card?guide=SLUG", desc: "Themeable iframe card for a guide.", auth: false },
       { method: "GET", path: "/pub/community-card?community=NAME", desc: "Themeable iframe card for a community.", auth: false },
       { method: "GET", path: "/pub/content-embed.js", desc: "<script> loader; data-post / -profile / -listing / -guide / -community + data-theme/accent/radius.", auth: false },
-      { method: "GET", path: "/pub/oembed?url=URL", desc: "oEmbed provider — paste a Nami link into WordPress/Discourse to auto-embed.", auth: false },
+      { method: "GET", path: "/pub/oembed?url=URL", desc: "oEmbed provider — paste a OkaySpace link into WordPress/Discourse to auto-embed.", auth: false },
     ],
   },
   {
-    title: "Login with Nami (OAuth2)", icon: "log-in",
+    title: "Login with OkaySpace (OAuth2)", icon: "log-in",
     endpoints: [
       { method: "GET", path: "/oauth/apps", desc: "List your OAuth client apps.", auth: true },
       { method: "POST", path: "/oauth/apps", desc: "Register an OAuth client.", auth: true, body: `{"name","redirect_uris":[]}` },
       { method: "GET", path: "/oauth/authorize", desc: "Authorization endpoint (code flow).", auth: true },
       { method: "POST", path: "/oauth/token", desc: "Exchange a code for an access token.", auth: false, body: `{"grant_type":"authorization_code","code"}` },
-      { method: "GET", path: "/oauth/userinfo", desc: "Profile for a Login-with-Nami token.", auth: true },
+      { method: "GET", path: "/oauth/userinfo", desc: "Profile for a Login-with-OkaySpace token.", auth: true },
     ],
   },
   {
@@ -249,7 +249,7 @@ const GROUPS: Group[] = [
       { method: "DELETE", path: "/games/{id}", desc: "Delete a game (owner or staff).", auth: true },
       { method: "POST", path: "/games/{id}/score", desc: "Submit a score (host-mediated; best is kept).", auth: true, body: `{"score":100}` },
       { method: "GET", path: "/games/{id}/leaderboard", desc: "Top scores for a game.", auth: true },
-      { method: "GET", path: "/pub/games/sdk.js", desc: "Public: the Nami Games SDK (NamiGames.ready/submitScore/getPlayer/exit + create3D).", auth: false },
+      { method: "GET", path: "/pub/games/sdk.js", desc: "Public: the OkaySpace Games SDK (NamiGames.ready/submitScore/getPlayer/exit + create3D).", auth: false },
       { method: "GET", path: "/pub/game/{id}", desc: "Public: the playable game frame (SDK injected for inline games).", auth: false },
     ],
   },
@@ -294,7 +294,7 @@ final c = WebViewController()
     "&theme=dark&accent=7C3AED"));
 
 // in build(): WebViewWidget(controller: c)`;
-const CONTENT_SNIPPET = `<!-- Embed a Nami post, profile, listing, guide, or community -->
+const CONTENT_SNIPPET = `<!-- Embed a OkaySpace post, profile, listing, guide, or community -->
 <!-- swap data-post for data-profile / data-listing / data-guide / data-community -->
 <script async src="${BASE}/api/pub/content-embed.js"
   data-post="POST_ID" data-theme="dark" data-accent="7C3AED"></script>`;
@@ -514,7 +514,7 @@ export default function DeveloperScreen() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
         <Text style={styles.lede}>
-          Build on top of Nami. The REST API uses JSON over HTTPS and bearer-token auth.
+          Build on top of OkaySpace. The REST API uses JSON over HTTPS and bearer-token auth.
         </Text>
         <View style={styles.docLinks}>
           <TouchableOpacity style={styles.docLink} onPress={() => Linking.openURL(`${BASE}/docs`)} testID="open-swagger">
@@ -780,10 +780,10 @@ export default function DeveloperScreen() {
           </>
         )}
 
-        {/* Login with Nami (OAuth apps) */}
-        <Text style={styles.groupTitle}>Login with Nami</Text>
+        {/* Login with OkaySpace (OAuth apps) */}
+        <Text style={styles.groupTitle}>Login with OkaySpace</Text>
         <Text style={styles.body}>
-          Let other sites add a "Sign in with Nami" button. Register an app to get a client ID + secret, then use the OAuth2 authorization-code flow.
+          Let other sites add a "Sign in with OkaySpace" button. Register an app to get a client ID + secret, then use the OAuth2 authorization-code flow.
         </Text>
         {freshApp && (
           <View style={styles.freshCard}>
@@ -844,7 +844,7 @@ export default function DeveloperScreen() {
         {/* Embed & SDKs */}
         <Text style={styles.groupTitle}>Embed & customize</Text>
         <Text style={styles.body}>
-          Drop a Nami form into any website or app and theme it to match your brand — no auth, no backend. Paste the snippet and tweak the <Text style={styles.codeInline}>data-*</Text> attributes:
+          Drop a OkaySpace form into any website or app and theme it to match your brand — no auth, no backend. Paste the snippet and tweak the <Text style={styles.codeInline}>data-*</Text> attributes:
         </Text>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(EMBED_SNIPPET, "Embed snippet")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{EMBED_SNIPPET}</Text>
@@ -862,7 +862,7 @@ export default function DeveloperScreen() {
         </TouchableOpacity>
 
         <Text style={[styles.body, { marginTop: 12 }]}>
-          You can also embed Nami <Text style={styles.codeInline}>content</Text> — posts and profiles — as themeable cards, or rely on <Text style={styles.codeInline}>oEmbed</Text> so a pasted Nami link auto-expands in WordPress, Discourse, Notion and other oEmbed-aware tools:
+          You can also embed OkaySpace <Text style={styles.codeInline}>content</Text> — posts and profiles — as themeable cards, or rely on <Text style={styles.codeInline}>oEmbed</Text> so a pasted OkaySpace link auto-expands in WordPress, Discourse, Notion and other oEmbed-aware tools:
         </Text>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(CONTENT_SNIPPET, "Content embed")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{CONTENT_SNIPPET}</Text>
@@ -873,7 +873,7 @@ export default function DeveloperScreen() {
 
         <Text style={[styles.groupTitle, { marginTop: 22 }]}>SDKs & client generation</Text>
         <Text style={styles.body}>
-          Nami is a plain JSON+HTTPS API, so it works from any language — Dart/Flutter, Swift, Kotlin, Go, Rust and more. For a fully-typed client, generate one from the OpenAPI schema:
+          OkaySpace is a plain JSON+HTTPS API, so it works from any language — Dart/Flutter, Swift, Kotlin, Go, Rust and more. For a fully-typed client, generate one from the OpenAPI schema:
         </Text>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(`# Dart/Flutter client from the OpenAPI schema\ndart pub global activate openapi_generator_cli\nopenapi-generator generate \\\n  -i ${BASE}/openapi.json \\\n  -g dart-dio -o ./nami_client`, "Codegen")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{`# Dart/Flutter client from the OpenAPI schema\ndart pub global activate openapi_generator_cli\nopenapi-generator generate \\\n  -i ${BASE}/openapi.json \\\n  -g dart-dio -o ./nami_client`}</Text>

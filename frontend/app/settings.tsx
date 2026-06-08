@@ -138,7 +138,7 @@ export default function SettingsScreen() {
           <Row icon="log-out-outline" label="Sign out" danger onPress={onSignOut} last />
         </View>
 
-        <Text style={styles.version}>Nami App · v1.0.1</Text>
+        <Text style={styles.version}>OkaySpace · v1.0.1</Text>
         </FadeIn>
       </ScrollView>
     </SafeAreaView>

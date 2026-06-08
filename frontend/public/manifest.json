@@ -1,6 +1,6 @@
 {
-  "name": "Nami App",
-  "short_name": "Nami",
+  "name": "OkaySpace",
+  "short_name": "OkaySpace",
   "description": "Social, maps, marketplace, payments and roadside — all in one.",
   "start_url": "/",
   "scope": "/",

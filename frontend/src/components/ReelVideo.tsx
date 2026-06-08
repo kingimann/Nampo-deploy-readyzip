@@ -15,7 +15,7 @@ export default function ReelVideo({
   rate?: number;
   /** Cover image shown until the video starts playing. */
   poster?: string | null;
-  /** When no poster is set, show the branded "Nami Social" cover (vs plain black). */
+  /** When no poster is set, show the branded "OkaySpace" cover (vs plain black). */
   brand?: boolean;
 }) {
   const player = useVideoPlayer(uri || "about:blank", (p) => { p.loop = true; p.muted = muted; });

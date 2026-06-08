@@ -9,15 +9,15 @@ import { theme } from "@/src/theme";
 const EFFECTIVE = "June 5, 2026";
 
 const TERMS: { h: string; p: string }[] = [
-  { h: "1. Acceptance of Terms", p: "By creating an account or using Nami, you agree to these Terms of Service. If you do not agree, do not use the app." },
-  { h: "2. Eligibility", p: "You must be at least 13 years old (or the minimum age of digital consent in your country) to use Nami. You are responsible for keeping your account credentials secure." },
-  { h: "3. Your Content", p: "You retain ownership of the content you post. By posting, you grant Nami a non-exclusive, worldwide license to host, display, and distribute that content within the app so the service can function." },
+  { h: "1. Acceptance of Terms", p: "By creating an account or using OkaySpace, you agree to these Terms of Service. If you do not agree, do not use the app." },
+  { h: "2. Eligibility", p: "You must be at least 13 years old (or the minimum age of digital consent in your country) to use OkaySpace. You are responsible for keeping your account credentials secure." },
+  { h: "3. Your Content", p: "You retain ownership of the content you post. By posting, you grant OkaySpace a non-exclusive, worldwide license to host, display, and distribute that content within the app so the service can function." },
   { h: "4. Acceptable Use", p: "Do not post illegal, harmful, hateful, or infringing content; do not harass others, spam, or attempt to disrupt or abuse the service or its API. We may remove content and suspend accounts that violate these rules." },
   { h: "5. Payments, Tips & Subscriptions", p: "Tips and subscriptions are currently simulated for testing and do not involve real money. When real payments are enabled, additional payment terms will apply and be shown before any charge." },
   { h: "6. Developer API", p: "API keys are tied to your account and must be kept secret. You are responsible for all activity under your keys. We may rate-limit or revoke keys that abuse the service." },
   { h: "7. Termination", p: "You may delete your account at any time. We may suspend or terminate accounts that violate these Terms or the law." },
-  { h: "8. Disclaimer & Liability", p: "Nami is provided “as is” without warranties. To the extent permitted by law, we are not liable for indirect or consequential damages arising from your use of the app." },
-  { h: "9. Changes", p: "We may update these Terms. When we make material changes we will ask you to review and accept the updated version before continuing to use Nami." },
+  { h: "8. Disclaimer & Liability", p: "OkaySpace is provided “as is” without warranties. To the extent permitted by law, we are not liable for indirect or consequential damages arising from your use of the app." },
+  { h: "9. Changes", p: "We may update these Terms. When we make material changes we will ask you to review and accept the updated version before continuing to use OkaySpace." },
   { h: "10. Contact", p: "Questions about these Terms can be sent to the app administrator." },
 ];
 

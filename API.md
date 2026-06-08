@@ -1,4 +1,4 @@
-# Nami REST API
+# OkaySpace REST API
 
 Base URL: `https://nampo-backend.onrender.com/api`
 Interactive docs (Swagger): `https://nampo-backend.onrender.com/docs`
@@ -12,7 +12,7 @@ All requests and responses are JSON over HTTPS.
 [Authentication](#authentication) ·
 [Plans & access](#plans--access-paid) ·
 [Webhooks](#webhooks-pro) ·
-[Login with Nami (OAuth2)](#login-with-nami-oauth2) ·
+[Login with OkaySpace (OAuth2)](#login-with-nami-oauth2) ·
 [Conventions](#conventions) ·
 [Quick examples](#quick-examples)
 
@@ -122,11 +122,11 @@ Events: `follow`, `friend_request`, `friend_accept`, `message`, `group_message`,
 `money_received`, `money_request_paid`. (Webhook deliveries mirror in-app
 notifications, so new notification types are delivered automatically.)
 
-## Login with Nami (OAuth2)
+## Login with OkaySpace (OAuth2)
 
-Let users sign in to your site with their Nami account (authorization-code flow).
+Let users sign in to your site with their OkaySpace account (authorization-code flow).
 
-1. **Register an app** in-app (Settings → Developer API → Login with Nami) → get a
+1. **Register an app** in-app (Settings → Developer API → Login with OkaySpace) → get a
    `client_id`, `client_secret`, and one or more redirect URIs.
 2. **Send the user** to the consent screen:
    ```
@@ -521,7 +521,7 @@ payouts to cash out (`payout_setup` notification).
 > selling on the marketplace needs **≥ 30 days**; monetizing (link ads, publisher
 > sites, ad earnings) needs **≥ 60 days**.
 
-### Publisher network (display Nami ads on your site & earn)
+### Publisher network (display OkaySpace ads on your site & earn)
 | Method | Path | Description |
 | --- | --- | --- |
 | POST/GET | `/pub/sites` · DELETE `/pub/sites/{id}` | Manage your sites; each gets a `site_key` |
@@ -542,7 +542,7 @@ clicks, and a daily earning cap.
 Per-creator `payout_frequency` (weekly\|biweekly\|monthly, changeable once a month) and
 `payout_threshold` are set via `PATCH /auth/me`.
 
-### Login with Nami (OAuth2) & connected apps
+### Login with OkaySpace (OAuth2) & connected apps
 | Method | Path | Description |
 | --- | --- | --- |
 | POST/GET | `/oauth/apps` · DELETE `/oauth/apps/{client_id}` | Manage your OAuth apps (you get `client_id`/`client_secret`) |
@@ -553,7 +553,7 @@ Per-creator `payout_frequency` (weekly\|biweekly\|monthly, changeable once a mon
 | GET | `/oauth/connections` · DELETE `/oauth/connections/{client_id}` | Apps you've authorized · revoke one |
 | POST | `/oauth/revoke` | Revoke a token |
 
-See **Login with Nami (OAuth2)** above for the full flow and scopes.
+See **Login with OkaySpace (OAuth2)** above for the full flow and scopes.
 
 ### Admin & moderation (admin/mod only)
 **Users & moderation**

@@ -1,10 +1,10 @@
-# Nami App
+# OkaySpace
 
-**Nami App** is a social + maps super-app for mobile and the web. It blends a
+**OkaySpace** is a social + maps super-app for mobile and the web. It blends a
 Twitter/Instagram-style social network with a Google-Maps-style navigation
 experience, a location-aware marketplace, creator monetization, peer-to-peer
 payments, roadside assistance, and a full **Developer API** for building on top
-of and embedding Nami anywhere.
+of and embedding OkaySpace anywhere.
 
 The repo is a monorepo: a **React Native + Expo** client (`frontend/`) talking
 over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
@@ -115,7 +115,7 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - **Fees**: an admin-controlled **revenue split** plus a flat **per-payment transaction fee**, booked to the platform-revenue ledger (and reversed if a transfer is)
 
 ### Ads & advertising
-- Prepaid ad accounts, **promoted posts** (budget/CPC) and **reel video ads**, **link ads** for your own site, and a **publisher network** to embed customizable Nami ad units on your site and earn — with click-fraud guards and account-age gates
+- Prepaid ad accounts, **promoted posts** (budget/CPC) and **reel video ads**, **link ads** for your own site, and a **publisher network** to embed customizable OkaySpace ad units on your site and earn — with click-fraud guards and account-age gates
 
 ### Roles & moderation
 - Site roles: `user` / `mod` / `admin`; bootstrap admins via `ADMIN_EMAILS`
@@ -130,11 +130,11 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - Notifications feed (unread counts, mark-as-read)
 
 ### Developer API
-A first-class, paid Developer API (Settings → Developer API) for building on Nami
+A first-class, paid Developer API (Settings → Developer API) for building on OkaySpace
 and embedding it anywhere — see [Developer API & embedding](#developer-api--embedding).
 Highlights: personal **API keys** (read/write scopes), paid **plans + usage
 quotas**, signed **webhooks** (20+ events, retries, delivery logs, test pings),
-**Login with Nami** (OAuth2 provider), the **publisher ad network**, **custom
+**Login with OkaySpace** (OAuth2 provider), the **publisher ad network**, **custom
 forms**, **embeddable content + oEmbed**, **idempotency keys**, cursor
 pagination, open CORS, a versioned `/api/v1`, OpenAPI/Swagger docs, and SDK
 code-generation guidance (Dart/Flutter, Swift, Kotlin, Go, …).
@@ -236,7 +236,7 @@ NamiApp/
 │   │   ├── forms.py           # custom form builder + public themeable embeds + submissions/CSV/webhooks
 │   │   ├── embed.py           # public embeddable content: post/profile JSON, cards, content-embed.js, oEmbed
 │   │   ├── webhooks.py        # developer event webhooks (signed, retries, delivery logs, test ping)
-│   │   ├── oauth.py           # "Login with Nami" OAuth2 provider (apps, authorize/token/userinfo)
+│   │   ├── oauth.py           # "Login with OkaySpace" OAuth2 provider (apps, authorize/token/userinfo)
 │   │   ├── ads.py             # promoted posts, reel video ads, ad accounts, link ads
 │   │   ├── adnetwork.py       # publisher network: sites + customizable embeddable ad units
 │   │   ├── payments.py        # Stripe Connect, inline payments, payouts, cash-out, webhook, API plans/usage
@@ -388,7 +388,7 @@ uvicorn server:app --reload --port 8080      # auto-reload on :8080
 
 Health checks:
 - `GET /health` → `{"status":"ok"}`
-- `GET /` → `{"status":"ok","app":"Nami App API"}`
+- `GET /` → `{"status":"ok","app":"OkaySpace API"}`
 - `GET /api/v1/info` → machine-readable API overview & capabilities
 
 ### 2. Frontend (Expo)
@@ -455,7 +455,7 @@ require an `Authorization: Bearer <session token | API key>` header.
 | **Forms** | `/forms`(+`/{id}`,`/{id}/submissions{,.csv}`), `/pub/form`, `/pub/form-submit`, `/pub/form-embed.js`, `/pub/form-unit` | Build forms, list/export responses, and public (no-auth) render/submit/themeable embeds. |
 | **Embed content** | `/pub/post/{id}`, `/pub/profile/{username}`(+`/posts`), `/pub/listing/{id}`, `/pub/guide/{slug}`, `/pub/{post,profile,listing,guide}-card`, `/pub/content-embed.js`, `/pub/oembed` | Public JSON, themeable iframe cards (posts, profiles, marketplace listings, guides), a `<script>` loader, cursor-paginated profile feed, and an **oEmbed** provider. |
 | **Webhooks** | `/webhooks`(+`/{id}`,`/{id}/test`,`/{id}/deliveries`), `/webhooks/events` | Register signed event webhooks (20+ events), test pings, and delivery logs. |
-| **Login with Nami (OAuth2)** | `/oauth/apps`, `/oauth/authorize`, `/oauth/token`, `/oauth/userinfo`, `/oauth/connections` | OAuth2 authorization-code provider so other sites can "Sign in with Nami". |
+| **Login with OkaySpace (OAuth2)** | `/oauth/apps`, `/oauth/authorize`, `/oauth/token`, `/oauth/userinfo`, `/oauth/connections` | OAuth2 authorization-code provider so other sites can "Sign in with OkaySpace". |
 | **Publisher / Ads** | `/ads/next`, `/ads/{id}/event`, `/ads/reels*`, `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*`, `/pub/embed.js`, `/pub/unit`, `/pub/ad` | Sponsored posts, reel video ads, prepaid ad accounts, link ads, and the publisher network (customizable embeddable ad units + earn). |
 | **Payments / Money** | `/payments/config\|pay-intent\|checkout\|payouts/*\|webhook\|api-plan*\|api-usage*`, `/money/*`, `/wallet/*`, `/currencies` | Inline card payments, in-app payout setup, instant cash-out, P2P send/request (security question, reversal), wallet top-up/cash-out, display currency, and Developer-API plans/usage. |
 | **Admin** | `/admin/users\|audit\|badges\|revenue\|ad-revenue\|fees\|test-payments\|mobile-only\|reset/*`, `/admin/users/{id}/wallet`, `/admin/integrations?live=1` | User moderation, audit log, badges, revenue/fees, simulated-payment toggle, set a wallet balance, and the integrations/SDK status board. |
@@ -471,15 +471,15 @@ interactive **Swagger docs at `/docs`** (`/openapi.json` for the schema).
 ## Developer API & embedding
 
 The Developer API (Settings → Developer API) is a paid add-on for building on
-Nami and embedding it on any site or app.
+OkaySpace and embedding it on any site or app.
 
 - **API keys** — generate labeled keys (shown once) with **read** or **read+write** scopes; list and revoke. Keys are long-lived bearer tokens.
 - **Plans, usage & quotas** — tiered plans (more keys, write access, webhooks, higher rate limits) with a usage meter and **pay-as-you-go** request packs (Stripe, with a test-mode fallback).
 - **Webhooks** — subscribe to **20+ signed event types** (follows, messages, tips, subscriptions, likes/replies/reposts, roadside, support, `form.submission`, …). Delivery is **HMAC-signed** (`X-Nami-Signature`), **retried with backoff**, and recorded in a **delivery log** you can **re-send (redeliver)** from; a **test ping** verifies your endpoint. Choose specific events or receive all.
-- **Login with Nami (OAuth2)** — register an app for a client ID/secret and use the authorization-code flow (`/oauth/authorize` → `/oauth/token` → `/oauth/userinfo`) to add a "Sign in with Nami" button.
+- **Login with OkaySpace (OAuth2)** — register an app for a client ID/secret and use the authorization-code flow (`/oauth/authorize` → `/oauth/token` → `/oauth/userinfo`) to add a "Sign in with OkaySpace" button.
 - **Custom forms** — build a form and embed it anywhere via a `<script>` snippet or iframe; theme it with `data-*` / query params (`theme`, `accent`, `bg`, `radius`, `hide_title`, `redirect`, prefill). Collect responses in-app, export **CSV**, and receive `form.submission` webhooks.
-- **Embeddable content + oEmbed** — public JSON and **themeable iframe cards** for posts, profiles, **marketplace listings**, **guides**, and **communities**; a drop-in `content-embed.js` loader (`data-post` / `data-profile` / `data-listing` / `data-guide` / `data-community`); a **cursor-paginated profile feed** for building a Nami feed widget; and an **oEmbed** provider so pasted Nami links auto-expand in WordPress/Discourse/Notion. Only public content is served (no subscriber-only posts, no sold/flagged listings, no banned users).
-- **Publisher ad network** — embed customizable Nami ad units on your site and earn a revenue share.
+- **Embeddable content + oEmbed** — public JSON and **themeable iframe cards** for posts, profiles, **marketplace listings**, **guides**, and **communities**; a drop-in `content-embed.js` loader (`data-post` / `data-profile` / `data-listing` / `data-guide` / `data-community`); a **cursor-paginated profile feed** for building a OkaySpace feed widget; and an **oEmbed** provider so pasted OkaySpace links auto-expand in WordPress/Discourse/Notion. Only public content is served (no subscriber-only posts, no sold/flagged listings, no banned users).
+- **Publisher ad network** — embed customizable OkaySpace ad units on your site and earn a revenue share.
 - **Conventions** — versioned base **`/api/v1`** (with `/api` legacy alias), open **CORS**, a consistent error envelope (`{"error":{"code","message"}}`), `?limit=`/`?offset=` plus **cursor** pagination where supported, **`Idempotency-Key`** on writes (retries replay the first response), and fair-use rate limits (429).
 - **SDKs** — it's plain JSON+HTTPS, so it works from any language. Generate a typed client from `/openapi.json` (e.g. `dart-dio` for Dart/Flutter, plus Swift, Kotlin, Go, `typescript-fetch`, …). A Flutter `WebView` can embed any of the `/pub/*` units directly.
 

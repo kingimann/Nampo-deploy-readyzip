@@ -535,7 +535,7 @@ export default function WalletScreen() {
             let reasonLine = "";
             if (due.length) reasonLine = "Stripe still needs: " + due.slice(0, 4).map(prettyReq).join(", ") + ".";
             else if (eventually.length) reasonLine = "To turn on payouts, add: " + eventually.slice(0, 4).map(prettyReq).join(", ") + ".";
-            else if (platformNotReady) reasonLine = "Your Nami Stripe (platform) account isn't fully activated yet. Finish business verification in your Stripe Dashboard — until then payouts stay off for every creator.";
+            else if (platformNotReady) reasonLine = "Your OkaySpace Stripe (platform) account isn't fully activated yet. Finish business verification in your Stripe Dashboard — until then payouts stay off for every creator.";
             else if (transfers === "pending") reasonLine = "Stripe is still activating the transfers capability on your account — this is a review on Stripe's side and usually clears within a day.";
             else if (transfers === "inactive") reasonLine = "Stripe hasn't activated transfers on your account. Tap Update details to finish, or check your Stripe Dashboard.";
             else if (payout?.disabled_reason) reasonLine = disabledReasonLabel(payout.disabled_reason);

@@ -38,7 +38,7 @@ export default function PayScanScreen() {
 
   const go = (data: string) => {
     const p = parsePay(data);
-    if (!p) { setErr("That's not a Nami pay code."); return; }
+    if (!p) { setErr("That's not a OkaySpace pay code."); return; }
     router.replace({ pathname: "/pay/[id]", params: { id: p.id, amount: p.amount || "", note: p.note || "" } });
   };
 
@@ -80,7 +80,7 @@ export default function PayScanScreen() {
               onBarcodeScanned={onScan}
             />
             <View style={styles.frame} pointerEvents="none" />
-            <Text style={styles.scanHint}>Point at a Nami pay code</Text>
+            <Text style={styles.scanHint}>Point at a OkaySpace pay code</Text>
           </View>
         )}
       </View>

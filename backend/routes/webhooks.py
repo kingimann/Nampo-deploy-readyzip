@@ -167,7 +167,7 @@ async def test_webhook(webhook_id: str, authorization: Optional[str] = Header(No
         raise HTTPException(status_code=404, detail="Webhook not found")
     payload = {
         "event": "ping",
-        "data": {"message": "Test event from Nami", "webhook_id": webhook_id},
+        "data": {"message": "Test event from OkaySpace", "webhook_id": webhook_id},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     body = json.dumps(payload, default=str).encode("utf-8")

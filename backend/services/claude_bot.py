@@ -1,5 +1,5 @@
 """Claude assistant bot — wires the @claude account to the Anthropic API so it
-replies inside Nami (DMs + post mentions) to an allowlist of users.
+replies inside OkaySpace (DMs + post mentions) to an allowlist of users.
 
 Disabled unless ANTHROPIC_API_KEY is set. Owner-gated via CLAUDE_BOT_ALLOW
 (comma-separated usernames; default "iman"). Polls every few seconds — no
@@ -25,7 +25,7 @@ POLL_SECONDS = int(os.environ.get("CLAUDE_BOT_POLL_SECONDS", "6") or 6)
 MAX_TOKENS = 600
 
 SYSTEM = (
-    "You are Claude, the friendly AI assistant living inside the Nami app — a social "
+    "You are Claude, the friendly AI assistant living inside the OkaySpace app — a social "
     "network with maps, chat, a marketplace, payments and more. You're chatting with the "
     "app's owner. Be warm, concise and helpful. Plain text only (no markdown headers). "
     "Keep replies short unless asked for detail."

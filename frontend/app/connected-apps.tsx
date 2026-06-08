@@ -21,7 +21,7 @@ export default function ConnectedAppsScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const revoke = (c: OAuthConnection) => {
-    Alert.alert("Revoke access", `Remove ${c.name}'s access to your Nami account?`, [
+    Alert.alert("Revoke access", `Remove ${c.name}'s access to your OkaySpace account?`, [
       { text: "Cancel", style: "cancel" },
       { text: "Revoke", style: "destructive", onPress: async () => { try { await api.revokeConnection(c.client_id); await load(); } catch {} } },
     ]);
@@ -47,7 +47,7 @@ export default function ConnectedAppsScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
-          <Text style={styles.lede}>Apps you've signed into with your Nami account. Revoke any you no longer use.</Text>
+          <Text style={styles.lede}>Apps you've signed into with your OkaySpace account. Revoke any you no longer use.</Text>
           {items.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="shield-checkmark-outline" size={36} color={theme.textMuted} />

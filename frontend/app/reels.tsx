@@ -489,7 +489,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
                   <View style={{ flex: 1 }}>
                     <Text style={styles.coverLabel}>Cover</Text>
                     <Text style={styles.coverHint} numberOfLines={1}>
-                      {editCover ? "Custom thumbnail" : "Default “Nami Social” cover"}
+                      {editCover ? "Custom thumbnail" : "Default “OkaySpace” cover"}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={pickCover} disabled={coverBusy} style={styles.coverBtn} testID="reel-edit-cover">

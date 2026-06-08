@@ -8,7 +8,7 @@ import ReelPoster from "@/src/components/ReelPoster";
  * controls** (expo-video's web VideoView renders a controlled, letterboxed
  * player which doesn't fit a TikTok-style reels UI).
  *
- * A cover image (custom thumbnail or the branded "Nami Social" default) is laid
+ * A cover image (custom thumbnail or the branded "OkaySpace" default) is laid
  * over the video until it actually starts playing.
  */
 export default function ReelVideo({

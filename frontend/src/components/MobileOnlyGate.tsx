@@ -45,7 +45,7 @@ export default function MobileOnlyGate({ children }: { children: React.ReactNode
     <View style={styles.root}>
       <View style={styles.card}>
         <Ionicons name="phone-portrait-outline" size={48} color={theme.primary} />
-        <Text style={styles.title}>Nami is made for mobile</Text>
+        <Text style={styles.title}>OkaySpace is made for mobile</Text>
         <Text style={styles.sub}>Open this site on your phone to continue. Scan the code below to jump straight there.</Text>
         <View style={styles.qrWrap}>
           <QrCode value={url} size={180} dark="#0b141a" light="#ffffff" />

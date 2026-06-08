@@ -818,7 +818,7 @@ async def tip_user(user_id: str, body: TipCreate, authorization: Optional[str] =
         if target.get("email"):
             send_email(target["email"], f"You received a ${amount:.2f} tip",
                        f"Hi {target.get('name', 'there')},\n\n{me.get('name', 'Someone')} sent you a "
-                       f"${amount:.2f} tip on Nami.\n\nIt's been added to your balance.")
+                       f"${amount:.2f} tip on OkaySpace.\n\nIt's been added to your balance.")
     except Exception:
         pass
     return Tip(**tip)
@@ -877,7 +877,7 @@ async def subscribe_user(user_id: str, body: SubscribeBody = SubscribeBody(), au
         if target.get("email"):
             send_email(target["email"], f"New subscriber: {me.get('name', 'Someone')}",
                        f"Hi {target.get('name', 'there')},\n\n{me.get('name', 'Someone')} just subscribed to you "
-                       f"for ${price:.2f}/mo on Nami.\n\nIt's been added to your balance.")
+                       f"for ${price:.2f}/mo on OkaySpace.\n\nIt's been added to your balance.")
     except Exception:
         pass
     return {"subscribed": True}

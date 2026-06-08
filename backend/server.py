@@ -52,17 +52,17 @@ from routes import (
 API_VERSION = "1.0.0"
 
 app = FastAPI(
-    title="Nami API",
+    title="OkaySpace API",
     version=API_VERSION,
     description=(
-        "REST API for Nami — social feed, maps & directions, messaging, "
+        "REST API for OkaySpace — social feed, maps & directions, messaging, "
         "communities, marketplace, creator monetization and more.\n\n"
         "**Auth:** send `Authorization: Bearer <API key or session token>` on every "
         "request. Generate API keys in the app under Settings → Developer API.\n\n"
         "All endpoints are under the `/api` prefix. Interactive docs: `/docs` · "
         "OpenAPI schema: `/openapi.json`."
     ),
-    contact={"name": "Nami", "url": "https://nampo-web.onrender.com"},
+    contact={"name": "OkaySpace", "url": "https://nampo-web.onrender.com"},
     license_info={"name": "Proprietary"},
 )
 
@@ -212,7 +212,7 @@ async def _on_validation_exc(request: Request, exc: RequestValidationError):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "app": "Nami App API"}
+    return {"status": "ok", "app": "OkaySpace API"}
 
 @app.get("/health")
 async def health():

@@ -535,7 +535,7 @@ export default function PostComposer({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.coverTitle}>Reel cover</Text>
                   <Text style={styles.coverSub} numberOfLines={1}>
-                    {videoThumb ? "Custom thumbnail" : "Default “Nami Social” cover"}
+                    {videoThumb ? "Custom thumbnail" : "Default “OkaySpace” cover"}
                   </Text>
                 </View>
                 <TouchableOpacity onPress={pickCover} disabled={coverBusy} style={styles.coverBtn} testID="composer-cover">

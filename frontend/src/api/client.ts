@@ -171,7 +171,7 @@ export const api = {
     request<{ deleted: boolean }>(`/webhooks/${id}`, { method: "DELETE" }),
   revokeApiKey: (id: string) =>
     request<{ revoked: boolean }>(`/auth/api-keys/${id}`, { method: "DELETE" }),
-  // "Login with Nami" OAuth apps
+  // "Login with OkaySpace" OAuth apps
   createOAuthApp: (name: string, redirect_uris: string[]) =>
     request<{ client_id: string; client_secret: string; name: string; redirect_uris: string[] }>(
       "/oauth/apps", { method: "POST", body: JSON.stringify({ name, redirect_uris }) }),
@@ -273,7 +273,7 @@ export const api = {
   serveReelAd: () => request<{ ad: ReelAd | null }>("/ads/reels/serve"),
   reelAdEvent: (id: string, type: "impression" | "click") =>
     request<{ ok: boolean }>(`/ads/reels/${id}/event`, { method: "POST", body: JSON.stringify({ type }) }),
-  // Publisher network — embed Nami ads on your own site and earn.
+  // Publisher network — embed OkaySpace ads on your own site and earn.
   createPubSite: (body: { name: string; domain?: string }) =>
     request<PublisherSite>("/pub/sites", { method: "POST", body: JSON.stringify(body) }),
   getPubSites: () => request<{ sites: PublisherSite[] }>("/pub/sites"),
