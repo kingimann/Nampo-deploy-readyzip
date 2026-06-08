@@ -16,15 +16,31 @@ export default function WebPullToRefresh() {
   const pullRef = useRef(0);
   const startY = useRef<number | null>(null);
   const active = useRef(false);
-  const THRESHOLD = 70;
+  const THRESHOLD = 90;
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
+    // True when the scroll container under the finger is already at the top, so a
+    // downward pull is an overscroll (refresh intent) rather than normal scroll.
+    const atScrollTop = (el: any): boolean => {
+      let n = el;
+      while (n && n !== document.body && n !== document.documentElement) {
+        try {
+          const oy = getComputedStyle(n).overflowY;
+          if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 2) {
+            return (n.scrollTop || 0) <= 0;
+          }
+        } catch {}
+        n = n.parentElement;
+      }
+      return true;
+    };
     const onStart = (e: TouchEvent) => {
       const y = e.touches[0]?.clientY ?? 0;
-      // Engage from the top zone (header/status-bar) so we don't fight a list's
-      // own pull-to-refresh lower down.
-      if (y < 150) { startY.current = y; active.current = true; }
+      // Engage when the pull starts in the upper part of the screen AND the
+      // content there is scrolled to the top — a real pull-to-refresh, like a
+      // normal scrolling page.
+      if (y < 240 && atScrollTop(e.target as any)) { startY.current = y; active.current = true; }
       else { active.current = false; startY.current = null; }
     };
     const onMove = (e: TouchEvent) => {
@@ -58,7 +74,7 @@ export default function WebPullToRefresh() {
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.surface, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: theme.border, opacity: Math.min(1, pull / 55) }}>
         <Ionicons name={ready ? "arrow-up" : "refresh"} size={15} color={theme.primary} />
-        <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: "700" }}>{ready ? "Release to update" : "Pull to refresh"}</Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: "700" }}>{ready ? "Release to refresh" : "Pull to refresh"}</Text>
       </View>
     </View>
   );
