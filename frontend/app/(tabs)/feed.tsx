@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal, Alert, Platform, Animated,
+  ActivityIndicator, RefreshControl, Modal, Alert, Platform, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
@@ -24,6 +24,23 @@ import ConfirmModal from "@/src/components/ConfirmModal";
 import { storage } from "@/src/utils/storage";
 
 export const HIDE_STORIES_KEY = "hide_stories";
+
+// Frosted-glass surface — matches the bottom LiquidTabBar so the floating top
+// bar reads as the same material (real blur on web, denser fill on native).
+const GLASS: any =
+  Platform.OS === "web"
+    ? {
+        backgroundColor: "rgba(31,44,51,0.72)",
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+        backdropFilter: "blur(22px)",
+        WebkitBackdropFilter: "blur(22px)",
+      }
+    : {
+        backgroundColor: theme.surfaceGlass,
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+      };
 
 type Tab = "home" | "explore";
 
@@ -127,6 +144,31 @@ export default function FeedScreen() {
     setNewCount(0);
     setRefreshing(true); load();
   };
+
+  // ── Floating top bar that hides on scroll-down and returns on scroll-up,
+  //    mirroring the bottom LiquidTabBar. ──
+  const [topHidden, setTopHidden] = useState(false);
+  const [topBarH, setTopBarH] = useState(112);  // measured; default avoids initial overlap
+  const topHide = useRef(new Animated.Value(0)).current;  // 0 = shown, 1 = hidden
+  const lastScrollY = useRef(0);
+  const onScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    const dy = y - lastScrollY.current;
+    if (y <= 4) setTopHidden(false);          // at the top → always show
+    else if (dy > 6) setTopHidden(true);      // scrolling down → hide
+    else if (dy < -6) setTopHidden(false);    // scrolling up → show
+    lastScrollY.current = y;
+  }, []);
+  useEffect(() => {
+    Animated.timing(topHide, {
+      toValue: topHidden ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [topHidden, topHide]);
+  // Never leave it stuck hidden when the feed regains focus.
+  useFocusEffect(useCallback(() => { setTopHidden(false); lastScrollY.current = 0; }, []));
 
   // Apply an authoritative engagement snapshot from the server to a post (and
   // to it wherever it appears as a reposted_post) — keeps counts exact.
@@ -272,42 +314,6 @@ export default function FeedScreen() {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="feed-screen">
-      <View style={styles.header}>
-        <SidebarMenuButton />
-        <View style={styles.brandRow}>
-          <Text style={styles.title}>Feed</Text>
-        </View>
-        <TouchableOpacity onPress={() => router.push("/notifications")} style={styles.bellBtn} testID="feed-notifications">
-          <Ionicons name="notifications-outline" size={22} color={theme.textPrimary} />
-          {unreadNotif > 0 && (
-            <View style={styles.bellBadge}>
-              <Text style={styles.bellBadgeText}>{unreadNotif > 9 ? "9+" : unreadNotif}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.segmentWrap}>
-        <View style={styles.segment}>
-          {(["explore", "home"] as Tab[]).map((k) => {
-            const a = k === tab;
-            return (
-              <TouchableOpacity
-                key={k}
-                onPress={() => setTab(k)}
-                style={[styles.segmentItem, a && styles.segmentItemActive]}
-                activeOpacity={0.85}
-                testID={`feed-tab-${k}`}
-              >
-                <Text style={[styles.segmentText, { color: a ? theme.textPrimary : theme.textMuted }]}>
-                  {k === "explore" ? "Explore" : "Following"}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
-
       {newCount > 0 && (
         <Animated.View
           style={[styles.newPillWrap, { opacity: pillAnim, transform: [{ translateY: pillAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }] }]}
@@ -321,7 +327,7 @@ export default function FeedScreen() {
       )}
 
       {loading ? (
-        <View style={{ paddingTop: 6 }}>
+        <View style={{ paddingTop: topBarH + 6 }}>
           {[0, 1, 2, 3, 4].map((i) => <PostSkeleton key={i} />)}
         </View>
       ) : (
@@ -331,7 +337,9 @@ export default function FeedScreen() {
           keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
           onViewableItemsChanged={onViewable}
           viewabilityConfig={{ itemVisiblePercentThreshold: 60, minimumViewTime: 600 }}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: insets.bottom + 100, gap: 9 }}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: topBarH + 6, paddingBottom: insets.bottom + 100, gap: 9 }}
           ItemSeparatorComponent={null}
           refreshControl={
             <RefreshControl
@@ -395,6 +403,56 @@ export default function FeedScreen() {
           )}
         />
       )}
+
+      {/* Floating frosted top bar — hides on scroll-down, returns on scroll-up,
+          mirroring the bottom LiquidTabBar (and sharing its glass material). */}
+      <Animated.View
+        onLayout={(e) => setTopBarH(e.nativeEvent.layout.height)}
+        pointerEvents={topHidden ? "none" : "box-none"}
+        style={[
+          styles.topBar,
+          GLASS,
+          {
+            opacity: topHide.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 0.25, 0] }),
+            transform: [{ translateY: topHide.interpolate({ inputRange: [0, 1], outputRange: [0, -(topBarH + insets.top + 14)] }) }],
+          },
+        ]}
+      >
+        <View style={styles.header}>
+          <SidebarMenuButton />
+          <View style={styles.brandRow}>
+            <Text style={styles.title}>Feed</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push("/notifications")} style={styles.bellBtn} testID="feed-notifications">
+            <Ionicons name="notifications-outline" size={22} color={theme.textPrimary} />
+            {unreadNotif > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{unreadNotif > 9 ? "9+" : unreadNotif}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+        <View style={styles.segmentWrap}>
+          <View style={styles.segment}>
+            {(["explore", "home"] as Tab[]).map((k) => {
+              const a = k === tab;
+              return (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => setTab(k)}
+                  style={[styles.segmentItem, a && styles.segmentItemActive]}
+                  activeOpacity={0.85}
+                  testID={`feed-tab-${k}`}
+                >
+                  <Text style={[styles.segmentText, { color: a ? theme.textPrimary : theme.textMuted }]}>
+                    {k === "explore" ? "Explore" : "Following"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </Animated.View>
 
       <CommentsSheet
         visible={!!commentsPost}
@@ -507,6 +565,14 @@ export default function FeedScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  topBar: {
+    position: "absolute", top: 6, left: 8, right: 8,
+    borderRadius: 24,
+    paddingTop: 2,
+    zIndex: 40,
+    shadowColor: "#000", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10,
