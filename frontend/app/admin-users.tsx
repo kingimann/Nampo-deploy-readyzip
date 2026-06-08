@@ -203,8 +203,12 @@ export default function AdminUsersScreen() {
   };
 
   const confirmRemove = async (u: AdminUser) => {
+    // Close the user-detail sheet first so the confirm dialog isn't rendered
+    // behind it (modals stack by the order they're presented).
+    setSel(null);
+    await new Promise((r) => setTimeout(r, 220));
     if (!(await confirm({ title: "Remove account?", message: `This permanently deletes ${u.name}.`, confirmLabel: "Remove", destructive: true }))) return;
-    try { await api.adminRemoveUser(u.user_id); setSel(null); setUsers((arr) => arr.filter((x) => x.user_id !== u.user_id)); }
+    try { await api.adminRemoveUser(u.user_id); setUsers((arr) => arr.filter((x) => x.user_id !== u.user_id)); }
     catch (e: any) { Alert.alert("Couldn't remove", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
   };
 

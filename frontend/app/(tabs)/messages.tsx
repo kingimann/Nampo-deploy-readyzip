@@ -14,12 +14,14 @@ import RestrictionBanner from "@/src/components/RestrictionBanner";
 import { isE2E, tryDecrypt, getPeerPublicKey } from "@/src/utils/e2e";
 import UnlockChatSheet from "@/src/components/UnlockChatSheet";
 import { useKeyboardHeight } from "@/src/hooks/useKeyboardHeight";
+import { useConfirm } from "@/src/context/ConfirmContext";
 
 type Mode = "new-dm" | "new-group" | null;
 
 export default function MessagesScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const msgOff = !!user?.messaging_disabled;
   const insets = useSafeAreaInsets();
   const kb = useKeyboardHeight();
@@ -165,29 +167,24 @@ export default function MessagesScreen() {
 
   const onLongPress = (c: ConversationView) => setActionConv(c);
 
-  const confirmDelete = (c: ConversationView) => {
+  const confirmDelete = async (c: ConversationView) => {
+    // Close the action sheet first so the confirm dialog isn't rendered behind
+    // it (modals stack by the order they're presented).
     setActionConv(null);
     const isGroup = c.kind === "group";
     const title = isGroup ? "Leave group?" : "Delete conversation?";
     const msg = isGroup
       ? "You'll be removed from this group and the chat will disappear from your inbox."
       : "This chat will disappear from your inbox. The other person still has it.";
-    const doIt = async () => {
-      try {
-        await api.deleteConversation(c.id);
-        setConvs((arr) => arr.filter((x) => x.id !== c.id));
-      } catch (e) {
-        Alert.alert("Couldn't delete", String(e));
-      }
-    };
-    if (Platform.OS === "web") {
-      // eslint-disable-next-line no-alert
-      if (confirm(`${title}\n\n${msg}`)) doIt();
-    } else {
-      Alert.alert(title, msg, [
-        { text: "Cancel", style: "cancel" },
-        { text: isGroup ? "Leave" : "Delete", style: "destructive", onPress: doIt },
-      ]);
+    await new Promise((r) => setTimeout(r, 220));
+    // In-app confirm (ConfirmModal) on every platform — never the browser's
+    // window.confirm on web.
+    if (!(await confirm({ title, message: msg, confirmLabel: isGroup ? "Leave" : "Delete", destructive: true }))) return;
+    try {
+      await api.deleteConversation(c.id);
+      setConvs((arr) => arr.filter((x) => x.id !== c.id));
+    } catch (e) {
+      Alert.alert("Couldn't delete", String(e));
     }
   };
 
