@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
-  TextInput, RefreshControl, Image, Alert, Linking, Platform, Modal, Pressable, KeyboardAvoidingView,
+  TextInput, RefreshControl, Image, Alert, Linking, Platform, Modal, Pressable, KeyboardAvoidingView, Animated,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { safeBack } from "@/src/utils/nav";
+import { GLASS } from "@/src/lib/glass";
+import { useFloatingHeader } from "@/src/hooks/useFloatingHeader";
 import { reverseGeocode } from "@/src/api/mapbox";
 import { pickDocumentBase64 } from "@/src/utils/thumbnail";
 import CameraCapture from "@/src/components/CameraCapture";
@@ -97,6 +99,7 @@ export default function RoadsideScreen() {
   const router = useRouter();
   const confirm = useConfirm();
   const insets = useSafeAreaInsets();
+  const fh = useFloatingHeader(120);
   const [tab, setTab] = useState<"request" | "nearby" | "helping" | "history">("request");
   const [active, setActive] = useState<RoadsideRequest | null>(null);
   const [helping, setHelping] = useState<RoadsideRequest | null>(null);
@@ -820,34 +823,42 @@ export default function RoadsideScreen() {
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="roadside-screen">
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => safeBack("/")} style={styles.iconBtn} testID="roadside-back">
-          <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.title}>Roadside help</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <View style={styles.tabs}>
-        {(helping
-          ? (["request", "nearby", "helping", "history"] as const)
-          : (["request", "nearby", "history"] as const)
-        ).map((t) => (
-          <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => setTab(t)} testID={`roadside-tab-${t}`}>
-            <Text style={[styles.tabText, tab === t && styles.tabTextOn]} numberOfLines={1}>
-              {t === "request" ? "Get help" : t === "nearby" ? "Help others" : t === "helping" ? "Your job" : "History"}
-            </Text>
+      <Animated.View
+        onLayout={(e) => fh.setTopBarH(e.nativeEvent.layout.height)}
+        pointerEvents={fh.barPointerEvents}
+        style={[styles.topBar, GLASS, fh.barStyle(insets.top)]}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => safeBack("/")} style={styles.iconBtn} testID="roadside-back">
+            <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
           </TouchableOpacity>
-        ))}
-      </View>
+          <Text style={styles.title}>Roadside help</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <View style={styles.tabs}>
+          {(helping
+            ? (["request", "nearby", "helping", "history"] as const)
+            : (["request", "nearby", "history"] as const)
+          ).map((t) => (
+            <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabOn]} onPress={() => setTab(t)} testID={`roadside-tab-${t}`}>
+              <Text style={[styles.tabText, tab === t && styles.tabTextOn]} numberOfLines={1}>
+                {t === "request" ? "Get help" : t === "nearby" ? "Help others" : t === "helping" ? "Your job" : "History"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Animated.View>
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <ScrollView
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}
+          onScroll={fh.onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: fh.topBarH + 12, paddingBottom: insets.bottom + 40 }}
           keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} progressViewOffset={fh.topBarH} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
         >
           {tab === "request" ? (
             <>
@@ -1176,7 +1187,12 @@ export default function RoadsideScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  topBar: {
+    position: "absolute", top: 6, left: 8, right: 8,
+    borderRadius: 24, paddingBottom: 2, zIndex: 40,
+    shadowColor: "#000", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 10,
+  },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 8 },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   title: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
   tabs: { flexDirection: "row", paddingHorizontal: 14, gap: 8, paddingVertical: 10 },
