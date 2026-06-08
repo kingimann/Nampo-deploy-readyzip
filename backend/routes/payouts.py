@@ -124,7 +124,7 @@ async def process_payouts(only_due: bool = True) -> dict:
                     f"Hi {user.get('name', 'there')},\n\n"
                     f"A payout of ${balance:.2f} was sent to {where}.\n"
                     f"Schedule: {user.get('payout_frequency', 'weekly')}.\n\n"
-                    f"Thanks for creating on Nami.",
+                    f"Thanks for creating on OkaySpace.",
                 )
         except Exception:
             pass

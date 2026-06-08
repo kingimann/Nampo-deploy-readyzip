@@ -1,5 +1,5 @@
-"""'Login with Nami' — a minimal OAuth2 authorization-code provider so other
-sites can let people sign in with their Nami account (like Google/Facebook).
+"""'Login with OkaySpace' — a minimal OAuth2 authorization-code provider so other
+sites can let people sign in with their OkaySpace account (like Google/Facebook).
 
 Flow:
   1. A developer registers an OAuth app → client_id + client_secret + redirect URIs.

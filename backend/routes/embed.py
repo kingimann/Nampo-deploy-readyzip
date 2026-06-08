@@ -1,7 +1,7 @@
-"""Public, embeddable content — let developers embed Nami posts and profiles on
+"""Public, embeddable content — let developers embed OkaySpace posts and profiles on
 any website or app: JSON read endpoints, themeable iframe "cards", a drop-in
 <script> loader, and an oEmbed endpoint (so CMSs like WordPress auto-embed a
-pasted Nami link).
+pasted OkaySpace link).
 
 No auth — these expose ONLY already-public content. We never serve:
   • subscriber-gated posts (min_sub_tier > 0), or
@@ -125,7 +125,7 @@ def _media_view(m: dict) -> dict:
 def _author_view(u: dict) -> dict:
     return {
         "user_id": u.get("user_id"),
-        "name": u.get("name") or "Nami user",
+        "name": u.get("name") or "OkaySpace user",
         "username": u.get("username"),
         "picture": u.get("picture"),
         "verified": bool(u.get("verified", False)),
@@ -358,7 +358,7 @@ async def public_community(request: Request, name: str):
 @router.get("/pub/profile/{username}/posts")
 async def public_profile_posts(request: Request, username: str,
                                limit: int = Query(10), cursor: Optional[str] = Query(None)):
-    """A user's public posts, newest first — build a Nami feed widget on your site.
+    """A user's public posts, newest first — build a OkaySpace feed widget on your site.
     Cursor pagination: pass the returned `next_cursor` to get the next page (null =
     end). Only public timeline posts are returned (no replies, reposts, groups,
     communities, or subscriber-only posts)."""
@@ -446,7 +446,7 @@ async def post_card(request: Request, post: str = Query(...), theme: str = Query
     cfg = _embed_cfg(theme, accent, radius)
     e = html.escape
     av = e(author.get("picture") or "")
-    name = e(author.get("name") or "Nami user")
+    name = e(author.get("name") or "OkaySpace user")
     uname = author.get("username")
     ck = ' <span class="ck">✔</span>' if author.get("verified") else ""
     handle = f'<div class="un">@{e(uname)}</div>' if uname else ""
@@ -471,7 +471,7 @@ async def post_card(request: Request, post: str = Query(...), theme: str = Query
         f'<div class="top"><img class="av" src="{av}" alt="">'
         f'<div><div class="nm">{name}{ck}</div>{handle}</div></div>'
         f'{text_html}{media_html}{meta}'
-        '<div class="brand"><span class="n">Nami</span><span class="cta">View post ›</span></div>'
+        '<div class="brand"><span class="n">OkaySpace</span><span class="cta">View post ›</span></div>'
         "</a>"
     )
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
@@ -486,7 +486,7 @@ async def profile_card(request: Request, profile: str = Query(...), theme: str =
     cfg = _embed_cfg(theme, accent, radius)
     e = html.escape
     av = e(u.get("picture") or "")
-    name = e(u.get("name") or "Nami user")
+    name = e(u.get("name") or "OkaySpace user")
     uname = u.get("username")
     ck = ' <span class="ck">✔</span>' if u.get("verified") else ""
     handle = f'<div class="un">@{e(uname)}</div>' if uname else ""
@@ -497,7 +497,7 @@ async def profile_card(request: Request, profile: str = Query(...), theme: str =
         f'<div class="top"><img class="av" src="{av}" alt="">'
         f'<div><div class="nm">{name}{ck}</div>{handle}</div></div>'
         f'{bio}'
-        '<div class="brand"><span class="n">Nami</span><span class="cta">View profile ›</span></div>'
+        '<div class="brand"><span class="n">OkaySpace</span><span class="cta">View profile ›</span></div>'
         "</a>"
     )
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
@@ -526,7 +526,7 @@ async def listing_card(request: Request, listing: str = Query(...), theme: str =
         f'<div class="price">{e(_price_str(doc))}</div>'
         f'<div class="ltitle">{title}</div>'
         f'{sub_html}'
-        '<div class="brand"><span class="n">Nami Marketplace</span><span class="cta">View listing ›</span></div>'
+        '<div class="brand"><span class="n">OkaySpace Marketplace</span><span class="cta">View listing ›</span></div>'
         "</a>"
     )
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
@@ -554,7 +554,7 @@ async def guide_card(request: Request, guide: str = Query(...), theme: str = Que
         f'<div class="gname">{name}</div>'
         f'<div class="sub">{count} place{plural}{(" · by " + owner_name) if owner_name else ""}</div>'
         f'<div style="margin-top:10px">{place_lines}{more}</div>'
-        '<div class="brand"><span class="n">Nami Guides</span><span class="cta">Open guide ›</span></div>'
+        '<div class="brand"><span class="n">OkaySpace Guides</span><span class="cta">Open guide ›</span></div>'
         "</a>"
     )
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
@@ -581,7 +581,7 @@ async def community_card(request: Request, community: str = Query(...), theme: s
         f'<div><div class="nm">{e(title)}</div>'
         f'<div class="un">c/{e(doc.get("name") or "")} · {members} member{plural}</div></div></div>'
         f'{desc}'
-        '<div class="brand"><span class="n">Nami Communities</span><span class="cta">Open community ›</span></div>'
+        '<div class="brand"><span class="n">OkaySpace Communities</span><span class="cta">Open community ›</span></div>'
         "</a>"
     )
     return HTMLResponse(content=_card_html(inner, cfg), headers={"X-Frame-Options": "ALLOWALL"})
@@ -642,7 +642,7 @@ def _extract_username(url: str) -> Optional[str]:
 @router.get("/pub/oembed")
 async def oembed(request: Request, url: str = Query(...), format: str = Query("json"),
                  maxwidth: Optional[int] = Query(None), maxheight: Optional[int] = Query(None)):
-    """oEmbed provider endpoint. Paste a Nami post/profile URL into any oEmbed-aware
+    """oEmbed provider endpoint. Paste a OkaySpace post/profile URL into any oEmbed-aware
     site (WordPress, Discourse, etc.) and it renders an embed card."""
     if not _rate_ok(_client_ip(request)):
         raise HTTPException(status_code=429, detail="Slow down — too many requests.")
@@ -661,7 +661,7 @@ async def oembed(request: Request, url: str = Query(...), format: str = Query("j
         src = f"{base}/api/pub/post-card?post={pid}"
         thumb = next((m.get("url") or m.get("thumbnail") for m in (doc.get("media") or [])
                       if (m.get("url") or m.get("thumbnail"))), author.get("picture"))
-        title = (doc.get("text") or "Post on Nami")[:120]
+        title = (doc.get("text") or "Post on OkaySpace")[:120]
         return _oembed_payload(title, author, src, width, height, thumb)
 
     lid = _extract_listing_id(url)
@@ -683,7 +683,7 @@ async def oembed(request: Request, url: str = Query(...), format: str = Query("j
         g, owner = r
         height = min(int(maxheight or 340), 420)
         src = f"{base}/api/pub/guide-card?guide={gslug}"
-        return _oembed_payload(f"{g.get('name')} — a Nami guide", owner, src, width, height, owner.get("picture"))
+        return _oembed_payload(f"{g.get('name')} — a OkaySpace guide", owner, src, width, height, owner.get("picture"))
 
     cname = _extract_community(url)
     if cname:
@@ -696,8 +696,8 @@ async def oembed(request: Request, url: str = Query(...), format: str = Query("j
                   'frameborder="0" scrolling="no" style="border:0;max-width:550px;width:100%" '
                   'allowtransparency="true"></iframe>')
         return {
-            "version": "1.0", "type": "rich", "provider_name": "Nami", "provider_url": WEB_APP_URL,
-            "title": f"c/{doc.get('name')} on Nami",
+            "version": "1.0", "type": "rich", "provider_name": "OkaySpace", "provider_url": WEB_APP_URL,
+            "title": f"c/{doc.get('name')} on OkaySpace",
             "author_name": doc.get("title") or doc.get("name"),
             "author_url": f"{WEB_APP_URL}/c/{doc.get('name')}",
             "html": iframe, "width": width, "height": height, "cache_age": 3600,
@@ -710,9 +710,9 @@ async def oembed(request: Request, url: str = Query(...), format: str = Query("j
             raise HTTPException(status_code=404, detail="Profile not available")
         height = min(int(maxheight or 150), 200)
         src = f"{base}/api/pub/profile-card?profile={uname}"
-        return _oembed_payload(f"{u.get('name')} on Nami", u, src, width, height, u.get("picture"))
+        return _oembed_payload(f"{u.get('name')} on OkaySpace", u, src, width, height, u.get("picture"))
 
-    raise HTTPException(status_code=404, detail="Not a recognized Nami URL")
+    raise HTTPException(status_code=404, detail="Not a recognized OkaySpace URL")
 
 
 def _oembed_payload(title: str, author: dict, src: str, width: int, height: int, thumb) -> dict:
@@ -722,7 +722,7 @@ def _oembed_payload(title: str, author: dict, src: str, width: int, height: int,
     payload = {
         "version": "1.0",
         "type": "rich",
-        "provider_name": "Nami",
+        "provider_name": "OkaySpace",
         "provider_url": WEB_APP_URL,
         "title": title,
         "author_name": author.get("name"),

@@ -7,7 +7,7 @@ export type GameEvent = { type: "ready" | "score" | "exit" | "getPlayer"; score?
 export type GameWebViewHandle = { sendPlayer: (player: { name: string }) => void };
 
 /**
- * Hosts an uploaded game (loaded from /api/pub/game/{id}) and bridges the Nami
+ * Hosts an uploaded game (loaded from /api/pub/game/{id}) and bridges the OkaySpace
  * Games SDK: the game posts {namiGame:true,type} messages (ready/score/exit/
  * getPlayer); the host replies via sendPlayer(). WebView on native, iframe on web.
  */

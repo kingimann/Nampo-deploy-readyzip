@@ -672,7 +672,7 @@ async def submit_verification(body: VerificationBody, request: Request, authoriz
     update: dict = {
         "business_type": "individual",
         "individual": individual,
-        "business_profile": {"product_description": "Creator tips, subscriptions and payouts on Nami", "mcc": "5815"},
+        "business_profile": {"product_description": "Creator tips, subscriptions and payouts on OkaySpace", "mcc": "5815"},
     }
     if body.accept_tos:
         ip = (request.client.host if request.client else None) or "0.0.0.0"
@@ -1318,7 +1318,7 @@ async def stripe_webhook(request: Request):
                 if cre and cre.get("email"):
                     send_email(cre["email"], f"You received ${net:.2f}",
                                f"Hi {cre.get('name', 'there')},\n\nYou received a ${net:.2f} "
-                               f"{'subscription' if kind == 'subscription' else 'tip'} on Nami. It's in your balance.")
+                               f"{'subscription' if kind == 'subscription' else 'tip'} on OkaySpace. It's in your balance.")
             except Exception:
                 pass
             # DM tip → drop an inline tip receipt into the conversation.

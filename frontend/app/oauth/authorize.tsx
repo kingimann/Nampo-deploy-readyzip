@@ -71,7 +71,7 @@ export default function OAuthConsent() {
               <Ionicons name="swap-horizontal" size={18} color={theme.textMuted} />
               <View style={styles.appLogo}><Ionicons name="cube" size={20} color={theme.primary} /></View>
             </View>
-            <Text style={styles.title}>{app?.name || "An app"} wants to sign you in with Nami</Text>
+            <Text style={styles.title}>{app?.name || "An app"} wants to sign you in with OkaySpace</Text>
             <Text style={styles.sub}>Signed in as <Text style={{ color: theme.textPrimary, fontWeight: "700" }}>{user?.name}</Text></Text>
 
             <View style={styles.scopeBox}>

@@ -160,7 +160,7 @@ export default function LoginScreen() {
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
             <View style={styles.logoBox}>
               <Ionicons name="map" size={32} color="#fff" />
-              <Text style={styles.brand}>Nami App</Text>
+              <Text style={styles.brand}>OkaySpace</Text>
             </View>
             <Text style={styles.tagline}>Sign in to your account</Text>
 

@@ -119,7 +119,7 @@ async def _maybe_sms_notify(
         "tip": "tipped you",
         "subscribe": "subscribed to you",
     }.get(ntype, "sent you a notification")
-    body = f"Nami: {actor_name} {verb}."
+    body = f"OkaySpace: {actor_name} {verb}."
     if message:
         body += f" “{message[:80]}”"
     await send_sms(user["phone"], body)

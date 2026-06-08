@@ -143,9 +143,9 @@ export default function EtaPublicViewer() {
         </View>
       </SafeAreaView>
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-        <Text style={styles.poweredBy}>Powered by Nami App</Text>
+        <Text style={styles.poweredBy}>Powered by OkaySpace</Text>
         <TouchableOpacity onPress={() => router.replace("/login")} style={styles.cta}>
-          <Text style={styles.ctaText}>Get Nami App →</Text>
+          <Text style={styles.ctaText}>Get OkaySpace →</Text>
         </TouchableOpacity>
       </View>
     </View>

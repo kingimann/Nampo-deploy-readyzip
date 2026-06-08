@@ -18,7 +18,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Nami" />
+        <meta name="apple-mobile-web-app-title" content="OkaySpace" />
         <link rel="apple-touch-icon" href="/icon.png" />
         {/*
           Disable body scrolling on web to make ScrollView components work correctly.
@@ -154,7 +154,7 @@ export default function Root({ children }: PropsWithChildren) {
         />
         {/* Branded launch screen — removed as soon as the app mounts. */}
         <div id="nami-splash">
-          <img src="/icon.png" alt="Nami" />
+          <img src="/icon.png" alt="OkaySpace" />
         </div>
         <script
           dangerouslySetInnerHTML={{

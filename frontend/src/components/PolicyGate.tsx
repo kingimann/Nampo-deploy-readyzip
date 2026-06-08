@@ -41,7 +41,7 @@ export default function PolicyGate() {
           </View>
           <Text style={styles.title}>Review our policies</Text>
           <Text style={styles.subtitle}>
-            We've updated our terms. Please review and agree to continue using Nami.
+            We've updated our terms. Please review and agree to continue using OkaySpace.
           </Text>
 
           <View style={styles.links}>

@@ -1,4 +1,4 @@
-# Building Nami App for iOS (App Store / TestFlight)
+# Building OkaySpace for iOS (App Store / TestFlight)
 
 This app is built with Expo SDK 54. You can build it for iOS **without a Mac**
 using EAS Build (Expo's cloud build service).

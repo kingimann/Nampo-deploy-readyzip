@@ -295,7 +295,7 @@ export default function AdvertiseScreen() {
                     <Text style={styles.linkNewText}>New</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.linkSectionSub}>Promote your website across Nami and partner sites. Charged per view/click from your ad balance. Requires an account 60+ days old.</Text>
+                <Text style={styles.linkSectionSub}>Promote your website across OkaySpace and partner sites. Charged per view/click from your ad balance. Requires an account 60+ days old.</Text>
                 {linkAds.map((a) => (
                   <View key={a.id} style={styles.linkRow}>
                     <Ionicons name="link" size={16} color={theme.primary} />
@@ -632,7 +632,7 @@ export default function AdvertiseScreen() {
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
             <View style={styles.handle} />
             <Text style={styles.sheetTitle}>Advertise a link</Text>
-            <Text style={styles.sheetSub}>Your website shows as a sponsored card across Nami and partner sites.</Text>
+            <Text style={styles.sheetSub}>Your website shows as a sponsored card across OkaySpace and partner sites.</Text>
 
             <Text style={styles.fieldLabel}>Website URL</Text>
             <View style={styles.inputWrap}>

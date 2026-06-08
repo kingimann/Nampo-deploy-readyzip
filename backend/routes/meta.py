@@ -28,12 +28,12 @@ CAPABILITIES = [
     {"group": "money", "base": "/money", "summary": "P2P send (security question) + accept, request money, pay-by-QR"},
     {"group": "admin", "base": "/admin", "summary": "User management: verify, roles, ban/suspend/remove, audit log (admin only)"},
     {"group": "ads", "base": "/ads", "summary": "Sponsored serving, impression/click events, campaigns, prepaid ad balance, link ads"},
-    {"group": "publisher", "base": "/pub", "summary": "Display Nami ads on your site & earn — sites, customizable embed snippet, public ad serving"},
+    {"group": "publisher", "base": "/pub", "summary": "Display OkaySpace ads on your site & earn — sites, customizable embed snippet, public ad serving"},
     {"group": "forms", "base": "/forms", "summary": "Build forms, embed them anywhere (themeable), collect responses, CSV export, submission webhooks"},
     {"group": "factchecks", "base": "/posts/{id}/factchecks", "summary": "Community notes on posts (source required), Helpful/Not-helpful rating, auto-show on consensus"},
     {"group": "hazards", "base": "/hazards", "summary": "Driver hazard reports (Waze-style) — cluster by location, show on consensus, confirm/dismiss"},
-    {"group": "games", "base": "/games", "summary": "User-uploaded games + leaderboards; Nami Games SDK (3D engine over Three.js) at /pub/games/sdk.js"},
-    {"group": "oauth", "base": "/oauth", "summary": "Login with Nami (OAuth2 provider), apps, connections, revocation"},
+    {"group": "games", "base": "/games", "summary": "User-uploaded games + leaderboards; OkaySpace Games SDK (3D engine over Three.js) at /pub/games/sdk.js"},
+    {"group": "oauth", "base": "/oauth", "summary": "Login with OkaySpace (OAuth2 provider), apps, connections, revocation"},
     {"group": "webhooks", "base": "/webhooks", "summary": "Developer event webhooks (Pro+) — signed delivery, test pings, 20+ event types"},
     {"group": "payouts", "base": "/payouts", "summary": "Creator payout balance, schedule, history"},
     {"group": "communities", "base": "/communities", "summary": "Reddit-style forums, threads, Hot/New/Top"},
@@ -50,14 +50,14 @@ CAPABILITIES = [
 
 @router.get("/version")
 async def version():
-    return {"api": "Nami API", "version": API_VERSION}
+    return {"api": "OkaySpace API", "version": API_VERSION}
 
 
 @router.get("/v1/info")
 async def info():
     """Machine-readable API overview: version, auth, conventions, capabilities."""
     return {
-        "api": "Nami API",
+        "api": "OkaySpace API",
         "version": API_VERSION,
         "base_url": "/api",
         "docs_url": "/docs",

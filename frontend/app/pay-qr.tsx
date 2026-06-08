@@ -37,7 +37,7 @@ export default function PayQRScreen() {
   // uploaded photo (data URI) — can sit in the centre since we draw it ourselves.
 
   const copy = async () => { try { await Clipboard.setStringAsync(payLink); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {} };
-  const share = async () => { try { await Share.share({ message: `Pay me on Nami: ${payLink}` }); } catch {} };
+  const share = async () => { try { await Share.share({ message: `Pay me on OkaySpace: ${payLink}` }); } catch {} };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="pay-qr-screen">
@@ -61,7 +61,7 @@ export default function PayQRScreen() {
           >
             <View style={styles.brandRow}>
               <Ionicons name="leaf" size={15} color="#fff" />
-              <Text style={styles.brandText}>Nami · Pay</Text>
+              <Text style={styles.brandText}>OkaySpace · Pay</Text>
             </View>
             <View style={styles.avatarRing}>
               {user?.picture ? (

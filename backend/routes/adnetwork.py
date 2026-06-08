@@ -1,4 +1,4 @@
-"""Publisher ad network — let developers embed Nami ads on their own websites
+"""Publisher ad network — let developers embed OkaySpace ads on their own websites
 and earn a revenue share.
 
 A developer registers a *site* (gets a public `site_key`), drops in a snippet,

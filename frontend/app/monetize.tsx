@@ -74,7 +74,7 @@ export default function MonetizeScreen() {
           <View style={styles.intro}>
             <Ionicons name="cash" size={18} color={theme.primary} />
             <Text style={styles.introText}>
-              Show Nami ads on your website and earn a share of every view and click. Add a site, copy the snippet into your page, and you're live.
+              Show OkaySpace ads on your website and earn a share of every view and click. Add a site, copy the snippet into your page, and you're live.
             </Text>
           </View>
 

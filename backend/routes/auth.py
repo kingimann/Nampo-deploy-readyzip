@@ -391,7 +391,7 @@ async def forgot_password(body: ForgotPassword):
                           "pw_reset_attempts": 0}},
             )
             try:
-                send_email(email, "Your Nami password reset code",
+                send_email(email, "Your OkaySpace password reset code",
                            f"Hi {user.get('name', 'there')},\n\nYour password reset code is {code}.\n"
                            f"It expires in 15 minutes. If you didn't request this, you can ignore it.")
                 sent = True
@@ -600,7 +600,7 @@ async def phone_send_code(body: PhoneSend, authorization: Optional[str] = Header
         "phone_code_sent_at": now,
     }})
     from services.sms import send_sms, sms_enabled
-    sent = await send_sms(raw, f"Your Nami verification code is {code}. It expires in {PHONE_CODE_TTL_MIN} minutes.")
+    sent = await send_sms(raw, f"Your OkaySpace verification code is {code}. It expires in {PHONE_CODE_TTL_MIN} minutes.")
     out = {"ok": True, "sent": sent}
     if not sms_enabled():
         out["dev_code"] = code
@@ -676,8 +676,8 @@ async def email_send_code(authorization: Optional[str] = Header(None)):
         "email_code_sent_at": now,
     }})
     from services.email import send_email, email_enabled
-    sent = send_email(email, "Verify your Nami email",
-                      f"Your Nami email verification code is {code}. It expires in {PHONE_CODE_TTL_MIN} minutes.")
+    sent = send_email(email, "Verify your OkaySpace email",
+                      f"Your OkaySpace email verification code is {code}. It expires in {PHONE_CODE_TTL_MIN} minutes.")
     out = {"ok": True, "sent": bool(sent)}
     if not email_enabled():
         out["dev_code"] = code
@@ -786,7 +786,7 @@ async def _begin_2fa_challenge(user_doc: dict) -> dict:
         "twofa_code_attempts": 0,
         "twofa_code_sent_at": now,
     }})
-    sent = await send_sms(user_doc["phone"], f"Your Nami login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
+    sent = await send_sms(user_doc["phone"], f"Your OkaySpace login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
     out = {
         "twofa_required": True,
         "identifier": user_doc.get("username") or user_doc.get("email"),
@@ -886,7 +886,7 @@ async def login_phone_start(body: PhoneLoginStart):
         "login_code_attempts": 0,
         "login_code_sent_at": now,
     }})
-    sent = await send_sms(raw, f"Your Nami login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
+    sent = await send_sms(raw, f"Your OkaySpace login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
     out = {"exists": True, "sent": sent, "masked_phone": _mask_phone(raw)}
     if not sms_enabled() and _EXPOSE_DEV_CODES:
         out["dev_code"] = code
@@ -954,7 +954,7 @@ async def forgot_password_sms(body: ForgotSms):
             "pw_reset_sent_at": datetime.now(timezone.utc),
             "pw_reset_attempts": 0,
         }})
-        sent = await send_sms(user["phone"], f"Your Nami password reset code is {code}. It expires in {CODE_TTL_MIN} minutes.")
+        sent = await send_sms(user["phone"], f"Your OkaySpace password reset code is {code}. It expires in {CODE_TTL_MIN} minutes.")
         masked = _mask_phone(user["phone"])
         if not sms_enabled() and _EXPOSE_DEV_CODES:
             out_dev = code

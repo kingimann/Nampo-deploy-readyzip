@@ -8,10 +8,10 @@ import { theme } from "@/src/theme";
  * The cover image for a reel / video.
  *
  * - When `uri` is set, it renders that custom thumbnail.
- * - Otherwise it renders a branded **"Nami Social"** default cover so a video
+ * - Otherwise it renders a branded **"OkaySpace"** default cover so a video
  *   never shows a black/empty frame before it loads.
  * - Pass `brand={false}` to fall back to plain black instead of the wordmark
- *   (used for sponsored reels, where a Nami wordmark would be misleading).
+ *   (used for sponsored reels, where a OkaySpace wordmark would be misleading).
  * - `compact` shrinks the wordmark for small grid tiles.
  *
  * It always fills its parent (absolute fill); give the parent a size + overflow
@@ -54,7 +54,7 @@ export default function ReelPoster({
         </View>
       )}
       <Text style={compact ? styles.brandSm : styles.brand} numberOfLines={1} adjustsFontSizeToFit>
-        Nami Social
+        OkaySpace
       </Text>
       {!compact && <Text style={styles.beta}>BETA</Text>}
     </LinearGradient>

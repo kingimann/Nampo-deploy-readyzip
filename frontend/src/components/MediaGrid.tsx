@@ -14,7 +14,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 function VideoTile({ uri, poster, style, onPress }: { uri: string; poster?: string | null; style: any; onPress?: () => void }) {
   // For reel previews (onPress set) we don't mount a player at all — just show
-  // the cover (custom thumbnail or the branded "Nami Social" default) + a play
+  // the cover (custom thumbnail or the branded "OkaySpace" default) + a play
   // badge, and hand the tap off to the Reels player.
   const player = useVideoPlayer(onPress ? null : uri, (p) => { p.loop = true; p.muted = true; });
   const [playing, setPlaying] = useState(false);

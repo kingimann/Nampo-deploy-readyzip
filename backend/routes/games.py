@@ -1,7 +1,7 @@
 """Mini games platform — users upload (Three.js) games people play in-app.
 
 A creator uploads a game (inline HTML or a hosted URL) and integrates the small
-**Nami Games SDK** (`/api/pub/games/sdk.js`): a postMessage bridge giving the
+**OkaySpace Games SDK** (`/api/pub/games/sdk.js`): a postMessage bridge giving the
 game `NamiGames.ready()`, `submitScore(n)`, `getPlayer()`, and `exit()`. Score
 submission goes through the host app (which holds the user's auth), never the
 game itself — so games can't forge authenticated calls.
@@ -176,7 +176,7 @@ SDK_JS = """
     THREE: null
   };
   window.NamiGames = NG;
-  window.Nami = NG;
+  window.OkaySpace = NG;
 
   function handle(d){
     if (!d || !d.namiHost) return;
@@ -187,7 +187,7 @@ SDK_JS = """
   window.__namiHost = function(raw){ try { handle(typeof raw === 'string' ? JSON.parse(raw) : raw); } catch(_){} };
 
   // ── 3D engine (Three.js bundled under the hood) ────────────────────
-  // Build a whole game with the Nami API — no need to touch Three.js directly.
+  // Build a whole game with the OkaySpace API — no need to touch Three.js directly.
   NG.loadThree = function(){
     return new Promise(function(resolve, reject){
       if (window.THREE) { NG.THREE = window.THREE; return resolve(window.THREE); }
@@ -240,7 +240,7 @@ SDK_JS = """
         onUpdate: function(cb){ updateCbs.push(cb); },
         // Which object (from `objects`) is under a tap, using the tap's NDC coords.
         pick: function(tap, objects){ ndc.set(tap.nx, tap.ny); raycaster.setFromCamera(ndc, camera); var hits = raycaster.intersectObjects(objects, true); return hits[0] ? hits[0].object : null; },
-        // Platform shortcuts so the game only ever calls Nami:
+        // Platform shortcuts so the game only ever calls OkaySpace:
         submitScore: NG.submitScore, getPlayer: NG.getPlayer, exit: NG.exit
       };
 
