@@ -3,3 +3,6 @@
 // is never pulled into the web bundle.
 export async function setupNativeAudio(): Promise<void> {}
 export async function teardownNativeAudio(): Promise<void> {}
+// On web the browser provides WebRTC and calls run via livekit-client, so calls
+// are always supported here (mirrors the native helper's signature).
+export function nativeCallsSupported(): boolean { return true; }

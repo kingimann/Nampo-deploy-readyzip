@@ -5,11 +5,16 @@
 # The backend stores everything in Postgres (see backend/db.py — a Mongo-style
 # wrapper over a JSONB table per collection). It connects using DATABASE_URL.
 
-databases:
-  - name: nampo-db
-    plan: free            # free Postgres (expires after 30 days — upgrade to keep)
-    databaseName: nampo
-    user: nampo
+# NOTE: We no longer provision Render's free Postgres (it expires after 30 days
+# and the data is deleted). DATABASE_URL below points at an external Postgres you
+# control — e.g. a free Neon (neon.com) or Supabase database that doesn't expire.
+# To go back to a Render-managed DB, restore this block and set DATABASE_URL to
+# `fromDatabase` again.
+# databases:
+#   - name: nampo-db
+#     plan: free
+#     databaseName: nampo
+#     user: nampo
 
 services:
   - type: web
@@ -21,11 +26,11 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      # Wire the managed Postgres connection string straight into the app.
+      # External Postgres connection string (asyncpg DSN). Paste your Neon /
+      # Supabase URL in the Render dashboard — sync:false keeps it out of git.
+      # Use the DIRECT (non-pooled) connection string and keep ?sslmode=require.
       - key: DATABASE_URL
-        fromDatabase:
-          name: nampo-db
-          property: connectionString
+        sync: false
       - key: CORS_ORIGINS
         value: "*"
       # Secret used to encrypt chat messages at rest. Render generates and

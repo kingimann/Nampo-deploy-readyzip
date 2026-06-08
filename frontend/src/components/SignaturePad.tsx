@@ -28,9 +28,13 @@ export default function SignaturePad({ onChange, height = 170 }: { onChange: (da
     const inner = strokes
       .map((d) => `<path d="${d}" stroke="#111111" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`)
       .join("");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${height}"><rect width="100%" height="100%" fill="#ffffff"/>${inner}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${height}" viewBox="0 0 ${w} ${height}"><rect width="100%" height="100%" fill="#ffffff"/>${inner}</svg>`;
     onChange(`data:image/svg+xml,${encodeURIComponent(svg)}`);
   };
+  // Keep the PanResponder (created once) calling the LATEST emit, so a new
+  // onChange/height prop is never lost to the mount-time closure.
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
 
   const responder = useMemo(
     () =>
@@ -54,7 +58,7 @@ export default function SignaturePad({ onChange, height = 170 }: { onChange: (da
           curRef.current = "";
           setPaths(pathsRef.current);
           setCurrent("");
-          emit(pathsRef.current);
+          emitRef.current(pathsRef.current);
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

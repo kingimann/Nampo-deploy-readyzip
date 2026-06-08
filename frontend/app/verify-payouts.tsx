@@ -8,6 +8,7 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as ImagePicker from "expo-image-picker";
 import { api } from "@/src/api/client";
+import DatePickerField from "@/src/components/DatePickerField";
 import { theme } from "@/src/theme";
 
 type Req = Awaited<ReturnType<typeof api.getPayoutRequirements>>;
@@ -22,9 +23,7 @@ export default function VerifyPayoutsScreen() {
   // Form fields
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [dobDay, setDobDay] = useState("");
-  const [dobMonth, setDobMonth] = useState("");
-  const [dobYear, setDobYear] = useState("");
+  const [dob, setDob] = useState(""); // YYYY-MM-DD
   const [line1, setLine1] = useState("");
   const [line2, setLine2] = useState("");
   const [city, setCity] = useState("");
@@ -54,9 +53,10 @@ export default function VerifyPayoutsScreen() {
       if (p.city) setCity(p.city);
       if (p.state) setStateProv(p.state);
       if (p.postal_code) setPostal(p.postal_code);
-      if (p.dob_day) setDobDay(String(p.dob_day));
-      if (p.dob_month) setDobMonth(String(p.dob_month));
-      if (p.dob_year) setDobYear(String(p.dob_year));
+      if (p.dob_year && p.dob_month && p.dob_day) {
+        const pad2 = (n: number) => String(n).padStart(2, "0");
+        setDob(`${p.dob_year}-${pad2(p.dob_month)}-${pad2(p.dob_day)}`);
+      }
     } catch (e: any) {
       Alert.alert("Couldn't load", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setLoading(false); }
@@ -69,14 +69,25 @@ export default function VerifyPayoutsScreen() {
 
   const submit = async () => {
     if (!firstName.trim() || !lastName.trim()) { Alert.alert("Name required", "Enter your legal first and last name."); return; }
-    if (!dobDay || !dobMonth || !dobYear) { Alert.alert("Date of birth required", "Enter your full date of birth."); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) { Alert.alert("Date of birth required", "Please select your date of birth."); return; }
+    {
+      const [y, m, d] = dob.split("-").map(Number);
+      const today = new Date();
+      let age = today.getFullYear() - y;
+      if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
+      if (age < 18 || age > 120) {
+        Alert.alert("Check your date of birth", "Enter a valid date of birth — you must be at least 18 to receive payouts.");
+        return;
+      }
+    }
     if (!line1.trim() || !city.trim() || !postal.trim()) { Alert.alert("Address required", "Enter your home address."); return; }
     if (!acceptTos) { Alert.alert("Agreement required", "Please accept the payout agreement to continue."); return; }
     setSaving(true);
     try {
+      const [dY, dM, dD] = dob.split("-").map(Number);
       const body: Record<string, any> = {
         first_name: firstName.trim(), last_name: lastName.trim(),
-        dob_day: Number(dobDay), dob_month: Number(dobMonth), dob_year: Number(dobYear),
+        dob_day: dD, dob_month: dM, dob_year: dY,
         line1: line1.trim(), line2: line2.trim() || undefined, city: city.trim(),
         state: stateProv.trim() || undefined, postal_code: postal.trim(), country,
         email: email.trim() || undefined, phone: phone.trim() || undefined,
@@ -162,11 +173,8 @@ export default function VerifyPayoutsScreen() {
           </View>
 
           <Text style={styles.label}>Date of birth</Text>
-          <View style={styles.row}>
-            <TextInput style={[styles.input, { flex: 1 }]} placeholder="DD" placeholderTextColor={theme.textMuted} keyboardType="number-pad" maxLength={2} value={dobDay} onChangeText={(t) => setDobDay(t.replace(/\D/g, ""))} testID="vf-dob-d" />
-            <TextInput style={[styles.input, { flex: 1 }]} placeholder="MM" placeholderTextColor={theme.textMuted} keyboardType="number-pad" maxLength={2} value={dobMonth} onChangeText={(t) => setDobMonth(t.replace(/\D/g, ""))} testID="vf-dob-m" />
-            <TextInput style={[styles.input, { flex: 1.4 }]} placeholder="YYYY" placeholderTextColor={theme.textMuted} keyboardType="number-pad" maxLength={4} value={dobYear} onChangeText={(t) => setDobYear(t.replace(/\D/g, ""))} testID="vf-dob-y" />
-          </View>
+          <DatePickerField value={dob} onChange={setDob} placeholder="Tap to select your date of birth" testID="vf-dob" />
+          <View style={{ height: 10 }} />
 
           <Text style={styles.label}>Home address</Text>
           <TextInput style={styles.input} placeholder="Street address" placeholderTextColor={theme.textMuted} value={line1} onChangeText={setLine1} testID="vf-line1" />
@@ -228,7 +236,7 @@ const styles = StyleSheet.create({
   intro: { color: theme.textMuted, fontSize: 13, lineHeight: 19, marginBottom: 16 },
   label: { color: theme.textSecondary, fontSize: 13, fontWeight: "800", marginTop: 16, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 },
   row: { flexDirection: "row", gap: 10 },
-  input: { backgroundColor: theme.surface, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 13, color: theme.textPrimary, fontSize: 15, marginBottom: 10 },
+  input: { minWidth: 0, backgroundColor: theme.surface, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 13, color: theme.textPrimary, fontSize: 15, marginBottom: 10 },
   hint: { color: theme.textMuted, fontSize: 12, lineHeight: 16, marginTop: -2, marginBottom: 4 },
   tosRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 18 },
   tosText: { flex: 1, color: theme.textSecondary, fontSize: 13, lineHeight: 18 },

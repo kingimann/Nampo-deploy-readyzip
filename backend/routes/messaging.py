@@ -564,7 +564,7 @@ async def send_message(
             {"id": form_id, "owner_id": user["user_id"]},
             {"_id": 0, "id": 1, "form_key": 1, "title": 1},
         )
-        if not fdoc:
+        if not fdoc or not fdoc.get("form_key"):
             raise HTTPException(status_code=404, detail="Form not found")
         form_key = fdoc.get("form_key")
         form_title = (fdoc.get("title") or "Form")[:200]

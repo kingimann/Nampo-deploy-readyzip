@@ -1,0 +1,98 @@
+# Codemagic CI/CD config for NamiApp (Expo / React Native).
+#
+# NamiApp is a monorepo: the mobile app lives in `frontend/`, so every step
+# cd's into it. This file builds a standalone, installable Android APK with no
+# paid accounts required. The iOS workflow is ready but needs your Apple
+# Developer credentials (see notes in that workflow).
+#
+# Secrets: add EXPO_PUBLIC_MAPBOX_TOKEN (and any other EXPO_PUBLIC_* values) in
+# Codemagic → Environment variables, put them in a group named "nami_env", then
+# uncomment the `groups:` lines below. Without the token the app still builds —
+# the map just shows "Map unavailable".
+#
+# Docs: https://docs.codemagic.io/yaml/yaml-getting-started/
+
+workflows:
+  android-expo:
+    name: NamiApp Android (APK)
+    instance_type: linux_x2
+    max_build_duration: 60
+    environment:
+      vars:
+        # The backend URL is public (not a secret), so it's fine in git.
+        EXPO_PUBLIC_BACKEND_URL: "https://nampo-backend.onrender.com"
+      node: 20.19.4
+      # After creating the "nami_env" group with EXPO_PUBLIC_MAPBOX_TOKEN,
+      # uncomment these two lines so the native map renders:
+      # groups:
+      #   - nami_env
+    scripts:
+      - name: Install dependencies
+        script: |
+          cd frontend
+          corepack enable
+          yarn install --network-timeout 1000000
+      - name: Generate native Android project (expo prebuild)
+        script: |
+          cd frontend
+          npx expo prebuild --platform android --clean --no-install
+      - name: Build release APK (debug-signed — installable for testing)
+        script: |
+          cd frontend/android
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+    artifacts:
+      - frontend/android/app/build/outputs/**/*.apk
+    publishing:
+      email:
+        recipients:
+          - ifakhargomi@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  ios-expo:
+    name: NamiApp iOS
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      vars:
+        EXPO_PUBLIC_BACKEND_URL: "https://nampo-backend.onrender.com"
+      node: 20.19.4
+      xcode: latest
+      cocoapods: default
+      # groups:
+      #   - nami_env
+    scripts:
+      - name: Install dependencies
+        script: |
+          cd frontend
+          corepack enable
+          yarn install --network-timeout 1000000
+      - name: Generate native iOS project (expo prebuild)
+        script: |
+          cd frontend
+          npx expo prebuild --platform ios --clean --no-install
+      - name: Install CocoaPods
+        script: |
+          cd frontend/ios
+          pod install
+      # ── Installing on a real iPhone / TestFlight REQUIRES your Apple Developer
+      #    account ($99/yr). In Codemagic: Code signing identities → add your
+      #    Apple cert + provisioning profile (or automatic signing), then enable
+      #    the steps below (and set the real workspace/scheme names that expo
+      #    prebuild generated under frontend/ios/).
+      # - name: Build signed .ipa
+      #   script: |
+      #     cd frontend/ios
+      #     xcode-project use-profiles
+      #     xcode-project build-ipa --workspace "*.xcworkspace" --scheme "NamiApp"
+    # artifacts:
+    #   - frontend/ios/build/ios/ipa/*.ipa
+    publishing:
+      email:
+        recipients:
+          - ifakhargomi@gmail.com
+        notify:
+          success: true
+          failure: true

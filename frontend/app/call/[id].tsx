@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api } from "@/src/api/client";
-import { setupNativeAudio, teardownNativeAudio } from "@/src/utils/livekitNative";
+import { setupNativeAudio, teardownNativeAudio, nativeCallsSupported } from "@/src/utils/livekitNative";
 import VideoTile from "@/src/components/call/VideoTile";
 import { theme } from "@/src/theme";
 
@@ -79,6 +79,13 @@ export default function CallScreen() {
     let cancelled = false;
 
     (async () => {
+      // Calls need react-native-webrtc, which isn't in Expo Go. Show a friendly
+      // message there instead of crashing (a dev build or the web app works).
+      if (!isWeb && !nativeCallsSupported()) {
+        setStatus("error");
+        setErrText("Calls aren't available in Expo Go. Use a development build (or the web app) to make calls.");
+        return;
+      }
       let info;
       try {
         info = await api.callToken(String(id));
