@@ -420,14 +420,89 @@ async def admin_delete_transaction(user_id: str, ref: str = Query(...), adjust_b
     return {"ok": True, "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2)}
 
 
+async def _purge_user_data(uid: str) -> None:
+    """Delete everything an account owns across the app (best-effort, so a
+    missing collection or field never aborts the rest)."""
+    async def _del(coll: str, filt: dict):
+        try:
+            await getattr(db, coll).delete_many(filt)
+        except Exception:
+            pass
+
+    # 1. The user's own posts (originals, replies, reposts) + everything attached.
+    try:
+        rows = await db.posts.find({"user_id": uid}, {"_id": 0, "id": 1}).limit(100000).to_list(100000)
+        post_ids = [r["id"] for r in rows if r.get("id")]
+    except Exception:
+        post_ids = []
+    await _del("posts", {"user_id": uid})
+    if post_ids:
+        await _del("posts", {"parent_id": {"$in": post_ids}})       # replies by others
+        await _del("posts", {"repost_of": {"$in": post_ids}})       # reposts of theirs
+        for coll in ("post_reactions", "post_likes", "post_bookmarks", "post_views",
+                     "poll_votes", "post_not_interested", "reports"):
+            await _del(coll, {"post_id": {"$in": post_ids}})
+
+    # 2. Everything keyed directly by the user's id.
+    for coll, field in (
+        ("post_reactions", "user_id"), ("post_likes", "user_id"),
+        ("post_bookmarks", "user_id"), ("post_views", "user_id"),
+        ("poll_votes", "user_id"), ("post_not_interested", "user_id"),
+        ("recents", "user_id"), ("places", "user_id"), ("guides", "user_id"),
+        ("reviews", "user_id"), ("stories", "user_id"), ("drafts", "user_id"),
+        ("notifications", "user_id"), ("push_tokens", "user_id"),
+        ("group_members", "user_id"), ("group_join_requests", "user_id"),
+        ("community_members", "user_id"),
+        ("listing_saves", "user_id"), ("listing_likes", "user_id"),
+        ("listing_comments", "user_id"), ("listing_comment_likes", "user_id"),
+        ("listings", "user_id"), ("marketplace_reviews", "reviewer_id"),
+        ("support_tickets", "user_id"), ("support_messages", "sender_id"),
+        ("messages", "sender_id"), ("reports", "reporter_id"),
+        ("roadside_reviews", "reviewer_id"), ("roadside_requests", "requester_id"),
+        ("roadside_verifications", "user_id"),
+        ("game_scores", "user_id"), ("factcheck_ratings", "user_id"),
+        ("eta_shares", "user_id"), ("hazards", "user_id"), ("forms", "user_id"),
+        ("dev_webhooks", "user_id"), ("oauth_apps", "user_id"),
+        ("subscriptions", "subscriber_id"), ("subscriptions", "creator_id"),
+        ("pokes", "from_user_id"), ("pokes", "to_user_id"),
+        ("tips", "from_user_id"), ("tips", "to_user_id"),
+        ("money_transfers", "from_user_id"), ("money_transfers", "to_user_id"),
+        ("money_requests", "from_user_id"), ("money_requests", "to_user_id"),
+        ("wallet_topups", "user_id"), ("earnings", "user_id"), ("payouts", "user_id"),
+        ("notifications", "actor_id"),
+        ("story_views", "viewer_id"), ("story_views", "story_owner_id"),
+        ("follows", "follower_id"), ("follows", "followee_id"),
+        ("friendships", "a"), ("friendships", "b"),
+    ):
+        await _del(coll, {field: uid})
+    await _del("friend_requests", {"$or": [{"from_id": uid}, {"to_id": uid}]})
+
+    # 3. Conversations: delete 1-1 DMs the user was in (with their messages); just
+    #    drop them from group chats so the group survives for everyone else.
+    try:
+        convs = await db.conversations.find(
+            {"participant_ids": uid}, {"_id": 0, "id": 1, "kind": 1}
+        ).limit(100000).to_list(100000)
+        for c in convs:
+            if c.get("kind") == "group":
+                await db.conversations.update_one({"id": c["id"]}, {"$pull": {"participant_ids": uid}})
+            else:
+                await db.conversations.delete_one({"id": c["id"]})
+                await _del("messages", {"conversation_id": c["id"]})
+    except Exception:
+        pass
+
+
 @router.delete("/admin/users/{user_id}")
 async def admin_remove_user(user_id: str, authorization: Optional[str] = Header(None)):
-    """Remove (delete) a user account and their sessions."""
+    """Permanently delete a user account AND all of their data (posts, reactions,
+    follows, listings, stories, messages, etc.)."""
     me = await get_current_user(authorization)
     target = await _require_admin_target(user_id, me)
+    await _purge_user_data(user_id)
     await db.users.delete_one({"user_id": user_id})
     await db.user_sessions.delete_many({"user_id": user_id})
-    await _audit(me, "removed account", target)
+    await _audit(me, "deleted account + all data", target)
     return {"ok": True}
 
 

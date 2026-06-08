@@ -207,7 +207,7 @@ export default function AdminUsersScreen() {
     // behind it (modals stack by the order they're presented).
     setSel(null);
     await new Promise((r) => setTimeout(r, 220));
-    if (!(await confirm({ title: "Remove account?", message: `This permanently deletes ${u.name}.`, confirmLabel: "Remove", destructive: true }))) return;
+    if (!(await confirm({ title: "Delete account?", message: `Permanently deletes ${u.name} and ALL their data — posts, replies, reposts, likes, listings, stories, messages and more. This can't be undone.`, confirmLabel: "Delete", destructive: true }))) return;
     try { await api.adminRemoveUser(u.user_id); setUsers((arr) => arr.filter((x) => x.user_id !== u.user_id)); }
     catch (e: any) { Alert.alert("Couldn't remove", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
   };
