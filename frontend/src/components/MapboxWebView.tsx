@@ -229,6 +229,11 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
       // so without this the route line vanishes when the style changes mid-trip.
       if (window.__route) setRoute(window.__route);
       if (window.__altRoutes && window.__altRoutes.length) setAltRoutes(window.__altRoutes);
+      // Re-create the user accuracy circle (its source was wiped with the style).
+      if (window.__lastUserLoc) {
+        var u = window.__lastUserLoc;
+        setUserLocation(u.lng, u.lat, u.accuracyM, u.heading);
+      }
       // Re-apply traffic / 3d if needed
       if (window.__trafficOn) addTraffic();
       if (window.__buildingsOn) add3D();
@@ -380,6 +385,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     map.easeTo(opts);
   }
   function setUserLocation(lng, lat, accuracyM, heading) {
+    window.__lastUserLoc = { lng: lng, lat: lat, accuracyM: accuracyM, heading: heading }; // replay across a style switch
     if (!userMarker) {
       var el = document.createElement('div');
       el.className = 'user-dot';
@@ -522,6 +528,12 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   function fitBounds(coords, padding) {
     if (!coords || coords.length < 2) return;
     var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+    // Degenerate bounds (all points identical, e.g. origin == destination) would
+    // zoom to maxZoom — recenter at a sensible zoom instead.
+    if (bounds.getNorth() - bounds.getSouth() < 1e-6 && bounds.getEast() - bounds.getWest() < 1e-6) {
+      map.easeTo({ center: coords[0], zoom: 15, duration: 600 });
+      return;
+    }
     map.fitBounds(bounds, { padding: padding || 80, duration: 600 });
   }
 

@@ -84,10 +84,12 @@ export default function MapScreen() {
   }, [lightMode]);
 
   // Apply the day/night light preset to the Standard basemap once ready / on change.
+  // Include styleKey so the preset is re-pushed after a style switch (a freshly
+  // loaded Standard style otherwise reverts to its default night lighting).
   useEffect(() => {
     if (!mapReady) return;
     mapRef.current?.setLightPreset(effectivePreset());
-  }, [mapReady, lightMode, effectivePreset]);
+  }, [mapReady, lightMode, effectivePreset, styleKey]);
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   // Always-fresh location (updated every fix) for search bias, without forcing a
@@ -398,11 +400,15 @@ export default function MapScreen() {
     } catch {}
   }, []);
 
+  const reportingRef = useRef(false);
   const submitReport = async (type: HazardType) => {
+    if (reportingRef.current) return;   // ignore a double-tap during the modal's close animation
+    reportingRef.current = true;
     const c = userLocationRef.current || mapCenterRef.current;
     setReportOpen(false);
-    if (!c) return;
+    if (!c) { reportingRef.current = false; return; }
     try { await api.reportHazard(type, c[0], c[1]); await loadHazards(); } catch {}
+    finally { reportingRef.current = false; }
   };
 
   const confirmSelHazard = async () => {

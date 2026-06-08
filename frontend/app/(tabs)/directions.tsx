@@ -221,6 +221,7 @@ export default function DirectionsScreen() {
   const [voiceOn, setVoiceOn] = useState(true);
   const [rerouting, setRerouting] = useState(false);
   const lastSpokenKey = useRef<string>("");
+  const arrivedRef = useRef(false);   // so "you have arrived" is announced once per trip
   const lastRerouteAt = useRef<number>(0);
   const [etaShare, setEtaShare] = useState<EtaShare | null>(null);
   const [sharingEta, setSharingEta] = useState(false);
@@ -347,6 +348,7 @@ export default function DirectionsScreen() {
     setSteps(r.legs.flatMap((l) => l.steps));
     setStepIdx(0);
     lastSpokenKey.current = "";   // recompute voice prompts cleanly against the new steps
+    arrivedRef.current = false;   // a new/recomputed route means we haven't arrived yet
     mapRef.current?.setRoute(r.geometry);
     mapRef.current?.setAltRoutes(rs.filter((_, i) => i !== idx).map((x) => x.geometry));
   }, []);
@@ -365,10 +367,16 @@ export default function DirectionsScreen() {
         return null;
       })
       .filter(Boolean) as [number, number][];
-    if (coords.length < 2 || coords.length !== waypoints.length) {
+    if (coords.length < 2) {
+      // Nothing routable — clear the map.
       setRouteInfo(null); setSteps([]); setRouteCoords([]); setRoutes([]);
       mapRef.current?.setRoute(null);
       mapRef.current?.setAltRoutes([]);
+      return;
+    }
+    if (coords.length !== waypoints.length) {
+      // A waypoint is still empty (e.g. a just-added stop) — keep the existing
+      // route drawn rather than blanking it until the new stop is filled in.
       return;
     }
     setLoadingRoute(true);
@@ -509,6 +517,7 @@ export default function DirectionsScreen() {
     setShowSteps(false);
     setStepIdx(0);
     lastSpokenKey.current = "";
+    arrivedRef.current = false;
     // Drop the alternates — we commit to the selected route while navigating.
     mapRef.current?.setAltRoutes([]);
     // Camera: drop straight into the tilted, course-up navigation view (single
@@ -663,6 +672,21 @@ export default function DirectionsScreen() {
       setStepIdx((i) => Math.min(steps.length - 1, i + 1));
     }
 
+    // Arrival: on the final step, once we're near the destination, announce it
+    // once and end navigation (otherwise the banner freezes and the ETA counts
+    // down past zero into negative/in-the-past times).
+    if (stepIdx >= steps.length - 1 && d != null && d < 30 && !arrivedRef.current) {
+      arrivedRef.current = true;
+      setRemainingDist(0);
+      setRemainingDur(0);
+      setDistToManeuver(0);
+      if (voiceOn) { try { Speech.stop(); Speech.speak("You have arrived at your destination", { rate: 0.95 }); } catch {} }
+      setNavMode(false);
+      mapRef.current?.setPitch(0);
+      mapRef.current?.setBearing(0);
+      return;
+    }
+
     // Remaining distance/duration
     let remainD = 0;
     let remainT = 0;
@@ -677,8 +701,8 @@ export default function DirectionsScreen() {
       remainD = remainD - progress;
       remainT = remainT - (steps[stepIdx].duration * (progress / Math.max(1, stepLen)));
     }
-    setRemainingDist(remainD);
-    setRemainingDur(remainT);
+    setRemainingDist(Math.max(0, remainD));   // never show a negative remaining distance
+    setRemainingDur(Math.max(0, remainT));
 
     // ── Speed limit lookup: find nearest route coord, then map to leg/segment ──
     if (routeLegs.length && routeCoords.length) {
