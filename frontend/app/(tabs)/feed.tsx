@@ -352,22 +352,6 @@ export default function FeedScreen() {
             <View>
               {showStories && <StoryTray onHide={hideStories} />}
               <RestrictionBanner kind="posting" style={{ marginHorizontal: 0 }} />
-              {!postingOff && (
-                <TouchableOpacity
-                  style={styles.composeStub}
-                  onPress={() => { setEditing(null); setReplyTo(null); setComposeOpen(true); }}
-                  activeOpacity={0.85}
-                  testID="open-composer-stub"
-                >
-                  <View style={styles.stubAvatar}>
-                    <Text style={styles.stubAvatarInit}>{(user?.name?.[0] || "?").toUpperCase()}</Text>
-                  </View>
-                  <Text style={styles.stubText}>What's on your mind?</Text>
-                  <View style={styles.stubIconRow}>
-                    <Ionicons name="image-outline" size={20} color={theme.primary} />
-                  </View>
-                </TouchableOpacity>
-              )}
             </View>
           }
           ListEmptyComponent={
@@ -423,14 +407,27 @@ export default function FeedScreen() {
           <View style={styles.brandRow}>
             <Text style={styles.title}>Feed</Text>
           </View>
-          <TouchableOpacity onPress={() => router.push("/notifications")} style={styles.bellBtn} testID="feed-notifications">
-            <Ionicons name="notifications-outline" size={22} color={theme.textPrimary} />
-            {unreadNotif > 0 && (
-              <View style={styles.bellBadge}>
-                <Text style={styles.bellBadgeText}>{unreadNotif > 9 ? "9+" : unreadNotif}</Text>
-              </View>
+          <View style={styles.headerActions}>
+            {!postingOff && (
+              <TouchableOpacity
+                onPress={() => { setEditing(null); setReplyTo(null); setQuoting(null); setComposeOpen(true); }}
+                style={styles.bellBtn}
+                testID="feed-compose"
+                accessibilityRole="button"
+                accessibilityLabel="Create a post"
+              >
+                <Ionicons name="add-circle" size={26} color={theme.primary} />
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push("/notifications")} style={styles.bellBtn} testID="feed-notifications">
+              <Ionicons name="notifications-outline" size={22} color={theme.textPrimary} />
+              {unreadNotif > 0 && (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>{unreadNotif > 9 ? "9+" : unreadNotif}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.segmentWrap}>
           <View style={styles.segment}>
@@ -578,6 +575,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10,
   },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
   title: { color: theme.textPrimary, fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
   bellBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   bellBadge: { position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderWidth: 1.5, borderColor: theme.bg },
