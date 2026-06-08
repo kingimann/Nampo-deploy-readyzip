@@ -9,7 +9,8 @@ import { PostMedia, mediaUri } from "@/src/api/client";
 import ReelPoster from "@/src/components/ReelPoster";
 import { theme } from "@/src/theme";
 
-const { width: SCREEN_W } = Dimensions.get("window");
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 function VideoTile({ uri, poster, style, onPress }: { uri: string; poster?: string | null; style: any; onPress?: () => void }) {
   // For reel previews (onPress set) we don't mount a player at all — just show
@@ -87,7 +88,11 @@ export default function MediaGrid({
 
   let layout;
   if (n === 1) {
-    layout = <View style={[styles.grid, { aspectRatio: 16 / 10 }]}>
+    // A single photo/video keeps its own aspect ratio (clamped so very tall or
+    // very wide media stays readable) instead of being cropped to a fixed box.
+    const m0 = media[0];
+    const ar = m0.width && m0.height ? clamp(m0.width / m0.height, 0.8, 1.91) : 16 / 10;
+    layout = <View style={[styles.grid, { aspectRatio: ar }]}>
       {renderTile(media[0], 0, { flex: 1 })}
     </View>;
   } else if (n === 2) {
@@ -130,7 +135,7 @@ export default function MediaGrid({
           {openIndex !== null && (
             <Image
               source={{ uri: mediaUri(media[openIndex]) }}
-              style={{ width: SCREEN_W, height: SCREEN_W }}
+              style={{ width: SCREEN_W, height: SCREEN_H }}
               resizeMode="contain"
             />
           )}

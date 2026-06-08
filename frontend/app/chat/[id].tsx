@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Keyboard, Platform, ActivityIndicator, Image, Modal, Linking, Alert, ScrollView, Animated, Easing,
+  KeyboardAvoidingView, Keyboard, Platform, ActivityIndicator, Image, Modal, Linking, Alert, ScrollView, Animated, Easing, Dimensions,
 } from "react-native";
+
+// Chat media bubbles scale with the screen so photos/videos aren't tiny.
+const CHAT_MEDIA_W = Math.min(300, Math.round(Dimensions.get("window").width * 0.72));
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -1614,10 +1617,10 @@ const styles = StyleSheet.create({
   reactionBadgeText: { color: theme.textPrimary, fontSize: 12.5, fontWeight: "600" },
   deletedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   deletedText: { color: theme.textMuted, fontSize: 13, fontStyle: "italic" },
-  mediaWrap: { width: 250 },
+  mediaWrap: { width: CHAT_MEDIA_W },
   sharedWrap: { width: 250 },
   sharedLoading: { width: 200, height: 80, alignItems: "center", justifyContent: "center" },
-  gifImg: { width: 200, height: 200, borderRadius: 12, backgroundColor: theme.surfaceAlt },
+  gifImg: { width: CHAT_MEDIA_W, height: CHAT_MEDIA_W * 0.75, borderRadius: 12, backgroundColor: theme.surfaceAlt },
   fileRow: { flexDirection: "row", alignItems: "center", gap: 10, width: 220 },
   fileIcon: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   fileName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
