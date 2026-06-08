@@ -29,6 +29,7 @@ import QuoteCard from "@/src/components/QuoteCard";
 import GifPickerSheet from "@/src/components/GifPickerSheet";
 import ContactPickerSheet from "@/src/components/ContactPickerSheet";
 import FormPickerSheet from "@/src/components/FormPickerSheet";
+import UnlockChatSheet from "@/src/components/UnlockChatSheet";
 import FakePaymentSheet from "@/src/components/FakePaymentSheet";
 import { stripeCardPay } from "@/src/lib/stripeEmbed";
 import { theme } from "@/src/theme";
@@ -125,6 +126,7 @@ export default function ChatScreen() {
   const [gifOpen, setGifOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   // Conversation settings (Messenger-style): color theme, disappearing timer, group name.
@@ -867,13 +869,13 @@ export default function ChatScreen() {
         <TouchableOpacity
           style={styles.keyBanner}
           activeOpacity={0.85}
-          onPress={() => router.push("/encryption-key")}
+          onPress={() => (showRestore ? setUnlockOpen(true) : router.push("/encryption-key"))}
           testID="chat-key-banner"
         >
           <Ionicons name={showRestore ? "lock-closed" : "key-outline"} size={16} color={theme.primary} />
           <Text style={styles.keyBannerText} numberOfLines={2}>
             {showRestore
-              ? `${lockedCount} message${lockedCount === 1 ? "" : "s"} can't be read on this device. Restore your key with your PIN.`
+              ? `${lockedCount} message${lockedCount === 1 ? "" : "s"} locked on this device. Tap to enter your PIN and unlock.`
               : "Set a PIN to back up your encryption key so you never lose your messages."}
           </Text>
           <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
@@ -1369,6 +1371,11 @@ export default function ChatScreen() {
       <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
       <ContactPickerSheet visible={contactOpen} onClose={() => setContactOpen(false)} onPick={sendContact} />
       <FormPickerSheet visible={formOpen} onClose={() => setFormOpen(false)} onPick={sendForm} />
+      <UnlockChatSheet
+        visible={unlockOpen}
+        onClose={() => setUnlockOpen(false)}
+        onUnlocked={() => setKeyVersion((v) => v + 1)}
+      />
       <FakePaymentSheet
         visible={tipOpen}
         title={`Tip ${peer?.name || "this user"}`}
