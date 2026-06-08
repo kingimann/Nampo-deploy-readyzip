@@ -5,6 +5,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 import { api, StoryTrayItem } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -38,19 +39,26 @@ export default function StoryTray({ onHide }: { onHide?: () => void }) {
       if (res.canceled || !res.assets?.[0]) return;
       const asset = res.assets[0];
       const isVideo = (asset.type || "").startsWith("video") || /\.(mp4|mov|webm)$/i.test(asset.uri);
-      let b64 = asset.base64;
-      if (!b64) {
-        const r = await fetch(asset.uri);
-        const blob = await r.blob();
-        b64 = await new Promise<string>((res2, rej) => {
-          const fr = new FileReader();
-          fr.onerror = () => rej(new Error("read failed"));
-          fr.onload = () => res2(String(fr.result).split(",")[1] || "");
-          fr.readAsDataURL(blob);
-        });
-      }
-      const dataUri = `data:${isVideo ? "video/mp4" : "image/jpeg"};base64,${b64}`;
       setCreating(true);
+      let dataUri: string;
+      if (cloudinaryEnabled()) {
+        // Push to the CDN and store only the URL (the story media field accepts
+        // any URI string the viewer can render).
+        dataUri = (await uploadToCloudinary(asset.uri, isVideo ? "video" : "image")).url;
+      } else {
+        let b64 = asset.base64;
+        if (!b64) {
+          const r = await fetch(asset.uri);
+          const blob = await r.blob();
+          b64 = await new Promise<string>((res2, rej) => {
+            const fr = new FileReader();
+            fr.onerror = () => rej(new Error("read failed"));
+            fr.onload = () => res2(String(fr.result).split(",")[1] || "");
+            fr.readAsDataURL(blob);
+          });
+        }
+        dataUri = `data:${isVideo ? "video/mp4" : "image/jpeg"};base64,${b64}`;
+      }
       await api.createStory({
         media: {
           type: isVideo ? "video" : "image",

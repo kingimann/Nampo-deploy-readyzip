@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as ImagePicker from "expo-image-picker";
+import { assetToUri } from "@/src/utils/thumbnail";
 import { api, Group, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -139,11 +140,10 @@ export default function GroupDetailScreen() {
         base64: true,
       });
       if (res.canceled || !res.assets?.[0]) return;
-      const asset = res.assets[0];
-      const dataUri = asset.base64
-        ? `data:image/jpeg;base64,${asset.base64}`
-        : asset.uri;
       setCoverUploading(true);
+      // Cloudinary URL when configured, else base64.
+      const dataUri = await assetToUri(res.assets[0], "image");
+      if (!dataUri) { setCoverUploading(false); return; }
       const upd = await api.updateGroup(group.id, { cover_image: dataUri });
       setGroup(upd);
     } catch (e: any) {

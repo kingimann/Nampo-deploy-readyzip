@@ -37,17 +37,30 @@ export async function pickThumbnailUri(): Promise<string | null> {
   return a.uri || null;
 }
 
-async function _toUri(a: ImagePicker.ImagePickerAsset): Promise<string | null> {
+/**
+ * Convert a picked asset to a usable URI string — a Cloudinary URL when
+ * configured (falling back to base64 on upload failure), otherwise a base64
+ * data URI. Works for images and videos. Lets every media flow share one
+ * Cloudinary-or-base64 path.
+ */
+export async function assetToUri(
+  a: { uri: string; base64?: string | null },
+  kind: "image" | "video" = "image",
+): Promise<string | null> {
   if (cloudinaryEnabled()) {
     try {
-      const up = await uploadToCloudinary(a.uri, "image");
+      const up = await uploadToCloudinary(a.uri, kind);
       if (up?.url) return up.url;
     } catch {
       // fall through to base64
     }
   }
-  if (a.base64) return `data:image/jpeg;base64,${a.base64}`;
+  if (a.base64) return `data:${kind === "video" ? "video/mp4" : "image/jpeg"};base64,${a.base64}`;
   return a.uri || null;
+}
+
+async function _toUri(a: ImagePicker.ImagePickerAsset): Promise<string | null> {
+  return assetToUri(a, "image");
 }
 
 /**

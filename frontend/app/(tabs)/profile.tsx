@@ -7,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
+import { assetToUri } from "@/src/utils/thumbnail";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Post, mediaUri } from "@/src/api/client";
@@ -114,11 +115,13 @@ export default function ProfileScreen() {
       allowsEditing: true, aspect: [1, 1],
       quality: 0.7, base64: true,
     });
-    if (result.canceled || !result.assets?.[0]?.base64) return;
+    if (result.canceled || !result.assets?.[0]) return;
     setUploadingAvatar(true);
     try {
-      const dataUri = `data:image/jpeg;base64,${result.assets[0].base64}`;
-      await api.updateMe({ picture: dataUri });
+      // Cloudinary URL when configured, else base64 — keeps avatars off the DB.
+      const picture = await assetToUri(result.assets[0], "image");
+      if (!picture) { setUploadingAvatar(false); return; }
+      await api.updateMe({ picture });
       await refresh();
     } catch (e: any) {
       Alert.alert("Couldn't update avatar", e?.message || String(e));
