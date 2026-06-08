@@ -341,6 +341,16 @@ export const api = {
   deletePlace: (id: string) =>
     request<{ ok: boolean }>(`/places/${id}`, { method: "DELETE" }),
 
+  // ── Driver hazard reports (Waze-style) ──
+  listHazards: (longitude: number, latitude: number, radius?: number) =>
+    request<{ hazards: Hazard[]; threshold: number }>(
+      `/hazards?longitude=${longitude}&latitude=${latitude}${radius ? `&radius=${radius}` : ""}`,
+    ),
+  reportHazard: (type: string, longitude: number, latitude: number) =>
+    request<Hazard>("/hazards", { method: "POST", body: JSON.stringify({ type, longitude, latitude }) }),
+  confirmHazard: (id: string) => request<Hazard>(`/hazards/${id}/confirm`, { method: "POST" }),
+  dismissHazard: (id: string) => request<Hazard>(`/hazards/${id}/dismiss`, { method: "POST" }),
+
   // ── Custom forms ──────────────────────────────────────────────────────────
   listForms: () => request<{ forms: FormDef[] }>("/forms"),
   createForm: (body: FormCreate) =>
@@ -1170,6 +1180,17 @@ export type FormDef = {
 };
 export type FormCreate = { title: string; description?: string; submit_label?: string; notify_email?: string | null; ai_validate?: boolean; fields: FormField[] };
 export type FormSubmission = { id: string; form_id: string; values: Record<string, string>; ip?: string; submitted_at: string };
+export type HazardType =
+  | "police" | "accident" | "hazard" | "traffic" | "road_closed"
+  | "construction" | "pothole" | "weather" | "stalled";
+export type Hazard = {
+  id: string; type: HazardType;
+  longitude: number; latitude: number;
+  confirmations: number; dismissals: number;
+  status: "pending" | "active" | "cleared";
+  mine: boolean;
+  created_at?: string; expires_at?: string;
+};
 export type PlaceCreate = {
   title: string; notes?: string; longitude: number; latitude: number; address?: string; category?: string;
 };

@@ -22,6 +22,7 @@ export type MapboxEvent =
   | { type: "click"; lng: number; lat: number }
   | { type: "longpress"; lng: number; lat: number }
   | { type: "markerClick"; id: string }
+  | { type: "hazardClick"; id: string }
   | { type: "userPan" }
   | { type: "moveEnd"; center: [number, number]; zoom: number; bearing: number; pitch: number };
 
@@ -29,6 +30,7 @@ export type MapboxWebViewHandle = {
   setStyle: (styleUrl: string) => void;
   setMarkers: (markers: MarkerInput[]) => void;
   setPlaceMarkers: (markers: MarkerInput[]) => void;
+  setHazardMarkers: (markers: MarkerInput[]) => void;
   setRoute: (geometry: RouteGeometry | null) => void;
   setAltRoutes: (geometries: RouteGeometry[]) => void;
   flyTo: (lng: number, lat: number, zoom?: number) => void;
@@ -66,6 +68,12 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     background:#3B82F6; border:3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.55);
     cursor: pointer; display:flex; align-items:center; justify-content:center;
     color: #fff; font: 700 12px -apple-system, system-ui, sans-serif;
+  }
+  .hazard-marker {
+    width: 32px; height: 32px; border-radius: 9px;
+    background:#fff; border:2px solid #F59E0B; box-shadow: 0 2px 9px rgba(0,0,0,0.5);
+    display:flex; align-items:center; justify-content:center;
+    font-size: 17px; cursor: pointer;
   }
   .user-dot {
     width: 16px; height: 16px; border-radius: 8px;
@@ -291,6 +299,24 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     });
   }
 
+  // ── Crowd-sourced hazard markers (Waze-style) ──
+  var hazardMarkers = {};
+  function clearHazards() {
+    Object.keys(hazardMarkers).forEach(function (id) { hazardMarkers[id].remove(); delete hazardMarkers[id]; });
+  }
+  function setHazardMarkers(list) {
+    clearHazards();
+    (list || []).forEach(function (m) {
+      var el = document.createElement('div');
+      el.className = 'hazard-marker';
+      el.textContent = m.label || '⚠️';
+      el.addEventListener('click', function (ev) { ev.stopPropagation(); post({ type:'hazardClick', id: m.id }); });
+      var marker = new mapboxgl.Marker(el).setLngLat([m.longitude, m.latitude]).addTo(map);
+      if (m.title) marker.setPopup(new mapboxgl.Popup({ offset: 22, closeButton:false }).setText(m.title));
+      hazardMarkers[m.id] = marker;
+    });
+  }
+
   function setRoute(geometry) {
     ensureRouteLayer();
     var data = geometry
@@ -500,6 +526,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
         case 'setStyle': setStyle(msg.url); break;
         case 'setMarkers': setMarkers(msg.markers); break;
         case 'setPlaceMarkers': setPlaceMarkers(msg.markers); break;
+        case 'setHazardMarkers': setHazardMarkers(msg.markers); break;
         case 'setRoute': setRoute(msg.geometry); break;
         case 'setAltRoutes': setAltRoutes(msg.geometries); break;
         case 'flyTo': flyTo(msg.lng, msg.lat, msg.zoom); break;
@@ -548,6 +575,7 @@ export const MapboxWebView = forwardRef<MapboxWebViewHandle, Props>(
       setStyle: (url) => send({ cmd: "setStyle", url }),
       setMarkers: (markers) => send({ cmd: "setMarkers", markers }),
       setPlaceMarkers: (markers) => send({ cmd: "setPlaceMarkers", markers }),
+      setHazardMarkers: (markers) => send({ cmd: "setHazardMarkers", markers }),
       setRoute: (geometry) => send({ cmd: "setRoute", geometry }),
       setAltRoutes: (geometries) => send({ cmd: "setAltRoutes", geometries }),
       flyTo: (lng, lat, zoom) => send({ cmd: "flyTo", lng, lat, zoom }),

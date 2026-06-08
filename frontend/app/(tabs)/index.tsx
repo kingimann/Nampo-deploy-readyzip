@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Share,
+  Modal,
   Image as RNImage,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,8 +35,22 @@ import {
   forwardGeocode,
   GeocodeFeature,
 } from "@/src/api/mapbox";
-import { api, Place, Recent, Review, FsqProfile, buildPlaceKey } from "@/src/api/client";
+import { api, Place, Recent, Review, FsqProfile, Hazard, HazardType, buildPlaceKey } from "@/src/api/client";
 import { MAP_STYLES, MapStyleKey, theme } from "@/src/theme";
+
+// Driver-report hazard types → marker emoji + label.
+const HAZARD_META: Record<HazardType, { emoji: string; label: string }> = {
+  police: { emoji: "👮", label: "Police" },
+  accident: { emoji: "💥", label: "Accident" },
+  hazard: { emoji: "⚠️", label: "Hazard on road" },
+  traffic: { emoji: "🚗", label: "Heavy traffic" },
+  road_closed: { emoji: "🚧", label: "Road closed" },
+  construction: { emoji: "🏗️", label: "Construction" },
+  pothole: { emoji: "🕳️", label: "Pothole" },
+  weather: { emoji: "🌧️", label: "Bad weather" },
+  stalled: { emoji: "🛑", label: "Stalled vehicle" },
+};
+const HAZARD_ORDER: HazardType[] = ["police", "accident", "hazard", "traffic", "road_closed", "construction", "pothole", "weather", "stalled"];
 
 type SelectedPlace = {
   id?: string; // db id when saved
@@ -320,6 +335,50 @@ export default function MapScreen() {
     return () => clearTimeout(t);
   }, [query, radiusKm]);
 
+  // ── Driver hazard reports (Waze-style) ──
+  const [hazards, setHazards] = useState<Hazard[]>([]);
+  const hazardsRef = useRef<Hazard[]>([]);
+  const [hazardSel, setHazardSel] = useState<Hazard | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const lastHazardLoad = useRef(0);
+
+  const loadHazards = useCallback(async () => {
+    const c = userLocationRef.current || mapCenterRef.current;
+    if (!c) return;
+    lastHazardLoad.current = Date.now();
+    try {
+      const r = await api.listHazards(c[0], c[1]);
+      hazardsRef.current = r.hazards;
+      setHazards(r.hazards);
+      mapRef.current?.setHazardMarkers(r.hazards.map((h) => ({
+        id: h.id, longitude: h.longitude, latitude: h.latitude,
+        label: HAZARD_META[h.type]?.emoji || "⚠️", title: HAZARD_META[h.type]?.label || "Hazard",
+      })));
+    } catch {}
+  }, []);
+
+  const submitReport = async (type: HazardType) => {
+    const c = userLocationRef.current || mapCenterRef.current;
+    setReportOpen(false);
+    if (!c) return;
+    try { await api.reportHazard(type, c[0], c[1]); await loadHazards(); } catch {}
+  };
+
+  const confirmSelHazard = async () => {
+    const h = hazardSel; setHazardSel(null);
+    if (!h) return;
+    try { await api.confirmHazard(h.id); } catch {}
+    loadHazards();
+  };
+  const dismissSelHazard = async () => {
+    const h = hazardSel; setHazardSel(null);
+    if (!h) return;
+    try { await api.dismissHazard(h.id); } catch {}
+    loadHazards();
+  };
+
+  useEffect(() => { if (mapReady) loadHazards(); }, [mapReady, userLocation, loadHazards]);
+
   const onMapEvent = useCallback(
     (e: MapboxEvent) => {
       if (e.type === "ready") {
@@ -327,11 +386,14 @@ export default function MapScreen() {
         // don't re-setStyle here — that forces a full, heavy reload on startup.
         setMapReady(true);
         requestLocation();
+        loadHazards();
       } else if (e.type === "moveEnd") {
         // Remember the map center so "near me / nearby" still works when there's
         // no GPS fix (e.g. on web without location permission) — we search around
         // wherever the map is currently looking.
         mapCenterRef.current = e.center;
+        // Refresh hazards for the new area (throttled so routine panning is cheap).
+        if (Date.now() - lastHazardLoad.current > 8000) loadHazards();
         // Only update state when the compass-relevant values actually changed,
         // so routine pan/zoom-end events don't re-render the whole screen.
         setBearing((b) => (Math.abs(b - e.bearing) > 0.5 ? e.bearing : b));
@@ -374,6 +436,9 @@ export default function MapScreen() {
             mapRef.current?.flyTo(p.longitude, p.latitude, 15);
           }
         }
+      } else if (e.type === "hazardClick") {
+        const h = hazardsRef.current.find((x) => x.id === e.id);
+        if (h) setHazardSel(h);
       }
     },
     [places, requestLocation, styleKey, router],
@@ -667,6 +732,14 @@ export default function MapScreen() {
 
       {/* Apple-Maps-style grouped control stack (bottom-right) */}
       <View style={[styles.fabStack, { bottom: insets.bottom + 24 }]} pointerEvents="box-none">
+        <TouchableOpacity
+          style={[styles.fab, styles.fabSolo]}
+          onPress={() => setReportOpen(true)}
+          testID="hazard-report-fab"
+          activeOpacity={0.85}
+        >
+          <Ionicons name="warning" size={21} color="#F59E0B" />
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.fab, styles.fabSolo]}
           onPress={() => router.push("/roadside")}
@@ -1090,6 +1163,55 @@ export default function MapScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Report a hazard — type picker */}
+      <Modal visible={reportOpen} transparent animationType="slide" onRequestClose={() => setReportOpen(false)}>
+        <View style={styles.hzBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setReportOpen(false)} />
+          <View style={[styles.hzSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.hzHandle} />
+            <Text style={styles.hzTitle}>Report on the map</Text>
+            <Text style={styles.hzSub}>Other drivers nearby will see it. It shows for everyone once a few people report the same thing.</Text>
+            <View style={styles.hzGrid}>
+              {HAZARD_ORDER.map((t) => (
+                <TouchableOpacity key={t} style={styles.hzTile} onPress={() => submitReport(t)} testID={`hazard-${t}`}>
+                  <Text style={styles.hzEmoji}>{HAZARD_META[t].emoji}</Text>
+                  <Text style={styles.hzLabel}>{HAZARD_META[t].label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Tap a hazard marker — confirm / clear */}
+      <Modal visible={!!hazardSel} transparent animationType="fade" onRequestClose={() => setHazardSel(null)}>
+        <TouchableOpacity style={styles.hzCenterBackdrop} activeOpacity={1} onPress={() => setHazardSel(null)}>
+          <View style={styles.hzCard}>
+            {hazardSel && (
+              <>
+                <Text style={styles.hzCardEmoji}>{HAZARD_META[hazardSel.type]?.emoji}</Text>
+                <Text style={styles.hzCardTitle}>{HAZARD_META[hazardSel.type]?.label}</Text>
+                <Text style={styles.hzCardSub}>
+                  {hazardSel.status === "active"
+                    ? `${hazardSel.confirmations} driver${hazardSel.confirmations === 1 ? "" : "s"} reported this`
+                    : "Pending — needs more reports to show for everyone"}
+                </Text>
+                <View style={styles.hzCardRow}>
+                  <TouchableOpacity style={[styles.hzCardBtn, styles.hzConfirm]} onPress={confirmSelHazard} testID="hazard-confirm">
+                    <Ionicons name="thumbs-up" size={16} color="#fff" />
+                    <Text style={styles.hzCardBtnText}>Still there</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.hzCardBtn, styles.hzDismiss]} onPress={dismissSelHazard} testID="hazard-dismiss">
+                    <Ionicons name="close" size={16} color="#fff" />
+                    <Text style={styles.hzCardBtnText}>Not there</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1173,6 +1295,25 @@ const styles = StyleSheet.create({
   resultDist: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700", marginLeft: 8 },
 
   fabStack: { position: "absolute", right: 14, gap: 10, alignItems: "flex-end" },
+  hzBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  hzSheet: { backgroundColor: theme.bg, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderTopWidth: 1, borderColor: theme.border, paddingTop: 10, paddingHorizontal: 16 },
+  hzHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 12 },
+  hzTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", textAlign: "center" },
+  hzSub: { color: theme.textMuted, fontSize: 12.5, lineHeight: 17, textAlign: "center", marginTop: 4, marginBottom: 14 },
+  hzGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 10 },
+  hzTile: { width: "31%", backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingVertical: 14, alignItems: "center", gap: 6, marginBottom: 4 },
+  hzEmoji: { fontSize: 26 },
+  hzLabel: { color: theme.textPrimary, fontSize: 11.5, fontWeight: "700", textAlign: "center" },
+  hzCenterBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 28 },
+  hzCard: { width: "100%", maxWidth: 320, backgroundColor: theme.surface, borderRadius: 20, borderWidth: 1, borderColor: theme.border, padding: 20, alignItems: "center" },
+  hzCardEmoji: { fontSize: 40 },
+  hzCardTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800", marginTop: 8 },
+  hzCardSub: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },
+  hzCardRow: { flexDirection: "row", gap: 10, marginTop: 18, alignSelf: "stretch" },
+  hzCardBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 12 },
+  hzConfirm: { backgroundColor: theme.primary },
+  hzDismiss: { backgroundColor: theme.textMuted },
+  hzCardBtnText: { color: "#fff", fontSize: 14, fontWeight: "800" },
   // Solo FAB (compass — appears only when bearing != 0)
   fab: {
     width: 48,
