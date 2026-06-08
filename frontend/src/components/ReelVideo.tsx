@@ -29,13 +29,17 @@ export default function ReelVideo({
 
   useEffect(() => {
     if (!uri) return;
+    // Set muted synchronously before play so a freshly-mounted player can't emit
+    // a frame of audio before the separate mute effect runs.
+    try { player.muted = muted; } catch {}
     if (active && !paused) { try { player.play(); } catch {} }
     else { try { player.pause(); } catch {} }
     return () => { try { player.pause(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, paused, player, uri]);
 
   useEffect(() => { try { player.muted = muted; } catch {} }, [muted, player]);
-  useEffect(() => { try { player.playbackRate = rate; } catch {} }, [rate, player, paused, active]);
+  useEffect(() => { try { player.playbackRate = rate; } catch {} }, [rate, player]);
 
   return (
     <View style={StyleSheet.absoluteFill}>
