@@ -711,19 +711,24 @@ export default function DirectionsScreen() {
         const d2 = distMeters(userLocation, routeCoords[i]);
         if (d2 < bestD) { bestD = d2; bestI = i; }
       }
-      // Find which leg/segment index `bestI` corresponds to
-      let cursor = bestI;
-      let foundSpeed: { speed: number; unit: string } | null = null;
+      // Flatten the per-leg annotation arrays into one segment array aligned to
+      // routeCoords. Leg segment counts (legCoords-1) sum to the route's segment
+      // count (because consecutive legs share their boundary vertex), so flat[i]
+      // is the segment routeCoords[i]→[i+1]. The old per-leg cursor walk drifted
+      // by one per leg boundary, mis-reading the speed limit on multi-stop trips.
+      const flatSpeeds: (number | null)[] = [];
+      const flatUnits: (string | undefined)[] = [];
       for (const leg of routeLegs) {
         const segs = (leg.maxspeeds || []) as (number | null)[];
         const units = (leg.maxspeed_units || []) as (string | undefined)[];
-        if (cursor < segs.length) {
-          const s = segs[cursor];
-          const u = units[cursor];
-          if (typeof s === "number" && u && s > 0) foundSpeed = { speed: s, unit: u };
-          break;
-        }
-        cursor -= segs.length;
+        for (let i = 0; i < segs.length; i++) { flatSpeeds.push(segs[i]); flatUnits.push(units[i]); }
+      }
+      let foundSpeed: { speed: number; unit: string } | null = null;
+      const idx = Math.min(bestI, flatSpeeds.length - 1);
+      if (idx >= 0) {
+        const s = flatSpeeds[idx];
+        const u = flatUnits[idx];
+        if (typeof s === "number" && u && s > 0) foundSpeed = { speed: s, unit: u };
       }
       setMaxSpeed(foundSpeed);
     }

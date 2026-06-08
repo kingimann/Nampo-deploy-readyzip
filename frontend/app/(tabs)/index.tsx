@@ -554,8 +554,12 @@ export default function MapScreen() {
     mapRef.current?.resetNorth();
   };
 
+  // Block re-entrancy on save/unsave so a double-tap (or a tap during a slow
+  // request on a flaky connection) can't create duplicate saved places.
+  const savingPlaceRef = useRef(false);
   const savePlace = async (category: "marker" | "favorite") => {
-    if (!selected) return;
+    if (!selected || savingPlaceRef.current) return;
+    savingPlaceRef.current = true;
     try {
       const created = await api.createPlace({
         title: selected.name || "Dropped pin",
@@ -567,16 +571,17 @@ export default function MapScreen() {
       });
       setPlaces((p) => [created, ...p]);
       setSelected({ ...selected, id: created.id, saved: created });
-    } catch {}
+    } catch {} finally { savingPlaceRef.current = false; }
   };
 
   const removePlace = async () => {
-    if (!selected?.id) return;
+    if (!selected?.id || savingPlaceRef.current) return;
+    savingPlaceRef.current = true;
     try {
       await api.deletePlace(selected.id);
       setPlaces((p) => p.filter((x) => x.id !== selected.id));
       setSelected({ ...selected, id: undefined, saved: null });
-    } catch {}
+    } catch {} finally { savingPlaceRef.current = false; }
   };
 
   const directionsTo = () => {

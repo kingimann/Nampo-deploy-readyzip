@@ -234,9 +234,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
         var u = window.__lastUserLoc;
         setUserLocation(u.lng, u.lat, u.accuracyM, u.heading);
       }
-      // Re-apply traffic / 3d if needed
+      // Re-apply traffic / 3d if needed (source-aware so it works on Standard too)
       if (window.__trafficOn) addTraffic();
-      if (window.__buildingsOn) add3D();
+      if (window.__buildingsOn) apply3D(true);
     });
   }
 
@@ -519,10 +519,21 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   function remove3D() {
     if (map.getLayer('3d-buildings')) map.removeLayer('3d-buildings');
   }
+  // Classic styles expose a 'composite' vector source (custom fill-extrusion);
+  // the Standard style has no 'composite' source and instead exposes built-in 3D
+  // objects via a config property. Pick the right mechanism so 3D actually works
+  // on Standard instead of silently no-opping while the toggle shows "On".
+  function apply3D(on) {
+    if (map.getSource('composite')) {
+      if (on) add3D(); else remove3D();
+    } else {
+      try { map.setConfigProperty('basemap', 'show3dObjects', !!on); } catch (e) {}
+    }
+  }
   function set3DBuildings(on) {
     window.__buildingsOn = !!on;
-    if (on) { add3D(); map.easeTo({ pitch: Math.max(map.getPitch(), 45), duration: 400 }); }
-    else { remove3D(); }
+    apply3D(!!on);
+    if (on) map.easeTo({ pitch: Math.max(map.getPitch(), 45), duration: 400 });
   }
 
   function fitBounds(coords, padding) {
