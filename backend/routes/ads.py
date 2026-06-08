@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from datetime import timedelta
 
+from db import DuplicateKeyError
 from core import db, get_current_user, is_admin, _norm_dt, require_account_age, MONETIZE_MIN_AGE_DAYS
 
 router = APIRouter()
@@ -220,20 +221,18 @@ async def next_ad(
 
 
 async def _seen_recently(post_id: str, viewer_id: str, kind: str, hours: int) -> bool:
-    """Fraud guard: has this viewer already triggered `kind` for this ad recently?
-    Logs the event when it's new. Returns True if it's a duplicate."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    dup = await db.ad_events.find_one(
-        {"post_id": post_id, "viewer_id": viewer_id, "kind": kind, "created_at": {"$gte": since}},
-        {"_id": 0, "id": 1},
-    )
-    if dup:
+    """Fraud guard: one billable `kind` per viewer per ad per day. Insert-first,
+    relying on the unique index on (post_id, viewer_id, kind, day), so concurrent
+    duplicate events can't all miss a check-then-insert and each bill."""
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        await db.ad_events.insert_one({
+            "id": str(uuid.uuid4()), "post_id": post_id, "viewer_id": viewer_id,
+            "kind": kind, "day": day, "created_at": datetime.now(timezone.utc),
+        })
+        return False
+    except DuplicateKeyError:
         return True
-    await db.ad_events.insert_one({
-        "id": str(uuid.uuid4()), "post_id": post_id, "viewer_id": viewer_id,
-        "kind": kind, "created_at": datetime.now(timezone.utc),
-    })
-    return False
 
 
 @router.post("/ads/{post_id}/event")
@@ -844,8 +843,12 @@ async def record_profile_view(user_id: str, authorization: Optional[str] = Heade
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "profile_views": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    new_count = int(target.get("profile_views", 0) or 0) + 1
+    # Increment atomically, then read the committed value to decide the milestone —
+    # computing it from the stale pre-read let concurrent views both hit the same
+    # multiple of N and double-pay.
     await db.users.update_one({"user_id": user_id}, {"$inc": {"profile_views": 1}})
+    fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0, "profile_views": 1})
+    new_count = int((fresh or {}).get("profile_views", 0) or 0)
     if new_count % PROFILE_VIEWS_PER_PAYOUT == 0:
         await _maybe_credit_host(user_id, me["user_id"], PROFILE_VIEW_PAYOUT, kind="views", label="Profile views")
     return {"ok": True, "views": new_count}

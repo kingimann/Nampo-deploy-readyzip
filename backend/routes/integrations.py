@@ -75,7 +75,7 @@ async def _check_foursquare() -> tuple[bool, str]:
             r = await c.get(f"{FSQ_BASE}/search", headers=headers,
                             params={"query": "coffee", "ll": "40.7128,-74.006", "radius": "4000", "limit": "5"})
         if r.status_code != 200:
-            return False, f"HTTP {r.status_code}: {r.text[:180]}"
+            return False, f"HTTP {r.status_code}"   # don't echo the upstream body — it can reflect the key
         n = len((r.json() or {}).get("results", []))
         if n > 0:
             return True, f"OK — {n} results for a test 'coffee' search in NYC."
@@ -159,7 +159,7 @@ async def _check_render() -> tuple[bool, str]:
                             params={"limit": 1})
         if r.status_code == 200:
             return True, "Authenticated — manage services in Settings → Render."
-        return False, f"HTTP {r.status_code}: {r.text[:140]}"
+        return False, f"HTTP {r.status_code}"   # don't echo the upstream body — it can reflect the token
     except Exception as e:
         return False, f"Render call failed: {str(e)[:120]}"
 
@@ -178,7 +178,7 @@ async def _check_anthropic() -> tuple[bool, str]:
             )
         if r.status_code == 200:
             return True, f"Authenticated — {model} ready for the roadside photo check."
-        return False, f"HTTP {r.status_code}: {r.text[:160]}"
+        return False, f"HTTP {r.status_code}"   # don't echo the upstream body — it can reflect the key
     except Exception as e:
         return False, f"Anthropic call failed: {str(e)[:120]}"
 

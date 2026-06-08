@@ -15,7 +15,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
-from db import _to_json
+from db import _to_json, DuplicateKeyError
 
 # How long the sender can reverse a money transfer before the recipient can claim it.
 REVERSAL_WINDOW_MIN = 5
@@ -75,12 +75,24 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
         existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "status": 1})
         if existing is not None:
             return False   # already credited
-    await _credit_wallet(uid, amount)
-    await db.wallet_topups.insert_one({
+    # Fresh top-up with no pre-record. Insert FIRST so the unique index on
+    # session_id makes the row the single-winner claim, then credit only if we
+    # won — otherwise two concurrent no-record callers could both credit before
+    # either insert. (A null session_id has no uniqueness, so it always inserts.)
+    record = {
         "id": str(uuid.uuid4()), "user_id": uid, "amount": amount,
         "source": source, "session_id": session_id, "status": "completed",
         "created_at": now, "completed_at": now,
-    })
+    }
+    if session_id:
+        try:
+            await db.wallet_topups.insert_one(record)
+        except DuplicateKeyError:
+            return False   # another caller already recorded/credited this session
+        await _credit_wallet(uid, amount)
+        return True
+    await _credit_wallet(uid, amount)
+    await db.wallet_topups.insert_one(record)
     return True
 
 
