@@ -12,6 +12,23 @@ import { useAuth } from "@/src/context/AuthContext";
 import { api } from "@/src/api/client";
 import { theme } from "@/src/theme";
 
+// Frosted-glass surface — matches the floating bottom nav pill (real blur on
+// web, a denser translucent fill on native).
+const GLASS: any =
+  Platform.OS === "web"
+    ? {
+        backgroundColor: "rgba(31,44,51,0.72)",
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+        backdropFilter: "blur(22px)",
+        WebkitBackdropFilter: "blur(22px)",
+      }
+    : {
+        backgroundColor: theme.surfaceGlass,
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+      };
+
 export function SidebarMenuButton({ light }: { light?: boolean } = {}) {
   const { setOpen } = useSidebar();
   return (
@@ -64,7 +81,7 @@ export default function LeftSidebar() {
 
   const tx = translateX.interpolate({
     inputRange: [-1, 0],
-    outputRange: [-320, 0],
+    outputRange: [-340, 0],   // fully off-screen incl. the 10px left float gap
   });
   const backdropOpacity = translateX.interpolate({
     inputRange: [-1, 0],
@@ -85,7 +102,7 @@ export default function LeftSidebar() {
         </Animated.View>
 
         <Animated.View
-          style={[styles.drawer, { paddingTop: insets.top + 12, transform: [{ translateX: tx }] }]}
+          style={[styles.drawer, { top: insets.top + 10, bottom: insets.bottom + 10, transform: [{ translateX: tx }] }]}
         >
           {/* Brand */}
           <View style={styles.brandRow}>
@@ -118,7 +135,7 @@ export default function LeftSidebar() {
 
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingTop: 8 }}
+            contentContainerStyle={{ paddingBottom: 16, paddingTop: 8 }}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.sectionHeader}>
@@ -184,7 +201,7 @@ export default function LeftSidebar() {
             </TouchableOpacity>
           </ScrollView>
 
-          <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
+          <View style={[styles.footer, { paddingBottom: 14 }]}>
             <Text style={styles.footerText}>Nami App · v1.0</Text>
           </View>
         </Animated.View>
@@ -196,19 +213,20 @@ export default function LeftSidebar() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+  // Floating, rounded, frosted-glass panel — same surface as the bottom pill.
   drawer: {
-    position: "absolute", top: 0, bottom: 0, left: 0,
-    width: 300, backgroundColor: theme.bg,
-    borderRightWidth: 1, borderColor: theme.border,
-    paddingHorizontal: 14,
-    ...(Platform.OS === "web" ? ({ boxShadow: "8px 0 24px rgba(0,0,0,0.5)" } as object) : {
-      shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 24,
+    position: "absolute", left: 10,
+    width: 300, borderRadius: 28,
+    paddingHorizontal: 14, paddingTop: 16,
+    ...GLASS,
+    ...(Platform.OS === "web" ? ({ boxShadow: "0 12px 40px rgba(0,0,0,0.5)" } as object) : {
+      shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 8 },
     }),
   },
   menuBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
+    ...GLASS,
   },
   menuBtnLight: { backgroundColor: "rgba(0,0,0,0.55)", borderColor: "rgba(255,255,255,0.2)" },
 

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image, Modal, Pressable, ActivityIndicator, Share, ScrollView, Animated,
+  View, Text, StyleSheet, TouchableOpacity, Image, Modal, Pressable, ActivityIndicator, Share, ScrollView, Animated, Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -20,6 +20,22 @@ import ShareToChatSheet from "./ShareToChatSheet";
 import PostViewersModal from "./PostViewersModal";
 import VerifiedBadge from "./VerifiedBadge";
 import UserBadges from "./UserBadges";
+
+// Frosted-glass surface — matches the floating bottom nav pill and sidebar.
+const GLASS: any =
+  Platform.OS === "web"
+    ? {
+        backgroundColor: "rgba(31,44,51,0.72)",
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+        backdropFilter: "blur(22px)",
+        WebkitBackdropFilter: "blur(22px)",
+      }
+    : {
+        backgroundColor: theme.surfaceGlass,
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+      };
 
 type Props = {
   post: Post;
@@ -701,9 +717,9 @@ const styles = StyleSheet.create({
   reportDone: { marginTop: 16, backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 40 },
   reportDoneText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   card: {
-    backgroundColor: theme.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: theme.border,
+    borderRadius: 18,
     padding: 14, gap: 8,
+    ...GLASS,
   },
   repostBanner: {
     flexDirection: "row", alignItems: "center", gap: 6, marginBottom: -2,
