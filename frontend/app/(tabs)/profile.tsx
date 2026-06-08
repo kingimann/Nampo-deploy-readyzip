@@ -14,6 +14,7 @@ import { api, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import PostCard from "@/src/components/PostCard";
+import ConfirmModal from "@/src/components/ConfirmModal";
 import ReelPoster from "@/src/components/ReelPoster";
 import BirthdayPicker from "@/src/components/BirthdayPicker";
 import { SOCIAL_PLATFORMS, SOCIAL_BY_KEY, socialUrl, fmtBirthday } from "@/src/lib/socials";
@@ -89,6 +90,15 @@ export default function ProfileScreen() {
     try { await api.toggleBookmark(p.id); } catch { loadPosts(); }
   };
   const onReply = (p: Post) => router.push({ pathname: "/post/[id]", params: { id: p.id } });
+
+  // Delete your own posts straight from your profile (long-press a post or use
+  // its ••• menu → confirm).
+  const [confirmDel, setConfirmDel] = useState<Post | null>(null);
+  const onMore = (p: Post) => { if (p.user_id === user?.user_id) setConfirmDel(p); };
+  const doDelete = async (p: Post) => {
+    setMyPosts((arr) => arr.filter((x) => x.id !== p.id));
+    try { await api.deletePost(p.id); } catch { loadPosts(); }
+  };
 
   const changeAvatar = () => { if (!uploadingAvatar) setAvatarPickerOpen(true); };
 
@@ -438,12 +448,23 @@ export default function ProfileScreen() {
                   onRepost={onRepost}
                   onReply={onReply}
                   onBookmark={onBookmark}
+                  onMore={onMore}
                 />
               ),
             )}
           </View>
         )}
       </ScrollView>
+
+      <ConfirmModal
+        visible={!!confirmDel}
+        title="Delete post?"
+        message="This permanently removes the post. This can't be undone."
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setConfirmDel(null)}
+        onConfirm={() => { const p = confirmDel; setConfirmDel(null); if (p) doDelete(p); }}
+      />
 
       <Modal visible={avatarPickerOpen} transparent animationType="slide" onRequestClose={() => setAvatarPickerOpen(false)}>
         <View style={styles.modalBackdrop}>

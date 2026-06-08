@@ -825,6 +825,14 @@ async def home_feed(authorization: Optional[str] = Header(None)):
 @router.get("/posts/user/{user_id}", response_model=List[Post])
 async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
+    # Private account: only the owner and their followers see their posts.
+    if user_id != me["user_id"]:
+        owner = await db.users.find_one({"user_id": user_id}, {"_id": 0, "is_private": 1})
+        if owner and owner.get("is_private"):
+            follows = await db.follows.find_one(
+                {"follower_id": me["user_id"], "followee_id": user_id}, {"_id": 0, "follower_id": 1})
+            if not follows:
+                return []
     cursor = (
         db.posts.find({"user_id": user_id, "parent_id": None}, {"_id": 0})
         .sort("created_at", -1).limit(100)

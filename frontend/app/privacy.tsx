@@ -12,12 +12,18 @@ import { theme } from "@/src/theme";
 import { storage } from "@/src/utils/storage";
 
 const HIDE_STORIES_KEY = "hide_stories"; // keep in sync with the feed screen
-const CHAT_FAB_SIDE_KEY = "chat_fab_side"; // keep in sync with ChatFab
 
 const POLICIES = [
   { k: "everyone", label: "Everyone", icon: "earth-outline" },
   { k: "followers", label: "Followers", icon: "person-add-outline" },
   { k: "friends", label: "Friends", icon: "people-outline" },
+  { k: "nobody", label: "No one", icon: "lock-closed-outline" },
+] as const;
+
+// Who can start a DM with you.
+const MSG_POLICIES = [
+  { k: "everyone", label: "Everyone", icon: "earth-outline" },
+  { k: "followers", label: "Followers", icon: "person-add-outline" },
   { k: "nobody", label: "No one", icon: "lock-closed-outline" },
 ] as const;
 
@@ -30,6 +36,11 @@ export default function PrivacyScreen() {
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingLikes, setSavingLikes] = useState(false);
   const [showStories, setShowStories] = useState(true);
+  // Account-privacy settings (server-stored).
+  const [isPrivate, setIsPrivate] = useState<boolean>(!!user?.is_private);
+  const [msgPolicy, setMsgPolicy] = useState<string>(user?.message_policy || "everyone");
+  const [searchable, setSearchable] = useState<boolean>(user?.searchable !== false);
+  const [hideOnline, setHideOnline] = useState<boolean>(!!user?.hide_online);
 
   React.useEffect(() => {
     storage.getItem(HIDE_STORIES_KEY, false).then((h) => setShowStories(!h));
@@ -38,13 +49,10 @@ export default function PrivacyScreen() {
     const next = !showStories; setShowStories(next);
     await storage.setItem(HIDE_STORIES_KEY, !next); // stored value is "hidden"
   };
-  const [chatSide, setChatSide] = useState<"left" | "right">("right");
-  React.useEffect(() => {
-    storage.getItem(CHAT_FAB_SIDE_KEY, "right").then((v) => setChatSide(v === "left" ? "left" : "right"));
-  }, []);
-  const pickChatSide = async (s: "left" | "right") => {
-    setChatSide(s);
-    await storage.setItem(CHAT_FAB_SIDE_KEY, s);
+
+  // Persist a profile patch with an optimistic update + refresh.
+  const patchMe = async (patch: Record<string, any>) => {
+    try { await api.updateMe(patch); if (typeof refresh === "function") await refresh(); } catch {}
   };
 
   const savePolicy = async (k: string) => {
@@ -57,6 +65,10 @@ export default function PrivacyScreen() {
     try { await api.updateMe({ default_likes_disabled: next }); if (typeof refresh === "function") await refresh(); }
     catch {} finally { setSavingLikes(false); }
   };
+  const togglePrivate = () => { const n = !isPrivate; setIsPrivate(n); patchMe({ is_private: n }); };
+  const toggleSearchable = () => { const n = !searchable; setSearchable(n); patchMe({ searchable: n }); };
+  const toggleHideOnline = () => { const n = !hideOnline; setHideOnline(n); patchMe({ hide_online: n }); };
+  const pickMsgPolicy = (k: string) => { setMsgPolicy(k); patchMe({ message_policy: k }); };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="privacy-screen">
@@ -70,6 +82,67 @@ export default function PrivacyScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }}>
+        <Text style={[styles.section, { marginTop: 8 }]}>Account privacy</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.optRow} onPress={togglePrivate} testID="privacy-private">
+            <Ionicons name="lock-closed-outline" size={18} color={theme.textMuted} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>Private account</Text>
+              <Text style={styles.optSub}>Only your followers can see the posts on your profile.</Text>
+            </View>
+            <View style={[styles.switch, isPrivate && styles.switchOn]}>
+              <View style={[styles.knob, isPrivate && styles.knobOn]} />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.section}>Who can message you</Text>
+        <View style={styles.card}>
+          {MSG_POLICIES.map((p, i) => {
+            const on = msgPolicy === p.k;
+            return (
+              <TouchableOpacity
+                key={p.k}
+                style={[styles.optRow, i < MSG_POLICIES.length - 1 && styles.optDivider]}
+                onPress={() => pickMsgPolicy(p.k)}
+                testID={`privacy-msg-${p.k}`}
+              >
+                <Ionicons name={p.icon as any} size={18} color={on ? theme.primary : theme.textMuted} />
+                <Text style={[styles.optLabel, on && { color: theme.primary }]}>{p.label}</Text>
+                <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.section}>Discoverability</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.optRow} onPress={toggleSearchable} testID="privacy-searchable">
+            <Ionicons name="search-outline" size={18} color={theme.textMuted} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>Appear in search</Text>
+              <Text style={styles.optSub}>Let other people find your account when they search.</Text>
+            </View>
+            <View style={[styles.switch, searchable && styles.switchOn]}>
+              <View style={[styles.knob, searchable && styles.knobOn]} />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.section}>Activity status</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.optRow} onPress={toggleHideOnline} testID="privacy-hide-online">
+            <Ionicons name="ellipse-outline" size={18} color={theme.textMuted} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>Hide my online status</Text>
+              <Text style={styles.optSub}>Others won't see when you're active or your last-seen time.</Text>
+            </View>
+            <View style={[styles.switch, hideOnline && styles.switchOn]}>
+              <View style={[styles.knob, hideOnline && styles.knobOn]} />
+            </View>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.sectionHead}>
           <Text style={styles.section}>Who can comment on your posts</Text>
           {savingPolicy && <ActivityIndicator color={theme.primary} size="small" />}
@@ -121,27 +194,6 @@ export default function PrivacyScreen() {
               <View style={[styles.knob, showStories && styles.knobOn]} />
             </View>
           </TouchableOpacity>
-        </View>
-
-        <Text style={styles.section}>Chat button</Text>
-        <Text style={styles.note}>The floating chat button on your feed. (Tip: long-press it to move sides too.)</Text>
-        <View style={styles.card}>
-          <View style={styles.optRow}>
-            <Ionicons name="chatbubbles-outline" size={18} color={theme.textMuted} />
-            <Text style={styles.optLabel}>Position</Text>
-            <View style={styles.segRow}>
-              {(["left", "right"] as const).map((s) => (
-                <TouchableOpacity
-                  key={s}
-                  style={[styles.seg, chatSide === s && styles.segOn]}
-                  onPress={() => pickChatSide(s)}
-                  testID={`chat-side-${s}`}
-                >
-                  <Text style={[styles.segText, chatSide === s && { color: "#fff" }]}>{s === "left" ? "Left" : "Right"}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
         </View>
 
         <Text style={styles.section}>Messages</Text>

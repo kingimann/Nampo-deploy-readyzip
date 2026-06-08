@@ -158,6 +158,17 @@ async def get_or_create_conversation(
             existing = await db.conversations.find_one({"id": existing["id"]}, {"_id": 0})
         conv = existing
     else:
+        # Respect the recipient's "who can message me" policy for NEW chats
+        # (existing conversations are never blocked).
+        if target != me_id:
+            policy = other.get("message_policy") or "everyone"
+            if policy == "nobody":
+                raise HTTPException(status_code=403, detail="This person isn't accepting new messages.")
+            if policy == "followers":
+                follows = await db.follows.find_one(
+                    {"follower_id": me_id, "followee_id": target}, {"_id": 0, "follower_id": 1})
+                if not follows:
+                    raise HTTPException(status_code=403, detail="Only people who follow them can start a chat.")
         participant_ids = [me_id] if target == me_id else sorted([me_id, target])
         conv = {
             "id": str(uuid.uuid4()),

@@ -223,6 +223,14 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
         patch["default_comment_policy"] = body.default_comment_policy
     if body.default_likes_disabled is not None:
         patch["default_likes_disabled"] = bool(body.default_likes_disabled)
+    if body.is_private is not None:
+        patch["is_private"] = bool(body.is_private)
+    if body.message_policy in ("everyone", "followers", "nobody"):
+        patch["message_policy"] = body.message_policy
+    if body.searchable is not None:
+        patch["searchable"] = bool(body.searchable)
+    if body.hide_online is not None:
+        patch["hide_online"] = bool(body.hide_online)
     if body.currency is not None:
         from core import normalize_currency
         patch["currency"] = normalize_currency(body.currency)

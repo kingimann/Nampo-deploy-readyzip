@@ -432,6 +432,10 @@ def _user_doc_to_model(d: dict) -> dict:
         "currency": normalize_currency(d.get("currency")),
         "default_comment_policy": d.get("default_comment_policy") or "everyone",
         "default_likes_disabled": bool(d.get("default_likes_disabled", False)),
+        "is_private": bool(d.get("is_private", False)),
+        "message_policy": d.get("message_policy") or "everyone",
+        "searchable": bool(d.get("searchable", True)),
+        "hide_online": bool(d.get("hide_online", False)),
         "created_at": d["created_at"],
     }
 
@@ -514,6 +518,8 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
                 friend_status = "request_sent"
             elif recv:
                 friend_status = "request_received"
+    # Respect "hide online status" — others never see it; you still see your own.
+    _hide_presence = bool(u.get("hide_online", False)) and viewer_id != user_id
     return PublicUser(
         user_id=u["user_id"],
         name=u.get("name", ""),
@@ -530,8 +536,8 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         id_verified=bool(u.get("id_verified", False)),
         role=_effective_role(u),
         badges=await _resolve_badges(u.get("badge_ids")),
-        online=_is_online(u.get("last_seen")),
-        last_seen=(_norm_dt(u["last_seen"]).isoformat() if u.get("last_seen") else None),
+        online=(False if _hide_presence else _is_online(u.get("last_seen"))),
+        last_seen=(None if _hide_presence else (_norm_dt(u["last_seen"]).isoformat() if u.get("last_seen") else None)),
         sub_price=float(u.get("sub_price", 4.99) or 0),
         is_subscribed=is_subscribed,
         subscriber_count=subscriber_count,
