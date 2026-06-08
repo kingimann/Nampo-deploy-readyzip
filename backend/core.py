@@ -473,7 +473,6 @@ def _user_doc_to_model(d: dict) -> dict:
         "message_policy": d.get("message_policy") or "everyone",
         "default_likes_disabled": bool(d.get("default_likes_disabled", False)),
         "is_private": bool(d.get("is_private", False)),
-        "message_policy": d.get("message_policy") or "everyone",
         "searchable": bool(d.get("searchable", True)),
         "hide_online": bool(d.get("hide_online", False)),
         "created_at": d["created_at"],

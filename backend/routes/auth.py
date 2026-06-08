@@ -227,8 +227,6 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
         patch["default_likes_disabled"] = bool(body.default_likes_disabled)
     if body.is_private is not None:
         patch["is_private"] = bool(body.is_private)
-    if body.message_policy in ("everyone", "followers", "nobody"):
-        patch["message_policy"] = body.message_policy
     if body.searchable is not None:
         patch["searchable"] = bool(body.searchable)
     if body.hide_online is not None:

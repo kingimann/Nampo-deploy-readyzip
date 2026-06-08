@@ -1009,7 +1009,6 @@ export type User = {
   message_policy?: string; // who can start a DM: everyone | followers | friends | nobody
   default_likes_disabled?: boolean;
   is_private?: boolean;
-  message_policy?: string; // everyone | followers | nobody
   searchable?: boolean;
   hide_online?: boolean;
   needs_policy_agreement?: boolean;
@@ -1027,7 +1026,6 @@ export type ProfilePatch = {
   message_policy?: string;
   default_likes_disabled?: boolean;
   is_private?: boolean;
-  message_policy?: string;
   searchable?: boolean;
   hide_online?: boolean;
   sms_notifications?: boolean;
