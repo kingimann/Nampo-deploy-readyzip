@@ -158,9 +158,18 @@ export default function LiquidTabBar(_: any) {
           <Pressable
             onPress={() => { if (!searchActive) router.push("/search" as any); }}
             onLongPress={() => {
-              // Hold Search → flash a ＋ and open the post composer.
+              // Hold Search to create: a post on the feed, a listing in the
+              // marketplace. No-op on any other screen.
+              const p = (pathname || "").replace(/\/+$/, "");
+              const onFeed = p === "/feed";
+              const onMarket = p === "/marketplace";
+              if (!onFeed && !onMarket) return;
               setHolding(true);
-              router.push({ pathname: "/(tabs)/feed", params: { compose: "1" } } as any);
+              router.push(
+                onMarket
+                  ? ({ pathname: "/(tabs)/marketplace", params: { create: "1" } } as any)
+                  : ({ pathname: "/(tabs)/feed", params: { compose: "1" } } as any),
+              );
               setTimeout(() => setHolding(false), 700);
             }}
             delayLongPress={300}

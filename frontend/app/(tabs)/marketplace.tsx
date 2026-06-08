@@ -16,7 +16,6 @@ import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import FadeIn from "@/src/components/FadeIn";
-import BouncyPressable from "@/src/components/BouncyPressable";
 
 const CATEGORIES = [
   { key: "all", label: "All" },
@@ -276,7 +275,7 @@ export default function MarketplaceScreen() {
   }, []);
 
   // Deep-link: /marketplace?edit=<id> opens that listing in edit mode.
-  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const { edit, create } = useLocalSearchParams<{ edit?: string; create?: string }>();
   useEffect(() => {
     if (!edit) return;
     (async () => {
@@ -284,6 +283,15 @@ export default function MarketplaceScreen() {
       router.setParams({ edit: undefined });
     })();
   }, [edit, openEditListing]);
+
+  // /marketplace?create=1 opens the new-listing composer (used by the bottom-nav
+  // Search long-press while on the marketplace tab).
+  useEffect(() => {
+    if (create !== "1") return;
+    if (!marketOff) openCompose();
+    router.setParams({ create: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [create]);
 
   const submit = async () => {
     const title = draft.title.trim();
@@ -502,15 +510,6 @@ export default function MarketplaceScreen() {
           )}
         />
       )}
-
-      <BouncyPressable
-        style={[styles.fab, { bottom: 16 }, marketOff && styles.fabDisabled]}
-        onPress={() => { if (marketOff) return; openCompose(); }}
-        disabled={marketOff}
-        testID="new-listing-fab"
-      >
-        <Ionicons name="add" size={26} color="#fff" />
-      </BouncyPressable>
 
       <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => { setComposeOpen(false); setEditingId(null); }}>
         <KeyboardAvoidingView
