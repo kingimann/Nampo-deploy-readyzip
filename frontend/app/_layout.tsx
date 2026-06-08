@@ -66,6 +66,7 @@ const HIDDEN_BAR_PREFIXES = [
   "/seller/",  // marketplace seller profile
   "/advertise",
   "/wallet",
+  "/activity", // "All activity" — pushed sub-screen of wallet with its own back
   "/money",
   "/pay-qr",
   "/pay-scan",
