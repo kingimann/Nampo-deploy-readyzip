@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from datetime import timedelta
 
+from db import DuplicateKeyError
 from core import db, get_current_user, is_admin, _norm_dt, require_account_age, MONETIZE_MIN_AGE_DAYS
 
 router = APIRouter()
@@ -33,12 +34,15 @@ AD_RATE_COMMENT = 0.05   # per comment on a promoted post
 AD_DEFAULT_CPC = 0.10    # per click when the campaign sets no CPC
 
 
-async def _credit(to_user_id: str, amount: float, kind: str, from_name: str):
-    await db.earnings.insert_one({
+async def _credit(to_user_id: str, amount: float, kind: str, from_name: str, source: Optional[str] = None):
+    doc = {
         "id": str(uuid.uuid4()), "user_id": to_user_id, "amount": round(amount, 2),
         "kind": kind, "from_user_id": "", "from_name": from_name,
         "created_at": datetime.now(timezone.utc),
-    })
+    }
+    if source:
+        doc["source"] = source
+    await db.earnings.insert_one(doc)
 
 
 # ── Earnings integrity (X / Google-style invalid-traffic protection) ─────────
@@ -153,7 +157,14 @@ async def bill_ad_interaction(post: dict, viewer_id: str, kind: str, host_user_i
     if charge <= 0:
         return 0.0
     if not free:
-        await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+        # Atomic conditional debit: only spend if the balance still covers it, so
+        # concurrent events can't both pass the bal>0 check above and overspend
+        # the prepaid balance (which over-credits the host with unbacked money).
+        res = await db.users.update_one(
+            {"user_id": advertiser, "ad_balance": {"$gte": charge}},
+            {"$inc": {"ad_balance": -charge}})
+        if getattr(res, "matched_count", 0) != 1:
+            return 0.0
     await db.posts.update_one({"id": post["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
     if host_user_id and host_user_id != viewer_id and host_user_id != advertiser:
         await _maybe_credit_host(host_user_id, viewer_id, round(charge * HOST_REVENUE_SHARE, 2))
@@ -220,20 +231,18 @@ async def next_ad(
 
 
 async def _seen_recently(post_id: str, viewer_id: str, kind: str, hours: int) -> bool:
-    """Fraud guard: has this viewer already triggered `kind` for this ad recently?
-    Logs the event when it's new. Returns True if it's a duplicate."""
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
-    dup = await db.ad_events.find_one(
-        {"post_id": post_id, "viewer_id": viewer_id, "kind": kind, "created_at": {"$gte": since}},
-        {"_id": 0, "id": 1},
-    )
-    if dup:
+    """Fraud guard: one billable `kind` per viewer per ad per day. Insert-first,
+    relying on the unique index on (post_id, viewer_id, kind, day), so concurrent
+    duplicate events can't all miss a check-then-insert and each bill."""
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        await db.ad_events.insert_one({
+            "id": str(uuid.uuid4()), "post_id": post_id, "viewer_id": viewer_id,
+            "kind": kind, "day": day, "created_at": datetime.now(timezone.utc),
+        })
+        return False
+    except DuplicateKeyError:
         return True
-    await db.ad_events.insert_one({
-        "id": str(uuid.uuid4()), "post_id": post_id, "viewer_id": viewer_id,
-        "kind": kind, "created_at": datetime.now(timezone.utc),
-    })
-    return False
 
 
 @router.post("/ads/{post_id}/event")
@@ -271,9 +280,10 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
             if is_real and charge > 0:
                 await _maybe_credit_host(host, viewer, round(charge * HOST_REVENUE_SHARE, 2))
         else:
+            # No funded budget — count the click but do NOT pay the host. A flat
+            # AD_CLICK_PAYOUT here credited withdrawable host revenue with no
+            # advertiser debit behind it (money creation via self-owned alts).
             await db.posts.update_one({"id": post_id}, {"$inc": {"ad_clicks": 1}})
-            if is_real:
-                await _maybe_credit_host(host, viewer, AD_CLICK_PAYOUT)
     else:
         await db.posts.update_one({"id": post_id}, {"$inc": {"ad_impressions": 1}})
     return {"ok": True}
@@ -429,7 +439,11 @@ async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_i
     elif bal is not None and bal > 0:
         charge = round(min(rate, bal), 2)
         if charge > 0:
-            await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+            res = await db.users.update_one(
+                {"user_id": advertiser, "ad_balance": {"$gte": charge}},
+                {"$inc": {"ad_balance": -charge}})
+            if getattr(res, "matched_count", 0) != 1:
+                charge = 0.0  # lost the debit race — don't credit the host
     await db.link_ads.update_one({"id": ad["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
     credited = 0.0
     if host_user_id and host_user_id not in (actor_id, advertiser) and charge > 0:
@@ -539,7 +553,11 @@ async def bill_reel_ad(ad: dict, actor_id: Optional[str], kind: str) -> float:
     elif bal is not None and bal > 0:
         charge = round(min(rate, bal), 2)
         if charge > 0:
-            await db.users.update_one({"user_id": advertiser}, {"$inc": {"ad_balance": -charge}})
+            res = await db.users.update_one(
+                {"user_id": advertiser, "ad_balance": {"$gte": charge}},
+                {"$inc": {"ad_balance": -charge}})
+            if getattr(res, "matched_count", 0) != 1:
+                charge = 0.0  # lost the debit race
     await db.reel_ads.update_one({"id": ad["id"]}, {"$inc": {field: 1, "ad_spent": charge}})
     return charge
 
@@ -691,7 +709,9 @@ async def bot_run(body: BotRun, authorization: Optional[str] = Header(None)):
     earner = body.earner_id or me["user_id"]
     earned = round(spend * HOST_REVENUE_SHARE, 2)
     if earned > 0:
-        await _credit(earner, earned, "ad_revenue", "View bot (test)")
+        # Test-bot earnings must NOT be bank-withdrawable — source="admin" keeps
+        # them off the scheduled payout rail (they can exceed the real debit).
+        await _credit(earner, earned, "ad_revenue", "View bot (test)", source="admin")
 
     fresh = await db.posts.find_one(
         {"id": body.post_id},
@@ -844,8 +864,12 @@ async def record_profile_view(user_id: str, authorization: Optional[str] = Heade
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "profile_views": 1})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    new_count = int(target.get("profile_views", 0) or 0) + 1
+    # Increment atomically, then read the committed value to decide the milestone —
+    # computing it from the stale pre-read let concurrent views both hit the same
+    # multiple of N and double-pay.
     await db.users.update_one({"user_id": user_id}, {"$inc": {"profile_views": 1}})
+    fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0, "profile_views": 1})
+    new_count = int((fresh or {}).get("profile_views", 0) or 0)
     if new_count % PROFILE_VIEWS_PER_PAYOUT == 0:
         await _maybe_credit_host(user_id, me["user_id"], PROFILE_VIEW_PAYOUT, kind="views", label="Profile views")
     return {"ok": True, "views": new_count}

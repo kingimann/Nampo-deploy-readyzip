@@ -225,9 +225,18 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
       hidePoiLayers();
       // Re-add the GPU place layer (a style switch drops all custom sources).
       if (window.__placesData) { ensurePlacesLayer(); var s = map.getSource('places-src'); if (s) s.setData(window.__placesData); }
-      // Re-apply traffic / 3d if needed
+      // Re-push the active route + alternates — the source was wiped by setStyle,
+      // so without this the route line vanishes when the style changes mid-trip.
+      if (window.__route) setRoute(window.__route);
+      if (window.__altRoutes && window.__altRoutes.length) setAltRoutes(window.__altRoutes);
+      // Re-create the user accuracy circle (its source was wiped with the style).
+      if (window.__lastUserLoc) {
+        var u = window.__lastUserLoc;
+        setUserLocation(u.lng, u.lat, u.accuracyM, u.heading);
+      }
+      // Re-apply traffic / 3d if needed (source-aware so it works on Standard too)
       if (window.__trafficOn) addTraffic();
-      if (window.__buildingsOn) add3D();
+      if (window.__buildingsOn) apply3D(true);
     });
   }
 
@@ -318,6 +327,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   }
 
   function setRoute(geometry) {
+    window.__route = geometry || null;   // remembered so the line survives a style switch
     ensureRouteLayer();
     var data = geometry
       ? { type:'Feature', geometry: geometry, properties:{} }
@@ -327,6 +337,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   }
 
   function setAltRoutes(geometries) {
+    window.__altRoutes = geometries || [];   // remembered across a style switch
     ensureRouteLayer();
     var feats = (geometries || []).map(function (g, i) {
       return { type:'Feature', geometry: g, properties:{ index: i } };
@@ -361,7 +372,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   // Lightweight linear glide used for continuous "follow" tracking. Much cheaper
   // and smoother than flyTo when fired on every GPS fix.
   function panTo(lng, lat) {
-    map.easeTo({ center:[lng,lat], duration: 700, easing: function (t) { return t; } });
+    // essential:true so follow-mode tracking still glides when the OS/browser
+    // has "prefers reduced motion" set (otherwise the camera silently stops).
+    map.easeTo({ center:[lng,lat], duration: 700, essential: true, easing: function (t) { return t; } });
   }
   // Combined navigation "follow camera": center + zoom + bearing (course-up) +
   // pitch (3D forward view) in a single smooth ease, so you can see the streets
@@ -374,6 +387,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     map.easeTo(opts);
   }
   function setUserLocation(lng, lat, accuracyM, heading) {
+    window.__lastUserLoc = { lng: lng, lat: lat, accuracyM: accuracyM, heading: heading }; // replay across a style switch
     if (!userMarker) {
       var el = document.createElement('div');
       el.className = 'user-dot';
@@ -421,9 +435,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
             'circle-stroke-width': 1,
             'circle-stroke-opacity': 0.35,
           },
-        }, 'user-anchor-noop');
+        });
       } catch (e) {
-        // The "before" layer doesn't exist; retry without it
+        // Defensive fallback if the primary add fails for any reason.
         try { map.addLayer({
           id: LYR, type: 'circle', source: SRC,
           paint: {
@@ -507,15 +521,32 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   function remove3D() {
     if (map.getLayer('3d-buildings')) map.removeLayer('3d-buildings');
   }
+  // Classic styles expose a 'composite' vector source (custom fill-extrusion);
+  // the Standard style has no 'composite' source and instead exposes built-in 3D
+  // objects via a config property. Pick the right mechanism so 3D actually works
+  // on Standard instead of silently no-opping while the toggle shows "On".
+  function apply3D(on) {
+    if (map.getSource('composite')) {
+      if (on) add3D(); else remove3D();
+    } else {
+      try { map.setConfigProperty('basemap', 'show3dObjects', !!on); } catch (e) {}
+    }
+  }
   function set3DBuildings(on) {
     window.__buildingsOn = !!on;
-    if (on) { add3D(); map.easeTo({ pitch: Math.max(map.getPitch(), 45), duration: 400 }); }
-    else { remove3D(); }
+    apply3D(!!on);
+    if (on) map.easeTo({ pitch: Math.max(map.getPitch(), 45), duration: 400 });
   }
 
   function fitBounds(coords, padding) {
     if (!coords || coords.length < 2) return;
     var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+    // Degenerate bounds (all points identical, e.g. origin == destination) would
+    // zoom to maxZoom — recenter at a sensible zoom instead.
+    if (bounds.getNorth() - bounds.getSouth() < 1e-6 && bounds.getEast() - bounds.getWest() < 1e-6) {
+      map.easeTo({ center: coords[0], zoom: 15, duration: 600 });
+      return;
+    }
     map.fitBounds(bounds, { padding: padding || 80, duration: 600 });
   }
 

@@ -628,29 +628,29 @@ async def confirm_trade(body: TradeConfirm, authorization: Optional[str] = Heade
         raise HTTPException(status_code=400, detail="This code has already been used")
     if me["user_id"] in trade.get("party_ids", []):
         raise HTTPException(status_code=400, detail="You generated this code — share it with the other person to confirm")
-    # One verification per listing.
+    now = datetime.now(timezone.utc)
+    parties = list(dict.fromkeys([*trade.get("party_ids", []), me["user_id"]]))
     listing_id = trade.get("listing_id")
+    # Claim the listing as sold atomically FIRST — it's the scarce resource, so
+    # this is the single-winner gate that enforces one verification per listing
+    # even when two buyers confirm different codes for the same listing at once.
     if listing_id:
-        done = await db.marketplace_trades.find_one(
-            {"listing_id": listing_id, "status": "confirmed"}, {"_id": 0, "id": 1}
+        sold = await db.listings.update_one(
+            {"id": listing_id, "status": {"$ne": "sold"}},
+            {"$set": {"status": "sold", "sold_to": me["user_id"], "sold_at": now}},
         )
-        if done:
+        if getattr(sold, "matched_count", 0) != 1:
             raise HTTPException(status_code=400, detail={
                 "code": "already_sold",
                 "message": "This listing has already been verified as sold.",
             })
-    now = datetime.now(timezone.utc)
-    parties = list(dict.fromkeys([*trade.get("party_ids", []), me["user_id"]]))
-    await db.marketplace_trades.update_one(
-        {"id": trade["id"]},
+    # Claim this trade (single-winner) so the same code can't confirm twice.
+    claimed = await db.marketplace_trades.update_one(
+        {"id": trade["id"], "status": "pending"},
         {"$set": {"party_ids": parties, "status": "confirmed", "buyer_id": me["user_id"], "confirmed_at": now}},
     )
-    # Verifying = the item was sold to the confirming user. Mark the listing sold.
-    if listing_id:
-        await db.listings.update_one(
-            {"id": listing_id},
-            {"$set": {"status": "sold", "sold_to": me["user_id"], "sold_at": now}},
-        )
+    if getattr(claimed, "matched_count", 0) != 1:
+        raise HTTPException(status_code=400, detail="This code has already been used")
     other = trade.get("started_by")
     other_doc = await db.users.find_one({"user_id": other}, {"_id": 0, "name": 1}) if other else None
     return {"status": "confirmed", "partner_name": (other_doc or {}).get("name", "the seller")}

@@ -84,15 +84,28 @@ function distMeters(a: [number, number], b: [number, number]): number {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-// Min distance from point to a polyline (route geometry coords)
+// Min distance (m) from a point to a polyline — perpendicular distance to each
+// SEGMENT, not just its endpoints. Measuring to vertices alone made a driver
+// dead-centre on a long straight read as "off route" (false reroutes).
 function distanceToRoute(p: [number, number], coords: [number, number][]): number {
   if (coords.length === 0) return Infinity;
+  if (coords.length === 1) return distMeters(p, coords[0]);
+  // Project to a local equirectangular metre plane (accurate over short segments).
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * Math.cos((p[1] * Math.PI) / 180);
+  const toXY = (c: [number, number]): [number, number] => [c[0] * mPerDegLng, c[1] * mPerDegLat];
+  const px = toXY(p);
   let best = Infinity;
   for (let i = 0; i < coords.length - 1; i++) {
-    const a = coords[i];
-    const b = coords[i + 1];
-    // Approximate by checking distance to each endpoint
-    best = Math.min(best, distMeters(p, a), distMeters(p, b));
+    const a = toXY(coords[i]);
+    const b = toXY(coords[i + 1]);
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? ((px[0] - a[0]) * dx + (px[1] - a[1]) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(px[0] - (a[0] + t * dx), px[1] - (a[1] + t * dy));
+    if (d < best) best = d;
   }
   return best;
 }
@@ -208,6 +221,7 @@ export default function DirectionsScreen() {
   const [voiceOn, setVoiceOn] = useState(true);
   const [rerouting, setRerouting] = useState(false);
   const lastSpokenKey = useRef<string>("");
+  const arrivedRef = useRef(false);   // so "you have arrived" is announced once per trip
   const lastRerouteAt = useRef<number>(0);
   const [etaShare, setEtaShare] = useState<EtaShare | null>(null);
   const [sharingEta, setSharingEta] = useState(false);
@@ -303,12 +317,17 @@ export default function DirectionsScreen() {
   // Apply incoming destination from /map
   useEffect(() => {
     if (params.destLng && params.destLat) {
+      const lng = Number(params.destLng);
+      const lat = Number(params.destLat);
+      // Guard against malformed params — NaN coords flow into fitBounds/route
+      // requests and can throw inside mapbox-gl or break the camera.
+      if (!isFinite(lng) || !isFinite(lat)) return;
       const feature: GeocodeFeature = {
         id: `incoming_${params.destLng}_${params.destLat}`,
         name: params.destName || "Destination",
         full_address: "",
-        longitude: Number(params.destLng),
-        latitude: Number(params.destLat),
+        longitude: lng,
+        latitude: lat,
       };
       setWaypoints((wps) => {
         const next = [...wps];
@@ -328,6 +347,8 @@ export default function DirectionsScreen() {
     setRouteLegs(r.legs);
     setSteps(r.legs.flatMap((l) => l.steps));
     setStepIdx(0);
+    lastSpokenKey.current = "";   // recompute voice prompts cleanly against the new steps
+    arrivedRef.current = false;   // a new/recomputed route means we haven't arrived yet
     mapRef.current?.setRoute(r.geometry);
     mapRef.current?.setAltRoutes(rs.filter((_, i) => i !== idx).map((x) => x.geometry));
   }, []);
@@ -346,10 +367,16 @@ export default function DirectionsScreen() {
         return null;
       })
       .filter(Boolean) as [number, number][];
-    if (coords.length < 2 || coords.length !== waypoints.length) {
+    if (coords.length < 2) {
+      // Nothing routable — clear the map.
       setRouteInfo(null); setSteps([]); setRouteCoords([]); setRoutes([]);
       mapRef.current?.setRoute(null);
       mapRef.current?.setAltRoutes([]);
+      return;
+    }
+    if (coords.length !== waypoints.length) {
+      // A waypoint is still empty (e.g. a just-added stop) — keep the existing
+      // route drawn rather than blanking it until the new stop is filled in.
       return;
     }
     setLoadingRoute(true);
@@ -394,18 +421,20 @@ export default function DirectionsScreen() {
     const q = wp?.query || "";
     if (!q.trim() || wp?.isUserLocation) {
       setResults([]);
+      setSearching(false);   // don't leave the spinner stuck when the field is cleared
       return;
     }
+    let cancelled = false;   // ignore a stale in-flight response if the query changed
     setSearching(true);
     const t = setTimeout(async () => {
       try {
         const r = await forwardGeocode(q, userLocationRef.current || undefined);
-        setResults(r);
+        if (!cancelled) setResults(r);
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 350);
-    return () => clearTimeout(t);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [activeWaypointId, waypoints]);
 
   const onMapReady = useCallback(() => {
@@ -442,6 +471,7 @@ export default function DirectionsScreen() {
   };
   const addStop = () => {
     setWaypoints((ws) => {
+      if (ws.length >= 12) return ws;   // Mapbox Directions caps at 25 coords; keep it sane
       const next = [...ws];
       next.splice(ws.length - 1, 0, { id: newId(), query: "", feature: null });
       return next;
@@ -488,6 +518,7 @@ export default function DirectionsScreen() {
     setShowSteps(false);
     setStepIdx(0);
     lastSpokenKey.current = "";
+    arrivedRef.current = false;
     // Drop the alternates — we commit to the selected route while navigating.
     mapRef.current?.setAltRoutes([]);
     // Camera: drop straight into the tilted, course-up navigation view (single
@@ -536,6 +567,13 @@ export default function DirectionsScreen() {
 
   // Destination of the current plan (last waypoint with a real location).
   const destFeature = waypoints[waypoints.length - 1]?.feature || null;
+
+  // The departure-detail plan is fetched against the destination at open time —
+  // if the destination changes, the open sheet is now a wrong itinerary, so close it.
+  useEffect(() => {
+    setSelectedDep(null);
+    setPlan(null);
+  }, [destFeature?.longitude, destFeature?.latitude]);
 
   const loadTransit = useCallback(async (allNearby: boolean) => {
     const loc = userLocationRef.current || userLocation;
@@ -642,6 +680,21 @@ export default function DirectionsScreen() {
       setStepIdx((i) => Math.min(steps.length - 1, i + 1));
     }
 
+    // Arrival: on the final step, once we're near the destination, announce it
+    // once and end navigation (otherwise the banner freezes and the ETA counts
+    // down past zero into negative/in-the-past times).
+    if (stepIdx >= steps.length - 1 && d != null && d < 30 && !arrivedRef.current) {
+      arrivedRef.current = true;
+      setRemainingDist(0);
+      setRemainingDur(0);
+      setDistToManeuver(0);
+      if (voiceOn) { try { Speech.stop(); Speech.speak("You have arrived at your destination", { rate: 0.95 }); } catch {} }
+      setNavMode(false);
+      mapRef.current?.setPitch(0);
+      mapRef.current?.setBearing(0);
+      return;
+    }
+
     // Remaining distance/duration
     let remainD = 0;
     let remainT = 0;
@@ -656,8 +709,8 @@ export default function DirectionsScreen() {
       remainD = remainD - progress;
       remainT = remainT - (steps[stepIdx].duration * (progress / Math.max(1, stepLen)));
     }
-    setRemainingDist(remainD);
-    setRemainingDur(remainT);
+    setRemainingDist(Math.max(0, remainD));   // never show a negative remaining distance
+    setRemainingDur(Math.max(0, remainT));
 
     // ── Speed limit lookup: find nearest route coord, then map to leg/segment ──
     if (routeLegs.length && routeCoords.length) {
@@ -666,21 +719,28 @@ export default function DirectionsScreen() {
         const d2 = distMeters(userLocation, routeCoords[i]);
         if (d2 < bestD) { bestD = d2; bestI = i; }
       }
-      // Find which leg/segment index `bestI` corresponds to
-      let cursor = bestI;
-      let foundSpeed: { speed: number; unit: string } | null = null;
+      // Flatten the per-leg annotation arrays into one segment array aligned to
+      // routeCoords. Leg segment counts (legCoords-1) sum to the route's segment
+      // count (because consecutive legs share their boundary vertex), so flat[i]
+      // is the segment routeCoords[i]→[i+1]. The old per-leg cursor walk drifted
+      // by one per leg boundary, mis-reading the speed limit on multi-stop trips.
+      const flatSpeeds: (number | null)[] = [];
+      const flatUnits: (string | undefined)[] = [];
       for (const leg of routeLegs) {
         const segs = (leg.maxspeeds || []) as (number | null)[];
         const units = (leg.maxspeed_units || []) as (string | undefined)[];
-        if (cursor < segs.length) {
-          const s = segs[cursor];
-          const u = units[cursor];
-          if (typeof s === "number" && u && s > 0) foundSpeed = { speed: s, unit: u };
-          break;
-        }
-        cursor -= segs.length;
+        for (let i = 0; i < segs.length; i++) { flatSpeeds.push(segs[i]); flatUnits.push(units[i]); }
+      }
+      let foundSpeed: { speed: number; unit: string } | null = null;
+      const idx = Math.min(bestI, flatSpeeds.length - 1);
+      if (idx >= 0) {
+        const s = flatSpeeds[idx];
+        const u = flatUnits[idx];
+        if (typeof s === "number" && u && s > 0) foundSpeed = { speed: s, unit: u };
       }
       setMaxSpeed(foundSpeed);
+    } else {
+      setMaxSpeed(null);   // no annotations on this route — don't keep a stale limit
     }
 
     // Off-route detection (throttle to 1 reroute per 8s).
@@ -845,7 +905,7 @@ export default function DirectionsScreen() {
                 </TouchableOpacity>
               </View>
               <View style={styles.cardActions}>
-                <TouchableOpacity style={styles.addStopBtn} onPress={addStop} testID="add-stop">
+                <TouchableOpacity style={[styles.addStopBtn, waypoints.length >= 12 && { opacity: 0.4 }]} onPress={addStop} disabled={waypoints.length >= 12} testID="add-stop">
                   <Ionicons name="add" size={16} color={theme.primary} />
                   <Text style={styles.addStopText}>Add stop</Text>
                 </TouchableOpacity>
@@ -1206,7 +1266,11 @@ export default function DirectionsScreen() {
                   <TouchableOpacity
                     key={i}
                     style={[styles.stepRow, navMode && i === stepIdx && styles.stepRowActive]}
-                    onPress={() => setStepIdx(i)}
+                    // While navigating, the active step is driven by GPS — let the
+                    // user preview steps before starting, but don't let a tap
+                    // desync the banner/camera mid-trip.
+                    onPress={() => { if (!navMode) setStepIdx(i); }}
+                    disabled={navMode}
                     testID={`step-${i}`}
                   >
                     <View style={styles.stepIcon}>
@@ -1360,7 +1424,7 @@ export default function DirectionsScreen() {
                 ) : (
                   <FlatList
                     data={transitData.departures}
-                    keyExtractor={(_i, idx) => String(idx)}
+                    keyExtractor={(it, idx) => `${it.route_id || ""}-${it.headsign || ""}-${it.stop_name || ""}-${it.time_label || idx}`}
                     style={{ maxHeight: 420 }}
                     ItemSeparatorComponent={() => <View style={styles.transitSep} />}
                     renderItem={({ item }) => {

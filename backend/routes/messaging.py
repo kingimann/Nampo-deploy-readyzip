@@ -23,6 +23,7 @@ import uuid
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
+from db import DuplicateKeyError
 from core import _conv_key, _public_user, db, get_current_user, is_admin, _norm_dt
 from models import (
     ConversationCreate,
@@ -56,6 +57,30 @@ def _decrypt_msg(doc: dict) -> dict:
     return out
 
 router = APIRouter()
+
+
+async def _can_message(sender_id: str, recipient: dict) -> bool:
+    """Whether `sender_id` may start a DM with `recipient`, per their
+    message_policy (everyone | followers | friends | nobody). Mirrors the post
+    comment-policy relationship checks; admins are exempt."""
+    rid = recipient.get("user_id")
+    if sender_id == rid:
+        return True
+    policy = recipient.get("message_policy") or "everyone"
+    if policy == "everyone":
+        return True
+    sender = await db.users.find_one({"user_id": sender_id}, {"_id": 0, "role": 1, "email": 1})
+    if sender and is_admin(sender):
+        return True
+    if policy == "nobody":
+        return False
+    if policy == "followers":
+        return bool(await db.follows.find_one(
+            {"follower_id": sender_id, "followee_id": rid}, {"_id": 0, "follower_id": 1}))
+    if policy == "friends":
+        a, b = sorted([sender_id, rid])
+        return bool(await db.friendships.find_one({"a": a, "b": b}, {"_id": 0, "a": 1}))
+    return True
 
 
 async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
@@ -158,6 +183,13 @@ async def get_or_create_conversation(
             existing = await db.conversations.find_one({"id": existing["id"]}, {"_id": 0})
         conv = existing
     else:
+        # Honour the recipient's "who can message me" setting when STARTING a new
+        # thread. Existing threads are left alone (the relationship already exists).
+        if target != me_id and not await _can_message(me_id, other):
+            raise HTTPException(status_code=403, detail={
+                "code": "messages_restricted",
+                "message": "This account isn't accepting messages from you.",
+            })
         participant_ids = [me_id] if target == me_id else sorted([me_id, target])
         conv = {
             "id": str(uuid.uuid4()),
@@ -585,16 +617,29 @@ async def send_message(
             raise HTTPException(status_code=400, detail="No recipient")
         to_id = recipients[0]
         now0 = datetime.now(timezone.utc)
+        # Move real money: debit the sender's wallet and credit the recipient's,
+        # the same model as the money.py wallet tip. Previously this credited the
+        # recipient a withdrawable earning without ever charging (or balance-
+        # checking) the sender — free money creation. The earnings row is stamped
+        # source="wallet" so it settles on the wallet rail (already credited to
+        # wallet_balance) and isn't also paid out via the scheduled bank rail.
+        from routes.money import _debit_wallet, _credit_wallet
+        if not await _debit_wallet(user["user_id"], tip_amount):
+            raise HTTPException(status_code=400, detail={
+                "code": "insufficient_balance",
+                "message": "Not enough wallet balance to send this tip.",
+            })
+        await _credit_wallet(to_id, tip_amount)
         await db.tips.insert_one({
             "id": str(uuid.uuid4()),
             "from_user_id": user["user_id"], "from_name": user.get("name", "Someone"),
             "to_user_id": to_id, "amount": tip_amount, "currency": "USD",
-            "message": (body.text or "")[:200], "created_at": now0,
+            "message": (body.text or "")[:200], "source": "wallet", "created_at": now0,
         })
         await db.earnings.insert_one({
             "id": str(uuid.uuid4()), "user_id": to_id, "amount": tip_amount, "kind": "tip",
             "from_user_id": user["user_id"], "from_name": user.get("name", "Someone"),
-            "created_at": now0,
+            "source": "wallet", "created_at": now0,
         })
     # Resolve an optional reply target — only if it's a real message in this conv.
     reply_to_id: Optional[str] = None
@@ -649,12 +694,16 @@ async def send_message(
         "expires_at": expires_at,
         "created_at": now,
     }
-    await db.messages.insert_one(msg.copy())
-    # Resurface for anyone who had soft-deleted the conv (DM)
-    await db.conversations.update_one(
-        {"id": conv_id},
+    # Re-verify membership atomically at write time (and resurface the conv for
+    # anyone who'd soft-deleted it): a member removed between the initial check
+    # and now must not be able to land one more message.
+    claimed = await db.conversations.update_one(
+        {"id": conv_id, "participant_ids": user["user_id"]},
         {"$set": {"last_message_at": now}, "$pull": {"deleted_by": {"$in": conv["participant_ids"]}}},
     )
+    if getattr(claimed, "matched_count", 0) != 1:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await db.messages.insert_one(msg.copy())
     # Notify other participants — use the plaintext we received in `body`, not the
     # encrypted version we just stored.
     is_group = conv.get("kind") == "group"

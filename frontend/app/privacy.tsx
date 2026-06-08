@@ -28,6 +28,8 @@ export default function PrivacyScreen() {
   const insets = useSafeAreaInsets();
   const { user, refresh } = useAuth() as any;
   const [policy, setPolicy] = useState<string>(user?.default_comment_policy || "everyone");
+  const [msgPolicy, setMsgPolicy] = useState<string>(user?.message_policy || "everyone");
+  const [savingMsg, setSavingMsg] = useState(false);
   const [likesOff, setLikesOff] = useState<boolean>(!!user?.default_likes_disabled);
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [savingLikes, setSavingLikes] = useState(false);
@@ -74,6 +76,11 @@ export default function PrivacyScreen() {
     try { await api.updateMe({ default_likes_disabled: next }); if (typeof refresh === "function") await refresh(); }
     catch {} finally { setSavingLikes(false); }
   };
+  const saveMsgPolicy = async (k: string) => {
+    setMsgPolicy(k); setSavingMsg(true);
+    try { await api.updateMe({ message_policy: k }); if (typeof refresh === "function") await refresh(); }
+    catch {} finally { setSavingMsg(false); }
+  };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="privacy-screen">
@@ -101,6 +108,29 @@ export default function PrivacyScreen() {
                 style={[styles.optRow, i < POLICIES.length - 1 && styles.optDivider]}
                 onPress={() => savePolicy(p.k)}
                 testID={`privacy-comment-${p.k}`}
+              >
+                <Ionicons name={p.icon as any} size={18} color={on ? theme.primary : theme.textMuted} />
+                <Text style={[styles.optLabel, on && { color: theme.primary }]}>{p.label}</Text>
+                <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.sectionHead}>
+          <Text style={styles.section}>Who can message you</Text>
+          {savingMsg && <ActivityIndicator color={theme.primary} size="small" />}
+        </View>
+        <Text style={styles.note}>Controls who can start a new direct message with you. Existing chats aren't affected.</Text>
+        <View style={styles.card}>
+          {POLICIES.map((p, i) => {
+            const on = msgPolicy === p.k;
+            return (
+              <TouchableOpacity
+                key={p.k}
+                style={[styles.optRow, i < POLICIES.length - 1 && styles.optDivider]}
+                onPress={() => saveMsgPolicy(p.k)}
+                testID={`privacy-message-${p.k}`}
               >
                 <Ionicons name={p.icon as any} size={18} color={on ? theme.primary : theme.textMuted} />
                 <Text style={[styles.optLabel, on && { color: theme.primary }]}>{p.label}</Text>

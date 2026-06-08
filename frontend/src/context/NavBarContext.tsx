@@ -86,6 +86,9 @@ type Ctx = {
   reset: () => Promise<void>;
   canAdd: boolean;
   canRemove: boolean;
+  // External request to hide the bottom tab bar (e.g. while panning the map).
+  tabBarHidden: boolean;
+  setTabBarHidden: (hidden: boolean) => void;
 };
 
 const NavBarContext = createContext<Ctx | null>(null);
@@ -111,6 +114,7 @@ function clamp(ids: string[]): string[] {
 export function NavBarProvider({ children }: { children: React.ReactNode }) {
   const [ids, setIdsState] = useState<string[]>(DEFAULT_NAV_IDS);
   const [ready, setReady] = useState(false);
+  const [tabBarHidden, setTabBarHidden] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -158,7 +162,9 @@ export function NavBarProvider({ children }: { children: React.ReactNode }) {
     reset: () => persist(DEFAULT_NAV_IDS),
     canAdd: ids.length < MAX_TABS,
     canRemove: ids.length > MIN_TABS,
-  }), [ids, ready, persist]);
+    tabBarHidden,
+    setTabBarHidden,
+  }), [ids, ready, persist, tabBarHidden]);
 
   return <NavBarContext.Provider value={value}>{children}</NavBarContext.Provider>;
 }
@@ -178,6 +184,8 @@ export function useNavBar(): Ctx {
       reset: async () => {},
       canAdd: false,
       canRemove: false,
+      tabBarHidden: false,
+      setTabBarHidden: () => {},
     };
   }
   return ctx;

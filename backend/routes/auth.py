@@ -221,6 +221,8 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
             patch["payout_threshold_changed_at"] = datetime.now(timezone.utc)
     if body.default_comment_policy in ("everyone", "followers", "friends", "nobody"):
         patch["default_comment_policy"] = body.default_comment_policy
+    if body.message_policy in ("everyone", "followers", "friends", "nobody"):
+        patch["message_policy"] = body.message_policy
     if body.default_likes_disabled is not None:
         patch["default_likes_disabled"] = bool(body.default_likes_disabled)
     if body.currency is not None:
@@ -372,13 +374,15 @@ async def forgot_password(body: ForgotPassword):
     email = (body.email or "").strip().lower()
     sent = False
     if email:
-        user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1, "name": 1})
-        if user and email_enabled():
+        user = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1, "name": 1, "pw_reset_sent_at": 1})
+        if user and email_enabled() and _cooldown_ok(user.get("pw_reset_sent_at")):
             code = f"{secrets.randbelow(1000000):06d}"
             await db.users.update_one(
                 {"user_id": user["user_id"]},
                 {"$set": {"pw_reset_hash": _hash_password(code),
-                          "pw_reset_expires": datetime.now(timezone.utc) + timedelta(minutes=15)}},
+                          "pw_reset_expires": datetime.now(timezone.utc) + timedelta(minutes=15),
+                          "pw_reset_sent_at": datetime.now(timezone.utc),
+                          "pw_reset_attempts": 0}},
             )
             try:
                 send_email(email, "Your Nami password reset code",
@@ -413,13 +417,19 @@ async def reset_password(body: ResetPassword):
         raise
     except Exception:
         pass
+    if int(user.get("pw_reset_attempts", 0) or 0) >= CODE_MAX_ATTEMPTS:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"pw_reset_hash": "", "pw_reset_expires": None, "pw_reset_attempts": 0}})
+        raise HTTPException(status_code=429, detail="Too many incorrect attempts — request a new code.")
     if not _verify_password(body.code, user["pw_reset_hash"]):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"pw_reset_attempts": 1}})
         raise HTTPException(status_code=400, detail="Incorrect code.")
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {"hashed_password": _hash_password(body.new_password),
                   "failed_login_attempts": 0, "locked_until": None,
-                  "pw_reset_hash": "", "pw_reset_expires": None}},
+                  "pw_reset_hash": "", "pw_reset_expires": None, "pw_reset_attempts": 0}},
     )
     return {"ok": True, "message": "Password updated — you can log in now."}
 
@@ -483,13 +493,23 @@ async def change_email(body: EmailUpdate, authorization: Optional[str] = Header(
         raise HTTPException(status_code=400, detail="Enter a valid email address")
     if new_email == (user.get("email") or "").lower():
         return User(**_user_doc_to_model(user))
+    # Admin is derived from the email being in ADMIN_EMAILS, so a non-admin must
+    # not be able to grant themselves admin by changing their (unverified) email
+    # to a privileged address.
+    from core import ADMIN_EMAILS
+    if new_email in ADMIN_EMAILS and (user.get("email") or "").strip().lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="That email address can't be used.")
     existing = await db.users.find_one(
         {"email": new_email, "user_id": {"$ne": user["user_id"]}}, {"_id": 0, "user_id": 1}
     )
     if existing:
         raise HTTPException(status_code=409, detail="That email is already in use")
     try:
-        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"email": new_email}})
+        # New email is unproven — drop the verified flag until it's re-verified.
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"email": new_email, "email_verified": False}},
+        )
     except DuplicateKeyError:
         raise HTTPException(status_code=409, detail="That email is already in use")
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
@@ -699,6 +719,12 @@ CODE_TTL_MIN = 10
 CODE_MAX_ATTEMPTS = 5
 CODE_COOLDOWN_SEC = 30
 
+# Only ever echo a live login/2FA/reset code back in the API response when this
+# is explicitly enabled (local dev). Gating on "is SMS configured?" meant a prod
+# deploy that simply hadn't finished Twilio/SMTP setup would hand out 2FA and
+# password-reset codes to anyone who could reach the endpoint.
+_EXPOSE_DEV_CODES = os.environ.get("EXPOSE_DEV_CODES", "").strip().lower() in ("1", "true", "yes")
+
 
 def _gen_code() -> str:
     return f"{secrets.randbelow(1000000):06d}"
@@ -736,6 +762,16 @@ def _cooldown_ok(last) -> bool:
 async def _begin_2fa_challenge(user_doc: dict) -> dict:
     """Text a login code and return a 2fa_required payload."""
     from services.sms import send_sms, sms_enabled
+    base = {
+        "twofa_required": True,
+        "identifier": user_doc.get("username") or user_doc.get("email"),
+        "masked_phone": _mask_phone(user_doc.get("phone")),
+    }
+    # Don't re-send (and re-roll) a code on every login attempt — that lets an
+    # attacker with the password spam SMS. Within the cooldown the previously
+    # texted code is still valid.
+    if not _cooldown_ok(user_doc.get("twofa_code_sent_at")):
+        return {**base, "sent": False}
     code = _gen_code()
     now = datetime.now(timezone.utc)
     await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {
@@ -751,7 +787,7 @@ async def _begin_2fa_challenge(user_doc: dict) -> dict:
         "masked_phone": _mask_phone(user_doc.get("phone")),
         "sent": sent,
     }
-    if not sms_enabled():
+    if not sms_enabled() and _EXPOSE_DEV_CODES:
         out["dev_code"] = code
         out["note"] = "SMS isn't configured; use dev_code to finish signing in."
     return out
@@ -846,7 +882,7 @@ async def login_phone_start(body: PhoneLoginStart):
     }})
     sent = await send_sms(raw, f"Your Nami login code is {code}. It expires in {CODE_TTL_MIN} minutes.")
     out = {"exists": True, "sent": sent, "masked_phone": _mask_phone(raw)}
-    if not sms_enabled():
+    if not sms_enabled() and _EXPOSE_DEV_CODES:
         out["dev_code"] = code
     return out
 
@@ -910,10 +946,11 @@ async def forgot_password_sms(body: ForgotSms):
             "pw_reset_hash": _hash_code(code),
             "pw_reset_expires": datetime.now(timezone.utc) + timedelta(minutes=CODE_TTL_MIN),
             "pw_reset_sent_at": datetime.now(timezone.utc),
+            "pw_reset_attempts": 0,
         }})
         sent = await send_sms(user["phone"], f"Your Nami password reset code is {code}. It expires in {CODE_TTL_MIN} minutes.")
         masked = _mask_phone(user["phone"])
-        if not sms_enabled():
+        if not sms_enabled() and _EXPOSE_DEV_CODES:
             out_dev = code
     out = {"ok": True, "sent": sent, "sms_configured": sms_enabled(), "masked_phone": masked}
     if out_dev:
@@ -948,12 +985,17 @@ async def reset_password_code(body: ResetWithCode):
         raise
     except Exception:
         pass
+    if int(user.get("pw_reset_attempts", 0) or 0) >= CODE_MAX_ATTEMPTS:
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
+            "pw_reset_hash": "", "pw_reset_expires": None, "pw_reset_attempts": 0}})
+        raise HTTPException(status_code=429, detail="Too many incorrect attempts — request a new code.")
     if not _check_code(body.code, user.get("pw_reset_hash")):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"pw_reset_attempts": 1}})
         raise HTTPException(status_code=400, detail="Incorrect code.")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {
         "hashed_password": _hash_password(body.new_password),
         "failed_login_attempts": 0, "locked_until": None,
-        "pw_reset_hash": "", "pw_reset_expires": None,
+        "pw_reset_hash": "", "pw_reset_expires": None, "pw_reset_attempts": 0,
     }})
     return {"ok": True, "message": "Password updated — you can log in now."}
 

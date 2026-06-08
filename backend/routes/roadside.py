@@ -354,15 +354,23 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
 
 async def _settle(doc: dict) -> None:
     """Release the held escrow: pay the helper the base fee, book the tax as
-    platform revenue, and mark the job complete. Idempotent on `settled`."""
+    platform revenue, and mark the job complete. Concurrency-safe via an atomic
+    status claim — only the caller that flips accepted->completed pays out, so two
+    concurrent verifies (or a verify racing a cancel) can't disburse twice."""
     if doc.get("settled"):
         return
+    now = datetime.now(timezone.utc)
+    claim = await db.roadside_requests.update_one(
+        {"id": doc["id"], "status": "accepted"},
+        {"$set": {"status": "completed", "settled": True, "completed_at": now}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        return  # already completed or cancelled by a concurrent caller
     base = round(float(doc.get("price", ROADSIDE_BASE) or 0), 2)
     tax = round(float(doc.get("tax", 0) or 0), 2)
     fuel_cost = round(float(doc.get("fuel_cost", 0) or 0), 2)
     payout = round(base + fuel_cost, 2)   # service fee + any fuel the helper bought
     helper_id = doc.get("helper_id")
-    now = datetime.now(timezone.utc)
     if helper_id and doc.get("held"):
         await _credit_wallet(helper_id, payout)
         await db.earnings.insert_one({
@@ -372,9 +380,6 @@ async def _settle(doc: dict) -> None:
             "created_at": now,
         })
         await _record_platform_fee(tax, "roadside_tax", doc["requester_id"], doc["id"])
-    await db.roadside_requests.update_one(
-        {"id": doc["id"]}, {"$set": {"status": "completed", "settled": True, "completed_at": now}}
-    )
     doc.update({"status": "completed", "settled": True, "completed_at": now})
     cash = doc.get("payment_method") == "cash"
     if helper_id:
@@ -760,15 +765,6 @@ async def edit_request(rid: str, body: RoadsideCreate, authorization: Optional[s
     old_held_total = round(float(doc.get("total", 0) or 0), 2) if (doc.get("held") and not doc.get("settled") and not doc.get("refunded")) else 0.0
     new_debit = new_total if new_held else 0.0
     delta = round(new_debit - old_held_total, 2)
-    if delta > 0:
-        bal = await _wallet_balance(user["user_id"])
-        if bal + 1e-9 < delta or not await _debit_wallet(user["user_id"], delta):
-            raise HTTPException(status_code=400, detail={
-                "code": "insufficient_balance",
-                "message": f"This change needs ${delta:.2f} more in your wallet. Top up, then save again.",
-            })
-    elif delta < 0:
-        await _credit_wallet(user["user_id"], round(-delta, 2))
     now = datetime.now(timezone.utc)
     updates = {
         "service": svc,
@@ -795,18 +791,35 @@ async def edit_request(rid: str, body: RoadsideCreate, authorization: Optional[s
         "held": new_held,
         "edited_at": now,
     }
-    # Guard against a helper accepting in the race window — if they did, undo the
-    # wallet change and tell the user to cancel instead.
-    res = await db.roadside_requests.update_one({"id": rid, "status": "open"}, {"$set": updates})
-    if res.matched_count == 0:
-        if delta > 0:
-            await _credit_wallet(user["user_id"], delta)
-        elif delta < 0:
-            await _debit_wallet(user["user_id"], round(-delta, 2))
-        raise HTTPException(status_code=409, detail={
-            "code": "not_editable",
-            "message": "A helper just accepted this request — it can no longer be edited.",
-        })
+    # Move money relative to the claim so a lost accept-race never leaves the
+    # wallet out of sync. Extra charges are taken before the claim (and refunded
+    # if it loses, via _credit_wallet which always succeeds); refunds are issued
+    # only after the claim wins — never via _debit_wallet, which can silently
+    # no-op if the user already spent the transient credit.
+    _editable = {"id": rid, "status": "open"}
+    if delta > 0:
+        bal = await _wallet_balance(user["user_id"])
+        if bal + 1e-9 < delta or not await _debit_wallet(user["user_id"], delta):
+            raise HTTPException(status_code=400, detail={
+                "code": "insufficient_balance",
+                "message": f"This change needs ${delta:.2f} more in your wallet. Top up, then save again.",
+            })
+        res = await db.roadside_requests.update_one(_editable, {"$set": updates})
+        if getattr(res, "matched_count", 0) == 0:
+            await _credit_wallet(user["user_id"], delta)  # refund the charge; never lost
+            raise HTTPException(status_code=409, detail={
+                "code": "not_editable",
+                "message": "A helper just accepted this request — it can no longer be edited.",
+            })
+    else:
+        res = await db.roadside_requests.update_one(_editable, {"$set": updates})
+        if getattr(res, "matched_count", 0) == 0:
+            raise HTTPException(status_code=409, detail={
+                "code": "not_editable",
+                "message": "A helper just accepted this request — it can no longer be edited.",
+            })
+        if delta < 0:
+            await _credit_wallet(user["user_id"], round(-delta, 2))
     doc.update(updates)
     return await _hydrate(doc, user["user_id"])
 
@@ -925,7 +938,12 @@ async def enroute(rid: str, authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=400, detail="This job isn't active.")
     if not doc.get("en_route"):
         now = datetime.now(timezone.utc)
-        await db.roadside_requests.update_one({"id": rid}, {"$set": {"en_route": True, "en_route_at": now}})
+        # Gate on status="accepted" so en_route can't be set on a job that was
+        # cancelled/completed in the race window (keeps the cancel fee logic honest).
+        res = await db.roadside_requests.update_one(
+            {"id": rid, "status": "accepted"}, {"$set": {"en_route": True, "en_route_at": now}})
+        if getattr(res, "matched_count", 0) != 1:
+            raise HTTPException(status_code=400, detail="This job isn't active.")
         doc["en_route"] = True
         await emit_notification(
             user_id=doc["requester_id"], actor_id=user["user_id"], ntype="roadside",
@@ -1051,11 +1069,27 @@ async def cancel(rid: str, authorization: Optional[str] = Header(None)):
     total = round(float(doc.get("total", 0) or 0), 2)
     base = round(float(doc.get("price", 0) or 0), 2)
     helper_id = doc.get("helper_id")
-    en_route = bool(doc.get("en_route"))
-    refunded = False
+    prev_status = doc["status"]
+    # A held-and-unsettled job owes a refund. Claim the terminal transition
+    # atomically BEFORE moving any money: flipping the current ACTIVE status to
+    # cancelled is single-winner, so a second cancel can't double-refund and a
+    # cancel racing _settle can't pay the one escrow out to both parties (settle
+    # claims status="accepted"->completed; only one of the two can win).
+    will_refund = bool(doc.get("held") and not doc.get("settled") and not doc.get("refunded"))
+    claim = await db.roadside_requests.update_one(
+        {"id": rid, "status": prev_status},
+        {"$set": {"status": "cancelled", "completed_at": now, "refunded": will_refund}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="This request was just completed or cancelled.")
     helper_fee = 0.0
-    if doc.get("held") and not doc.get("settled") and not doc.get("refunded"):
-        if doc["status"] == "accepted" and en_route:
+    if will_refund:
+        # Read en_route from the row we just locked-and-won, not the pre-claim
+        # snapshot — `enroute` is gated on status="accepted", so it can no longer
+        # change now that we've flipped to cancelled.
+        fresh = await db.roadside_requests.find_one({"id": rid}, {"_id": 0, "en_route": 1})
+        en_route = bool((fresh or {}).get("en_route"))
+        if prev_status == "accepted" and en_route:
             helper_fee = round(base / 2.0, 2)            # forfeit half the service fee
         refund = round(total - helper_fee, 2)
         if refund > 0:
@@ -1068,11 +1102,7 @@ async def cancel(rid: str, authorization: Optional[str] = Header(None)):
                 "message": "Roadside call-out (cancelled en route)", "source": "roadside",
                 "created_at": now,
             })
-        refunded = True
-    await db.roadside_requests.update_one(
-        {"id": rid}, {"$set": {"status": "cancelled", "completed_at": now, "refunded": refunded}}
-    )
-    doc.update({"status": "cancelled", "completed_at": now, "refunded": refunded})
+    doc.update({"status": "cancelled", "completed_at": now, "refunded": will_refund})
     if helper_id:
         msg = (
             f"The member cancelled after you set off — ${helper_fee:.2f} was added to your wallet."

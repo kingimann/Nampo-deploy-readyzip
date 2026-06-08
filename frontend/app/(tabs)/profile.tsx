@@ -24,6 +24,13 @@ import { DEFAULT_AVATARS } from "@/src/lib/avatars";
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbnxlbnwwfHx8fDE3ODA1NTgzMjh8MA&ixlib=rb-4.1.0&q=85";
 
+// Abbreviate engagement counts X-style: 1200 -> "1.2K", 3_400_000 -> "3.4M".
+function compactCount(n: number): string {
+  if (!n || n < 1000) return String(n || 0);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, "")}K`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -380,7 +387,11 @@ export default function ProfileScreen() {
           <ActivityIndicator color={theme.primary} style={{ marginTop: 12 }} />
         ) : profileTab === "media" ? (
           (() => {
-            const mediaItems = myPosts.flatMap((p) => (p.media || []).map((m) => ({ m, postId: p.id })));
+            const mediaItems = myPosts.flatMap((p) => (p.media || []).map((m) => ({
+              m, postId: p.id,
+              replies: p.replies_count || 0,
+              likes: (p.reactions_total ?? p.likes_count) || 0,
+            })));
             if (mediaItems.length === 0) {
               return (
                 <View style={styles.postsEmpty}>
@@ -391,7 +402,7 @@ export default function ProfileScreen() {
             }
             return (
               <View style={styles.mediaGrid}>
-                {mediaItems.map(({ m, postId }, i) => (
+                {mediaItems.map(({ m, postId, replies, likes }, i) => (
                   <TouchableOpacity
                     key={`${postId}-${i}`}
                     style={styles.mediaTile}
@@ -411,6 +422,17 @@ export default function ProfileScreen() {
                     ) : (
                       <Image source={{ uri: mediaUri(m) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                     )}
+                    {/* X-style engagement overlay: replies + likes on each tile */}
+                    <View style={styles.mediaStats} pointerEvents="none">
+                      <View style={styles.mediaStat}>
+                        <Ionicons name="chatbubble-outline" size={12} color="#fff" />
+                        <Text style={styles.mediaStatText}>{compactCount(replies)}</Text>
+                      </View>
+                      <View style={styles.mediaStat}>
+                        <Ionicons name="heart" size={12} color="#fff" />
+                        <Text style={styles.mediaStatText}>{compactCount(likes)}</Text>
+                      </View>
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -687,6 +709,14 @@ const styles = StyleSheet.create({
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   mediaTile: { width: "32%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: theme.surfaceAlt },
   mediaVideo: { backgroundColor: "rgba(0,0,0,0.25)", alignItems: "center", justifyContent: "center" },
+  mediaStats: {
+    position: "absolute", left: 0, right: 0, bottom: 0,
+    flexDirection: "row", gap: 10, alignItems: "center",
+    paddingHorizontal: 7, paddingVertical: 5,
+    backgroundColor: "rgba(0,0,0,0.38)",
+  },
+  mediaStat: { flexDirection: "row", alignItems: "center", gap: 3 },
+  mediaStatText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   postsEmpty: {
     alignItems: "center", paddingVertical: 32, gap: 10,
     backgroundColor: theme.surface, borderRadius: 16,

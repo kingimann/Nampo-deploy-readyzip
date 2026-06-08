@@ -84,6 +84,45 @@ async def init_pool() -> None:
             await conn.execute(
                 f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} ON {table} {cols}"
             )
+
+    # Unique indexes added later, on tables that may ALREADY hold duplicate rows
+    # (the code relied on a now-fixed read-then-write). Each is provisioned with a
+    # dedupe pass first (keep the earliest row per key, ignoring rows with a NULL
+    # key part) so creating the constraint can't crash startup. Wrapped so a
+    # single failure logs and the rest still apply.
+    # (table, index_name, columns_sql, [key_paths])
+    _DEDUP_UNIQUE_INDEXES = [
+        ("wallet_topups", "uniq_wallet_topups_session", "((doc ->> 'session_id'))", ["session_id"]),
+        ("poll_votes", "uniq_poll_votes", "((doc ->> 'post_id'), (doc ->> 'user_id'))", ["post_id", "user_id"]),
+        ("conversations", "uniq_conversation_key", "((doc ->> 'key'))", ["key"]),
+        ("reviews", "uniq_reviews_user_place", "((doc ->> 'user_id'), (doc ->> 'place_key'))", ["user_id", "place_key"]),
+        ("ad_events", "uniq_ad_events_day", "((doc ->> 'post_id'), (doc ->> 'viewer_id'), (doc ->> 'kind'), (doc ->> 'day'))", ["post_id", "viewer_id", "kind", "day"]),
+    ]
+    async with _real_db._pool.acquire() as conn:
+        for table, idx, cols, keys in _DEDUP_UNIQUE_INDEXES:
+            try:
+                await conn.execute(f"CREATE TABLE IF NOT EXISTS {table} (doc jsonb NOT NULL)")
+                not_null = " AND ".join(f"a.doc->>'{k}' IS NOT NULL" for k in keys)
+                key_match = " AND ".join(f"a.doc->>'{k}' = b.doc->>'{k}'" for k in keys)
+                await conn.execute(
+                    f"DELETE FROM {table} a USING {table} b "
+                    f"WHERE a.ctid > b.ctid AND {not_null} AND {key_match}"
+                )
+                await conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} ON {table} {cols}")
+            except Exception as e:
+                logger.warning("dedup index %s on %s skipped: %s", idx, table, e)
+        # Email-based admin now requires a verified email. Promote the account(s)
+        # that currently hold an admin email to a stored role=admin so the
+        # legitimate owner keeps access even if their email isn't verified yet.
+        try:
+            for _email in ADMIN_EMAILS:
+                await conn.execute(
+                    "UPDATE users SET doc = jsonb_set(doc, '{role}', '\"admin\"') "
+                    "WHERE lower(doc->>'email') = $1 AND coalesce(doc->>'role','') <> 'admin'",
+                    _email,
+                )
+        except Exception as e:
+            logger.warning("admin role bootstrap skipped: %s", e)
     logger.info("PostgreSQL pool ready")
 
 
@@ -431,6 +470,7 @@ def _user_doc_to_model(d: dict) -> dict:
         "wallet_balance": round(float(d.get("wallet_balance", 0) or 0), 2),
         "currency": normalize_currency(d.get("currency")),
         "default_comment_policy": d.get("default_comment_policy") or "everyone",
+        "message_policy": d.get("message_policy") or "everyone",
         "default_likes_disabled": bool(d.get("default_likes_disabled", False)),
         "created_at": d["created_at"],
     }
@@ -449,7 +489,12 @@ ADMIN_EMAILS = BOOTSTRAP_ADMIN_EMAILS | {
 
 
 def _effective_role(d: dict) -> str:
-    if (d.get("email") or "").strip().lower() in ADMIN_EMAILS:
+    # Email-based admin requires a VERIFIED email — otherwise anyone could point
+    # their (unverified) email at a known admin address and escalate. The stored
+    # `role` still grants admin/mod independently (and the startup migration
+    # promotes the legitimate admin-email owner to a stored role so they keep
+    # access even before verifying).
+    if d.get("email_verified") and (d.get("email") or "").strip().lower() in ADMIN_EMAILS:
         return "admin"
     role = d.get("role") or "user"
     return role if role in ("user", "mod", "admin") else "user"
