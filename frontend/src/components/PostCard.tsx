@@ -9,6 +9,7 @@ import { theme } from "@/src/theme";
 import MediaGrid from "./MediaGrid";
 import RichText from "./RichText";
 import LinkPreviewCard from "./LinkPreviewCard";
+import FactcheckSheet from "./FactcheckSheet";
 import EmbedCard from "./EmbedCard";
 import InlineMedia from "./InlineMedia";
 import { getEmbed, getInlineImage } from "@/src/utils/embeds";
@@ -69,6 +70,7 @@ export default function PostCard({
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [factcheckOpen, setFactcheckOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [analytics, setAnalytics] = useState<PostAnalytics | null>(null);
@@ -311,6 +313,21 @@ export default function PostCard({
         </View>
       )}
 
+      {display.factcheck && (
+        <TouchableOpacity
+          style={styles.factcheck}
+          onPress={(e) => { e.stopPropagation?.(); setFactcheckOpen(true); }}
+          testID={`factcheck-card-${post.id}`}
+        >
+          <View style={styles.factcheckHead}>
+            <Ionicons name="shield-checkmark" size={14} color={theme.primary} />
+            <Text style={styles.factcheckTitle}>Readers added a Factcheck</Text>
+          </View>
+          <Text style={styles.factcheckText} numberOfLines={4}>{display.factcheck.text}</Text>
+          <Text style={styles.factcheckMore}>Tap to see the source & rate</Text>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.actionsRow}>
         <TouchableOpacity
           style={styles.actionBtn}
@@ -463,6 +480,10 @@ export default function PostCard({
               <Ionicons name="link-outline" size={20} color={theme.textPrimary} />
               <Text style={styles.menuText}>Share link</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); setFactcheckOpen(true); }} testID={`menu-factcheck-${post.id}`}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={theme.textPrimary} />
+              <Text style={styles.menuText}>Factcheck{display.factcheck ? " — view note" : " — add context"}</Text>
+            </TouchableOpacity>
             {isOwner && (
               <TouchableOpacity style={styles.menuRow} onPress={() => { setMenuOpen(false); openAnalytics(); }} testID={`menu-analytics-${post.id}`}>
                 <Ionicons name="stats-chart-outline" size={20} color={theme.textPrimary} />
@@ -497,6 +518,8 @@ export default function PostCard({
           </Pressable>
         </Pressable>
       </Modal>
+
+      <FactcheckSheet visible={factcheckOpen} postId={display.id} onClose={() => setFactcheckOpen(false)} />
 
       {/* Post analytics (owner) */}
       <Modal visible={analyticsOpen} transparent animationType="slide" onRequestClose={() => setAnalyticsOpen(false)}>
@@ -712,6 +735,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 4, alignSelf: "flex-start",
   },
   placeText: { color: theme.textSecondary, fontSize: 11, fontWeight: "600", maxWidth: 200 },
+  factcheck: { backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, padding: 11, marginTop: 8 },
+  factcheckHead: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 5 },
+  factcheckTitle: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
+  factcheckText: { color: theme.textPrimary, fontSize: 13.5, lineHeight: 18.5 },
+  factcheckMore: { color: theme.textMuted, fontSize: 11.5, fontWeight: "600", marginTop: 6 },
   actionsRow: {
     flexDirection: "row", alignItems: "center", flexWrap: "wrap",
     columnGap: 20, rowGap: 8,

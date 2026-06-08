@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: {
     backgroundColor: "#0E0E10", borderTopLeftRadius: 22, borderTopRightRadius: 22,
-    paddingTop: 12, paddingHorizontal: 18, height: "62%",
+    paddingTop: 12, paddingHorizontal: 14, height: "66%",
     borderTopWidth: 1, borderColor: theme.border,
   },
   handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 12 },
@@ -193,8 +193,9 @@ const styles = StyleSheet.create({
   tabActive: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
   tabIcon: { fontSize: 20 },
   uniGrid: { flexDirection: "row", flexWrap: "wrap", paddingBottom: 16 },
-  uniCell: { width: "12.5%", aspectRatio: 1, alignItems: "center", justifyContent: "center" },
-  uniEmoji: { fontSize: 28, ...(Platform.OS === "web" ? ({ lineHeight: 34 } as object) : {}) },
+  // Fixed cell height (not aspectRatio) so rows never collapse/overlap on web.
+  uniCell: { width: "14.2857%", height: 48, alignItems: "center", justifyContent: "center" },
+  uniEmoji: { fontSize: 29, ...(Platform.OS === "web" ? ({ lineHeight: 36 } as object) : {}) },
   uploadRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
   imgPick: {
     width: 50, height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center",

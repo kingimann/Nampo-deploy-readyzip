@@ -152,13 +152,21 @@ export default function MarketplaceScreen() {
   // Resolve the device location + a human-readable locality.
   const detectLocation = useCallback(async (prompt = true): Promise<{ coords: [number, number]; locality: string } | null> => {
     try {
-      let { status } = await Location.getForegroundPermissionsAsync();
-      if (status !== "granted") {
-        if (!prompt) return null;  // don't prompt on first mount — only on tap
-        const req = await Location.requestForegroundPermissionsAsync();
-        status = req.status;
+      // On web the expo-location permission methods don't reliably prompt — the
+      // browser only asks when you actually request a position. So on web we skip
+      // the permission dance (except to avoid prompting on first mount) and call
+      // getCurrentPositionAsync directly, which triggers the browser prompt.
+      if (Platform.OS !== "web") {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== "granted") {
+          if (!prompt) return null;  // don't prompt on first mount — only on tap
+          const req = await Location.requestForegroundPermissionsAsync();
+          status = req.status;
+        }
+        if (status !== "granted") return null;
+      } else if (!prompt) {
+        return null;  // don't trigger the browser prompt on first mount
       }
-      if (status !== "granted") return null;
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const c: [number, number] = [pos.coords.longitude, pos.coords.latitude];
       let loc = "";
@@ -226,9 +234,13 @@ export default function MarketplaceScreen() {
     if (added.length) setDraft((d) => ({ ...d, photos: [...d.photos, ...added].slice(0, MAX_PHOTOS) }));
   };
 
+  const [locatingDraft, setLocatingDraft] = useState(false);
   const detectDraftLocation = async () => {
+    setLocatingDraft(true);
     const r = await detectLocation();
+    setLocatingDraft(false);
     if (r) setDraft((d) => ({ ...d, lng: r.coords[0], lat: r.coords[1], locality: r.locality }));
+    else Alert.alert("Couldn't get your location", "Allow location access in your browser/device settings and try again.");
   };
 
   const openCompose = () => {
@@ -626,12 +638,12 @@ export default function MarketplaceScreen() {
               </View>
 
               <Text style={styles.label}>Location</Text>
-              <TouchableOpacity style={styles.locInput} onPress={detectDraftLocation} testID="listing-location">
+              <TouchableOpacity style={styles.locInput} onPress={detectDraftLocation} disabled={locatingDraft} testID="listing-location">
                 <Ionicons name="location" size={16} color={draft.lat != null ? theme.primary : theme.textMuted} />
                 <Text style={[styles.locInputText, draft.lat != null && { color: theme.textPrimary }]} numberOfLines={1}>
-                  {draft.locality || (draft.lat != null ? "Pinned to your location" : "Tap to use my current location")}
+                  {locatingDraft ? "Getting your location…" : (draft.locality || (draft.lat != null ? "Pinned to your location" : "Tap to use my current location"))}
                 </Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+                {locatingDraft ? <ActivityIndicator size="small" color={theme.primary} /> : <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />}
               </TouchableOpacity>
 
               <Text style={styles.label}>Description (optional)</Text>
@@ -691,6 +703,7 @@ export default function MarketplaceScreen() {
         <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setPicker(null)}>
           <View style={styles.pickerCard}>
             <Text style={styles.pickerTitle}>{picker === "category" ? "Category" : "Condition"}</Text>
+            <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
             {(picker === "category" ? CATEGORIES.filter((c) => c.key !== "all") : CONDITIONS).map((o) => {
               const sel = picker === "category" ? draft.category === o.key : draft.condition === o.key;
               return (
@@ -705,6 +718,7 @@ export default function MarketplaceScreen() {
                 </TouchableOpacity>
               );
             })}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1002,9 +1016,9 @@ const styles = StyleSheet.create({
   },
   dropdownText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
   pickerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
-  pickerCard: { width: "100%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
+  pickerCard: { width: "100%", maxHeight: "70%", backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, paddingVertical: 8, paddingHorizontal: 6 },
   pickerTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
-  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12 },
+  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12 },
   pickerRowText: { color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
   postBtn: {
     marginTop: 20, paddingVertical: 14, borderRadius: 14,

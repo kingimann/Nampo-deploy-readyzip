@@ -393,6 +393,7 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
         community_id=doc.get("community_id"),
         community_name=_community_name,
         title=doc.get("title"),
+        factcheck=None if locked else doc.get("factcheck"),
         created_at=doc["created_at"],
     )
 
