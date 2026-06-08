@@ -46,9 +46,9 @@ class User(BaseModel):
     # Privacy defaults applied to new posts.
     default_comment_policy: str = "everyone"   # everyone | followers | friends | nobody
     default_likes_disabled: bool = False       # turn off likes on new posts by default
+    message_policy: str = "everyone"           # who can start a DM: everyone | followers | friends | nobody
     # Account privacy.
     is_private: bool = False             # only followers can see your profile posts
-    message_policy: str = "everyone"     # who can DM you: everyone | followers | nobody
     searchable: bool = True              # appear in user search
     hide_online: bool = False            # hide your online / last-seen status from others
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
@@ -118,9 +118,9 @@ class ProfilePatch(BaseModel):
     payout_frequency: Optional[str] = None   # biweekly | monthly
     payout_threshold: Optional[float] = None
     default_comment_policy: Optional[str] = None  # everyone | followers | friends | nobody
+    message_policy: Optional[str] = None          # who can start a DM with you
     default_likes_disabled: Optional[bool] = None
     is_private: Optional[bool] = None
-    message_policy: Optional[str] = None   # everyone | followers | nobody
     searchable: Optional[bool] = None
     hide_online: Optional[bool] = None
     currency: Optional[str] = None   # preferred display currency (USD, EUR, ...)

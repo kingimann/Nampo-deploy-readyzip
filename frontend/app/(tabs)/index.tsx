@@ -20,11 +20,13 @@ import {
   Share,
   Modal,
   Image as RNImage,
+  Animated,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
+import { useNavBar } from "@/src/context/NavBarContext";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import {
   MapboxWebView,
@@ -82,10 +84,12 @@ export default function MapScreen() {
   }, [lightMode]);
 
   // Apply the day/night light preset to the Standard basemap once ready / on change.
+  // Include styleKey so the preset is re-pushed after a style switch (a freshly
+  // loaded Standard style otherwise reverts to its default night lighting).
   useEffect(() => {
     if (!mapReady) return;
     mapRef.current?.setLightPreset(effectivePreset());
-  }, [mapReady, lightMode, effectivePreset]);
+  }, [mapReady, lightMode, effectivePreset, styleKey]);
 
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   // Always-fresh location (updated every fix) for search bias, without forcing a
@@ -106,6 +110,47 @@ export default function MapScreen() {
   const [buildingsOn, setBuildingsOn] = useState(false);
   const [followMode, setFollowMode] = useState(false);
   const followModeRef = useRef(false);
+
+  // Auto-hide the chrome while the user is actively moving the map: the bottom
+  // nav bar (global) slides away and the search bar fades out, so the map is
+  // unobstructed. Both come back shortly after the gesture ends (or immediately
+  // if the user taps the search field).
+  const { setTabBarHidden } = useNavBar();
+  const [mapActive, setMapActive] = useState(false);
+  const searchFocusedRef = useRef(false);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchHide = useRef(new Animated.Value(0)).current; // 0 = shown, 1 = hidden
+  const showChrome = useCallback(() => {
+    if (idleTimer.current) { clearTimeout(idleTimer.current); idleTimer.current = null; }
+    setMapActive(false);
+    setTabBarHidden(false);
+  }, [setTabBarHidden]);
+  const hideChromeForPan = useCallback(() => {
+    if (searchFocusedRef.current) return; // don't yank the search bar while typing
+    if (idleTimer.current) { clearTimeout(idleTimer.current); idleTimer.current = null; }
+    setMapActive(true);
+    setTabBarHidden(true);
+  }, [setTabBarHidden]);
+  const scheduleShowChrome = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => { setMapActive(false); setTabBarHidden(false); }, 1600);
+  }, [setTabBarHidden]);
+  useEffect(() => {
+    Animated.timing(searchHide, {
+      toValue: mapActive ? 1 : 0, duration: 200, useNativeDriver: true,
+    }).start();
+  }, [mapActive, searchHide]);
+  // Never leave the bottom bar stuck hidden when this screen loses focus or
+  // unmounts (tab screens can stay mounted, and tabBarHidden is global).
+  useFocusEffect(useCallback(() => () => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    setMapActive(false);
+    setTabBarHidden(false);
+  }, [setTabBarHidden]));
+  useEffect(() => () => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    setTabBarHidden(false);
+  }, [setTabBarHidden]);
   useEffect(() => { followModeRef.current = followMode; }, [followMode]);
 
   const [places, setPlaces] = useState<Place[]>([]);
@@ -155,7 +200,9 @@ export default function MapScreen() {
         rating: reviewRating,
         text: reviewText.trim(),
       });
-      setReviews((rs) => [r, ...rs.filter((x) => x.user_id !== r.user_id)]);
+      // Replace this user's previous review. Match on a present id first, then
+      // user_id — guarding against an empty user_id wiping every other review.
+      setReviews((rs) => [r, ...rs.filter((x) => (x.id && r.id ? x.id !== r.id : !!r.user_id && x.user_id !== r.user_id))]);
       setReviewModalOpen(false);
       setReviewText("");
       setReviewRating(5);
@@ -271,14 +318,11 @@ export default function MapScreen() {
         if (status !== "granted") return;
         const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         const c0: [number, number] = [initial.coords.longitude, initial.coords.latitude];
-        setUserLoc(c0);
-        mapRef.current?.setUserLocation(
-          c0[0], c0[1],
-          initial.coords.accuracy ?? undefined,
-          (initial.coords.heading != null && initial.coords.heading >= 0) ? initial.coords.heading : undefined,
-        );
-        // Open the map where the user is, rather than the neutral world view.
-        mapRef.current?.flyTo(c0[0], c0[1], 14);
+        setUserLoc(c0);   // for search bias; centering is done by requestLocation() on map 'ready'
+        // NOTE: don't push setUserLocation/flyTo here — this can resolve before the
+        // map's 'ready' event, in which case the bridge silently drops the command.
+        // The onMapEvent('ready') handler calls requestLocation(), which centers
+        // the user and starts follow mode once the map is actually loaded.
         startWatcher();
       } catch {}
     })();
@@ -291,6 +335,7 @@ export default function MapScreen() {
 
   // Debounced search
   useEffect(() => {
+    let cancelled = false;   // ignore a stale in-flight response if the query changed
     const t = setTimeout(async () => {
       if (!query.trim()) {
         setResults([]);
@@ -327,12 +372,12 @@ export default function MapScreen() {
           seen.add(key);
           return true;
         });
-        setResults(merged.slice(0, 12));
+        if (!cancelled) setResults(merged.slice(0, 12));
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
     }, 350);
-    return () => clearTimeout(t);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [query, radiusKm]);
 
   // ── Driver hazard reports (Waze-style) ──
@@ -357,11 +402,15 @@ export default function MapScreen() {
     } catch {}
   }, []);
 
+  const reportingRef = useRef(false);
   const submitReport = async (type: HazardType) => {
+    if (reportingRef.current) return;   // ignore a double-tap during the modal's close animation
+    reportingRef.current = true;
     const c = userLocationRef.current || mapCenterRef.current;
     setReportOpen(false);
-    if (!c) return;
+    if (!c) { reportingRef.current = false; return; }
     try { await api.reportHazard(type, c[0], c[1]); await loadHazards(); } catch {}
+    finally { reportingRef.current = false; }
   };
 
   const confirmSelHazard = async () => {
@@ -377,7 +426,11 @@ export default function MapScreen() {
     loadHazards();
   };
 
-  useEffect(() => { if (mapReady) loadHazards(); }, [mapReady, userLocation, loadHazards]);
+  // Refresh hazards when the area changes, but throttle it (same 8s budget as the
+  // moveEnd path) so a moving user doesn't churn the markers on every fix.
+  useEffect(() => {
+    if (mapReady && Date.now() - lastHazardLoad.current > 8000) loadHazards();
+  }, [mapReady, userLocation, loadHazards]);
 
   const onMapEvent = useCallback(
     (e: MapboxEvent) => {
@@ -388,6 +441,8 @@ export default function MapScreen() {
         requestLocation();
         loadHazards();
       } else if (e.type === "moveEnd") {
+        // Interaction settled → bring the chrome back after a short idle.
+        scheduleShowChrome();
         // Remember the map center so "near me / nearby" still works when there's
         // no GPS fix (e.g. on web without location permission) — we search around
         // wherever the map is currently looking.
@@ -401,6 +456,8 @@ export default function MapScreen() {
       } else if (e.type === "userPan") {
         // User panned/zoomed/rotated → leave follow mode (Google-Maps parity)
         setFollowMode(false);
+        // …and get the chrome out of the way while they explore.
+        hideChromeForPan();
       } else if (e.type === "click") {
         setShowResults(false);
         setSelected({
@@ -441,7 +498,7 @@ export default function MapScreen() {
         if (h) setHazardSel(h);
       }
     },
-    [places, requestLocation, styleKey, router],
+    [places, requestLocation, styleKey, router, scheduleShowChrome, hideChromeForPan],
   );
 
   const onPickStyle = (key: MapStyleKey) => {
@@ -499,8 +556,12 @@ export default function MapScreen() {
     mapRef.current?.resetNorth();
   };
 
+  // Block re-entrancy on save/unsave so a double-tap (or a tap during a slow
+  // request on a flaky connection) can't create duplicate saved places.
+  const savingPlaceRef = useRef(false);
   const savePlace = async (category: "marker" | "favorite") => {
-    if (!selected) return;
+    if (!selected || savingPlaceRef.current) return;
+    savingPlaceRef.current = true;
     try {
       const created = await api.createPlace({
         title: selected.name || "Dropped pin",
@@ -512,16 +573,17 @@ export default function MapScreen() {
       });
       setPlaces((p) => [created, ...p]);
       setSelected({ ...selected, id: created.id, saved: created });
-    } catch {}
+    } catch {} finally { savingPlaceRef.current = false; }
   };
 
   const removePlace = async () => {
-    if (!selected?.id) return;
+    if (!selected?.id || savingPlaceRef.current) return;
+    savingPlaceRef.current = true;
     try {
       await api.deletePlace(selected.id);
       setPlaces((p) => p.filter((x) => x.id !== selected.id));
       setSelected({ ...selected, id: undefined, saved: null });
-    } catch {}
+    } catch {} finally { savingPlaceRef.current = false; }
   };
 
   const directionsTo = () => {
@@ -624,7 +686,12 @@ export default function MapScreen() {
       />
 
       {/* Top: search + categories */}
-      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+      <Animated.View
+        style={[styles.topBar, { paddingTop: insets.top + 8 },
+          { opacity: searchHide.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+            transform: [{ translateY: searchHide.interpolate({ inputRange: [0, 1], outputRange: [0, -16] }) }] }]}
+        pointerEvents={mapActive ? "none" : "box-none"}
+      >
         <View style={styles.searchRow}>
           <SidebarMenuButton light />
           <View style={[styles.searchPill, { flex: 1 }]}>
@@ -639,7 +706,8 @@ export default function MapScreen() {
                 setQuery(t);
                 setShowResults(true);
               }}
-              onFocus={() => setShowResults(true)}
+              onFocus={() => { searchFocusedRef.current = true; showChrome(); setShowResults(true); }}
+              onBlur={() => { searchFocusedRef.current = false; }}
               returnKeyType="search"
             />
             {searching && <ActivityIndicator color={theme.primary} size="small" />}
@@ -728,7 +796,7 @@ export default function MapScreen() {
           </View>
         )}
 
-      </View>
+      </Animated.View>
 
       {/* Apple-Maps-style grouped control stack (bottom-right) */}
       <View style={[styles.fabStack, { bottom: insets.bottom + 24 }]} pointerEvents="box-none">
@@ -1041,7 +1109,7 @@ export default function MapScreen() {
                   {!!fsq.phone && (
                     <TouchableOpacity
                       style={styles.fsqRow}
-                      onPress={() => Linking.openURL(`tel:${fsq.phone}`)}
+                      onPress={() => Linking.openURL(`tel:${(fsq.phone || "").replace(/[^\d+]/g, "")}`).catch(() => {})}
                       testID="fsq-phone"
                     >
                       <Ionicons name="call-outline" size={14} color={theme.primary} />
@@ -1051,7 +1119,7 @@ export default function MapScreen() {
                   {!!fsq.website && (
                     <TouchableOpacity
                       style={styles.fsqRow}
-                      onPress={() => Linking.openURL(fsq.website!)}
+                      onPress={() => Linking.openURL(/^https?:\/\//i.test(fsq.website!) ? fsq.website! : `https://${fsq.website}`).catch(() => {})}
                       testID="fsq-website"
                     >
                       <Ionicons name="globe-outline" size={14} color={theme.primary} />

@@ -91,6 +91,7 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - Profiles with avatar, bio, username, and home/work saved locations; **ready-made default avatars** auto-assigned at sign-up
 - **Verified blue checkmark** across posts, comments, and profiles
 - **Per-post privacy**: who can comment (everyone/followers/friends/nobody), likes off, and viewer list
+- **Privacy controls**: default comment policy, disable likes, hide the stories row, chat-button position, **activity status** (green "active now" dot), and **read receipts** toggles
 - Follow/unfollow, followers/following, friend requests (send/accept/reject/remove)
 - **Account & security**: change email (password-confirmed), change password, **verify phone** via SMS, **SMS two-factor**, and **phone OTP login**
 - Customizable navigation bar (the app opens on your first nav item) and sidebar

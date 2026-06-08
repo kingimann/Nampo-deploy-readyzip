@@ -26,17 +26,19 @@ export async function forwardGeocode(
   const res = await fetch(url);
   if (!res.ok) return [];
   const json = await res.json();
-  return (json.features || []).map((f: any) => ({
-    id: f.id || `${f.geometry.coordinates[0]},${f.geometry.coordinates[1]}`,
-    name: f.properties?.name || f.properties?.full_address || "Unknown",
-    full_address:
-      f.properties?.full_address ||
-      f.properties?.place_formatted ||
-      f.properties?.name ||
-      "",
-    longitude: f.geometry.coordinates[0],
-    latitude: f.geometry.coordinates[1],
-  }));
+  return (json.features || [])
+    .filter((f: any) => Array.isArray(f?.geometry?.coordinates))
+    .map((f: any) => ({
+      id: f.id || `${f.geometry.coordinates[0]},${f.geometry.coordinates[1]}`,
+      name: f.properties?.name || f.properties?.full_address || "Unknown",
+      full_address:
+        f.properties?.full_address ||
+        f.properties?.place_formatted ||
+        f.properties?.name ||
+        "",
+      longitude: f.geometry.coordinates[0],
+      latitude: f.geometry.coordinates[1],
+    }));
 }
 
 /**
@@ -96,21 +98,23 @@ export async function categorySearch(
   const res = await fetch(url);
   if (!res.ok) return [];
   const json = await res.json();
-  return (json.features || []).map((f: any) => ({
-    id:
-      f.properties?.mapbox_id ||
-      `${f.geometry.coordinates[0]},${f.geometry.coordinates[1]}`,
-    name: f.properties?.name || "Unknown",
-    full_address:
-      f.properties?.full_address ||
-      f.properties?.place_formatted ||
-      f.properties?.address ||
-      "",
-    longitude: f.geometry.coordinates[0],
-    latitude: f.geometry.coordinates[1],
-    category: f.properties?.poi_category?.[0],
-    maki: f.properties?.maki,
-  }));
+  return (json.features || [])
+    .filter((f: any) => Array.isArray(f?.geometry?.coordinates))
+    .map((f: any) => ({
+      id:
+        f.properties?.mapbox_id ||
+        `${f.geometry.coordinates[0]},${f.geometry.coordinates[1]}`,
+      name: f.properties?.name || "Unknown",
+      full_address:
+        f.properties?.full_address ||
+        f.properties?.place_formatted ||
+        f.properties?.address ||
+        "",
+      longitude: f.geometry.coordinates[0],
+      latitude: f.geometry.coordinates[1],
+      category: f.properties?.poi_category?.[0],
+      maki: f.properties?.maki,
+    }));
 }
 
 export type Profile = "driving" | "walking" | "cycling" | "driving-traffic";

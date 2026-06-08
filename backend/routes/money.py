@@ -4,15 +4,18 @@ and request money (the other person pays or declines).
 Transfers are recorded the same way tips are (db.tips + db.earnings) so they
 appear in the Wallet's Sent/Received lists automatically.
 """
+import math
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+import asyncpg
 import bcrypt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
+from db import _to_json, DuplicateKeyError
 
 # How long the sender can reverse a money transfer before the recipient can claim it.
 REVERSAL_WINDOW_MIN = 5
@@ -28,7 +31,10 @@ async def _wallet_balance(uid: str) -> float:
 
 
 async def _credit_wallet(uid: str, amount: float):
-    await db.users.update_one({"user_id": uid}, {"$inc": {"wallet_balance": round(float(amount), 2)}})
+    amount = round(float(amount), 2)
+    if not math.isfinite(amount) or amount == 0:
+        return
+    await db.users.update_one({"user_id": uid}, {"$inc": {"wallet_balance": amount}})
 
 
 async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: Optional[str] = None) -> bool:
@@ -41,22 +47,52 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
         return False
     now = datetime.now(timezone.utc)
     if session_id:
-        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "id": 1, "status": 1})
-        if existing:
-            if existing.get("status") == "completed":
-                return False   # already credited
+        # Atomically flip the pre-created 'processing' record to 'completed'.
+        # A single conditional UPDATE (status <> 'completed') is serialized by
+        # Postgres on the row, so only one of the concurrent webhook / on-return
+        # confirm / sync callers can win the flip — the previous find→credit→
+        # update sequence let all of them pass the check and double-credit.
+        # We credit only if our UPDATE is the one that changed the row.
+        patch = _to_json({"status": "completed", "completed_at": now,
+                          "amount": amount, "source": source})
+        row = None
+        try:
+            async with db.wallet_topups.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "UPDATE wallet_topups SET doc = doc || $2::jsonb "
+                    "WHERE doc->>'session_id' = $1 "
+                    "AND coalesce(doc->>'status', '') <> 'completed' "
+                    "RETURNING ctid",
+                    session_id, patch,
+                )
+        except asyncpg.UndefinedTableError:
+            row = None  # no top-ups recorded yet — falls through to the insert path
+        if row is not None:
             await _credit_wallet(uid, amount)
-            await db.wallet_topups.update_one(
-                {"session_id": session_id},
-                {"$set": {"status": "completed", "completed_at": now, "amount": amount, "source": source}},
-            )
             return True
-    await _credit_wallet(uid, amount)
-    await db.wallet_topups.insert_one({
+        # Nothing flipped: either it was already 'completed' (a concurrent caller
+        # won — skip) or there's no record for this session yet (credit fresh).
+        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "status": 1})
+        if existing is not None:
+            return False   # already credited
+    # Fresh top-up with no pre-record. Insert FIRST so the unique index on
+    # session_id makes the row the single-winner claim, then credit only if we
+    # won — otherwise two concurrent no-record callers could both credit before
+    # either insert. (A null session_id has no uniqueness, so it always inserts.)
+    record = {
         "id": str(uuid.uuid4()), "user_id": uid, "amount": amount,
         "source": source, "session_id": session_id, "status": "completed",
         "created_at": now, "completed_at": now,
-    })
+    }
+    if session_id:
+        try:
+            await db.wallet_topups.insert_one(record)
+        except DuplicateKeyError:
+            return False   # another caller already recorded/credited this session
+        await _credit_wallet(uid, amount)
+        return True
+    await _credit_wallet(uid, amount)
+    await db.wallet_topups.insert_one(record)
     return True
 
 
@@ -70,13 +106,20 @@ async def _mark_topup_failed(session_id: str):
 
 
 async def _debit_wallet(uid: str, amount: float) -> bool:
-    """Debit the user's wallet if they have enough. Returns False if not."""
+    """Atomically debit the wallet only if it currently covers the amount.
+
+    The balance check and the decrement are a single conditional UPDATE (the
+    {"wallet_balance": {"$gte": ...}} filter + matched_count), so two concurrent
+    spends can't both read the same balance, both pass, and both decrement into
+    overdraft. Returns False if the balance was insufficient (no change made)."""
     amount = round(float(amount), 2)
-    bal = await _wallet_balance(uid)
-    if bal + 1e-9 < amount:
+    if not math.isfinite(amount) or amount <= 0:
         return False
-    await db.users.update_one({"user_id": uid}, {"$inc": {"wallet_balance": -amount}})
-    return True
+    res = await db.users.update_one(
+        {"user_id": uid, "wallet_balance": {"$gte": amount - 1e-9}},
+        {"$inc": {"wallet_balance": -amount}},
+    )
+    return getattr(res, "matched_count", 0) == 1
 
 
 def _insufficient():
@@ -84,6 +127,24 @@ def _insufficient():
         "code": "insufficient_balance",
         "message": "Not enough wallet balance. Top up your wallet first.",
     })
+
+
+def _money_amount(amount) -> float:
+    """Validate a user-supplied money amount. Rejects non-finite values — NaN and
+    Infinity slip past `<= 0` checks (every comparison with NaN is False) and
+    would poison wallet_balance permanently."""
+    try:
+        a = round(float(amount or 0), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Amount must be a positive number")
+    if not math.isfinite(a) or a <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be a positive number")
+    return a
+
+
+# Brute-force protection for the transfer security answer.
+_ANSWER_MAX_FAILS = 5
+_ANSWER_LOCK_MINUTES = 15
 
 
 async def _fee_dollars() -> float:
@@ -121,18 +182,46 @@ def _norm(answer: Optional[str]) -> str:
 
 
 async def _require_answer(user_doc: dict, answer: Optional[str]):
-    """Enforce the sender's security question before money leaves their account."""
+    """Enforce the sender's security question before money leaves their account.
+
+    Wrong answers are counted and, past a threshold, the gate locks for a while —
+    without this the (typically low-entropy) answer could be brute-forced with
+    unlimited guesses, draining the wallet via send / pay-request."""
+    uid = user_doc["user_id"]
     h = user_doc.get("transfer_answer_hash")
     if not h:
         raise HTTPException(status_code=400, detail={
             "code": "security_not_set",
             "message": "Set up your transfer security question first",
         })
+    locked = user_doc.get("transfer_answer_locked_until")
+    if locked:
+        try:
+            if datetime.now(timezone.utc) < _norm_dt(locked):
+                raise HTTPException(status_code=429, detail={
+                    "code": "too_many_attempts",
+                    "message": "Too many incorrect answers. Try again later.",
+                })
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     if not _verify(_norm(answer), h):
+        await db.users.update_one({"user_id": uid}, {"$inc": {"transfer_answer_fails": 1}})
+        fresh = await db.users.find_one({"user_id": uid}, {"_id": 0, "transfer_answer_fails": 1})
+        if int((fresh or {}).get("transfer_answer_fails", 0) or 0) >= _ANSWER_MAX_FAILS:
+            await db.users.update_one({"user_id": uid}, {"$set": {
+                "transfer_answer_fails": 0,
+                "transfer_answer_locked_until": datetime.now(timezone.utc) + timedelta(minutes=_ANSWER_LOCK_MINUTES),
+            }})
         raise HTTPException(status_code=403, detail={
             "code": "wrong_answer",
             "message": "Incorrect security answer",
         })
+    if user_doc.get("transfer_answer_fails"):
+        await db.users.update_one({"user_id": uid}, {"$set": {
+            "transfer_answer_fails": 0, "transfer_answer_locked_until": None,
+        }})
 
 
 async def _do_transfer(sender: dict, to_id: str, amount: float, note: str):
@@ -230,9 +319,7 @@ async def send_money(body: SendMoney, authorization: Optional[str] = Header(None
     to = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "name": 1})
     if not to:
         raise HTTPException(status_code=404, detail="Recipient not found")
-    amount = round(float(body.amount or 0), 2)
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    amount = _money_amount(body.amount)
     # Anti-fraud: block outgoing transfers during the post-direct-deposit-change hold.
     from routes.payments import payout_hold_until, DD_HOLD_BUSINESS_DAYS
     hold = payout_hold_until(me)
@@ -339,11 +426,17 @@ async def accept_transfer(tid: str, authorization: Optional[str] = Header(None))
     amount = round(float(t.get("amount", 0) or 0), 2)
     sender = await db.users.find_one({"user_id": t["from_user_id"]}, {"_id": 0, "user_id": 1, "name": 1}) \
         or {"user_id": t["from_user_id"], "name": t.get("from_name", "Someone")}
+    # Claim the transfer atomically BEFORE crediting. The status filter makes this
+    # a single-winner transition, so accept can't race a reverse/decline (which
+    # would pay the one escrowed amount out twice).
+    claim = await db.money_transfers.update_one(
+        {"id": tid, "to_user_id": me["user_id"], "status": "pending"},
+        {"$set": {"status": "accepted", "resolved_at": datetime.now(timezone.utc)}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="Transfer already settled")
     await _do_transfer(sender, me["user_id"], amount, t.get("note") or "")
     # The fee was already booked as platform revenue when the transfer was sent.
-    await db.money_transfers.update_one(
-        {"id": tid}, {"$set": {"status": "accepted", "resolved_at": datetime.now(timezone.utc)}}
-    )
     await _notify_money(t["from_user_id"], me["user_id"], "money_accepted",
                         f"accepted your ${amount:.2f}")
     return {"ok": True, "amount": amount}
@@ -357,12 +450,16 @@ async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
+    # Claim atomically before refunding so decline can't race accept/reverse.
+    claim = await db.money_transfers.update_one(
+        {"id": tid, "to_user_id": me["user_id"], "status": "pending"},
+        {"$set": {"status": "declined", "resolved_at": datetime.now(timezone.utc)}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="Transfer already settled")
     # Refund the escrowed funds (amount + fee) back to the sender, and un-book the fee.
     await _credit_wallet(t["from_user_id"], round(float(t.get("amount", 0) or 0) + float(t.get("fee", 0) or 0), 2))
     await db.platform_revenue.delete_one({"ref_id": tid, "source": "transfer_fee"})
-    await db.money_transfers.update_one(
-        {"id": tid}, {"$set": {"status": "declined", "resolved_at": datetime.now(timezone.utc)}}
-    )
     await _notify_money(t["from_user_id"], me["user_id"], "money_declined",
                         "declined your money")
     return {"ok": True}
@@ -378,11 +475,16 @@ async def reverse_transfer(tid: str, authorization: Optional[str] = Header(None)
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found or already settled")
+    # Claim atomically before refunding so a reverse can't race the recipient's
+    # accept (which would pay the single escrow out to both parties).
+    claim = await db.money_transfers.update_one(
+        {"id": tid, "from_user_id": me["user_id"], "status": "pending"},
+        {"$set": {"status": "reversed", "resolved_at": datetime.now(timezone.utc)}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="Transfer already settled")
     await _credit_wallet(me["user_id"], round(float(t.get("amount", 0) or 0) + float(t.get("fee", 0) or 0), 2))
     await db.platform_revenue.delete_one({"ref_id": tid, "source": "transfer_fee"})
-    await db.money_transfers.update_one(
-        {"id": tid}, {"$set": {"status": "reversed", "resolved_at": datetime.now(timezone.utc)}}
-    )
     await _notify_money(t["to_user_id"], me["user_id"], "money_reversed",
                         f"reversed the ${round(float(t.get('amount', 0) or 0), 2):.2f} they sent")
     return {"ok": True}
@@ -427,9 +529,7 @@ async def request_money(body: RequestMoney, authorization: Optional[str] = Heade
     payer = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "name": 1})
     if not payer:
         raise HTTPException(status_code=404, detail="User not found")
-    amount = round(float(body.amount or 0), 2)
-    if amount <= 0:
-        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    amount = _money_amount(body.amount)
     now = datetime.now(timezone.utc)
     doc = {
         "id": str(uuid.uuid4()),
@@ -470,9 +570,19 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
         raise HTTPException(status_code=404, detail="Request not found")
     amount = round(float(req.get("amount", 0) or 0), 2)
     await _require_answer(me, body.answer)
+    # Claim the request atomically before charging so it can't be paid twice on a
+    # double-click / retry. Revert to pending if the wallet can't cover it.
+    claim = await db.money_requests.update_one(
+        {"id": rid, "to_user_id": me["user_id"], "status": "pending"},
+        {"$set": {"status": "paying"}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="Request already handled")
     # The payer covers the flat transaction fee; the requester gets the full amount.
     fee = await _fee_dollars()
     if not await _debit_wallet(me["user_id"], round(amount + fee, 2)):
+        await db.money_requests.update_one(
+            {"id": rid, "status": "paying"}, {"$set": {"status": "pending"}})
         raise _insufficient()
     await _do_transfer(me, req["from_user_id"], amount, req.get("note") or "")
     await _record_platform_fee(fee, "transfer_fee", me["user_id"], rid)
@@ -569,9 +679,7 @@ async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header
         amount = round(float(tier["price"]), 2)
         fee = 0.0
     else:
-        amount = round(float(body.amount or 0), 2)
-        if amount <= 0:
-            raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+        amount = _money_amount(body.amount)
         fee = await _fee_dollars()
 
     total = round(amount + fee, 2)

@@ -31,10 +31,12 @@ export default function ReelVideo({
     if (!v || !uri) return;
     if (active && !paused) { try { v.play()?.catch(() => {}); } catch {} }
     else { try { v.pause(); } catch {} }
+    // Pause on unmount/recycle so a scrolled-away element can't keep playing audio.
+    return () => { try { v.pause(); } catch {} };
   }, [active, paused, uri]);
 
   useEffect(() => { const v = ref.current; if (v) v.muted = muted; }, [muted]);
-  useEffect(() => { const v = ref.current; if (v) { try { v.playbackRate = rate; } catch {} } }, [rate, active, paused]);
+  useEffect(() => { const v = ref.current; if (v) { try { v.playbackRate = rate; } catch {} } }, [rate]);
 
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "#000" }}>
@@ -43,7 +45,6 @@ export default function ReelVideo({
         src={uri}
         loop
         muted={muted}
-        autoPlay={active}
         playsInline
         onPlaying={() => setStarted(true)}
         // @ts-ignore — DOM attribute on web

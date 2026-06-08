@@ -228,6 +228,9 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   // Single tap = pause/play, double tap = like (Instagram).
   const lastTap = useRef(0);
   const pendingTap = useRef<any>(null);
+  // Clear the pending single-tap timer if this row is recycled/unmounted, so it
+  // can't fire setPaused on an unmounted component.
+  useEffect(() => () => { if (pendingTap.current) clearTimeout(pendingTap.current); }, []);
   const handleTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 280) {
@@ -252,15 +255,16 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   };
 
   // Subscriber-only reels: engagement routes to the creator's subscribe sheet.
-  const goSub = () => router.push({ pathname: "/user/[name]", params: { name: content.author.name, subscribe: "1" } });
+  const goSub = () => router.push({ pathname: "/user/[name]", params: { name: content.author?.name || "", subscribe: "1" } });
   const onRepost = async () => {
     if (content.locked) return goSub();
-    setReposted((v) => !v);
-    setRepostCount((n) => n + (reposted ? -1 : 1));
+    // Derive the count delta from the SAME toggle so a fast double-tap can't read
+    // a stale `reposted` and move the count the wrong way.
+    setReposted((v) => { setRepostCount((n) => Math.max(0, n + (v ? -1 : 1))); return !v; });
     try { await api.toggleRepost(post.repost_of || post.id); } catch {}
   };
   const onComment = () => { if (content.locked) return goSub(); onOpenComments(content); };
-  const onUser = () => router.push({ pathname: "/user/[name]", params: { name: content.author.name } });
+  const onUser = () => router.push({ pathname: "/user/[name]", params: { name: content.author?.name || "" } });
   const onReport = () => {
     const doReport = () => { api.reportPost(post.id, "inappropriate").catch(() => {}); };
     if (Platform.OS === "web") {
@@ -283,11 +287,11 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
           <View style={styles.reelLockIcon}><Ionicons name="lock-closed" size={34} color="#F5A623" /></View>
           <Text style={styles.reelLockTitle}>Subscribers-only reel</Text>
           <Text style={styles.reelLockSub}>
-            Subscribe to @{content.author.name} at Tier {content.min_sub_tier || 1}{(content.min_sub_tier || 1) < 3 ? "+" : ""} to watch.
+            Subscribe to @{content.author?.name} at Tier {content.min_sub_tier || 1}{(content.min_sub_tier || 1) < 3 ? "+" : ""} to watch.
           </Text>
           <TouchableOpacity
             style={styles.reelLockBtn}
-            onPress={() => router.push({ pathname: "/user/[name]", params: { name: content.author.name, subscribe: "1" } })}
+            onPress={() => router.push({ pathname: "/user/[name]", params: { name: content.author?.name, subscribe: "1" } })}
             testID={`reel-subscribe-${post.id}`}
           >
             <Ionicons name="star" size={15} color="#fff" />
@@ -369,7 +373,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
       <View style={styles.rightCol}>
         <TouchableOpacity style={styles.iconBtn} onPress={onUser}>
           <View style={styles.avatarCircle}>
-            <Text style={styles.avatarLetter}>{(content.author.name?.[0] || "?").toUpperCase()}</Text>
+            <Text style={styles.avatarLetter}>{(content.author?.name?.[0] || "?").toUpperCase()}</Text>
           </View>
         </TouchableOpacity>
         <View>
@@ -431,13 +435,13 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         {isRepost && (
           <View style={styles.repostHint}>
             <Ionicons name="repeat" size={13} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.repostHintText}>Reposted by @{post.author.name}</Text>
+            <Text style={styles.repostHintText}>Reposted by @{post.author?.name}</Text>
           </View>
         )}
         <TouchableOpacity style={styles.authorRow} onPress={onUser} activeOpacity={0.8}>
-          <Text style={styles.author} numberOfLines={1}>@{content.author.name}</Text>
-          {content.author.verified && <VerifiedBadge size={15} />}
-          <UserBadges badges={content.author.badges} size={15} />
+          <Text style={styles.author} numberOfLines={1}>@{content.author?.name}</Text>
+          {content.author?.verified && <VerifiedBadge size={15} />}
+          <UserBadges badges={content.author?.badges} size={15} />
         </TouchableOpacity>
         {!!content.place_name && (videoUri || imageUri) && (
           <View style={styles.metaRow}>
@@ -763,9 +767,11 @@ export default function ReelsScreen() {
   // Pause playback when the screen loses focus (fixes audio bleeding after you leave).
   useFocusEffect(useCallback(() => {
     setFocused(true);
-    load();
     return () => setFocused(false);
-  }, [load]));
+  }, []));
+  // Load on mount and when the scope / deep-link focus changes — NOT on every
+  // screen focus, which would refetch and reset the scroll position mid-session.
+  useEffect(() => { load(); }, [load]);
 
   // When opened from a feed video, jump to that reel.
   const focusIndex = focus ? items.findIndex((i) => i.id === focus) : -1;
@@ -773,13 +779,19 @@ export default function ReelsScreen() {
     if (focusIndex >= 0) setActiveIdx(focusIndex);
   }, [focusIndex]);
 
+  const recordedViews = useRef<Set<string>>(new Set());
   const onViewable = useRef(({ viewableItems }: any) => {
     if (viewableItems?.length) {
       const idx = viewableItems[0].index ?? 0;
       setActiveIdx(idx);
       const it = viewableItems[0].item as any;
-      if (it?.__ad) api.reelAdEvent(it.id, "impression").catch(() => {});
-      else if (it?.id) api.recordPostView(it.id).catch(() => {});
+      // Record each view/impression at most once — the threshold re-crosses as a
+      // reel re-enters view, which otherwise inflates the count.
+      if (it?.id && !recordedViews.current.has(it.id)) {
+        recordedViews.current.add(it.id);
+        if (it.__ad) api.reelAdEvent(it.id, "impression").catch(() => {});
+        else api.recordPostView(it.id).catch(() => {});
+      }
     }
   }).current;
 
@@ -821,7 +833,10 @@ export default function ReelsScreen() {
         <FlatList
           ref={listRef}
           data={items}
-          keyExtractor={(i) => i.id}
+          keyExtractor={(i) => (i.__ad ? `ad-${i.id}` : i.id)}
+          onScrollToIndexFailed={({ index }) => {
+            setTimeout(() => { try { listRef.current?.scrollToIndex({ index, animated: false }); } catch {} }, 80);
+          }}
           pagingEnabled
           showsVerticalScrollIndicator={false}
           snapToInterval={screenH}

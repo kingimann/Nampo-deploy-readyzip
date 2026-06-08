@@ -1006,6 +1006,7 @@ export type User = {
   payout_frequency?: string; // biweekly | monthly
   payout_threshold?: number;
   default_comment_policy?: string; // everyone | followers | friends | nobody
+  message_policy?: string; // who can start a DM: everyone | followers | friends | nobody
   default_likes_disabled?: boolean;
   is_private?: boolean;
   message_policy?: string; // everyone | followers | nobody
@@ -1023,6 +1024,7 @@ export type ProfilePatch = {
   payout_frequency?: string;
   payout_threshold?: number;
   default_comment_policy?: string;
+  message_policy?: string;
   default_likes_disabled?: boolean;
   is_private?: boolean;
   message_policy?: string;

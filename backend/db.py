@@ -478,47 +478,59 @@ class Collection:
         update: dict,
         upsert: bool = False,
     ) -> UpdateResult:
-        doc = await self.find_one(filter_dict or {})
-
-        if doc is None:
-            if not upsert:
-                return UpdateResult(0, 0)
-            # Build the new document from $set and $setOnInsert
-            new_doc: dict = {}
-            if "$setOnInsert" in update:
-                for path, val in update["$setOnInsert"].items():
-                    _set_nested(new_doc, path, val)
-            if "$set" in update:
-                for path, val in update["$set"].items():
-                    _set_nested(new_doc, path, val)
+        # Atomic read-modify-write: the matched row is locked with SELECT ... FOR
+        # UPDATE for the life of the transaction, so two concurrent callers can't
+        # both read the same row, both apply, and both report a match. This is
+        # what lets routes use a conditional filter (e.g. {"id": x, "status":
+        # "open"}) as a single-winner claim — once the winner commits the new
+        # status, the loser's FOR UPDATE re-evaluates the filter and matches no
+        # row, returning matched_count=0.
+        for attempt in (1, 2, 3):
             try:
-                await self.insert_one(new_doc)
-            except DuplicateKeyError:
-                # Race condition — someone else inserted first; treat as update
-                doc = await self.find_one(filter_dict or {})
-                if doc is None:
-                    return UpdateResult(0, 0)
-                updated = _apply_update(doc, update, filter_dict)
-                await self._write_back(filter_dict, updated)
-                return UpdateResult(1, 1)
-            return UpdateResult(0, 0, new_doc.get("id") or True)
-
-        # Doc exists — apply operators
-        updated = _apply_update(doc, update, filter_dict)
-        await self._write_back(filter_dict, updated)
-        return UpdateResult(1, 1)
-
-    async def _write_back(self, filter_dict: dict, updated: dict) -> None:
-        params: List[Any] = []
-        where = self._build_filter_sql(filter_dict, params)
-        doc_json = _to_json(updated)
-        params.append(doc_json)
-        sql = (
-            f"UPDATE {self.name} SET doc = ${len(params)}::jsonb "
-            f"WHERE ctid = (SELECT ctid FROM {self.name} WHERE {where} LIMIT 1)"
-        )
-        async with self.pool.acquire() as conn:
-            await conn.execute(sql, *params)
+                async with self.pool.acquire() as conn:
+                    async with conn.transaction():
+                        params: List[Any] = []
+                        where = self._build_filter_sql(filter_dict or {}, params)
+                        locked = await conn.fetchrow(
+                            f"SELECT ctid, doc FROM {self.name} WHERE {where} "
+                            f"LIMIT 1 FOR UPDATE",
+                            *params,
+                        )
+                        if locked is not None:
+                            doc = _load_doc(locked["doc"])
+                            updated = _apply_update(doc, update, filter_dict)
+                            await conn.execute(
+                                f"UPDATE {self.name} SET doc = $1::jsonb "
+                                f"WHERE ctid = $2",
+                                _to_json(updated), locked["ctid"],
+                            )
+                            return UpdateResult(1, 1)
+                        if not upsert:
+                            return UpdateResult(0, 0)
+                        # No matching row — insert one from $setOnInsert + $set.
+                        new_doc: dict = {}
+                        if "$setOnInsert" in update:
+                            for path, val in update["$setOnInsert"].items():
+                                _set_nested(new_doc, path, val)
+                        if "$set" in update:
+                            for path, val in update["$set"].items():
+                                _set_nested(new_doc, path, val)
+                        await conn.execute(
+                            f"INSERT INTO {self.name}(doc) VALUES($1::jsonb)",
+                            _to_json(new_doc),
+                        )
+                        return UpdateResult(0, 0, new_doc.get("id") or True)
+            except asyncpg.UndefinedTableError:
+                if attempt == 3:
+                    raise
+                await self._ensure_table()  # first write to a new collection
+            except asyncpg.UniqueViolationError as exc:
+                # A concurrent insert beat us between the SELECT and the INSERT.
+                # Retry: the row now exists, so the locked-update branch claims it
+                # (mirroring the old DuplicateKeyError "treat as update" path).
+                if attempt == 3:
+                    raise DuplicateKeyError(str(exc)) from exc
+        return UpdateResult(0, 0)
 
     async def update_many(
         self,

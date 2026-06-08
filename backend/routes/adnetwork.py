@@ -192,14 +192,15 @@ _AD_UNIT_HTML = """<!doctype html><html><head><meta charset="utf-8">
   rs.setProperty('--bg',CFG.bg);rs.setProperty('--text',CFG.text);rs.setProperty('--muted',CFG.muted);
   rs.setProperty('--border',CFG.border);rs.setProperty('--acc',CFG.accent);rs.setProperty('--rad',CFG.radius+'px');
   document.getElementById('lbl').textContent=CFG.label;
-  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;"}[c];});}
+  function esc(s){return String(s==null?"":s).replace(/[&<>"'`]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;","`":"&#96;"}[c];});}
+  function safeUrl(u){u=String(u==null?"":u).trim();return /^https?:\\/\\//i.test(u)?u:"#";}
   fetch(BASE+"/api/pub/ad?site="+encodeURIComponent(SITE)).then(function(r){return r.json()}).then(function(j){
     var root=document.getElementById("root");
     if(!j||!j.ad){root.innerHTML='<div class="empty">No ad available.</div>';return;}
     var a=j.ad;
-    var img=a.image?('<img src="'+esc(a.image)+'" alt="">'):'';
+    var img=safeUrl(a.image)!=="#"?('<img src="'+esc(safeUrl(a.image))+'" alt="">'):'';
     var desc=a.description?('<div class="d">'+esc(a.description)+'</div>'):'';
-    root.innerHTML='<a class="card" href="'+esc(a.click)+'" target="_blank" rel="noopener nofollow">'+img+
+    root.innerHTML='<a class="card" href="'+esc(safeUrl(a.click))+'" target="_blank" rel="noopener nofollow">'+img+
       '<div><div class="h">'+esc(a.headline)+'</div>'+desc+'<div class="m">'+esc(a.domain)+' ›</div></div></a>';
   }).catch(function(){document.getElementById("root").innerHTML='<div class="empty">No ad available.</div>';});
 })();

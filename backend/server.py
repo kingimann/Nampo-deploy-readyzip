@@ -1,4 +1,5 @@
 """Map App backend entry point."""
+import hashlib
 import logging
 import os
 import time
@@ -148,8 +149,11 @@ async def idempotency(request: _Req, call_next):
     key = request.headers.get("idempotency-key") if request.method in ("POST", "PUT", "PATCH", "DELETE") else None
     if not key:
         return await call_next(request)
-    # Scope the key to the caller (token) so two users can't collide.
-    scope = request.headers.get("authorization", "")[-40:]
+    # Scope the key to the caller so two users can't collide. Hash the full
+    # Authorization header — slicing the last N chars let distinct tokens that
+    # share a trailing slice collide and be served each other's cached response.
+    auth = request.headers.get("authorization", "")
+    scope = hashlib.sha256(auth.encode()).hexdigest() if auth else ""
     ck = f"{scope}|{request.method}|{request.url.path}|{key[:200]}"
     now = time.time()
     hit = _IDEMP.get(ck)

@@ -398,6 +398,14 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
     )
 
 
+async def _hydrate_many(docs: list, viewer_id: Optional[str]) -> list:
+    """Hydrate a list of post docs concurrently. Each _hydrate_post makes several
+    sequential DB round-trips; running a feed of ~100 posts one-at-a-time was the
+    main feed-load latency. gather() preserves input order, so the ranked/sorted
+    order of `docs` is unchanged."""
+    return list(await asyncio.gather(*(_hydrate_post(d, viewer_id) for d in docs)))
+
+
 def _is_promoted(doc: dict) -> bool:
     until = doc.get("promoted_until")
     if not until:
@@ -675,7 +683,7 @@ async def list_replies(post_id: str, authorization: Optional[str] = Header(None)
     cursor = db.posts.find({"parent_id": post_id}, {"_id": 0}).sort("created_at", 1)
     docs = await cursor.to_list(200)
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned comments first
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    return await _hydrate_many(docs, user["user_id"])
 
 
 @router.get("/posts/{post_id}/thread", response_model=List[Post])
@@ -700,7 +708,7 @@ async def post_thread(post_id: str, authorization: Optional[str] = Header(None))
             out_docs.append(c)
             frontier.append(c["id"])
     out_docs.sort(key=lambda d: d.get("created_at"))
-    return [await _hydrate_post(d, user["user_id"]) for d in out_docs]
+    return await _hydrate_many(out_docs, user["user_id"])
 
 
 async def _viewer_affinity(viewer_id: str):
@@ -798,7 +806,7 @@ async def explore_feed(authorization: Optional[str] = Header(None)):
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
     ranked = await _rank_docs(docs, user["user_id"], 100)
-    return [await _hydrate_post(d, user["user_id"]) for d in ranked]
+    return await _hydrate_many(ranked, user["user_id"])
 
 
 @router.get("/feed/home", response_model=List[Post])
@@ -819,7 +827,7 @@ async def home_feed(authorization: Optional[str] = Header(None)):
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
     ranked = await _rank_docs(docs, user["user_id"], 100)
-    return [await _hydrate_post(d, user["user_id"]) for d in ranked]
+    return await _hydrate_many(ranked, user["user_id"])
 
 
 @router.get("/posts/user/{user_id}", response_model=List[Post])
@@ -839,7 +847,7 @@ async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
     )
     docs = await cursor.to_list(100)
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned posts first
-    return [await _hydrate_post(d, me["user_id"]) for d in docs]
+    return await _hydrate_many(docs, me["user_id"])
 
 
 class ReactBody(BaseModel):
@@ -873,28 +881,28 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
             "code": "subscribers_only",
             "message": f"Subscribe at Tier {_mtier} or higher to react to this post.",
         })
-    reactions = dict(doc.get("reactions") or {})
-
-    def _dec(em: str):
-        n = int(reactions.get(em, 0)) - 1
-        if n > 0:
-            reactions[em] = n
-        else:
-            reactions.pop(em, None)
+    # Track the tally change as per-key deltas applied with $inc, so concurrent
+    # reactions from different users serialize on the locked row (update_one is
+    # SELECT ... FOR UPDATE) instead of clobbering a $set of the whole recomputed
+    # dict. _reaction_list already hides any key left at <= 0.
+    inc: dict = {}
 
     existing = await db.post_reactions.find_one({"post_id": post_id, "user_id": uid}, {"_id": 0})
     if existing and existing.get("emoji") == emoji:
         # Toggle off.
         await db.post_reactions.delete_one({"post_id": post_id, "user_id": uid})
-        _dec(emoji)
+        inc[f"reactions.{emoji}"] = inc.get(f"reactions.{emoji}", 0) - 1
+        inc["likes_count"] = inc.get("likes_count", 0) - 1
     elif existing:
         # Switch reaction.
         await db.post_reactions.update_one(
             {"post_id": post_id, "user_id": uid},
             {"$set": {"emoji": emoji, "created_at": datetime.now(timezone.utc)}},
         )
-        _dec(existing.get("emoji", ""))
-        reactions[emoji] = int(reactions.get(emoji, 0)) + 1
+        old = existing.get("emoji", "")
+        if old:
+            inc[f"reactions.{old}"] = inc.get(f"reactions.{old}", 0) - 1
+        inc[f"reactions.{emoji}"] = inc.get(f"reactions.{emoji}", 0) + 1
     else:
         if doc.get("likes_disabled") and not is_admin(user):
             raise HTTPException(status_code=403, detail="Reactions are turned off for this post")
@@ -903,17 +911,16 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
                 "post_id": post_id, "user_id": uid, "emoji": emoji,
                 "created_at": datetime.now(timezone.utc),
             })
-            reactions[emoji] = int(reactions.get(emoji, 0)) + 1
+            inc[f"reactions.{emoji}"] = inc.get(f"reactions.{emoji}", 0) + 1
+            inc["likes_count"] = inc.get("likes_count", 0) + 1
             await emit_notification(
                 user_id=doc["user_id"], actor_id=uid, ntype="like",
                 post_id=post_id, message=f"{emoji} {(doc.get('text') or '')[:120]}".strip(),
             )
         except DuplicateKeyError:
             pass
-    total = sum(int(v) for v in reactions.values())
-    await db.posts.update_one(
-        {"id": post_id}, {"$set": {"reactions": reactions, "likes_count": total}}
-    )
+    if inc:
+        await db.posts.update_one({"id": post_id}, {"$inc": inc})
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})
     return await _hydrate_post(updated, uid)
 
@@ -983,6 +990,14 @@ async def toggle_repost(post_id: str, authorization: Optional[str] = Header(None
         await db.posts.delete_one({"id": existing["id"]})
         await db.posts.update_one({"id": post_id}, {"$inc": {"reposts_count": -1}})
     else:
+        # Subscriber-only posts: gate reposting the same way reactions/comments are
+        # gated, so a non-subscriber can't inflate a locked post's repost count.
+        _mtier = int(orig.get("min_sub_tier") or 0)
+        if _mtier > 0 and (await _viewer_sub_level(user["user_id"], orig["user_id"])) < _mtier:
+            raise HTTPException(status_code=403, detail={
+                "code": "subscribers_only",
+                "message": f"Subscribe at Tier {_mtier} or higher to repost this.",
+            })
         await db.posts.insert_one({
             "id": str(uuid.uuid4()),
             "user_id": user["user_id"],
@@ -1056,7 +1071,7 @@ async def list_bookmarks(authorization: Optional[str] = Header(None)):
     docs = await db.posts.find({"id": {"$in": post_ids}}, {"_id": 0}).to_list(200)
     order = {pid: i for i, pid in enumerate(post_ids)}
     docs.sort(key=lambda d: order.get(d["id"], 0))
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    return await _hydrate_many(docs, user["user_id"])
 
 
 # ---------- Hashtags ----------
@@ -1101,7 +1116,7 @@ async def popular_posts(limit: int = Query(8, ge=1, le=20), authorization: Optio
             if d.get("id") not in skip and not d.get("repost_of")
             and not any(m.get("type") == "video" for m in (d.get("media") or []))]
     docs.sort(key=_engagement_score, reverse=True)
-    return [await _hydrate_post(d, user["user_id"]) for d in docs[:limit]]
+    return await _hydrate_many(docs[:limit], user["user_id"])
 
 
 @router.get("/reels/popular", response_model=List[Post])
@@ -1116,7 +1131,7 @@ async def popular_reels(limit: int = Query(8, ge=1, le=20), authorization: Optio
     skip = await _not_interested_ids(user["user_id"])
     out = [d for d in docs if d.get("id") not in skip and _has_playable_video(d)]
     out.sort(key=_engagement_score, reverse=True)
-    return [await _hydrate_post(d, user["user_id"]) for d in out[:limit]]
+    return await _hydrate_many(out[:limit], user["user_id"])
 
 
 @router.get("/hashtags/{tag}", response_model=List[Post])
@@ -1130,7 +1145,7 @@ async def posts_for_hashtag(tag: str, authorization: Optional[str] = Header(None
         .sort("created_at", -1).limit(100)
     )
     docs = await cursor.to_list(100)
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    return await _hydrate_many(docs, user["user_id"])
 
 
 @router.get("/hashtags/{tag}/count")
@@ -1179,6 +1194,8 @@ async def vote_poll(
     if not doc or not doc.get("poll"):
         raise HTTPException(status_code=404, detail="Poll not found")
     poll = doc["poll"]
+    if poll.get("closed"):
+        raise HTTPException(status_code=400, detail="Poll closed")
     ends_at = poll.get("ends_at")
     if ends_at and ends_at.replace(tzinfo=ends_at.tzinfo or timezone.utc) \
        <= datetime.now(timezone.utc):
@@ -1222,6 +1239,8 @@ async def vote_poll(
 async def record_view(post_id: str, authorization: Optional[str] = Header(None)):
     """Record a unique view (idempotent per user per post)."""
     user = await get_current_user(authorization)
+    if not await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1}):
+        raise HTTPException(status_code=404, detail="Post not found")
     try:
         await db.post_views.insert_one({
             "post_id": post_id, "user_id": user["user_id"],
@@ -1446,7 +1465,7 @@ async def reels_feed(
     ranked = await _rank_docs(playable, uid, 60)
     if focus:
         ranked.sort(key=lambda d: 0 if d["id"] == focus else 1)
-    return [await _hydrate_post(d, uid) for d in ranked]
+    return await _hydrate_many(ranked, uid)
 
 
 @router.get("/posts/user/{user_id}/all", response_model=List[Post])
@@ -1461,4 +1480,4 @@ async def user_posts_with_reposts(
     )
     docs = await cursor.to_list(100)
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned posts first
-    return [await _hydrate_post(d, me["user_id"]) for d in docs]
+    return await _hydrate_many(docs, me["user_id"])

@@ -140,6 +140,10 @@ async def _load_public_post(post_id: str):
         return None
     if int(doc.get("min_sub_tier") or 0) > 0:   # subscriber-only — never expose
         return None
+    # Only top-level public posts are embeddable. Private-group posts, replies, and
+    # reposts must not be served unauthenticated by id.
+    if doc.get("group_id") or doc.get("parent_id") or doc.get("repost_of"):
+        return None
     author = await db.users.find_one({"user_id": doc.get("user_id")}, {"_id": 0})
     if not _author_ok(author):
         return None

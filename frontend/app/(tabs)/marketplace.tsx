@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
   ActivityIndicator, RefreshControl, Modal, KeyboardAvoidingView,
-  Platform, Image, ScrollView, Animated, Easing,
+  Platform, Image, ScrollView, Animated, Easing, Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -225,7 +225,6 @@ export default function MarketplaceScreen() {
   }, [detectLocation]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
-  useEffect(() => { setLoading(true); load(); }, [load]);
 
   const pickPhotos = async () => {
     if (draft.photos.length >= MAX_PHOTOS) return;

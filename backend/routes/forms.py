@@ -51,12 +51,21 @@ GEO_MAX = 40
 
 def _geo_ok(ip: str) -> bool:
     now = time.time()
+    # Global ceiling first — the per-IP key comes from X-Forwarded-For, which a
+    # caller can rotate to dodge the per-IP cap and drain the Mapbox quota, so
+    # also bound total geocode calls across all callers in the window.
+    g = [t for t in _GEO_RATE.get("__global__", []) if now - t < RATE_WINDOW]
+    if len(g) >= GEO_MAX * 50:
+        _GEO_RATE["__global__"] = g
+        return False
     hits = [t for t in _GEO_RATE.get(ip, []) if now - t < RATE_WINDOW]
     if len(hits) >= GEO_MAX:
         _GEO_RATE[ip] = hits
         return False
     hits.append(now)
     _GEO_RATE[ip] = hits
+    g.append(now)
+    _GEO_RATE["__global__"] = g
     return True
 
 

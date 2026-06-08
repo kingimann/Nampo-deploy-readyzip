@@ -395,6 +395,13 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
     from core import CURRENCIES
     acct_ccy = (acct.get("default_currency") or "usd").lower()
     rate_meta = CURRENCIES.get(acct_ccy.upper())
+    if not rate_meta and acct_ccy != "usd":
+        # No known rate — don't silently fall back to 1.0 and send the USD amount
+        # as if it were the foreign currency (massively under/over-paying).
+        raise HTTPException(status_code=400, detail={
+            "code": "unsupported_currency",
+            "message": "Cash-out to this account's currency isn't supported yet.",
+        })
     rate = float(rate_meta["rate"]) if rate_meta else 1.0
     local_amount = round(net * rate, 2)
     # Zero-decimal currencies (e.g. JPY) take whole-unit amounts, not cents.
@@ -402,17 +409,30 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
                     "mga", "pyg", "rwf", "ugx", "vuv", "xaf", "xof", "xpf"}
     units = int(round(local_amount)) if acct_ccy in ZERO_DECIMAL else int(round(local_amount * 100))
 
-    # Debit first, refund on any failure so balances can't be lost.
-    await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"wallet_balance": -amount}})
+    # Atomically debit only if the balance still covers it — the conditional
+    # filter + matched_count stops two concurrent cash-outs from both passing the
+    # check above and both moving real money to Stripe (overdraft). Refund on any
+    # failure so balances can't be lost.
+    debit = await db.users.update_one(
+        {"user_id": user["user_id"], "wallet_balance": {"$gte": amount - 1e-9}},
+        {"$inc": {"wallet_balance": -amount}},
+    )
+    if getattr(debit, "matched_count", 0) != 1:
+        raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance."})
+    # Idempotency keys guard against the SDK retrying a single call; cross-request
+    # retries are already blocked by the atomic debit above (the retry can't win).
+    cashout_id = str(uuid.uuid4())
     try:
         stripe.Transfer.create(
             amount=units, currency=acct_ccy, destination=acct_id,
             metadata={"kind": "cashout", "user_id": user["user_id"]},
+            idempotency_key=f"cashout-transfer-{cashout_id}",
         )
         payout = stripe.Payout.create(
             amount=units, currency=acct_ccy, method="instant",
             stripe_account=acct_id,
             metadata={"kind": "cashout", "user_id": user["user_id"]},
+            idempotency_key=f"cashout-payout-{cashout_id}",
         )
     except Exception as e:
         await db.users.update_one({"user_id": user["user_id"]}, {"$inc": {"wallet_balance": amount}})
@@ -424,7 +444,7 @@ async def cashout_to_card(body: CashoutBody, authorization: Optional[str] = Head
 
     now = datetime.now(timezone.utc)
     await db.payouts.insert_one({
-        "id": str(uuid.uuid4()), "user_id": user["user_id"], "amount": net, "gross": amount, "fee": CASHOUT_FEE,
+        "id": cashout_id, "user_id": user["user_id"], "amount": net, "gross": amount, "fee": CASHOUT_FEE,
         "currency": acct_ccy, "local_amount": local_amount,
         "status": "instant", "method": "instant_card",
         "stripe_payout_id": (payout or {}).get("id"), "created_at": now,
@@ -1151,12 +1171,20 @@ async def stripe_webhook(request: Request):
         return {"ok": True}
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
+    # Outside of an explicit test key we must verify the Stripe signature —
+    # otherwise anyone could POST a forged event and credit wallets / grant plans.
+    # Only a *_test_* key (sk_test_/rk_test_) may trust an unsigned body; this also
+    # covers restricted live keys (rk_live_) which don't start with "sk_live_".
+    if not STRIPE_WEBHOOK_SECRET and "_test_" not in STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=400, detail="Webhook signature verification required")
     try:
         if STRIPE_WEBHOOK_SECRET:
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-        else:  # dev: trust the body (configure the secret in production)
+        else:  # dev/test: trust the body (configure STRIPE_WEBHOOK_SECRET in production)
             import json
             event = json.loads(payload)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 

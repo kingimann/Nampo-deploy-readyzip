@@ -80,22 +80,24 @@ export default function LiquidTabBar(_: any) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
-  const { shortcuts } = useNavBar();
+  const { shortcuts, tabBarHidden } = useNavBar();
   const searchScale = useRef(new Animated.Value(1)).current;
 
   // 0 = shown, 1 = hidden. Drives both the pill (slide down) and the ＋ (fade in).
   const [hidden, setHidden] = useState(false);
   const [holding, setHolding] = useState(false);   // long-pressing Search → compose
   const tv = useRef(new Animated.Value(0)).current;
+  // Hide on web scroll-down OR when a screen requests it (e.g. panning the map).
+  const effectiveHidden = hidden || tabBarHidden;
 
   useEffect(() => {
     Animated.timing(tv, {
-      toValue: hidden ? 1 : 0,
+      toValue: effectiveHidden ? 1 : 0,
       duration: 220,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [hidden, tv]);
+  }, [effectiveHidden, tv]);
 
   // Never stay stuck hidden across navigation.
   useEffect(() => { setHidden(false); }, [pathname]);

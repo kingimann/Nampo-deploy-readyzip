@@ -87,26 +87,45 @@ async def fetch_link_preview(url: str) -> Optional[dict]:
                         ("url", "title", "description", "image", "site_name")}
 
     try:
+        # Follow redirects manually so we can re-validate every hop against the
+        # SSRF allow-list — auto-following would let a public URL 302 to an
+        # internal address (e.g. http://169.254.169.254/) that we'd then fetch.
         async with httpx.AsyncClient(
             timeout=TIMEOUT,
-            follow_redirects=True,
-            max_redirects=5,
+            follow_redirects=False,
             headers={"User-Agent": "NamiBot/1.0 (link preview)"},
         ) as client:
-            async with client.stream("GET", url) as resp:
-                if resp.status_code >= 400:
-                    return None
-                ctype = (resp.headers.get("content-type") or "").lower()
-                if "html" not in ctype:
-                    return None
-                chunks = []
-                total = 0
-                async for chunk in resp.aiter_bytes(chunk_size=8192):
-                    chunks.append(chunk)
-                    total += len(chunk)
-                    if total >= MAX_BYTES:
-                        break
-                body = b"".join(chunks).decode("utf-8", errors="replace")
+            cur = url
+            body = None
+            for _ in range(6):  # initial request + up to 5 redirects
+                async with client.stream("GET", cur) as resp:
+                    if resp.is_redirect:
+                        loc = resp.headers.get("location")
+                        if not loc:
+                            return None
+                        nxt = urljoin(cur, loc)
+                        p2 = urlparse(nxt)
+                        if (p2.scheme not in ("http", "https") or not p2.hostname
+                                or not _is_safe_host(p2.hostname)):
+                            return None
+                        cur = nxt
+                        continue
+                    if resp.status_code >= 400:
+                        return None
+                    ctype = (resp.headers.get("content-type") or "").lower()
+                    if "html" not in ctype:
+                        return None
+                    chunks = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes(chunk_size=8192):
+                        chunks.append(chunk)
+                        total += len(chunk)
+                        if total >= MAX_BYTES:
+                            break
+                    body = b"".join(chunks).decode("utf-8", errors="replace")
+                    break
+            if body is None:
+                return None
     except Exception:
         return None
 

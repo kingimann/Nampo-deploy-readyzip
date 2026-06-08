@@ -426,7 +426,7 @@ export default function MessagesScreen() {
                 <TextInput
                   placeholder="Group name"
                   placeholderTextColor={theme.textMuted}
-                  style={[styles.searchPill, styles.searchInput, { marginBottom: 10 }]}
+                  style={[styles.searchPill, styles.composeSearchInput, { marginBottom: 10 }]}
                   value={groupName}
                   onChangeText={setGroupName}
                   maxLength={80}
@@ -453,7 +453,7 @@ export default function MessagesScreen() {
               <TextInput
                 placeholder={mode === "new-group" ? "Add members…" : "Search by email or name"}
                 placeholderTextColor={theme.textMuted}
-                style={styles.searchInput}
+                style={styles.composeSearchInput}
                 value={searchQ}
                 onChangeText={setSearchQ}
                 autoFocus={mode === "new-dm"}
@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12,
     marginBottom: 12,
   },
-  searchInput: {
+  composeSearchInput: {
     flex: 1, color: theme.textPrimary, fontSize: 14,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
   },

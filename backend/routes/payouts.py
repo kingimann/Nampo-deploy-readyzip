@@ -32,10 +32,29 @@ def _interval_days(freq: str) -> int:
     return {"weekly": 7, "biweekly": 14, "monthly": 30}.get(freq, 7)
 
 
-async def _sums(collection, field="amount") -> dict:
+# Earning sources whose money is also credited to the spendable in-app wallet.
+# That money is withdrawn via instant cash-out (which draws down wallet_balance),
+# NOT the scheduled bank-payout rail. Counting it here too would pay the same
+# dollar twice — once to the wallet (spend / instant cash-out) and again to the
+# connected bank account — so it's excluded from the scheduled balance.
+WALLET_BACKED_SOURCES = {"transfer", "wallet", "roadside", "admin"}
+
+
+def _is_instant_cashout(row: dict) -> bool:
+    """An instant wallet cash-out (debits wallet_balance) rather than a scheduled
+    earnings payout. These must not offset the earnings rail."""
+    return row.get("method") == "instant_card" or row.get("status") == "instant"
+
+
+async def _sums(collection, field="amount", *, extra=None, keep=None) -> dict:
     out: dict = {}
-    rows = await getattr(db, collection).find({}, {"_id": 0, "user_id": 1, field: 1}).to_list(50000)
+    proj = {"_id": 0, "user_id": 1, field: 1}
+    for f in (extra or ()):
+        proj[f] = 1
+    rows = await getattr(db, collection).find({}, proj).to_list(50000)
     for r in rows:
+        if keep is not None and not keep(r):
+            continue
         out[r.get("user_id")] = out.get(r.get("user_id"), 0) + float(r.get(field, 0) or 0)
     return out
 
@@ -43,8 +62,13 @@ async def _sums(collection, field="amount") -> dict:
 async def process_payouts(only_due: bool = True) -> dict:
     """Create payouts for creators whose balance is due. Idempotent per cadence."""
     now = datetime.now(timezone.utc)
-    earned = await _sums("earnings")
-    paid = await _sums("payouts")
+    # Scheduled-rail basis only: external (non-wallet) earnings minus scheduled
+    # payouts. Wallet-backed earnings and instant cash-outs belong to the wallet
+    # rail and are settled there, so they must not appear here.
+    earned = await _sums("earnings", extra=("source",),
+                         keep=lambda r: r.get("source") not in WALLET_BACKED_SOURCES)
+    paid = await _sums("payouts", extra=("method", "status"),
+                       keep=lambda r: not _is_instant_cashout(r))
     created, total = 0, 0.0
     for uid, total_earned in earned.items():
         if not uid:
@@ -58,7 +82,9 @@ async def process_payouts(only_due: bool = True) -> dict:
         if balance < threshold:
             continue
         if only_due:
-            last = await db.payouts.find_one({"user_id": uid}, {"_id": 0}, sort=[("created_at", -1)])
+            last = await db.payouts.find_one(
+                {"user_id": uid, "method": {"$ne": "instant_card"}},
+                {"_id": 0}, sort=[("created_at", -1)])
             if last and last.get("created_at"):
                 try:
                     if (now - _norm_dt(last["created_at"])).days < _interval_days(user.get("payout_frequency", "weekly")):
@@ -111,14 +137,22 @@ async def process_payouts(only_due: bool = True) -> dict:
 async def my_payouts(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     uid = user["user_id"]
+    # Scheduled-rail balance: external (non-wallet) earnings minus scheduled
+    # payouts only. Wallet-backed earnings and instant cash-outs settle on the
+    # wallet rail, so excluding them here keeps the same dollar from being shown
+    # (and paid) as owed twice. (See process_payouts.)
     earned = sum(
         float(e.get("amount", 0) or 0)
-        for e in await db.earnings.find({"user_id": uid}, {"_id": 0, "amount": 1}).to_list(20000)
+        for e in await db.earnings.find({"user_id": uid}, {"_id": 0, "amount": 1, "source": 1}).to_list(20000)
+        if e.get("source") not in WALLET_BACKED_SOURCES
     )
     paid_rows = await db.payouts.find({"user_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    paid = sum(float(p.get("amount", 0) or 0) for p in paid_rows)
+    # Balance reconciles against scheduled payouts; total_paid_out / history still
+    # show every withdrawal (instant cash-outs included) for the user's records.
+    paid = sum(float(p.get("amount", 0) or 0) for p in paid_rows if not _is_instant_cashout(p))
+    total_withdrawn = sum(float(p.get("amount", 0) or 0) for p in paid_rows)
     freq = user.get("payout_frequency", "weekly")
-    last = paid_rows[0]["created_at"] if paid_rows else None
+    last = next((p["created_at"] for p in paid_rows if not _is_instant_cashout(p)), None)
     next_due = None
     try:
         base = _norm_dt(last) if last else None
@@ -141,7 +175,7 @@ async def my_payouts(authorization: Optional[str] = Header(None)):
     threshold_locked_until = _locked_until(user.get("payout_threshold_changed_at"))
     return {
         "balance": round(earned - paid, 2),
-        "total_paid_out": round(paid, 2),
+        "total_paid_out": round(total_withdrawn, 2),
         "frequency": freq,
         "frequency_locked_until": freq_locked_until,
         "threshold_locked_until": threshold_locked_until,
