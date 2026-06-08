@@ -47,17 +47,47 @@ export default function AdminRoadsideCallsScreen() {
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
 
-  const load = useCallback(async () => {
+  const runSearch = async (d: string, n: string) => {
     setLoading(true);
     try {
-      const num = search.trim() ? Number(search.trim()) : undefined;
-      setCalls(await api.adminListRoadsideCalls({ date: date.trim() || undefined, call_number: Number.isFinite(num) ? num : undefined }));
+      const num = n.trim() ? Number(n.trim()) : undefined;
+      setCalls(await api.adminListRoadsideCalls({ date: d.trim() || undefined, call_number: Number.isFinite(num) ? num : undefined }));
     } catch (e: any) {
       Alert.alert("Couldn't load calls", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
     } finally { setLoading(false); }
-  }, [date, search]);
+  };
+  const load = useCallback(() => runSearch(date, search), [date, search]);
+  // Search across all days (no call number required).
+  const showRecent = () => { setDate(""); setSearch(""); runSearch("", ""); };
 
   useFocusEffect(useCallback(() => { if (isAdmin) load(); }, [load, isAdmin]));
+
+  const deleteOne = (c: RoadsideRequest) => {
+    Alert.alert("Erase this call?", `Call #${c.call_number ?? "—"} (${c.service}) will be permanently removed.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Erase", style: "destructive", onPress: async () => {
+        try { await api.adminDeleteRoadsideCall(c.id); setCalls((arr) => arr.filter((x) => x.id !== c.id)); }
+        catch (e: any) { Alert.alert("Couldn't erase", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+      } },
+    ]);
+  };
+  const eraseAll = (testOnly: boolean) => {
+    const scope = date.trim() ? `on ${date.trim()}` : "across all days";
+    const what = testOnly ? `all test calls ${scope}` : `ALL calls ${scope}`;
+    Alert.alert(`Erase ${what}?`, "This permanently removes the matching calls.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Erase", style: "destructive", onPress: async () => {
+        try {
+          const params: { date?: string; all?: boolean; test_only?: boolean } = {};
+          if (date.trim()) params.date = date.trim(); else params.all = true;
+          if (testOnly) params.test_only = true;
+          const r = await api.adminEraseRoadsideCalls(params);
+          Alert.alert("Done", `Erased ${r.deleted} call${r.deleted === 1 ? "" : "s"}.`);
+          load();
+        } catch (e: any) { Alert.alert("Couldn't erase", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+      } },
+    ]);
+  };
 
   const create = async (isTest: boolean) => {
     setCreating(true);
@@ -121,8 +151,8 @@ export default function AdminRoadsideCallsScreen() {
           <TextInput style={styles.input} value={place} onChangeText={setPlace} placeholder="Place / address (optional)" placeholderTextColor={theme.textMuted} />
           <TextInput style={styles.input} value={note} onChangeText={setNote} placeholder="Note (optional)" placeholderTextColor={theme.textMuted} />
           <View style={styles.row2}>
-            <TextInput style={[styles.input, { flex: 1 }]} value={lat} onChangeText={setLat} placeholder="Lat (optional)" placeholderTextColor={theme.textMuted} keyboardType="numbers-and-punctuation" />
-            <TextInput style={[styles.input, { flex: 1 }]} value={lng} onChangeText={setLng} placeholder="Lng (optional)" placeholderTextColor={theme.textMuted} keyboardType="numbers-and-punctuation" />
+            <TextInput style={[styles.input, styles.flexInput]} value={lat} onChangeText={setLat} placeholder="Lat (optional)" placeholderTextColor={theme.textMuted} keyboardType="numbers-and-punctuation" />
+            <TextInput style={[styles.input, styles.flexInput]} value={lng} onChangeText={setLng} placeholder="Lng (optional)" placeholderTextColor={theme.textMuted} keyboardType="numbers-and-punctuation" />
           </View>
           <View style={styles.row2}>
             <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={() => create(true)} disabled={creating} testID="create-test-call">
@@ -140,19 +170,35 @@ export default function AdminRoadsideCallsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Find calls</Text>
           <View style={styles.row2}>
-            <TextInput style={[styles.input, { flex: 1 }]} value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={theme.textMuted} autoCapitalize="none" />
-            <TextInput style={[styles.input, { width: 120 }]} value={search} onChangeText={setSearch} placeholder="Call #" placeholderTextColor={theme.textMuted} keyboardType="number-pad" testID="call-search" />
+            <TextInput style={[styles.input, styles.flexInput]} value={date} onChangeText={setDate} placeholder="YYYY-MM-DD (blank = all)" placeholderTextColor={theme.textMuted} autoCapitalize="none" />
+            <TextInput style={[styles.input, { width: 96 }]} value={search} onChangeText={setSearch} placeholder="Call #" placeholderTextColor={theme.textMuted} keyboardType="number-pad" testID="call-search" />
           </View>
-          <TouchableOpacity style={[styles.btn, styles.btnSolid]} onPress={load} testID="call-search-go">
-            <Ionicons name="search" size={16} color="#fff" />
-            <Text style={styles.btnSolidText}>Search</Text>
-          </TouchableOpacity>
+          <View style={styles.row2}>
+            <TouchableOpacity style={[styles.btn, styles.btnSolid]} onPress={load} testID="call-search-go">
+              <Ionicons name="search" size={16} color="#fff" />
+              <Text style={styles.btnSolidText}>Search</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.btnGhost]} onPress={showRecent} testID="call-recent">
+              <Ionicons name="time-outline" size={16} color={theme.primary} />
+              <Text style={styles.btnGhostText}>Recent (all)</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.row2}>
+            <TouchableOpacity style={[styles.btn, styles.btnDangerGhost]} onPress={() => eraseAll(true)} testID="erase-test">
+              <Ionicons name="flask-outline" size={15} color={theme.error} />
+              <Text style={styles.btnDangerText}>Erase test</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, styles.btnDanger]} onPress={() => eraseAll(false)} testID="erase-all">
+              <Ionicons name="trash-outline" size={15} color="#fff" />
+              <Text style={styles.btnSolidText}>Erase all</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
         ) : calls.length === 0 ? (
-          <Text style={styles.empty}>No calls for {date || "today"}{search ? ` · #${search}` : ""}.</Text>
+          <Text style={styles.empty}>No calls{date.trim() ? ` for ${date.trim()}` : ""}{search ? ` · #${search}` : ""}.</Text>
         ) : (
           calls.map((c) => (
             <View key={c.id} style={styles.callCard} testID={`call-${c.id}`}>
@@ -164,6 +210,9 @@ export default function AdminRoadsideCallsScreen() {
                 <View style={[styles.statusTag, c.status === "open" && { backgroundColor: theme.primary + "22" }]}>
                   <Text style={styles.statusText}>{c.status}</Text>
                 </View>
+                <TouchableOpacity onPress={() => deleteOne(c)} hitSlop={8} style={styles.delBtn} testID={`call-del-${c.id}`}>
+                  <Ionicons name="trash-outline" size={16} color={theme.error} />
+                </TouchableOpacity>
               </View>
               <View style={styles.partyRow}>
                 <View style={styles.avatar}>
@@ -204,12 +253,18 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: theme.primary, borderColor: theme.primary },
   chipText: { color: theme.textSecondary, fontSize: 13, fontWeight: "700" },
   input: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, color: theme.textPrimary, fontSize: 14, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  // minWidth:0 lets a flexed input shrink on web (otherwise it overflows the row).
+  flexInput: { flex: 1, minWidth: 0 },
   row2: { flexDirection: "row", gap: 10 },
-  btn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, paddingVertical: 12 },
+  btn: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 8 },
   btnSolid: { backgroundColor: theme.primary },
   btnSolidText: { color: "#fff", fontSize: 14.5, fontWeight: "800" },
   btnGhost: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border },
   btnGhostText: { color: theme.primary, fontSize: 14.5, fontWeight: "800" },
+  btnDanger: { backgroundColor: theme.error },
+  btnDangerGhost: { backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.error + "66" },
+  btnDangerText: { color: theme.error, fontSize: 14.5, fontWeight: "800" },
+  delBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(239,68,68,0.12)" },
   callCard: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 16, padding: 14, marginBottom: 12, gap: 6 },
   callTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   numBadge: { backgroundColor: theme.primary, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },

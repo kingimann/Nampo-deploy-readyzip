@@ -1370,18 +1370,61 @@ async def admin_create_call(body: AdminCallCreate, authorization: Optional[str] 
 
 @router.get("/roadside/admin/calls", response_model=List[RoadsideRequest])
 async def admin_list_calls(
-    date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today"),
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; blank = recent across all days"),
     call_number: Optional[int] = Query(None, description="filter to one call number"),
     authorization: Optional[str] = Header(None),
 ):
-    """List the day's calls (newest first) or look up one by its call number.
-    Admins see full details, including contact phone numbers."""
+    """List calls. With a date, returns that day's calls (by number). Without a
+    date, returns the most recent calls across all days. An optional call_number
+    filters either view. Admins see full details, including phone numbers."""
     user = await get_current_user(authorization)
     if not is_admin(user):
         raise HTTPException(status_code=403, detail="Admin only")
-    day = (date or "").strip() or _road_day(datetime.now(timezone.utc))
-    q: dict = {"call_date": day}
+    day = (date or "").strip()
+    q: dict = {}
+    if day:
+        q["call_date"] = day
     if call_number is not None:
         q["call_number"] = int(call_number)
-    docs = await db.roadside_requests.find(q, {"_id": 0}).sort("call_number", -1).limit(500).to_list(500)
+    sort_field = "call_number" if day else "created_at"
+    docs = await db.roadside_requests.find(q, {"_id": 0}).sort(sort_field, -1).limit(500).to_list(500)
     return [await _hydrate(d, user["user_id"], force_reveal=True) for d in docs]
+
+
+@router.delete("/roadside/admin/calls/{rid}")
+async def admin_delete_call(rid: str, authorization: Optional[str] = Header(None)):
+    """Permanently erase one call."""
+    user = await get_current_user(authorization)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    d = await db.roadside_requests.find_one({"id": rid}, {"_id": 0, "id": 1})
+    if not d:
+        raise HTTPException(status_code=404, detail="Call not found")
+    await db.roadside_requests.delete_one({"id": rid})
+    return {"ok": True}
+
+
+@router.delete("/roadside/admin/calls")
+async def admin_erase_calls(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; the day to erase"),
+    all_: bool = Query(False, alias="all", description="erase every call across all days"),
+    test_only: bool = Query(False, description="only erase admin test calls"),
+    authorization: Optional[str] = Header(None),
+):
+    """Bulk-erase calls. Either pass all=true (every call) or a date (that day).
+    test_only=true limits it to admin-created test calls."""
+    user = await get_current_user(authorization)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    q: dict = {}
+    if not all_:
+        day = (date or "").strip() or _road_day(datetime.now(timezone.utc))
+        q["call_date"] = day
+    if test_only:
+        q["is_test"] = True
+    rows = await db.roadside_requests.find(q, {"_id": 0, "id": 1}).limit(10000).to_list(10000)
+    n = 0
+    for r in rows:
+        await db.roadside_requests.delete_one({"id": r["id"]})
+        n += 1
+    return {"deleted": n}
