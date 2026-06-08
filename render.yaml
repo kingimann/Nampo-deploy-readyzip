@@ -25,6 +25,7 @@ services:
     plan: free
     healthCheckPath: /health
     autoDeploy: true
+    branch: main
     envVars:
       # External Postgres connection string (asyncpg DSN). Paste your Neon /
       # Supabase URL in the Render dashboard — sync:false keeps it out of git.
@@ -123,6 +124,8 @@ services:
     buildCommand: cd frontend && corepack enable && yarn install --network-timeout 1000000 && npx expo export -p web
     staticPublishPath: frontend/dist
     pullRequestPreviewsEnabled: false
+    autoDeploy: true
+    branch: main
     envVars:
       # Expo SDK 54 requires Node >= 20.19.4.
       - key: NODE_VERSION
