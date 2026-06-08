@@ -85,6 +85,7 @@ export default function LiquidTabBar(_: any) {
 
   // 0 = shown, 1 = hidden. Drives both the pill (slide down) and the ＋ (fade in).
   const [hidden, setHidden] = useState(false);
+  const [holding, setHolding] = useState(false);   // long-pressing Search → compose
   const tv = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -156,17 +157,24 @@ export default function LiquidTabBar(_: any) {
           {left.map(renderItem)}
           <Pressable
             onPress={() => { if (!searchActive) router.push("/search" as any); }}
+            onLongPress={() => {
+              // Hold Search → flash a ＋ and open the post composer.
+              setHolding(true);
+              router.push({ pathname: "/(tabs)/feed", params: { compose: "1" } } as any);
+              setTimeout(() => setHolding(false), 700);
+            }}
+            delayLongPress={300}
             onPressIn={() => Animated.spring(searchScale, { toValue: 0.88, useNativeDriver: true, speed: 50, bounciness: 0 }).start()}
             onPressOut={() => Animated.spring(searchScale, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start()}
             android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
             style={styles.item}
             hitSlop={6}
             accessibilityRole="button"
-            accessibilityLabel="Search the site"
+            accessibilityLabel="Search the site — hold to create a post"
             testID="tab-search"
           >
             <Animated.View style={[styles.searchCircle, searchActive && styles.searchCircleActive, { transform: [{ scale: searchScale }] }]}>
-              <Ionicons name="search" size={21} color="#fff" />
+              <Ionicons name={holding ? "add" : "search"} size={holding ? 26 : 21} color="#fff" />
             </Animated.View>
           </Pressable>
           {right.map(renderItem)}

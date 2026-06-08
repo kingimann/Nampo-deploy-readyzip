@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { api, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -14,7 +14,6 @@ import PostCard from "@/src/components/PostCard";
 import AdSlot from "@/src/components/AdSlot";
 import FadeIn from "@/src/components/FadeIn";
 import PostSkeleton from "@/src/components/PostSkeleton";
-import BouncyPressable from "@/src/components/BouncyPressable";
 import { interleaveAds, isAd } from "@/src/lib/ads";
 import PostComposer from "@/src/components/PostComposer";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
@@ -22,7 +21,6 @@ import StoryTray from "@/src/components/StoryTray";
 import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 import ConfirmModal from "@/src/components/ConfirmModal";
-import ChatFab from "@/src/components/ChatFab";
 import { storage } from "@/src/utils/storage";
 
 export const HIDE_STORIES_KEY = "hide_stories";
@@ -32,6 +30,7 @@ type Tab = "home" | "explore";
 export default function FeedScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ compose?: string }>();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>("explore");
   const [posts, setPosts] = useState<Post[]>([]);
@@ -50,6 +49,15 @@ export default function FeedScreen() {
   const [editing, setEditing] = useState<Post | null>(null);
   const [quoting, setQuoting] = useState<Post | null>(null);
   const [actionPost, setActionPost] = useState<Post | null>(null);
+
+  // Open the composer when arriving with ?compose=1 (e.g. long-pressing the
+  // bottom-nav Search button), then clear the param so it doesn't re-open.
+  useEffect(() => {
+    if (params.compose === "1" && !postingOff) {
+      setEditing(null); setReplyTo(null); setQuoting(null); setComposeOpen(true);
+      router.setParams({ compose: undefined } as any);
+    }
+  }, [params.compose, postingOff, router]);
   const [confirmDel, setConfirmDel] = useState<Post | null>(null);
   const [privacyPost, setPrivacyPost] = useState<Post | null>(null);
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
@@ -394,18 +402,6 @@ export default function FeedScreen() {
         onClose={() => setCommentsPost(null)}
         onCommented={(postId) => onCommented(postId)}
       />
-
-      <BouncyPressable
-        style={[styles.fab, { bottom: 20 }, postingOff && styles.fabDisabled]}
-        onPress={() => { if (postingOff) return; setEditing(null); setReplyTo(null); setComposeOpen(true); }}
-        disabled={postingOff}
-        testID="open-composer"
-      >
-        <Ionicons name="create" size={22} color="#fff" />
-      </BouncyPressable>
-
-      {/* Floating chat button — tap opens Chat, long-press moves it left/right. */}
-      <ChatFab />
 
       <PostComposer
         visible={composeOpen}
