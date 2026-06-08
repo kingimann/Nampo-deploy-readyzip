@@ -115,7 +115,7 @@ export default function MapScreen() {
   // nav bar (global) slides away and the search bar fades out, so the map is
   // unobstructed. Both come back shortly after the gesture ends (or immediately
   // if the user taps the search field).
-  const { setTabBarHidden } = useNavBar();
+  const { setTabBarHidden, tabBarHidden } = useNavBar();
   const [mapActive, setMapActive] = useState(false);
   const searchFocusedRef = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -798,24 +798,10 @@ export default function MapScreen() {
 
       </Animated.View>
 
-      {/* Apple-Maps-style grouped control stack (bottom-right) */}
-      <View style={[styles.fabStack, { bottom: insets.bottom + 24 }]} pointerEvents="box-none">
-        <TouchableOpacity
-          style={[styles.fab, styles.fabSolo]}
-          onPress={() => setReportOpen(true)}
-          testID="hazard-report-fab"
-          activeOpacity={0.85}
-        >
-          <Ionicons name="warning" size={21} color="#F59E0B" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.fab, styles.fabSolo]}
-          onPress={() => router.push("/roadside")}
-          testID="roadside-fab"
-          activeOpacity={0.85}
-        >
-          <Ionicons name="construct" size={21} color="#F59E0B" />
-        </TouchableOpacity>
+      {/* One combined control pill (bottom-right): report · roadside · map layers ·
+          locate. Lifted above the nav-restore ＋ button when the bottom bar is
+          hidden so the two don't overlap. Compass stays separate (it rotates). */}
+      <View style={[styles.fabStack, { bottom: insets.bottom + (tabBarHidden ? 86 : 24) }]} pointerEvents="box-none">
         {compassVisible && (
           <TouchableOpacity
             style={[styles.fab, styles.fabSolo]}
@@ -831,6 +817,24 @@ export default function MapScreen() {
         <View style={styles.fabGroup}>
           <TouchableOpacity
             style={[styles.fabSegment, styles.fabSegmentTop]}
+            onPress={() => setReportOpen(true)}
+            testID="hazard-report-fab"
+            activeOpacity={0.85}
+          >
+            <Ionicons name="warning" size={20} color="#F59E0B" />
+          </TouchableOpacity>
+          <View style={styles.fabDivider} />
+          <TouchableOpacity
+            style={styles.fabSegment}
+            onPress={() => router.push("/roadside")}
+            testID="roadside-fab"
+            activeOpacity={0.85}
+          >
+            <Ionicons name="construct" size={20} color="#F59E0B" />
+          </TouchableOpacity>
+          <View style={styles.fabDivider} />
+          <TouchableOpacity
+            style={styles.fabSegment}
             onPress={() => setStyleSheetOpen(true)}
             testID="layers-button"
             activeOpacity={0.85}

@@ -80,7 +80,7 @@ export default function LiquidTabBar(_: any) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname();
-  const { shortcuts, tabBarHidden } = useNavBar();
+  const { shortcuts, tabBarHidden, setTabBarHidden } = useNavBar();
   const searchScale = useRef(new Animated.Value(1)).current;
 
   // 0 = shown, 1 = hidden. Drives both the pill (slide down) and the ＋ (fade in).
@@ -183,13 +183,15 @@ export default function LiquidTabBar(_: any) {
         </View>
       </Animated.View>
 
-      {/* Frosted ＋ circle shown while the pill is hidden — tap to bring it back. */}
+      {/* Frosted ＋ circle shown while the pill is hidden — tap to bring it back.
+          Gate tappability on effectiveHidden (not just the internal scroll-hide)
+          so it works when a screen hid the bar via tabBarHidden (e.g. the map). */}
       <Animated.View
-        pointerEvents={hidden ? "auto" : "none"}
+        pointerEvents={effectiveHidden ? "auto" : "none"}
         style={[styles.fabWrap, { bottom: insets.bottom + 14, opacity: fabOpacity, transform: [{ scale: fabScale }] }]}
       >
         <Pressable
-          onPress={() => setHidden(false)}
+          onPress={() => { setHidden(false); setTabBarHidden(false); }}
           android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
           style={[styles.fab, GLASS]}
           hitSlop={10}
