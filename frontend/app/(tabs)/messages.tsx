@@ -12,6 +12,7 @@ import { theme } from "@/src/theme";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import { isE2E, tryDecrypt, getPeerPublicKey } from "@/src/utils/e2e";
+import UnlockChatSheet from "@/src/components/UnlockChatSheet";
 
 type Mode = "new-dm" | "new-group" | null;
 
@@ -54,6 +55,8 @@ export default function MessagesScreen() {
   // conversations reload (incl. after unlocking a key elsewhere, since the
   // screen reloads on focus).
   const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [keyTick, setKeyTick] = useState(0);     // bumped after an unlock → re-decrypt
+  const [unlockOpen, setUnlockOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -78,7 +81,14 @@ export default function MessagesScreen() {
       if (!cancelled && Object.keys(next).length) setPreviews((p) => ({ ...p, ...next }));
     })();
     return () => { cancelled = true; };
-  }, [convs, user?.user_id]);
+  }, [convs, user?.user_id, keyTick]);
+
+  // Conversations whose last message is encrypted but couldn't be decrypted here
+  // (key missing) → drives the inbox "unlock" banner.
+  const lockedCount = useMemo(
+    () => convs.filter((c) => !!c.last_message?.text && isE2E(c.last_message.text) && !previews[c.id]).length,
+    [convs, previews],
+  );
 
   useEffect(() => {
     if (!mode) return;
@@ -243,10 +253,26 @@ export default function MessagesScreen() {
         )}
       </View>
 
-      <View style={styles.encNote}>
-        <Ionicons name="lock-closed" size={12} color={theme.textMuted} />
-        <Text style={styles.encNoteText}>Your chats are encrypted</Text>
-      </View>
+      {lockedCount > 0 ? (
+        <TouchableOpacity style={styles.unlockBanner} activeOpacity={0.85} onPress={() => setUnlockOpen(true)} testID="inbox-unlock">
+          <Ionicons name="lock-closed" size={16} color={theme.primary} />
+          <Text style={styles.unlockText} numberOfLines={2}>
+            {lockedCount} chat{lockedCount === 1 ? "" : "s"} locked on this device. Tap to enter your PIN and unlock.
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.encNote}>
+          <Ionicons name="lock-closed" size={12} color={theme.textMuted} />
+          <Text style={styles.encNoteText}>Your chats are encrypted</Text>
+        </View>
+      )}
+
+      <UnlockChatSheet
+        visible={unlockOpen}
+        onClose={() => setUnlockOpen(false)}
+        onUnlocked={() => setKeyTick((t) => t + 1)}
+      />
 
       <RestrictionBanner kind="messaging" />
 
@@ -529,6 +555,8 @@ const styles = StyleSheet.create({
   title: { color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
   encNote: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingBottom: 6 },
   encNoteText: { color: theme.textMuted, fontSize: 11.5, fontWeight: "600" },
+  unlockBanner: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 11, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
+  unlockText: { flex: 1, color: theme.textSecondary, fontSize: 12.5, lineHeight: 17, fontWeight: "600" },
   searchWrap: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginHorizontal: 16, marginTop: 4, marginBottom: 6,
