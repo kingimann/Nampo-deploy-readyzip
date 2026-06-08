@@ -122,7 +122,8 @@ async def list_user_stories(user_id: str, authorization: Optional[str] = Header(
 @router.post("/stories/{story_id}/view")
 async def view_story(story_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
-    s = await db.stories.find_one({"id": story_id}, {"_id": 0})
+    now = datetime.now(timezone.utc)
+    s = await db.stories.find_one({"id": story_id, "expires_at": {"$gt": now}}, {"_id": 0})
     if not s:
         raise HTTPException(status_code=404, detail="Story not found")
     if s["user_id"] == user["user_id"]:
@@ -143,7 +144,8 @@ async def view_story(story_id: str, authorization: Optional[str] = Header(None))
 @router.get("/stories/{story_id}/viewers", response_model=List[StoryViewer])
 async def list_story_viewers(story_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
-    s = await db.stories.find_one({"id": story_id}, {"_id": 0})
+    now = datetime.now(timezone.utc)
+    s = await db.stories.find_one({"id": story_id, "expires_at": {"$gt": now}}, {"_id": 0})
     if not s:
         raise HTTPException(status_code=404, detail="Story not found")
     if s["user_id"] != user["user_id"]:
@@ -183,7 +185,8 @@ async def reply_to_story(
 ):
     """Sends a DM to the story owner referencing the story."""
     user = await get_current_user(authorization)
-    s = await db.stories.find_one({"id": story_id}, {"_id": 0})
+    now = datetime.now(timezone.utc)
+    s = await db.stories.find_one({"id": story_id, "expires_at": {"$gt": now}}, {"_id": 0})
     if not s:
         raise HTTPException(status_code=404, detail="Story not found")
     if s["user_id"] == user["user_id"]:

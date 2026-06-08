@@ -29,6 +29,8 @@ export default function StoryViewerScreen() {
   const [showViewers, setShowViewers] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const animRef = useRef<Animated.CompositeAnimation | null>(null);
+  // Live mirror of `progress` so a paused segment resumes instead of restarting.
+  const progressVal = useRef(0);
 
   const isOwn = user?.user_id === userId;
   const current = stories[idx];
@@ -57,32 +59,55 @@ export default function StoryViewerScreen() {
     });
   }, [stories.length, router]);
 
-  // Drive the progress bar + auto-advance
+  // Keep progressVal in sync with the animated value (JS-driven, so this fires).
+  useEffect(() => {
+    const id = progress.addListener(({ value }) => { progressVal.current = value; });
+    return () => progress.removeListener(id);
+  }, [progress]);
+
+  // New segment: reset the bar, clear any stale pause, (re)load the media.
+  // Keyed on the story id only so pause/resume doesn't restart progress.
   useEffect(() => {
     if (!current) return;
     progress.setValue(0);
+    progressVal.current = 0;
+    setPaused(false);
     if (current.type === "video") {
-      try { player.play(); } catch {}
+      // expo-video keeps the same player instance across segments, so the
+      // source must be swapped explicitly or every video shows the first one.
+      try { player.replace(current.media_base64); player.play(); } catch {}
+    } else {
+      try { player.pause(); } catch {}
     }
-    // Record a view
-    if (!isOwn) api.viewStory(current.id).catch(() => {});
+  }, [current?.id]);
+
+  // Record a view exactly once per segment (never for your own story).
+  useEffect(() => {
+    if (!current || isOwn) return;
+    api.viewStory(current.id).catch(() => {});
+  }, [current?.id, isOwn]);
+
+  // Drive the progress bar + auto-advance. Pausing stops the timer in place;
+  // resuming continues for the remaining duration rather than restarting.
+  useEffect(() => {
+    if (!current) return;
+    animRef.current?.stop();
+    if (paused) return;
     const dur = current.type === "video"
       ? Math.min(current.duration_ms || 15000, 15000)
       : IMAGE_DURATION_MS;
-    animRef.current?.stop();
+    const remaining = Math.max(0, dur * (1 - progressVal.current));
     const anim = Animated.timing(progress, {
       toValue: 1,
-      duration: dur,
+      duration: remaining,
       useNativeDriver: false,
     });
     animRef.current = anim;
-    if (!paused) {
-      anim.start(({ finished }) => { if (finished) advance(); });
-    }
+    anim.start(({ finished }) => { if (finished) advance(); });
     return () => { anim.stop(); };
   }, [current?.id, idx, paused, advance]);
 
-  // Pause/resume video with state
+  // Pause/resume video playback alongside the progress timer.
   useEffect(() => {
     if (current?.type !== "video") return;
     try { paused ? player.pause() : player.play(); } catch {}
@@ -105,14 +130,19 @@ export default function StoryViewerScreen() {
 
   const deleteStory = () => {
     if (!current) return;
+    const delId = current.id;
     Alert.alert("Delete this story?", "It will disappear immediately.", [
       { text: "Cancel", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: async () => {
         try {
-          await api.deleteStory(current.id);
-          setStories((arr) => arr.filter((s) => s.id !== current.id));
-          if (stories.length <= 1) safeBack();
-          else setIdx((i) => Math.min(i, stories.length - 2));
+          await api.deleteStory(delId);
+          // Compute the next index off the filtered array, not the stale length.
+          setStories((arr) => {
+            const next = arr.filter((s) => s.id !== delId);
+            if (next.length === 0) safeBack();
+            else setIdx((i) => Math.min(i, next.length - 1));
+            return next;
+          });
         } catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
       }},
     ]);
@@ -194,7 +224,7 @@ export default function StoryViewerScreen() {
           <View style={styles.avatar}>
             {current.user_picture
               ? <Image source={{ uri: current.user_picture }} style={styles.avatarImg} />
-              : <Text style={styles.avatarInit}>{current.user_name[0]?.toUpperCase()}</Text>}
+              : <Text style={styles.avatarInit}>{current.user_name?.[0]?.toUpperCase() || "?"}</Text>}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.userName}>{current.user_name}</Text>
@@ -273,7 +303,7 @@ export default function StoryViewerScreen() {
                 <View style={styles.smallAvatar}>
                   {v.picture
                     ? <Image source={{ uri: v.picture }} style={styles.avatarImg} />
-                    : <Text style={styles.smallAvatarInit}>{v.name[0]?.toUpperCase()}</Text>}
+                    : <Text style={styles.smallAvatarInit}>{v.name?.[0]?.toUpperCase() || "?"}</Text>}
                 </View>
                 <Text style={{ color: theme.textPrimary, flex: 1 }}>{v.name}</Text>
                 <Text style={{ color: theme.textMuted, fontSize: 12 }}>{relativeTime(v.viewed_at)}</Text>
