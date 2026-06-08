@@ -221,6 +221,8 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
             patch["payout_threshold_changed_at"] = datetime.now(timezone.utc)
     if body.default_comment_policy in ("everyone", "followers", "friends", "nobody"):
         patch["default_comment_policy"] = body.default_comment_policy
+    if body.message_policy in ("everyone", "followers", "friends", "nobody"):
+        patch["message_policy"] = body.message_policy
     if body.default_likes_disabled is not None:
         patch["default_likes_disabled"] = bool(body.default_likes_disabled)
     if body.currency is not None:
