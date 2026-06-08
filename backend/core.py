@@ -431,6 +431,7 @@ def _user_doc_to_model(d: dict) -> dict:
         "wallet_balance": round(float(d.get("wallet_balance", 0) or 0), 2),
         "currency": normalize_currency(d.get("currency")),
         "default_comment_policy": d.get("default_comment_policy") or "everyone",
+        "message_policy": d.get("message_policy") or "everyone",
         "default_likes_disabled": bool(d.get("default_likes_disabled", False)),
         "created_at": d["created_at"],
     }

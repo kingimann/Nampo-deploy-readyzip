@@ -58,6 +58,30 @@ def _decrypt_msg(doc: dict) -> dict:
 router = APIRouter()
 
 
+async def _can_message(sender_id: str, recipient: dict) -> bool:
+    """Whether `sender_id` may start a DM with `recipient`, per their
+    message_policy (everyone | followers | friends | nobody). Mirrors the post
+    comment-policy relationship checks; admins are exempt."""
+    rid = recipient.get("user_id")
+    if sender_id == rid:
+        return True
+    policy = recipient.get("message_policy") or "everyone"
+    if policy == "everyone":
+        return True
+    sender = await db.users.find_one({"user_id": sender_id}, {"_id": 0, "role": 1, "email": 1})
+    if sender and is_admin(sender):
+        return True
+    if policy == "nobody":
+        return False
+    if policy == "followers":
+        return bool(await db.follows.find_one(
+            {"follower_id": sender_id, "followee_id": rid}, {"_id": 0, "follower_id": 1}))
+    if policy == "friends":
+        a, b = sorted([sender_id, rid])
+        return bool(await db.friendships.find_one({"a": a, "b": b}, {"_id": 0, "a": 1}))
+    return True
+
+
 async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
     """Hydrate a conversation into a ConversationView from `viewer_id`'s perspective."""
     kind = conv.get("kind", "dm")
@@ -158,6 +182,13 @@ async def get_or_create_conversation(
             existing = await db.conversations.find_one({"id": existing["id"]}, {"_id": 0})
         conv = existing
     else:
+        # Honour the recipient's "who can message me" setting when STARTING a new
+        # thread. Existing threads are left alone (the relationship already exists).
+        if target != me_id and not await _can_message(me_id, other):
+            raise HTTPException(status_code=403, detail={
+                "code": "messages_restricted",
+                "message": "This account isn't accepting messages from you.",
+            })
         participant_ids = [me_id] if target == me_id else sorted([me_id, target])
         conv = {
             "id": str(uuid.uuid4()),
