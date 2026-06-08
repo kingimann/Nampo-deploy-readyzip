@@ -63,6 +63,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.24.0/mapbox-gl.js"></script>
 <style>
   html, body, #map { margin:0; padding:0; height:100%; width:100%; background:#0A0A0A; }
+  /* Stop iOS Safari from hijacking a long-press with its text-callout/selection
+     so our own long-press-to-drop-a-pin gesture can fire. */
+  #map, .mapboxgl-canvas { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   .custom-marker {
     width: 32px; height: 32px; border-radius: 16px;
     background:#3B82F6; border:3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.55);
@@ -119,6 +122,7 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
 
   var markers = {};
   var userMarker = null;
+  var lpFiredAt = 0;  // timestamp of the last long-press, to swallow the trailing tap
 
   function post(msg) {
     var s = JSON.stringify(msg);
@@ -154,6 +158,9 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
   // re-fires styledata, creating a feedback loop that thrashes the map.)
   map.on('style.load', hidePoiLayers);
   map.on('click', function (e) {
+    // A long-press ends with a finger-lift that Mapbox reports as a tap; ignore
+    // it so the pin we just dropped isn't immediately dismissed.
+    if (Date.now() - lpFiredAt < 700) return;
     // If the click landed on a place dot, the layer handler deals with it —
     // don't also emit a generic map click (which would drop a pin).
     try {
@@ -164,10 +171,49 @@ function buildHtml(token: string, center: [number, number], zoom: number, style:
     } catch (err) {}
     post({ type: 'click', lng: e.lngLat.lng, lat: e.lngLat.lat });
   });
-  // Long-press (touch) / right-click (web) → emit a longpress event.
+  // Long-press (web) / right-click → emit a longpress event. Mapbox fires
+  // 'contextmenu' on desktop right-click and some touch devices, but iOS
+  // Safari does NOT, so a manual touch detector is added below.
   map.on('contextmenu', function (e) {
     post({ type: 'longpress', lng: e.lngLat.lng, lat: e.lngLat.lat });
   });
+  // Robust touch long-press: hold a single finger still for ~450ms anywhere on
+  // the map → drop a pin. Cancels if the finger moves (a pan) or lifts early.
+  (function () {
+    var lpTimer = null, startXY = null, fired = false;
+    var HOLD_MS = 450, MOVE_CANCEL = 12;
+    var el = map.getCanvasContainer();
+    function clearLP() {
+      if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+      startXY = null;
+    }
+    el.addEventListener('touchstart', function (ev) {
+      if (!ev.touches || ev.touches.length !== 1) { clearLP(); return; }
+      var t = ev.touches[0];
+      var rect = el.getBoundingClientRect();
+      var px = t.clientX - rect.left, py = t.clientY - rect.top;
+      startXY = { x: t.clientX, y: t.clientY };
+      fired = false;
+      if (lpTimer) clearTimeout(lpTimer);
+      lpTimer = setTimeout(function () {
+        fired = true;
+        lpFiredAt = Date.now();
+        try {
+          var ll = map.unproject([px, py]);
+          post({ type: 'longpress', lng: ll.lng, lat: ll.lat });
+        } catch (err) {}
+        clearLP();
+      }, HOLD_MS);
+    }, { passive: true });
+    el.addEventListener('touchmove', function (ev) {
+      if (!startXY || !ev.touches || !ev.touches.length) return;
+      var t = ev.touches[0];
+      if (Math.abs(t.clientX - startXY.x) > MOVE_CANCEL ||
+          Math.abs(t.clientY - startXY.y) > MOVE_CANCEL) clearLP();
+    }, { passive: true });
+    el.addEventListener('touchend', clearLP, { passive: true });
+    el.addEventListener('touchcancel', clearLP, { passive: true });
+  })();
   // User-initiated camera interactions → tell RN to exit follow mode.
   function emitUserPan(e) {
     if (!e || !e.originalEvent) return; // ignore programmatic moves

@@ -804,7 +804,7 @@ export default function MapScreen() {
       {/* One expandable control button (bottom-right). Collapsed it's a single
           round FAB; tapping it reveals report · roadside · layers · locate
           stacked above. Compass stays separate (it rotates with the map). */}
-      <View style={[styles.fabStack, { bottom: insets.bottom + (tabBarHidden ? 86 : 24) }]} pointerEvents="box-none">
+      <View style={[styles.fabStack, { bottom: insets.bottom + (tabBarHidden ? 24 : 92) }]} pointerEvents="box-none">
         {compassVisible && (
           <TouchableOpacity
             style={[styles.fab, styles.fabSolo]}
