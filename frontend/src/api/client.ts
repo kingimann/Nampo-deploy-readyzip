@@ -458,6 +458,16 @@ export const api = {
     const s = qs.toString();
     return request<RoadsideRequest[]>(`/roadside/admin/calls${s ? `?${s}` : ""}`);
   },
+  adminDeleteRoadsideCall: (id: string) =>
+    request<{ ok: boolean }>(`/roadside/admin/calls/${id}`, { method: "DELETE" }),
+  adminEraseRoadsideCalls: (params?: { date?: string; all?: boolean; test_only?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (params?.date) qs.set("date", params.date);
+    if (params?.all) qs.set("all", "true");
+    if (params?.test_only) qs.set("test_only", "true");
+    const s = qs.toString();
+    return request<{ deleted: number }>(`/roadside/admin/calls${s ? `?${s}` : ""}`, { method: "DELETE" });
+  },
   decideRoadsideVerification: (id: string, approve: boolean, reason?: string) =>
     request<{ ok: boolean; status: string }>(`/admin/roadside/verifications/${id}/decision`, { method: "POST", body: JSON.stringify({ approve, reason }) }),
   roadsideActive: () => request<RoadsideRequest | null>("/roadside/active"),
