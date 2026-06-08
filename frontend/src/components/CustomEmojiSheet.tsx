@@ -19,28 +19,23 @@ type Props = {
   /** Insert this literal text into the composer (emoji char, or :shortcode:). */
   onPick: (insert: string) => void;
   onChanged: () => void;                       // re-fetch after add/delete
+  /** Live message text, so the composer stays visible ABOVE the emoji grid. */
+  text?: string;
+  onChangeText?: (t: string) => void;
+  onSend?: () => void;
 };
 
 const CUSTOM_KEY = "custom";
 
-export default function CustomEmojiSheet({ visible, emojis, myUserId, onClose, onPick, onChanged }: Props) {
+export default function CustomEmojiSheet({
+  visible, emojis, myUserId, onClose, onPick, onChanged, text, onChangeText, onSend,
+}: Props) {
   const insets = useSafeAreaInsets();
   const kb = useKeyboardHeight();
   const [busy, setBusy] = useState(false);
   const [pendingImg, setPendingImg] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [activeCat, setActiveCat] = useState(EMOJI_CATEGORIES[0].key);
-  // Foldable: compact by default so it doesn't cover half the screen; tap the
-  // handle/chevron to expand for browsing more at once.
-  const [expanded, setExpanded] = useState(false);
-
-  // On web the composer keeps focus when the picker opens, so the on-screen
-  // keyboard stays up and overlaps the sheet. Blur it whenever the sheet opens.
-  React.useEffect(() => {
-    if (visible && Platform.OS === "web" && typeof document !== "undefined") {
-      (document.activeElement as any)?.blur?.();
-    }
-  }, [visible]);
 
   // Tabs: standard categories first, then a Custom tab.
   const tabs = useMemo(
@@ -49,6 +44,7 @@ export default function CustomEmojiSheet({ visible, emojis, myUserId, onClose, o
     [],
   );
   const current = EMOJI_CATEGORIES.find((c) => c.key === activeCat);
+  const canSend = !!(text && text.trim());
 
   const pickImage = async () => {
     if (Platform.OS !== "web") {
@@ -84,27 +80,31 @@ export default function CustomEmojiSheet({ visible, emojis, myUserId, onClose, o
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.sheet, { height: expanded ? "84%" : "42%", paddingBottom: insets.bottom + 12, marginBottom: kb }]}>
-          <TouchableOpacity
-            onPress={() => setExpanded((v) => !v)}
-            activeOpacity={0.7}
-            style={styles.handleHit}
-            testID="emoji-handle"
-          >
-            <View style={styles.handle} />
-          </TouchableOpacity>
-          <View style={styles.titleRow}>
-            <Text style={styles.title} numberOfLines={1}>
-              {activeCat === CUSTOM_KEY ? "Custom emojis" : (current?.label || "Emojis")}
-            </Text>
-            <View style={styles.titleActions}>
-              <TouchableOpacity onPress={() => setExpanded((v) => !v)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} testID="emoji-fold">
-                <Ionicons name={expanded ? "chevron-down" : "chevron-up"} size={22} color={theme.textMuted} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} testID="emoji-close">
-                <Ionicons name="close" size={22} color={theme.textMuted} />
-              </TouchableOpacity>
-            </View>
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 10, marginBottom: kb }]}>
+          {/* Message bar — kept ABOVE the emoji grid so the picker never covers
+              what you're composing. Tap emojis to append; send right from here. */}
+          <View style={styles.msgBar}>
+            <TouchableOpacity onPress={onClose} style={styles.msgIconBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} testID="emoji-close">
+              <Ionicons name="chevron-down" size={22} color={theme.textMuted} />
+            </TouchableOpacity>
+            <TextInput
+              style={styles.msgInput}
+              placeholder="Message…"
+              placeholderTextColor={theme.textMuted}
+              value={text ?? ""}
+              onChangeText={onChangeText}
+              multiline
+              numberOfLines={Platform.OS === "web" ? 1 : undefined}
+              testID="emoji-msg-input"
+            />
+            <TouchableOpacity
+              style={[styles.msgSend, !canSend && { opacity: 0.4 }]}
+              disabled={!canSend}
+              onPress={() => { onSend?.(); onClose(); }}
+              testID="emoji-msg-send"
+            >
+              <Ionicons name="send" size={17} color="#fff" />
+            </TouchableOpacity>
           </View>
 
           {/* Category tabs */}
@@ -164,7 +164,7 @@ export default function CustomEmojiSheet({ visible, emojis, myUserId, onClose, o
                 </TouchableOpacity>
               </View>
 
-              <ScrollView contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled">
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled">
                 {emojis.length === 0 ? (
                   <Text style={styles.empty}>No custom emojis yet. Upload one above, then use it as :shortcode: in chat.</Text>
                 ) : emojis.map((em) => (
@@ -185,7 +185,7 @@ export default function CustomEmojiSheet({ visible, emojis, myUserId, onClose, o
               )}
             </>
           ) : (
-            <ScrollView contentContainerStyle={styles.uniGrid} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.uniGrid} keyboardShouldPersistTaps="handled">
               {(current?.emojis || []).map((em, i) => (
                 <TouchableOpacity
                   key={`${em}-${i}`}
@@ -208,15 +208,24 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: {
     backgroundColor: "#0E0E10", borderTopLeftRadius: 22, borderTopRightRadius: 22,
-    paddingTop: 6, paddingHorizontal: 14,
+    paddingTop: 10, paddingHorizontal: 14, height: "48%",
     borderTopWidth: 1, borderColor: theme.border,
   },
-  // Bigger touch target around the grab handle so it's easy to fold/unfold.
-  handleHit: { alignSelf: "center", paddingVertical: 6, paddingHorizontal: 30 },
-  handle: { width: 44, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 4 },
-  title: { color: theme.textPrimary, fontSize: 17, fontWeight: "800", flex: 1 },
-  titleActions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  // Composer kept at the top of the sheet (above the emoji grid).
+  msgBar: {
+    flexDirection: "row", alignItems: "flex-end", gap: 8, marginBottom: 10,
+  },
+  msgIconBtn: { width: 34, height: 38, alignItems: "center", justifyContent: "center" },
+  msgInput: {
+    flex: 1, minHeight: 38, maxHeight: 90, color: theme.textPrimary, fontSize: 15.5,
+    backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border,
+    paddingHorizontal: 14, paddingTop: 9, paddingBottom: 9,
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
+  },
+  msgSend: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: theme.primary,
+    alignItems: "center", justifyContent: "center",
+  },
   tabBarScroll: { flexGrow: 0, marginBottom: 10 },
   tabBar: { paddingBottom: 2, paddingRight: 8 },
   tab: { width: 40, height: 40, borderRadius: 12, marginRight: 8, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface, borderWidth: 1, borderColor: "transparent" },

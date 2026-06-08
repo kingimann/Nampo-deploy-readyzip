@@ -32,7 +32,9 @@ export const DEFAULT_SIDEBAR_IDS = [
 // Items that are always present and can't be removed (only reordered).
 export const LOCKED_SIDEBAR_IDS = ["feed", "settings"];
 const MIN_ITEMS = 1;
-const MAX_ITEMS = 12;
+// Cap the sidebar at 5 shortcuts total. Feed + Settings are permanent (count as
+// 2), so the user can add at most 3 more.
+export const MAX_ITEMS = 5;
 const STORAGE_KEY = "sidebar_menu_v1";
 
 type Ctx = {
@@ -69,7 +71,18 @@ function clamp(ids: string[]): string[] {
       if (!seen.has(id)) { valid.push(id); seen.add(id); }
     }
   }
-  return valid.slice(0, MAX_ITEMS);
+  const result = valid.slice(0, MAX_ITEMS);
+  // Guarantee the locked items survive the cap: if one got sliced off (e.g. when
+  // migrating an older, longer saved list down to the new limit), drop the last
+  // non-locked entry to make room and append the locked one.
+  for (const id of LOCKED_SIDEBAR_IDS) {
+    if (result.includes(id)) continue;
+    for (let k = result.length - 1; k >= 0; k--) {
+      if (!LOCKED_SIDEBAR_IDS.includes(result[k])) { result.splice(k, 1); break; }
+    }
+    result.push(id);
+  }
+  return result.slice(0, MAX_ITEMS);
 }
 
 export function SidebarMenuProvider({ children }: { children: React.ReactNode }) {

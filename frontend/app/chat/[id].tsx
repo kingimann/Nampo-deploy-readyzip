@@ -1377,6 +1377,9 @@ export default function ChatScreen() {
         onClose={() => setEmojiOpen(false)}
         onPick={(ins) => setText((t) => `${t}${ins}`)}
         onChanged={loadEmojis}
+        text={text}
+        onChangeText={onChangeText}
+        onSend={send}
       />
       <GifPickerSheet visible={gifOpen} onClose={() => setGifOpen(false)} onPick={sendGif} />
       <ContactPickerSheet visible={contactOpen} onClose={() => setContactOpen(false)} onPick={sendContact} />

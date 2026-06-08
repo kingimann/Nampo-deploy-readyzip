@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { useSidebarMenu, SIDEBAR_CATALOG, SidebarItem } from "@/src/context/SidebarMenuContext";
+import { useSidebarMenu, SIDEBAR_CATALOG, SidebarItem, MAX_ITEMS } from "@/src/context/SidebarMenuContext";
 import { theme } from "@/src/theme";
 
 export default function CustomizeSidebarScreen() {
@@ -30,8 +30,8 @@ export default function CustomizeSidebarScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 80 }}>
-        <Text style={styles.sectionTitle}>In your sidebar ({ids.length})</Text>
-        <Text style={styles.sectionSub}>Tap the arrows to reorder, or remove with the red button. Feed and Settings are permanent 🔒.</Text>
+        <Text style={styles.sectionTitle}>In your sidebar ({ids.length}/{MAX_ITEMS})</Text>
+        <Text style={styles.sectionSub}>Up to {MAX_ITEMS} shortcuts. Feed and Settings are permanent 🔒 and count toward the {MAX_ITEMS}, so you can add up to {MAX_ITEMS - 2} more. Tap the arrows to reorder, or remove with the red button.</Text>
 
         <View style={styles.list}>
           {items.map((s, i) => (
