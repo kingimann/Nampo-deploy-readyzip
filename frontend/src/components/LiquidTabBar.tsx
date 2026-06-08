@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Animated } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { View, StyleSheet, Pressable, Animated, Easing, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname, useRouter } from "expo-router";
@@ -7,25 +7,38 @@ import { useNavBar } from "@/src/context/NavBarContext";
 import { theme } from "@/src/theme";
 
 /**
- * Facebook-style customizable bottom nav.
- * - Renders 3-5 shortcuts from useNavBar()
- * - Icons swap outline → filled when active
- * - Labels under icons (Facebook style)
- * - Long-press any tab → opens /customize-nav
+ * Floating, frosted "pill" bottom nav (Threads-style).
+ * - Renders the customizable shortcuts from useNavBar() + a permanent centre Search.
+ * - Icons swap outline → filled when active. Long-press any tab → /customize-nav.
+ * - Hides when the user scrolls DOWN and reappears when scrolling UP. While
+ *   hidden, a frosted ＋ circle appears; tapping it brings the pill back.
  *
- * NOTE: This component is rendered by `<Tabs tabBar={...}>` but it does NOT
- * use React Navigation's tab state. It drives navigation via expo-router so
- * any pathname can be a shortcut (including non-tab routes like /notifications).
+ * Scroll direction is detected on web with a capture-phase `scroll` listener on
+ * window, which catches scrolling from any inner ScrollView/FlatList without
+ * having to wire every screen. On native the pill simply stays visible.
  */
 
-const BG = theme.surface;
-const DIVIDER = "rgba(0,0,0,0.55)";
 const ACTIVE = theme.primary;
 const INACTIVE = theme.textMuted;
 
+// Frosted-glass surface (real blur on web; a denser translucent fill on native).
+const GLASS: any =
+  Platform.OS === "web"
+    ? {
+        backgroundColor: "rgba(31,44,51,0.72)",
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+        backdropFilter: "blur(22px)",
+        WebkitBackdropFilter: "blur(22px)",
+      }
+    : {
+        backgroundColor: theme.surfaceGlass,
+        borderWidth: 1,
+        borderColor: theme.borderStrong,
+      };
+
 function isActivePath(pathname: string, shortcut: { route: string; activeOn?: string[] }) {
   const patterns = shortcut.activeOn ?? [shortcut.route];
-  // Normalize: strip trailing slashes (except root)
   const p = pathname === "/" ? "/" : pathname.replace(/\/+$/, "");
   return patterns.some((pat) => {
     if (pat === "/") return p === "/";
@@ -40,13 +53,8 @@ function TabItem({ s, active, onPress, onLongPress }: {
   active: boolean; onPress: () => void; onLongPress: () => void;
 }) {
   const press = useRef(new Animated.Value(1)).current;
-  const pop = useRef(new Animated.Value(active ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.spring(pop, { toValue: active ? 1 : 0, useNativeDriver: true, friction: 6, tension: 140 }).start();
-  }, [active, pop]);
-  const onIn = () => Animated.spring(press, { toValue: 0.85, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
+  const onIn = () => Animated.spring(press, { toValue: 0.82, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
   const onOut = () => Animated.spring(press, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start();
-  const popScale = pop.interpolate({ inputRange: [0, 1], outputRange: [1, 1.14] });
   return (
     <Pressable
       onPress={onPress}
@@ -54,20 +62,15 @@ function TabItem({ s, active, onPress, onLongPress }: {
       delayLongPress={350}
       onPressIn={onIn}
       onPressOut={onOut}
-      android_ripple={{ color: "rgba(255,255,255,0.06)", borderless: false }}
+      android_ripple={{ color: "rgba(255,255,255,0.08)", borderless: true }}
       style={styles.item}
-      hitSlop={10}
+      hitSlop={8}
       accessibilityRole="button"
       accessibilityState={active ? { selected: true } : {}}
       testID={`tab-${s.id}`}
     >
-      <Animated.View style={[styles.itemInner, { transform: [{ scale: press }] }]}>
-        <Animated.View style={[styles.iconWrap, active && styles.iconWrapActive, { transform: [{ scale: popScale }] }]}>
-          <Ionicons name={active ? s.iconFilled : s.iconOutline} size={24} color={active ? ACTIVE : INACTIVE} />
-        </Animated.View>
-        <Text numberOfLines={1} style={[styles.label, { color: active ? ACTIVE : INACTIVE }, active && { fontWeight: "700" }]}>
-          {s.label}
-        </Text>
+      <Animated.View style={[styles.iconWrap, active && styles.iconWrapActive, { transform: [{ scale: press }] }]}>
+        <Ionicons name={active ? s.iconFilled : s.iconOutline} size={25} color={active ? ACTIVE : INACTIVE} />
       </Animated.View>
     </Pressable>
   );
@@ -79,6 +82,42 @@ export default function LiquidTabBar(_: any) {
   const pathname = usePathname();
   const { shortcuts } = useNavBar();
   const searchScale = useRef(new Animated.Value(1)).current;
+
+  // 0 = shown, 1 = hidden. Drives both the pill (slide down) and the ＋ (fade in).
+  const [hidden, setHidden] = useState(false);
+  const tv = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(tv, {
+      toValue: hidden ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [hidden, tv]);
+
+  // Never stay stuck hidden across navigation.
+  useEffect(() => { setHidden(false); }, [pathname]);
+
+  // Web: hide on scroll-down, show on scroll-up, from any scroll container.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    let lastY = 0;
+    let lastEl: any = null;
+    const onScroll = (e: any) => {
+      const el = e.target;
+      const y = el && typeof el.scrollTop === "number" ? el.scrollTop : (window.scrollY || 0);
+      if (el !== lastEl) { lastEl = el; lastY = y; return; }  // new scroller → reset baseline
+      const dy = y - lastY;
+      if (y <= 6) setHidden(false);            // at the top → always show
+      else if (dy > 8) setHidden(true);        // scrolling down → hide
+      else if (dy < -8) setHidden(false);      // scrolling up → show
+      lastY = y;
+    };
+    // Capture phase catches non-bubbling scroll events from inner scrollers.
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, []);
 
   const goCustomize = () => router.push("/customize-nav" as any);
 
@@ -95,95 +134,104 @@ export default function LiquidTabBar(_: any) {
     );
   };
 
-  // Split the customizable shortcuts evenly around a permanent, non-removable
-  // Search button pinned to the centre.
   const mid = Math.ceil(shortcuts.length / 2);
   const left = shortcuts.slice(0, mid);
   const right = shortcuts.slice(mid);
   const searchActive = (pathname || "").replace(/\/+$/, "") === "/search";
 
+  const lift = 64 + insets.bottom + 18;  // distance to slide the pill fully off-screen
+  const translateY = tv.interpolate({ inputRange: [0, 1], outputRange: [0, lift] });
+  const pillOpacity = tv.interpolate({ inputRange: [0, 0.6, 1], outputRange: [1, 0.3, 0] });
+  const fabOpacity = tv.interpolate({ inputRange: [0, 0.55, 1], outputRange: [0, 0, 1] });
+  const fabScale = tv.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
+
   return (
-    <View style={[styles.bar, { paddingBottom: insets.bottom, height: 66 + insets.bottom }]}>
-      <View style={styles.divider} pointerEvents="none" />
-      <View style={styles.row}>
-        {left.map(renderItem)}
+    <>
+      {/* Floating frosted pill */}
+      <Animated.View
+        pointerEvents={hidden ? "none" : "box-none"}
+        style={[styles.wrap, { bottom: insets.bottom + 8, opacity: pillOpacity, transform: [{ translateY }] }]}
+      >
+        <View style={[styles.pill, GLASS]}>
+          {left.map(renderItem)}
+          <Pressable
+            onPress={() => { if (!searchActive) router.push("/search" as any); }}
+            onPressIn={() => Animated.spring(searchScale, { toValue: 0.88, useNativeDriver: true, speed: 50, bounciness: 0 }).start()}
+            onPressOut={() => Animated.spring(searchScale, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start()}
+            android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
+            style={styles.item}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel="Search the site"
+            testID="tab-search"
+          >
+            <Animated.View style={[styles.searchCircle, searchActive && styles.searchCircleActive, { transform: [{ scale: searchScale }] }]}>
+              <Ionicons name="search" size={21} color="#fff" />
+            </Animated.View>
+          </Pressable>
+          {right.map(renderItem)}
+        </View>
+      </Animated.View>
+
+      {/* Frosted ＋ circle shown while the pill is hidden — tap to bring it back. */}
+      <Animated.View
+        pointerEvents={hidden ? "auto" : "none"}
+        style={[styles.fabWrap, { bottom: insets.bottom + 14, opacity: fabOpacity, transform: [{ scale: fabScale }] }]}
+      >
         <Pressable
-          onPress={() => { if (!searchActive) router.push("/search" as any); }}
-          onPressIn={() => Animated.spring(searchScale, { toValue: 0.88, useNativeDriver: true, speed: 50, bounciness: 0 }).start()}
-          onPressOut={() => Animated.spring(searchScale, { toValue: 1, useNativeDriver: true, friction: 4, tension: 140 }).start()}
+          onPress={() => setHidden(false)}
           android_ripple={{ color: "rgba(255,255,255,0.12)", borderless: true }}
-          style={styles.centerItem}
-          hitSlop={6}
+          style={[styles.fab, GLASS]}
+          hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Search the site"
-          testID="tab-search"
+          accessibilityLabel="Show navigation bar"
+          testID="tabbar-peek"
         >
-          <Animated.View style={[styles.searchCircle, searchActive && styles.searchCircleActive, { transform: [{ scale: searchScale }] }]}>
-            <Ionicons name="search" size={22} color="#fff" />
-          </Animated.View>
-          <Text numberOfLines={1} style={[styles.label, styles.searchLabel, searchActive && { fontWeight: "700" }]}>Search</Text>
+          <Ionicons name="add" size={30} color={theme.textPrimary} />
         </Pressable>
-        {right.map(renderItem)}
-      </View>
-    </View>
+      </Animated.View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    backgroundColor: BG,
+  wrap: {
+    position: "absolute", left: 0, right: 0,
+    alignItems: "center",
   },
-  divider: {
-    position: "absolute", top: 0, left: 0, right: 0,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: DIVIDER,
-  },
-  row: {
-    flexDirection: "row",
-    paddingTop: 6,
-    paddingBottom: 4,
+  pill: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 8, paddingVertical: 7,
+    borderRadius: 36,
+    shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
   },
   item: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 6,
-    minHeight: 50,
-  },
-  itemInner: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3,
+    paddingHorizontal: 12, paddingVertical: 4,
+    alignItems: "center", justifyContent: "center",
   },
   iconWrap: {
-    paddingHorizontal: 16,
-    paddingVertical: 3,
+    paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 16,
+    alignItems: "center", justifyContent: "center",
   },
-  iconWrapActive: {
-    backgroundColor: ACTIVE + "22",
-  },
-  centerItem: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    paddingTop: 2,
-    gap: 2,
-  },
+  iconWrapActive: { backgroundColor: ACTIVE + "22" },
   searchCircle: {
-    width: 46, height: 46, borderRadius: 23,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: ACTIVE,
     alignItems: "center", justifyContent: "center",
-    marginTop: -10,
+    marginHorizontal: 2,
     shadowColor: ACTIVE, shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
     elevation: 5,
-    borderWidth: 3, borderColor: BG,
   },
   searchCircleActive: { backgroundColor: theme.primaryActive ?? ACTIVE },
-  searchLabel: { color: ACTIVE, marginTop: -2 },
-  label: {
-    fontSize: 11,
-    letterSpacing: 0.1,
-    fontWeight: "600",
+  fabWrap: {
+    position: "absolute", right: 16,
+  },
+  fab: {
+    width: 54, height: 54, borderRadius: 27,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 14, shadowOffset: { width: 0, height: 5 },
+    elevation: 12,
   },
 });
