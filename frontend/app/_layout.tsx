@@ -17,6 +17,7 @@ import EdgeSwipe from "@/src/components/EdgeSwipe";
 import WebNavGuard from "@/src/components/WebNavGuard";
 import MobileOnlyGate from "@/src/components/MobileOnlyGate";
 import MobileFrame from "@/src/components/MobileFrame";
+import WebPullToRefresh from "@/src/components/WebPullToRefresh";
 import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
 import UsernameGate from "@/src/components/UsernameGate";
@@ -137,6 +138,7 @@ export default function RootLayout() {
                     <WebNavGuard />
                     <MobileOnlyGate>
                       <StatusBar style="light" />
+                      <WebPullToRefresh />
                       <MobileFrame>
                         <View style={{ flex: 1 }}>
                           {/* Web: instant transitions (the fade adds lag and jank
