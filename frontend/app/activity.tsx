@@ -8,6 +8,7 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, ActivityItem } from "@/src/api/client";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
 
 const ICON: Record<string, { icon: string; color: string }> = {
   topup: { icon: "add-circle", color: "#16A34A" },
@@ -57,7 +58,7 @@ export default function ActivityScreen() {
         <FlatList
           data={items}
           keyExtractor={(i) => i.id}
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30, gap: 10 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
           ListEmptyComponent={<Text style={styles.empty}>No activity yet. Top up, tip, or send money and it'll show here.</Text>}
           renderItem={({ item }) => {
@@ -98,7 +99,7 @@ const styles = StyleSheet.create({
   title: { flex: 1, color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   empty: { color: theme.textMuted, fontSize: 14, textAlign: "center", marginTop: 40, paddingHorizontal: 30, lineHeight: 20 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, ...GLASS },
   rowIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   rowTitle: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "700" },
   rowMeta: { color: theme.textMuted, fontSize: 12.5, marginTop: 2 },

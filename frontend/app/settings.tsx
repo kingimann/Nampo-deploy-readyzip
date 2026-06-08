@@ -9,6 +9,7 @@ import { safeBack } from "@/src/utils/nav";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
 import FadeIn from "@/src/components/FadeIn";
 import PressableScale from "@/src/components/PressableScale";
 
@@ -142,7 +143,7 @@ const styles = StyleSheet.create({
 
   account: {
     flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: theme.surface, borderRadius: 18,
+    ...GLASS, borderRadius: 18,
     borderWidth: 1, borderColor: theme.border,
     padding: 16,
   },
@@ -157,7 +158,7 @@ const styles = StyleSheet.create({
     marginTop: 22, marginBottom: 9, marginLeft: 6,
   },
   group: {
-    backgroundColor: theme.surface, borderRadius: 16,
+    ...GLASS, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border,
     overflow: "hidden",
   },

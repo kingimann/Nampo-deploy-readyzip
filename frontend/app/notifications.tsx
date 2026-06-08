@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { api, Notification, NetworkActivity } from "@/src/api/client";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
 import { safeBack } from "@/src/utils/nav";
 
 const ACT_ICON: Record<NetworkActivity["type"], { name: any; color: string }> = {
@@ -299,13 +300,13 @@ const styles = StyleSheet.create({
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   title: { color: theme.textPrimary, fontSize: 22, fontWeight: "800", flex: 1 },
   markAllBtn: {
     paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
   },
   markAllText: { color: theme.primary, fontSize: 12, fontWeight: "700" },
   tabs: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
@@ -318,7 +319,7 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 80, alignItems: "center", gap: 10 },
   emptyIcon: {
     width: 64, height: 64, borderRadius: 32,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center", marginBottom: 4,
   },
   emptyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "700" },
@@ -326,7 +327,7 @@ const styles = StyleSheet.create({
 
   row: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: theme.surface, borderRadius: 16,
+    ...GLASS, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 12,
   },

@@ -9,6 +9,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { api, ConversationView, PublicUser } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import { isE2E, tryDecrypt, getPeerPublicKey } from "@/src/utils/e2e";
@@ -554,13 +555,13 @@ const styles = StyleSheet.create({
   title: { color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
   encNote: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingBottom: 6 },
   encNoteText: { color: theme.textMuted, fontSize: 11.5, fontWeight: "600" },
-  unlockBanner: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 11, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
+  unlockBanner: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 11, ...GLASS, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
   unlockText: { flex: 1, color: theme.textSecondary, fontSize: 12.5, lineHeight: 17, fontWeight: "600" },
   searchWrap: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginHorizontal: 16, marginTop: 4, marginBottom: 6,
     paddingHorizontal: 14, height: 42,
-    backgroundColor: theme.surface, borderRadius: 21,
+    ...GLASS, borderRadius: 21,
     borderWidth: 1, borderColor: theme.border,
   },
   searchInput: {
@@ -569,7 +570,7 @@ const styles = StyleSheet.create({
   },
   iconBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center",
   },
   iconBadge: {
@@ -584,7 +585,7 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 80, alignItems: "center", gap: 10 },
   emptyIcon: {
     width: 64, height: 64, borderRadius: 32,
-    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    ...GLASS, borderWidth: 1, borderColor: theme.border,
     alignItems: "center", justifyContent: "center", marginBottom: 4,
   },
   emptyTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "700" },
@@ -592,7 +593,7 @@ const styles = StyleSheet.create({
 
   convRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: theme.surface, borderRadius: 16,
+    ...GLASS, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 12,
   },
@@ -630,7 +631,7 @@ const styles = StyleSheet.create({
   listingTag: { color: theme.primary, fontSize: 12, fontWeight: "600", marginTop: 1 },
   selfChatRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: theme.surface,
+    ...GLASS,
     borderRadius: 14, borderWidth: 1, borderColor: theme.border,
     padding: 12, marginBottom: 14,
   },
@@ -650,7 +651,7 @@ const styles = StyleSheet.create({
   switchModeText: { color: theme.primary, fontSize: 14, fontWeight: "700" },
   searchPill: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: theme.surface,
+    ...GLASS,
     borderWidth: 1, borderColor: theme.border,
     borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12,
     marginBottom: 12,
@@ -696,7 +697,7 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
-    backgroundColor: theme.surface, borderRadius: 14,
+    ...GLASS, borderRadius: 14,
     borderWidth: 1, borderColor: theme.border,
     paddingVertical: 14, paddingHorizontal: 16,
   },
