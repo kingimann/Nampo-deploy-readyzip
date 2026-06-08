@@ -181,7 +181,7 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
     if body.sub_price is not None:
         patch["sub_price"] = max(0.0, round(float(body.sub_price), 2))
     if body.payout_frequency in ("weekly", "biweekly", "monthly"):
-        current_freq = user.get("payout_frequency", "weekly")
+        current_freq = user.get("payout_frequency") or "monthly"
         if body.payout_frequency != current_freq:
             # Payout frequency can only be changed once a month.
             last_change = user.get("payout_frequency_changed_at")

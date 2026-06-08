@@ -56,7 +56,6 @@ export default function ProfileScreen() {
   }, [user]);
 
   useFocusEffect(useCallback(() => { loadPosts(); }, [loadPosts]));
-  useEffect(() => { loadPosts(); }, [loadPosts]);
 
   const onLike = async (p: Post) => {
     setMyPosts((arr) => arr.map((x) => x.id !== p.id ? x : {
@@ -146,7 +145,6 @@ export default function ProfileScreen() {
   }, [user]);
 
   useFocusEffect(useCallback(() => { loadStats(); }, [loadStats]));
-  useEffect(() => { loadStats(); }, [loadStats]);
 
   const openEdit = () => {
     setEditName(user?.name || "");

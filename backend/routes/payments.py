@@ -1151,12 +1151,19 @@ async def stripe_webhook(request: Request):
         return {"ok": True}
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
+    # In live mode we must verify the Stripe signature — otherwise anyone could
+    # POST a forged event and credit wallets / grant plans. Only the dev/test
+    # key path is allowed to trust an unsigned body.
+    if not STRIPE_WEBHOOK_SECRET and STRIPE_SECRET_KEY.startswith("sk_live_"):
+        raise HTTPException(status_code=400, detail="Webhook signature verification required")
     try:
         if STRIPE_WEBHOOK_SECRET:
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-        else:  # dev: trust the body (configure the secret in production)
+        else:  # dev/test: trust the body (configure STRIPE_WEBHOOK_SECRET in production)
             import json
             event = json.loads(payload)
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
