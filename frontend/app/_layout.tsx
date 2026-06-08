@@ -2,7 +2,7 @@ import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -62,7 +62,6 @@ const HIDDEN_BAR_PREFIXES = [
   "/story/",
   "/listing/", // marketplace listing detail
   "/my-listings", // seller's own listings manager
-  "/roadside", // roadside assistance request flow
   "/seller/",  // marketplace seller profile
   "/advertise",
   "/wallet",
@@ -140,8 +139,10 @@ export default function RootLayout() {
                       <StatusBar style="light" />
                       <MobileFrame>
                         <View style={{ flex: 1 }}>
-                          <Stack screenOptions={{ headerShown: false, animation: "fade", animationDuration: 220, contentStyle: { backgroundColor: "#0A0A0A" } }} />
-                          <EdgeSwipe />
+                          {/* Web: instant transitions (the fade adds lag and jank
+                              to every navigation). Native keeps the fade. */}
+                          <Stack screenOptions={{ headerShown: false, animation: Platform.OS === "web" ? "none" : "fade", animationDuration: 220, contentStyle: { backgroundColor: "#0A0A0A" } }} />
+                          {Platform.OS !== "web" && <EdgeSwipe />}
                         </View>
                         <GlobalTabBar />
                         <AuthedSidebar />

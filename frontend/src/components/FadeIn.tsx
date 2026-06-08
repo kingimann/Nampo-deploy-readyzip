@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, StyleProp, ViewStyle } from "react-native";
+import { Animated, Platform, StyleProp, ViewStyle } from "react-native";
 
 // Keys that have already played their entrance, so FlatList recycling on scroll
 // doesn't re-trigger the fade for items the user has already seen.
@@ -22,7 +22,9 @@ export default function FadeIn({
   offset?: number;
   animateKey?: string;
 }) {
-  const first = animateKey == null ? true : !_seen.has(animateKey);
+  // On web the native driver isn't available, so these entrance animations run
+  // on the JS thread via rAF — a feed full of them janks. Render instantly there.
+  const first = Platform.OS === "web" ? false : (animateKey == null ? true : !_seen.has(animateKey));
   const v = useRef(new Animated.Value(first ? 0 : 1)).current;
 
   useEffect(() => {

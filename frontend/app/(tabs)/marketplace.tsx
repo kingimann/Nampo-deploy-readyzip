@@ -8,6 +8,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { pickImages } from "@/src/utils/thumbnail";
 import * as Location from "expo-location";
 import { api, Listing } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
@@ -219,22 +220,10 @@ export default function MarketplaceScreen() {
 
   const pickPhotos = async () => {
     if (draft.photos.length >= MAX_PHOTOS) return;
-    if (Platform.OS !== "web") {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"] as any,
-      allowsMultipleSelection: true,
-      selectionLimit: MAX_PHOTOS - draft.photos.length,
-      quality: 0.6,
-      base64: true,
-    });
-    if (result.canceled) return;
-    const added = (result.assets || [])
-      .filter((a) => a.base64)
-      .map((a) => `data:image/jpeg;base64,${a.base64}`);
-    setDraft((d) => ({ ...d, photos: [...d.photos, ...added].slice(0, MAX_PHOTOS) }));
+    // pickImages uploads to the Cloudinary CDN when configured (URLs), else
+    // falls back to base64 — so listing photos no longer bloat the database.
+    const added = await pickImages(MAX_PHOTOS - draft.photos.length);
+    if (added.length) setDraft((d) => ({ ...d, photos: [...d.photos, ...added].slice(0, MAX_PHOTOS) }));
   };
 
   const detectDraftLocation = async () => {
