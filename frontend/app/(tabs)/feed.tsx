@@ -587,21 +587,22 @@ const styles = StyleSheet.create({
   newPillText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   segment: {
     flexDirection: "row",
+    alignSelf: "flex-start",   // shrink to content instead of full width
     backgroundColor: theme.surface,
-    borderRadius: 12,
-    padding: 4,
+    borderRadius: 999,
+    padding: 3,
     borderWidth: 1, borderColor: theme.border,
   },
   segmentItem: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: 9,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     alignItems: "center", justifyContent: "center",
   },
   segmentItemActive: {
     backgroundColor: theme.surfaceAlt,
   },
-  segmentText: { fontSize: 13.5, fontWeight: "700", letterSpacing: 0.1 },
+  segmentText: { fontSize: 11.5, fontWeight: "700", letterSpacing: 0.1 },
 
   composeStub: {
     flexDirection: "row", alignItems: "center", gap: 12,
