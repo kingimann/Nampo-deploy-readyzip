@@ -710,6 +710,7 @@ class Post(BaseModel):
     community_id: Optional[str] = None
     community_name: Optional[str] = None
     title: Optional[str] = None
+    factcheck: Optional[dict] = None   # shown community Factcheck note {id, text, source_url}
     created_at: datetime
 
 

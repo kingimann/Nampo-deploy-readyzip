@@ -616,6 +616,15 @@ export const api = {
   deletePost: (id: string) =>
     request<{ ok: boolean }>(`/posts/${id}`, { method: "DELETE" }),
   getPost: (id: string) => request<Post>(`/posts/${id}`),
+  // ── Factcheck (community notes on posts) ──
+  listFactchecks: (postId: string) =>
+    request<{ factchecks: Factcheck[]; threshold: number }>(`/posts/${postId}/factchecks`),
+  addFactcheck: (postId: string, text: string, source_url: string) =>
+    request<Factcheck>(`/posts/${postId}/factchecks`, { method: "POST", body: JSON.stringify({ text, source_url }) }),
+  rateFactcheck: (id: string, helpful: boolean | null) =>
+    request<Factcheck>(`/factchecks/${id}/rate`, { method: "POST", body: JSON.stringify({ helpful }) }),
+  deleteFactcheck: (id: string) =>
+    request<{ ok: boolean }>(`/factchecks/${id}`, { method: "DELETE" }),
   getPostViewers: (id: string) => request<PostViewers>(`/posts/${id}/viewers`),
   listReplies: (id: string) => request<Post[]>(`/posts/${id}/replies`),
   postThread: (id: string) => request<Post[]>(`/posts/${id}/thread`),
@@ -1569,8 +1578,17 @@ export type Post = {
   promoted?: boolean; promoted_until?: string | null;
   pinned?: boolean;
   community_id?: string | null; community_name?: string | null; title?: string | null;
+  factcheck?: { id: string; text: string; source_url: string } | null;  // shown community note
   edited_at?: string | null;
   created_at: string;
+};
+export type Factcheck = {
+  id: string; post_id: string; author_id: string; author_name: string;
+  text: string; source_url: string;
+  helpful_count: number; not_helpful_count: number;
+  status: "pending" | "shown";
+  my_rating: boolean | null;   // true=helpful, false=not helpful, null=none
+  created_at?: string;
 };
 export type PostViewer = { user_id: string; name: string; username?: string | null; picture?: string | null; verified?: boolean; viewed_at?: string };
 export type PostViewers = { count: number; unique: number; viewers: PostViewer[] };
