@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput,
-  ActivityIndicator, RefreshControl, Modal, KeyboardAvoidingView, Platform, ScrollView,
+  ActivityIndicator, RefreshControl, Modal, KeyboardAvoidingView, Platform, ScrollView, Animated,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +10,8 @@ import { safeBack } from "@/src/utils/nav";
 import { api, Community, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
+import { useFloatingHeader } from "@/src/hooks/useFloatingHeader";
 import PostCard from "@/src/components/PostCard";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
@@ -24,6 +26,7 @@ const SORTS = [
 export default function CommunityScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const fh = useFloatingHeader();
   const { user } = useAuth();
   const { name } = useLocalSearchParams<{ name: string }>();
   const [community, setCommunity] = useState<Community | null>(null);
@@ -84,13 +87,19 @@ export default function CommunityScreen() {
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="community-screen">
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="community-back">
-          <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{community ? `/${community.name}` : "Community"}</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <Animated.View
+        onLayout={(e) => fh.setTopBarH(e.nativeEvent.layout.height)}
+        pointerEvents={fh.barPointerEvents}
+        style={[styles.topBar, GLASS, fh.barStyle(insets.top)]}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="community-back">
+            <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>{community ? `/${community.name}` : "Community"}</Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </Animated.View>
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
@@ -99,8 +108,10 @@ export default function CommunityScreen() {
           data={interleaveAds(posts)}
           keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
           style={{ flex: 1 }}
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + 90 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
+          onScroll={fh.onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ flexGrow: 1, paddingTop: fh.topBarH + 8, paddingBottom: insets.bottom + 90 }}
+          refreshControl={<RefreshControl refreshing={refreshing} progressViewOffset={fh.topBarH} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
           ListHeaderComponent={
             community ? (
               <View>
@@ -175,7 +186,12 @@ export default function CommunityScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  topBar: {
+    position: "absolute", top: 6, left: 8, right: 8,
+    borderRadius: 24, zIndex: 40,
+    shadowColor: "#000", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 10,
+  },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 6 },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, color: theme.textPrimary, fontSize: 17, fontWeight: "800", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
