@@ -63,7 +63,11 @@ export default function AdminRoadsideScreen() {
       <View style={styles.header}>
         <TouchableOpacity onPress={() => safeBack("/settings")} style={styles.iconBtn}><Ionicons name="chevron-back" size={24} color={theme.textPrimary} /></TouchableOpacity>
         <Text style={styles.title}>Roadside verifications</Text>
-        <View style={{ width: 40 }} />
+        {user?.role === "admin" ? (
+          <TouchableOpacity onPress={() => router.push("/admin-roadside-calls")} style={styles.iconBtn} testID="open-roadside-calls">
+            <Ionicons name="call-outline" size={20} color={theme.primary} />
+          </TouchableOpacity>
+        ) : <View style={{ width: 40 }} />}
       </View>
 
       {loading ? (
