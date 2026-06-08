@@ -134,7 +134,7 @@ export default function MapScreen() {
   }, [setTabBarHidden]);
   const scheduleShowChrome = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
-    idleTimer.current = setTimeout(() => { setMapActive(false); setTabBarHidden(false); }, 1600);
+    idleTimer.current = setTimeout(() => { setMapActive(false); setTabBarHidden(false); }, 900);
   }, [setTabBarHidden]);
   useEffect(() => {
     Animated.timing(searchHide, {
@@ -466,20 +466,12 @@ export default function MapScreen() {
         // …and get the chrome out of the way while they explore.
         hideChromeForPan();
       } else if (e.type === "click") {
-        // A plain tap just dismisses open chrome — it no longer drops a pin
-        // (that's a long-press now). Close any open card/results/controls.
+        // A plain tap brings the chrome back right away and dismisses any open
+        // card/results/controls. (Dropping a pin is the ＋ button, not a tap.)
+        showChrome();
         setShowResults(false);
         setSelected(null);
         setFabOpen(false);
-      } else if (e.type === "longpress") {
-        // Long-press anywhere → drop a pin at that point and show its card.
-        setShowResults(false);
-        setFabOpen(false);
-        setSelected({
-          name: "Dropped pin",
-          longitude: e.lng,
-          latitude: e.lat,
-        });
       } else if (e.type === "markerClick") {
         if (e.id.startsWith("place_")) {
           const pid = e.id.slice("place_".length);
@@ -501,7 +493,7 @@ export default function MapScreen() {
         if (h) setHazardSel(h);
       }
     },
-    [places, requestLocation, styleKey, router, scheduleShowChrome, hideChromeForPan],
+    [places, requestLocation, styleKey, router, scheduleShowChrome, hideChromeForPan, showChrome],
   );
 
   const onPickStyle = (key: MapStyleKey) => {
@@ -557,6 +549,16 @@ export default function MapScreen() {
   };
   const resetNorth = () => {
     mapRef.current?.resetNorth();
+  };
+
+  // Drop a pin at the centre of the map (the ＋ button replaces long-press).
+  const dropPin = () => {
+    setFabOpen(false);
+    const c = mapCenterRef.current || userLocationRef.current;
+    if (!c) return;
+    showChrome();
+    setShowResults(false);
+    setSelected({ name: "Dropped pin", longitude: c[0], latitude: c[1] });
   };
 
   // Block re-entrancy on save/unsave so a double-tap (or a tap during a slow
@@ -821,6 +823,14 @@ export default function MapScreen() {
         {/* Revealed actions (only while open) */}
         {fabOpen && (
           <>
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={dropPin}
+              testID="drop-pin-fab"
+              activeOpacity={0.85}
+            >
+              <Ionicons name="location" size={22} color={theme.primary} />
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.fab}
               onPress={() => { setFabOpen(false); setReportOpen(true); }}
