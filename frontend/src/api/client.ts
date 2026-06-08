@@ -1008,6 +1008,10 @@ export type User = {
   default_comment_policy?: string; // everyone | followers | friends | nobody
   message_policy?: string; // who can start a DM: everyone | followers | friends | nobody
   default_likes_disabled?: boolean;
+  is_private?: boolean;
+  message_policy?: string; // everyone | followers | nobody
+  searchable?: boolean;
+  hide_online?: boolean;
   needs_policy_agreement?: boolean;
 };
 export type ProfilePatch = {
@@ -1022,6 +1026,10 @@ export type ProfilePatch = {
   default_comment_policy?: string;
   message_policy?: string;
   default_likes_disabled?: boolean;
+  is_private?: boolean;
+  message_policy?: string;
+  searchable?: boolean;
+  hide_online?: boolean;
   sms_notifications?: boolean;
 };
 // /auth/login returns either a session (success) or a two-factor challenge.

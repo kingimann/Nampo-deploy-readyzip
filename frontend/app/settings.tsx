@@ -97,28 +97,42 @@ export default function SettingsScreen() {
         <Text style={styles.groupTitle}>Account</Text>
         <View style={styles.group}>
           <Row icon="shield-checkmark-outline" label="Account & security" color="#22C55E" onPress={() => router.push("/account")} />
-          <Row icon="link-outline" label="Connected apps" color="#A855F7" onPress={() => router.push("/connected-apps")} />
-          <Row icon="code-slash-outline" label="Developer API" color="#0EA5E9" onPress={() => router.push("/developer")} />
-          <Row icon="document-text-outline" label="Forms" color="#8B5CF6" onPress={() => router.push("/forms")} />
-          <Row icon="megaphone-outline" label="Advertise" color="#F97316" onPress={() => router.push("/advertise")} />
-          <Row icon="cash-outline" label="Monetize your site" color="#16A34A" onPress={() => router.push("/monetize")} last={user?.role !== "admin" && user?.role !== "mod"} />
-          {(user?.role === "admin" || user?.role === "mod") && (
-            <Row icon="shield-checkmark-outline" label="Admin settings" color="#F97316" onPress={() => router.push("/admin-settings")} last />
-          )}
-        </View>
-
-        <Text style={styles.groupTitle}>General</Text>
-        <View style={styles.group}>
-          <Row icon="document-text-outline" label="Documents & verification" color="#F59E0B" onPress={() => router.push("/documents")} />
-          <Row icon="grid-outline" label="Customize navigation bar" color="#0EA5E9" onPress={() => router.push("/customize-nav")} />
           <Row icon="lock-closed-outline" label="Privacy" color="#14B8A6" onPress={() => router.push("/privacy")} />
           <Row icon="notifications-outline" label="Notifications" color="#EF4444" onPress={() => router.push("/notifications")} />
-          <Row icon="game-controller-outline" label="Games" color="#8B5CF6" onPress={() => router.push("/games")} />
+          <Row icon="document-text-outline" label="Documents & verification" color="#F59E0B" onPress={() => router.push("/documents")} last />
+        </View>
+
+        <Text style={styles.groupTitle}>Your content</Text>
+        <View style={styles.group}>
           <Row icon="bookmark-outline" label="Bookmarks" color={theme.primary} onPress={() => router.push("/bookmarks")} />
-          <Row icon="people-outline" label="Connections" color="#7C3AED" onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })} />
           <Row icon="location-outline" label="Saved places" color="#22C55E" onPress={() => router.push("/(tabs)/favorites")} />
+          <Row icon="people-outline" label="Connections" color="#7C3AED" onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })} />
+          <Row icon="document-text-outline" label="Forms" color="#8B5CF6" onPress={() => router.push("/forms")} />
+          <Row icon="game-controller-outline" label="Games" color="#8B5CF6" onPress={() => router.push("/games")} last />
+        </View>
+
+        <Text style={styles.groupTitle}>Creator tools</Text>
+        <View style={styles.group}>
+          <Row icon="cash-outline" label="Monetize your site" color="#16A34A" onPress={() => router.push("/monetize")} />
+          <Row icon="megaphone-outline" label="Advertise" color="#F97316" onPress={() => router.push("/advertise")} />
+          <Row icon="code-slash-outline" label="Developer API" color="#0EA5E9" onPress={() => router.push("/developer")} />
+          <Row icon="link-outline" label="Connected apps" color="#A855F7" onPress={() => router.push("/connected-apps")} last />
+        </View>
+
+        <Text style={styles.groupTitle}>App</Text>
+        <View style={styles.group}>
+          <Row icon="grid-outline" label="Customize navigation bar" color="#0EA5E9" onPress={() => router.push("/customize-nav")} />
           <Row icon="help-buoy-outline" label="Support & disputes" color="#06B6D4" badge={supportUnread} onPress={() => router.push("/support")} last />
         </View>
+
+        {(user?.role === "admin" || user?.role === "mod") && (
+          <>
+            <Text style={styles.groupTitle}>Admin</Text>
+            <View style={styles.group}>
+              <Row icon="shield-checkmark-outline" label="Admin settings" color="#F97316" onPress={() => router.push("/admin-settings")} last />
+            </View>
+          </>
+        )}
 
         <View style={[styles.group, { marginTop: 24 }]}>
           <Row icon="log-out-outline" label="Sign out" danger onPress={onSignOut} last />

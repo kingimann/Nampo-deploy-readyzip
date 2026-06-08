@@ -525,6 +525,7 @@ async def search_users(
     cursor = db.users.find(
         {
             "user_id": {"$ne": me_user["user_id"]},
+            "searchable": {"$ne": False},   # respect "appear in search" privacy setting
             "$or": [
                 {"email": {"$regex": pattern, "$options": "i"}},
                 {"name": {"$regex": pattern, "$options": "i"}},
