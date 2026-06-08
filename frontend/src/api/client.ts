@@ -649,6 +649,11 @@ export const api = {
   getPostViewers: (id: string) => request<PostViewers>(`/posts/${id}/viewers`),
   listReplies: (id: string) => request<Post[]>(`/posts/${id}/replies`),
   postThread: (id: string) => request<Post[]>(`/posts/${id}/thread`),
+  // Post drafts (save a composer payload to finish later)
+  listDrafts: () => request<Draft[]>("/drafts"),
+  createDraft: (payload: any) => request<Draft>("/drafts", { method: "POST", body: JSON.stringify({ payload }) }),
+  updateDraft: (id: string, payload: any) => request<Draft>(`/drafts/${id}`, { method: "PATCH", body: JSON.stringify({ payload }) }),
+  deleteDraft: (id: string) => request<{ ok: boolean }>(`/drafts/${id}`, { method: "DELETE" }),
   // Communities (forum)
   listCommunities: (q?: string) => request<Community[]>(`/communities${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   getCommunity: (name: string) => request<Community>(`/communities/${name}`),
@@ -1593,6 +1598,8 @@ export type TaggedUser = {
   username?: string | null;
   picture?: string | null;
 };
+export type Draft = { id: string; payload: any; created_at: string; updated_at: string };
+
 export type Post = {
   id: string; user_id: string; author: PostAuthor; text: string;
   parent_id?: string | null;

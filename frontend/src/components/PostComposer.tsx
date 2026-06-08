@@ -6,7 +6,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { api, Post, PostMedia, mediaUri } from "@/src/api/client";
+import { api, Post, PostMedia, Draft, mediaUri } from "@/src/api/client";
 import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 import { pickThumbnailUri } from "@/src/utils/thumbnail";
 import ReelPoster from "@/src/components/ReelPoster";
@@ -135,6 +135,65 @@ export default function PostComposer({
     else setThread((ps) => ps.map((p, j) => (j === t ? { ...p, media: [...p.media, ...toAdd].slice(0, MAX_MEDIA) } : p)));
   };
 
+  // ── Drafts: save the composer payload (text, media, poll, privacy, thread)
+  //    to finish later. Works for posts, videos and reels alike. ──
+  const canDraft = canThread;  // new posts / group posts (not edit/reply/quote)
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const refreshDrafts = () => { api.listDrafts().then(setDrafts).catch(() => {}); };
+  const hasContent = !!text.trim() || media.length > 0
+    || thread.some((p) => p.text.trim() || p.media.length > 0)
+    || (showPoll && pollOptions.some((o) => o.trim()));
+  const buildPayload = () => ({
+    text, media,
+    poll: showPoll ? { options: pollOptions, duration_hours: pollHours } : null,
+    likes_disabled: likesOff, comment_policy: commentPolicy, min_sub_tier: subTier,
+    thread, group_id: groupId || null,
+  });
+  const saveDraft = async () => {
+    setSavingDraft(true);
+    try {
+      const payload = buildPayload();
+      if (draftId) await api.updateDraft(draftId, payload);
+      else await api.createDraft(payload);
+    } catch (e: any) {
+      setSavingDraft(false);
+      Alert.alert("Couldn't save draft", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+      return;
+    }
+    setSavingDraft(false);
+    setDiscardOpen(false);
+    onClose();
+  };
+  const loadDraft = (d: Draft) => {
+    const p = d.payload || {};
+    setText(p.text || "");
+    setMedia(Array.isArray(p.media) ? p.media : []);
+    if (p.poll && Array.isArray(p.poll.options)) {
+      setShowPoll(true); setPollOptions(p.poll.options); setPollHours(p.poll.duration_hours || 24);
+    } else { setShowPoll(false); setPollOptions(["", ""]); }
+    setLikesOff(!!p.likes_disabled);
+    setCommentPolicy(p.comment_policy || "everyone");
+    setSubTier(p.min_sub_tier || 0);
+    setThread(Array.isArray(p.thread) ? p.thread : []);
+    setDraftId(d.id);
+    setDraftsOpen(false);
+  };
+  const removeDraft = async (id: string) => {
+    setDrafts((arr) => arr.filter((d) => d.id !== id));
+    if (draftId === id) setDraftId(null);
+    try { await api.deleteDraft(id); } catch {}
+  };
+  // Closing with unsaved content offers to save it as a draft first.
+  const attemptClose = () => {
+    if (submitting || savingDraft) return;
+    if (canDraft && hasContent) setDiscardOpen(true);
+    else onClose();
+  };
+
   useEffect(() => {
     if (visible) {
       if (editing) {
@@ -150,6 +209,10 @@ export default function PostComposer({
       setCommentPolicy("everyone");
       setSubTier(0);
       setThread([]);
+      setDraftId(null);
+      setDiscardOpen(false);
+      setDraftsOpen(false);
+      api.listDrafts().then(setDrafts).catch(() => {});
     }
   }, [visible, editing]);
 
@@ -345,6 +408,8 @@ export default function PostComposer({
           parentId = child.id;
         }
       }
+      // The draft has now been published — remove it.
+      if (draftId) { try { await api.deleteDraft(draftId); } catch {} }
       onPosted(p);
       onClose();
     } catch (e: any) {
@@ -359,16 +424,26 @@ export default function PostComposer({
   const videoThumb = media.find((m) => m.type === "video")?.thumbnail || null;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={attemptClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.backdrop}
       >
         <View style={[styles.sheet, { paddingBottom: kbInset > 0 ? kbInset + 8 : insets.bottom + 16, paddingTop: insets.top + 12 }]}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} testID="composer-close">
-              <Ionicons name="close" size={26} color={theme.textPrimary} />
-            </TouchableOpacity>
+            <View style={styles.headerLeft}>
+              <TouchableOpacity onPress={attemptClose} testID="composer-close">
+                <Ionicons name="close" size={26} color={theme.textPrimary} />
+              </TouchableOpacity>
+              {canDraft && (
+                <TouchableOpacity onPress={() => setDraftsOpen(true)} style={styles.draftsBtn} testID="composer-drafts">
+                  <Ionicons name="documents-outline" size={18} color={theme.textSecondary} />
+                  {drafts.length > 0 && (
+                    <View style={styles.draftsBadge}><Text style={styles.draftsBadgeText}>{drafts.length}</Text></View>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.headerTitle}>
               {editing ? "Edit post" : quoting ? "Quote post" : replyTo ? "Reply" : "New post"}
             </Text>
@@ -735,6 +810,63 @@ export default function PostComposer({
             </View>
           </View>
         </Modal>
+
+        {/* Saved drafts list */}
+        <Modal visible={draftsOpen} transparent animationType="slide" onRequestClose={() => setDraftsOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setDraftsOpen(false)} />
+            <View style={[styles.sheet2, { paddingBottom: insets.bottom + 20 }]}>
+              <View style={styles.sheetHandle2} />
+              <Text style={styles.draftsTitle}>Drafts</Text>
+              {drafts.length === 0 ? (
+                <Text style={styles.draftEmpty}>No saved drafts yet. Start a post and choose “Save draft” when you close.</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                  {drafts.map((d) => {
+                    const txt = (d.payload?.text || "").trim();
+                    const mediaN = Array.isArray(d.payload?.media) ? d.payload.media.length : 0;
+                    const isVid = Array.isArray(d.payload?.media) && d.payload.media.some((m: any) => m?.type === "video");
+                    return (
+                      <View key={d.id} style={styles.draftRow}>
+                        <TouchableOpacity style={{ flex: 1 }} onPress={() => loadDraft(d)} testID={`draft-${d.id}`}>
+                          <Text style={styles.draftText} numberOfLines={2}>
+                            {txt || (isVid ? "🎬 Video draft" : mediaN ? "🖼️ Media draft" : "Empty draft")}
+                          </Text>
+                          <Text style={styles.draftMeta}>
+                            {new Date(d.updated_at).toLocaleString()}{mediaN ? ` · ${mediaN} attachment${mediaN === 1 ? "" : "s"}` : ""}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => removeDraft(d.id)} hitSlop={8} testID={`draft-del-${d.id}`} style={styles.draftDel}>
+                          <Ionicons name="trash-outline" size={18} color={theme.error} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* Save-as-draft prompt when closing with unsaved content */}
+        <Modal visible={discardOpen} transparent animationType="fade" onRequestClose={() => setDiscardOpen(false)}>
+          <View style={styles.pBackdrop}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setDiscardOpen(false)} />
+            <View style={styles.pCard}>
+              <Text style={styles.pTitle}>Save this post?</Text>
+              <Text style={styles.draftEmpty}>You can finish it later from Drafts.</Text>
+              <TouchableOpacity style={[styles.pDone, savingDraft && { opacity: 0.6 }]} onPress={saveDraft} disabled={savingDraft} testID="composer-save-draft">
+                {savingDraft ? <ActivityIndicator color="#fff" /> : <Text style={styles.pDoneText}>{draftId ? "Update draft" : "Save draft"}</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.discardBtn} onPress={() => { setDiscardOpen(false); onClose(); }} testID="composer-discard">
+                <Text style={styles.discardText}>Discard</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.keepBtn} onPress={() => setDiscardOpen(false)}>
+                <Text style={styles.keepText}>Keep editing</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -751,6 +883,14 @@ const styles = StyleSheet.create({
     paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.border,
   },
   headerTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800" },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  draftsBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, height: 32, borderRadius: 16,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+  },
+  draftsBadge: { minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 4, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+  draftsBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
   postBtn: {
     backgroundColor: theme.primary, paddingHorizontal: 16, paddingVertical: 8,
     borderRadius: 999,
@@ -898,4 +1038,24 @@ const styles = StyleSheet.create({
   pOptLabel: { flex: 1, color: theme.textPrimary, fontSize: 15, fontWeight: "600" },
   pDone: { marginTop: 16, height: 48, borderRadius: 12, backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
   pDoneText: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  // Drafts
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet2: {
+    backgroundColor: "#0E0E10", borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingTop: 12, paddingHorizontal: 20, borderTopWidth: 1, borderColor: theme.border,
+  },
+  sheetHandle2: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 14 },
+  draftsTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800", marginBottom: 10 },
+  draftEmpty: { color: theme.textMuted, fontSize: 13.5, lineHeight: 19, marginBottom: 12 },
+  draftRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border,
+  },
+  draftText: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "600", lineHeight: 19 },
+  draftMeta: { color: theme.textMuted, fontSize: 11.5, marginTop: 3 },
+  draftDel: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(239,68,68,0.1)" },
+  discardBtn: { marginTop: 10, paddingVertical: 13, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: theme.border },
+  discardText: { color: theme.error, fontSize: 15, fontWeight: "800" },
+  keepBtn: { marginTop: 8, paddingVertical: 10, alignItems: "center" },
+  keepText: { color: theme.textMuted, fontSize: 14, fontWeight: "700" },
 });

@@ -17,6 +17,7 @@ from routes import (
     auth as auth_routes,
     calls as calls_routes,
     communities as communities_routes,
+    drafts as drafts_routes,
     embed as embed_routes,
     eta as eta_routes,
     forms as forms_routes,
@@ -229,6 +230,7 @@ def _register(parent: APIRouter):
     parent.include_router(notifications_routes.router)
     parent.include_router(eta_routes.router)
     parent.include_router(posts_routes.router)
+    parent.include_router(drafts_routes.router)
     parent.include_router(marketplace_routes.router)
     parent.include_router(groups_routes.router)
     parent.include_router(communities_routes.router)
