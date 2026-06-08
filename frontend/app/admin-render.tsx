@@ -17,6 +17,13 @@ const mask = (v: string) => {
   return "••••" + v.slice(-4);
 };
 const fmt = (iso?: string) => { if (!iso) return ""; try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+const statusMeta = (s?: string): { label: string; color: string } => {
+  if (!s) return { label: "", color: theme.textMuted };
+  if (s === "live") return { label: "Deploy live", color: "#22C55E" };
+  if (s.includes("fail") || s.includes("cancel")) return { label: "Last deploy failed", color: theme.error };
+  if (s.includes("progress") || s.includes("build") || s === "created" || s === "queued") return { label: "Building…", color: "#F59E0B" };
+  return { label: s.replace(/_/g, " "), color: theme.textMuted };
+};
 
 export default function AdminRenderScreen() {
   const insets = useSafeAreaInsets();
@@ -39,14 +46,23 @@ export default function AdminRenderScreen() {
 
   const [openDeploys, setOpenDeploys] = useState<string | null>(null);
   const [deploys, setDeploys] = useState<Record<string, RenderDeployRec[]>>({});
+  const [statuses, setStatuses] = useState<Record<string, string>>({});   // sid → latest deploy status
+
+  const loadStatus = useCallback(async (sid: string) => {
+    try {
+      const d = await api.renderDeploys(sid);
+      if (d.deploys[0]?.status) setStatuses((m) => ({ ...m, [sid]: d.deploys[0].status! }));
+    } catch {}
+  }, []);
 
   const load = useCallback(async () => {
     setErr(null);
     try {
       const r = await api.renderServices();
       setConfigured(r.configured); setServices(r.services); setSelfId(r.self_id);
+      r.services.forEach((s) => loadStatus(s.id));   // latest deploy status per service
     } catch (e: any) { setErr(errText(e)); } finally { setLoading(false); }
-  }, []);
+  }, [loadStatus]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const run = async (sid: string, action: string, fn: () => Promise<any>, after?: () => void) => {
@@ -75,9 +91,21 @@ export default function AdminRenderScreen() {
     if (!deploys[sid]) loadDeploys(sid);
   };
 
-  const onDeploy = async (s: RenderService) => {
-    if (!(await confirm({ title: "Deploy now?", message: `Deploy the latest commit of “${s.name}”. This redeploys the service.`, confirmLabel: "Deploy" }))) return;
-    run(s.id, "deploy", () => api.renderTriggerDeploy(s.id), () => { Alert.alert("Deploy started", "Render is building the latest commit."); if (openDeploys === s.id) loadDeploys(s.id); });
+  const onDeploy = async (s: RenderService, clearCache = false) => {
+    const ok = await confirm({
+      title: clearCache ? "Clear cache & deploy?" : "Deploy now?",
+      message: clearCache
+        ? `Wipe the build cache and rebuild “${s.name}” from scratch. Use this when a deploy didn't pick up changes — it's slower but bypasses stale caches.`
+        : `Deploy the latest commit of “${s.name}”. This redeploys the service.`,
+      confirmLabel: clearCache ? "Clear cache & deploy" : "Deploy",
+    });
+    if (!ok) return;
+    run(s.id, "deploy", () => api.renderTriggerDeploy(s.id, clearCache), () => {
+      Alert.alert("Deploy started", clearCache ? "Render is rebuilding from scratch." : "Render is building the latest commit.");
+      setOpenDeploys(s.id); loadDeploys(s.id);
+      setStatuses((m) => ({ ...m, [s.id]: "build_in_progress" }));
+      setTimeout(() => loadStatus(s.id), 8000);
+    });
   };
   const onRestart = async (s: RenderService) => {
     if (!(await confirm({ title: "Restart service?", message: `Restart “${s.name}”. Brief downtime while it boots.`, confirmLabel: "Restart" }))) return;
@@ -150,6 +178,12 @@ export default function AdminRenderScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.svcName}>{s.name}{s.id === selfId ? "  ·  this app" : ""}</Text>
                     <Text style={styles.svcMeta}>{s.type}{s.branch ? `  ·  ${s.branch}` : ""}</Text>
+                    {!!statuses[s.id] && (() => { const st = statusMeta(statuses[s.id]); return (
+                      <View style={styles.depStatusRow}>
+                        <View style={[styles.depStatusDot, { backgroundColor: st.color }]} />
+                        <Text style={[styles.depStatusText, { color: st.color }]}>{st.label}</Text>
+                      </View>
+                    ); })()}
                   </View>
                   <View style={[styles.pill, s.suspended ? styles.pillBad : styles.pillGood]}>
                     <Ionicons name={s.suspended ? "pause-circle" : "checkmark-circle"} size={13} color={s.suspended ? theme.error : "#22C55E"} />
@@ -172,6 +206,11 @@ export default function AdminRenderScreen() {
                     testID={`suspend-${s.id}`}
                   />
                 </View>
+
+                <TouchableOpacity style={styles.clearCacheBtn} onPress={() => onDeploy(s, true)} disabled={busy === `${s.id}:deploy`} testID={`deploy-clear-${s.id}`}>
+                  <Ionicons name="refresh-circle-outline" size={15} color={theme.textSecondary} />
+                  <Text style={styles.clearCacheText}>Clear build cache & deploy</Text>
+                </TouchableOpacity>
 
                 <View style={styles.sectionRow}>
                   <TouchableOpacity style={styles.sectionBtn} onPress={() => toggleEnv(s.id)} testID={`env-toggle-${s.id}`}>
@@ -313,6 +352,11 @@ const styles = StyleSheet.create({
   pillGood: { backgroundColor: "rgba(34,197,94,0.12)", borderColor: "#22C55E" },
   pillBad: { backgroundColor: "rgba(241,92,109,0.12)", borderColor: theme.error },
   pillText: { fontSize: 11.5, fontWeight: "800" },
+  depStatusRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 4 },
+  depStatusDot: { width: 7, height: 7, borderRadius: 4 },
+  depStatusText: { fontSize: 11.5, fontWeight: "700" },
+  clearCacheBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderWidth: 1, borderColor: theme.border, borderRadius: 10, borderStyle: "dashed" },
+  clearCacheText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "700" },
   actions: { flexDirection: "row", gap: 8 },
   actionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: theme.surfaceAlt, borderRadius: 10, paddingVertical: 9 },
   actionBtnDanger: { backgroundColor: "rgba(241,92,109,0.10)" },
