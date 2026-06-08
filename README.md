@@ -35,6 +35,8 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - Home/following feed and an explore feed with text, photos, and videos
 - Likes **and dislikes** (mutually exclusive), replies/threads, bookmarks, reposts, and quote-reposts
 - **Threaded comments** with "replying to @user" labels, tappable `@mentions`, and owner **pin a comment**
+- **Compose a thread** — publish several connected posts at once (each with its own media); the post detail view stitches the author's chain back together so it reads top-to-bottom
+- **Save drafts** of posts — text, photos, **videos and reels** — to finish later (server-backed, so drafts follow you across devices)
 - **Pin** your own posts to the top of your profile
 - **Inline media & embeds**: YouTube/Twitch/Vimeo links play inline; image / imgur / giphy links render inline (posts *and* comments); GIF picker in comments
 - Polls (timed, single-choice), hashtags (browse by tag with counts), and rich link previews
@@ -68,7 +70,8 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 ### Marketplace
 - Listings with price, currency, category, condition, photos, brand, quantity, negotiable, and delivery
 - **Location + radius search** (set your location, filter by distance, "N km away", "Nearest first")
-- Search + category filters, a saved/bookmarked view, **seller profiles** (avatar, rating, listing grid), and **buyer/seller reviews** (1–5★)
+- Search + category filters, **seller profiles** (avatar, rating, listing grid), and **buyer/seller reviews** (1–5★)
+- A personal **My Marketplace** hub gathering your listings, saved/bookmarked items, and your marketplace reviews in one place
 - AI spam/moderation gate on new listings; "Contact seller" opens a DM
 
 ### Roadside assistance
@@ -78,6 +81,8 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - A dedicated **"Your job"** tab with **en route → on location** steps; arrival is gated by a **GPS proximity check**
 - **Photo AI moderation** flags non-automotive photos (Claude vision, with an optional self-hosted Ollama fallback)
 - **Disputes** are only recorded when a valid **support ticket** is opened
+- **Daily call numbers**: every request gets a queue number that starts at **1** and **resets at local midnight** (timezone configurable)
+- **Admin dispatch console** (`/admin-roadside-calls`): create **test or real** calls, **search the day's calls by number**, and view full details (requester/helper, phone, vehicle, location, notes, timestamps)
 - Staff verification queue (`/admin-roadside`)
 
 ### Custom forms (Contact-Form-7 style)
@@ -211,6 +216,7 @@ NamiApp/
 │   │   ├── auth.py            # register/login, sessions, 2FA, phone OTP, password reset, API keys, policies
 │   │   ├── users.py           # search, follows, friends, tips, subscriptions, /wallet, /admin/users
 │   │   ├── posts.py           # feed, posts, likes/dislikes, reposts, bookmarks, polls, reels, pinning, threads
+│   │   ├── drafts.py          # per-user post drafts (text/media/poll/privacy/thread)
 │   │   ├── stories.py         # 24h ephemeral stories
 │   │   ├── messaging.py       # DMs, groups, messages, voice/place/media, reactions, custom emoji
 │   │   ├── calls.py           # LiveKit room tokens + ring (voice/video)
@@ -225,7 +231,7 @@ NamiApp/
 │   │   ├── marketplace.py     # listings (location/radius), seller profiles, reviews
 │   │   ├── communities.py     # Reddit-style forum communities + threads
 │   │   ├── groups.py          # chat communities, members, pins, requests
-│   │   ├── roadside.py        # roadside assistance (request/accept, en route/on location, photos, disputes)
+│   │   ├── roadside.py        # roadside assistance (request/accept, en route/on location, photos, disputes, daily call numbers, admin dispatch)
 │   │   ├── support.py         # support & dispute tickets
 │   │   ├── forms.py           # custom form builder + public themeable embeds + submissions/CSV/webhooks
 │   │   ├── embed.py           # public embeddable content: post/profile JSON, cards, content-embed.js, oEmbed
@@ -264,7 +270,7 @@ NamiApp/
     │   ├── group/[id]/...                     # chat group detail + members
     │   ├── listing/, seller/, my-listings.tsx # marketplace
     │   ├── place/[id].tsx                     # Foursquare business profile
-    │   ├── roadside.tsx, admin-roadside.tsx   # roadside request + staff queue
+    │   ├── roadside.tsx, admin-roadside.tsx, admin-roadside-calls.tsx  # roadside request + staff queue + admin call dispatch
     │   ├── support.tsx, support/[id].tsx, admin-support.tsx  # tickets
     │   ├── forms.tsx, forms/[id].tsx, f/[key].tsx  # form list, builder, public renderer
     │   ├── developer.tsx, oauth/, connected-apps.tsx  # Developer API + OAuth consent
@@ -323,6 +329,7 @@ NamiApp/
 | `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` | No | **Yes** | *(none)* | [LiveKit](https://cloud.livekit.io/) for in-app voice/video calls (WebRTC). |
 | `EXPO_ACCESS_TOKEN` | No | **Yes** | *(none)* | Optional Expo token to raise push rate limits. |
 | `RENDER_API_KEY` | No | **Yes** | *(none)* | Owner API token (Render → Account Settings → API Keys). Enables **Settings → Render (admin)** to view services/deploys and view/edit env vars, deploy, restart, and suspend/resume — without leaving the app. Admin-only; env-var values are masked with tap-to-reveal. |
+| `ROADSIDE_TZ` | No | No | `America/Toronto` | IANA timezone whose **midnight** resets the daily roadside call-number counter. Falls back to UTC if tzdata is unavailable. |
 | `PORT` | No | No | `8080` | Port Uvicorn binds to (Render injects this). |
 
 > **Admin → Integrations & SDKs:** signed in as an admin, open **Settings → Integrations & SDKs (admin)** for a live status board of every service above — what's configured, a one-tap "Run live tests" to confirm credentials work, and the exact env var(s) to set for anything missing (`GET /api/admin/integrations?live=1`).
@@ -436,14 +443,14 @@ require an `Authorization: Bearer <session token | API key>` header.
 | --- | --- | --- |
 | **Auth** | `/auth/register`, `/auth/login`(+`/2fa`,`/phone`), `/auth/me`, `/auth/logout`, `/auth/username`, `/auth/me/email\|password\|phone`, `/auth/forgot-password{,/sms}`, `/auth/reset-password{,/code}`, `/auth/recover-password`, `/auth/api-keys`, `/policies`, `/auth/accept-policies` | Email/username + password auth (bcrypt, session tokens), **SMS 2FA**, **phone OTP login**, phone verification, password reset by email/SMS, developer **API keys**, ToS/Privacy acceptance. |
 | **Users** | `/users/search`, `/users/{id}/public`, `/users/{id}/follow`, `/friends/*`, `/users/{id}/tip\|subscribe`, `/wallet`, `/admin/users/{id}` | Search, public profiles, follow/friends, **tips & subscriptions**, the creator **wallet**, and admin verify/role/ban/suspend + audit. |
-| **Posts / Feed** | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/bookmarks`, `/hashtags/{tag}` | Posts, feeds, full comment threads, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, pinning, hashtags. |
+| **Posts / Feed** | `/posts`, `/feed/home\|explore\|reels`, `/posts/{id}/like\|dislike\|repost\|bookmark\|vote\|view\|promote\|report\|pin`, `/posts/{id}/replies\|thread`, `/drafts`, `/bookmarks`, `/hashtags/{tag}` | Posts, feeds, full comment threads, likes/dislikes, reposts/quotes, bookmarks, polls, views, promotion, reporting, pinning, hashtags, and **post drafts**. |
 | **Stories** | `/stories`, `/stories/tray`, `/stories/{id}/view\|viewers\|reply` | 24h stories, tray, views, viewer lists, replies. |
 | **Messaging** | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`(+`/react`,`/read`,`/presence`), `/emojis` | DMs & group chats; text/place/media/voice/gif/file/contact/post; reactions, edits, receipts, presence, custom emoji. |
 | **Calls / Push** | `/calls/{id}/token\|ring`, `/push/register` | LiveKit room tokens + ring; device push-token registration. |
 | **Maps** | `/eta`(+`/update`,`/stop`), `/public/eta/{id}`, **WS** `/ws/eta/{id}`, `/foursquare/match`, `/transit/nearby` | Live ETA shares (REST + WS + public read), Foursquare business profiles, transit departures. |
 | **Marketplace** | `/listings?lat&lng&radius_km&sort`, `/listings/{id}`(+`/contact`,`/save`), `/marketplace/users/{id}` | Listings, location/radius browse, save, seller profiles & reviews, start a DM. |
 | **Communities / Groups** | `/communities`(+`/{name}/join\|posts`), `/groups`(+`/{id}/join\|posts\|pins\|requests\|members/*`) | Reddit-style forum (Hot/New/Top) and public/private chat groups. |
-| **Roadside** | `/roadside/requests`(+`/{id}/accept\|decline\|enroute\|arrived\|cancel`), `/admin/roadside/*` | Request roadside help, helper accept/decline + en route/on location (GPS-gated), photo AI moderation, staff verification. |
+| **Roadside** | `/roadside/requests`(+`/{id}/accept\|decline\|enroute\|arrived\|cancel`), `/roadside/admin/calls`, `/admin/roadside/*` | Request roadside help, helper accept/decline + en route/on location (GPS-gated), photo AI moderation, **daily call numbers**, **admin dispatch** (create/search/view calls), staff verification. |
 | **Support** | `/support/tickets`(+`/{id}/messages`), `/admin/support/*` | Open tickets/disputes, message staff, admin triage/resolve. |
 | **Forms** | `/forms`(+`/{id}`,`/{id}/submissions{,.csv}`), `/pub/form`, `/pub/form-submit`, `/pub/form-embed.js`, `/pub/form-unit` | Build forms, list/export responses, and public (no-auth) render/submit/themeable embeds. |
 | **Embed content** | `/pub/post/{id}`, `/pub/profile/{username}`(+`/posts`), `/pub/listing/{id}`, `/pub/guide/{slug}`, `/pub/{post,profile,listing,guide}-card`, `/pub/content-embed.js`, `/pub/oembed` | Public JSON, themeable iframe cards (posts, profiles, marketplace listings, guides), a `<script>` loader, cursor-paginated profile feed, and an **oEmbed** provider. |
