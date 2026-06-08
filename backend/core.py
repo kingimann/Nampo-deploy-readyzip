@@ -77,6 +77,9 @@ async def init_pool() -> None:
         ("custom_emojis", "uniq_custom_emoji_code", "((doc ->> 'shortcode'))"),
         ("communities", "uniq_community_name", "((doc ->> 'name'))"),
         ("community_members", "uniq_community_member", "((doc ->> 'community_id'), (doc ->> 'user_id'))"),
+        # Daily roadside call number is unique per day (rows without a number
+        # have NULLs, which Postgres treats as distinct, so old rows are fine).
+        ("roadside_requests", "uniq_roadside_call", "((doc ->> 'call_date'), (doc ->> 'call_number'))"),
     ]
     async with _real_db._pool.acquire() as conn:
         for table, idx, cols in _UNIQUE_INDEXES:

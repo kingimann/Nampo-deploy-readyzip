@@ -445,6 +445,19 @@ export const api = {
   }) => request<{ status: string; verified: boolean; reason?: string | null }>("/roadside/verification", { method: "POST", body: JSON.stringify(body) }),
   adminRoadsideVerifications: (status = "pending") =>
     request<RoadsideAdminVerification[]>(`/admin/roadside/verifications?status=${encodeURIComponent(status)}`),
+  // Admin dispatch: create test/real calls + search the day's calls by number.
+  adminCreateRoadsideCall: (body: {
+    service: string; longitude: number; latitude: number; place_name?: string;
+    note?: string; is_test?: boolean; vehicle_make?: string; vehicle_model?: string;
+    vehicle_color?: string; vehicle_plate?: string; dest_name?: string;
+  }) => request<RoadsideRequest>("/roadside/admin/calls", { method: "POST", body: JSON.stringify(body) }),
+  adminListRoadsideCalls: (params?: { date?: string; call_number?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.date) qs.set("date", params.date);
+    if (params?.call_number != null) qs.set("call_number", String(params.call_number));
+    const s = qs.toString();
+    return request<RoadsideRequest[]>(`/roadside/admin/calls${s ? `?${s}` : ""}`);
+  },
   decideRoadsideVerification: (id: string, approve: boolean, reason?: string) =>
     request<{ ok: boolean; status: string }>(`/admin/roadside/verifications/${id}/decision`, { method: "POST", body: JSON.stringify({ approve, reason }) }),
   roadsideActive: () => request<RoadsideRequest | null>("/roadside/active"),
@@ -1371,6 +1384,8 @@ export type RoadsideRequest = {
   helper?: RoadsideParty | null;
   service: RoadsideService;
   status: RoadsideStatus;
+  call_number?: number | null;
+  is_test?: boolean;
   en_route?: boolean;
   arrived?: boolean;
   longitude: number;

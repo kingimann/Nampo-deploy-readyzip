@@ -713,6 +713,9 @@ export default function RoadsideScreen() {
       <View style={styles.card}>
         <View style={styles.cardHead}>
           <ServicePill svc={r.service} />
+          {r.call_number != null && (
+            <View style={styles.callBadge}><Text style={styles.callBadgeText}>Call #{r.call_number}</Text></View>
+          )}
           <View style={[styles.statusBadge, { backgroundColor: s.color + "22", borderColor: s.color }]}><Text style={[styles.statusText, { color: s.color }]}>{s.label}</Text></View>
         </View>
         <Meta r={r} />
@@ -1264,6 +1267,8 @@ const styles = StyleSheet.create({
   svcPill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.primary + "1f", borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6 },
   svcPillText: { color: theme.primary, fontSize: 13, fontWeight: "800" },
   statusBadge: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5 },
+  callBadge: { borderRadius: 999, backgroundColor: theme.primary, paddingHorizontal: 10, paddingVertical: 5 },
+  callBadgeText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.3 },
   statusText: { fontSize: 11.5, fontWeight: "800" },
   dist: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
   metaLine: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 },

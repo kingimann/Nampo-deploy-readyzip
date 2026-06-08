@@ -30,6 +30,39 @@ from routes.notifications import emit_notification
 from routes.money import _wallet_balance, _debit_wallet, _credit_wallet, _record_platform_fee
 from services.encryption import encrypt_text, decrypt_text
 
+try:
+    from db import DuplicateKeyError
+except Exception:  # pragma: no cover
+    class DuplicateKeyError(Exception):
+        pass
+
+# Daily call-number counter resets at local midnight. The timezone is
+# configurable; falls back to UTC if tzdata isn't available.
+try:
+    from zoneinfo import ZoneInfo
+    _ROAD_TZ = ZoneInfo(os.getenv("ROADSIDE_TZ", "America/Toronto"))
+except Exception:  # pragma: no cover
+    _ROAD_TZ = timezone.utc
+
+
+def _road_day(now: datetime) -> str:
+    try:
+        return now.astimezone(_ROAD_TZ).strftime("%Y-%m-%d")
+    except Exception:
+        return now.strftime("%Y-%m-%d")
+
+
+async def _next_call_number(day: str) -> int:
+    """Highest call number used so far today, + 1. (The actual assignment is
+    confirmed by the unique-index insert, which retries on a race.)"""
+    last = await db.roadside_requests.find(
+        {"call_date": day}, {"_id": 0, "call_number": 1}
+    ).sort("call_number", -1).limit(1).to_list(1)
+    if last and last[0].get("call_number"):
+        return int(last[0]["call_number"]) + 1
+    return 1
+
+
 router = APIRouter()
 
 SERVICES = {"tow", "lockout", "battery", "tire", "gas"}
@@ -239,6 +272,8 @@ class RoadsideRequest(BaseModel):
     helper: Optional[RoadsideParty] = None
     service: str
     status: str                              # open | accepted | completed | cancelled
+    call_number: Optional[int] = None        # daily queue number (resets at local midnight)
+    is_test: bool = False                    # admin-created test call
     en_route: bool = False
     arrived: bool = False                     # helper is on location
     longitude: float
@@ -296,10 +331,11 @@ async def _party(uid: Optional[str], reveal_phone: bool = False) -> Optional[Roa
     return RoadsideParty(user_id=uid, name=u.get("name") or "Member", picture=u.get("picture"), phone=phone)
 
 
-async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[float, float]] = None) -> RoadsideRequest:
+async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[float, float]] = None, force_reveal: bool = False) -> RoadsideRequest:
     # Phone numbers are only shared once two members are matched (accepted) and
     # only with each other, so a helper can call the stranded member (and back).
-    reveal = doc["status"] == "accepted" and viewer_id in (doc["requester_id"], doc.get("helper_id"))
+    # Admins viewing the dispatch board see full details (force_reveal).
+    reveal = force_reveal or (doc["status"] == "accepted" and viewer_id in (doc["requester_id"], doc.get("helper_id")))
     dist = None
     c = _doc_coords(doc)
     if viewer_coords and c:
@@ -312,6 +348,8 @@ async def _hydrate(doc: dict, viewer_id: str, viewer_coords: Optional[Tuple[floa
         helper=await _party(doc.get("helper_id"), reveal_phone=reveal),
         service=doc["service"],
         status=doc["status"],
+        call_number=doc.get("call_number"),
+        is_test=bool(doc.get("is_test", False)),
         en_route=bool(doc.get("en_route", False)),
         arrived=bool(doc.get("arrived", False)),
         longitude=doc["longitude"],
@@ -704,7 +742,25 @@ async def create_request(body: RoadsideCreate, authorization: Optional[str] = He
         "accepted_at": None,
         "completed_at": None,
     }
-    await db.roadside_requests.insert_one(doc.copy())
+    # Assign a daily queue number (1, 2, 3 … resetting at local midnight). A
+    # unique index on (call_date, call_number) makes this race-safe: if two
+    # requests grab the same number, one insert wins and the other retries.
+    day = _road_day(now)
+    doc["call_date"] = day
+    inserted = False
+    for _ in range(100):
+        doc["call_number"] = await _next_call_number(day)
+        try:
+            await db.roadside_requests.insert_one(doc.copy())
+            inserted = True
+            break
+        except DuplicateKeyError:
+            continue
+    if not inserted:
+        # Never block a real help request over a numbering hiccup.
+        doc.pop("call_date", None)
+        doc.pop("call_number", None)
+        await db.roadside_requests.insert_one(doc.copy())
     return await _hydrate(doc, user["user_id"])
 
 
@@ -1228,3 +1284,104 @@ async def history(authorization: Optional[str] = Header(None)):
         h.can_dispute = (now - _norm_dt(d["created_at"])) <= DISPUTE_WINDOW and uid not in (d.get("disputed_by") or [])
         out.append(h)
     return out
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Admin dispatch: create test/real calls, search by daily call number, and
+# view full call details.
+# ──────────────────────────────────────────────────────────────────────────
+class AdminCallCreate(BaseModel):
+    service: str = "tow"
+    longitude: float
+    latitude: float
+    place_name: Optional[str] = None
+    note: Optional[str] = None
+    is_test: bool = True
+    vehicle_make: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    vehicle_color: Optional[str] = None
+    vehicle_plate: Optional[str] = None
+    dest_name: Optional[str] = None
+
+
+@router.post("/roadside/admin/calls", response_model=RoadsideRequest)
+async def admin_create_call(body: AdminCallCreate, authorization: Optional[str] = Header(None)):
+    """Admin creates a call (test or real) with a daily call number. No wallet
+    charge or hold — these are dispatch/test entries."""
+    user = await get_current_user(authorization)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    svc = (body.service or "").strip().lower()
+    if svc not in SERVICES:
+        raise HTTPException(status_code=400, detail=f"service must be one of {sorted(SERVICES)}")
+    now = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "requester_id": user["user_id"],
+        "helper_id": None,
+        "service": svc,
+        "status": "open",
+        "is_test": bool(body.is_test),
+        "admin_created": True,
+        "en_route": False,
+        "arrived": False,
+        "longitude": float(body.longitude),
+        "latitude": float(body.latitude),
+        "place_name": (body.place_name or "").strip()[:200] or None,
+        "vehicle_make": (body.vehicle_make or "").strip()[:40] or None,
+        "vehicle_model": (body.vehicle_model or "").strip()[:60] or None,
+        "vehicle_color": (body.vehicle_color or "").strip()[:30] or None,
+        "vehicle_plate": (body.vehicle_plate or "").strip()[:16] or None,
+        "dest_name": (body.dest_name or "").strip()[:200] or None,
+        "photos": [],
+        "before_photos": [],
+        "after_photos": [],
+        "note": (body.note or "").strip()[:500] or None,
+        "payment_method": "cash",
+        "price": 0.0,
+        "tax": 0.0,
+        "total": 0.0,
+        "held": False,
+        "settled": False,
+        "refunded": False,
+        "requester_verified": True,
+        "helper_verified": False,
+        "created_at": now,
+        "accepted_at": None,
+        "completed_at": None,
+    }
+    day = _road_day(now)
+    doc["call_date"] = day
+    inserted = False
+    for _ in range(100):
+        doc["call_number"] = await _next_call_number(day)
+        try:
+            await db.roadside_requests.insert_one(doc.copy())
+            inserted = True
+            break
+        except DuplicateKeyError:
+            continue
+    if not inserted:
+        doc.pop("call_date", None)
+        doc.pop("call_number", None)
+        await db.roadside_requests.insert_one(doc.copy())
+    return await _hydrate(doc, user["user_id"], force_reveal=True)
+
+
+@router.get("/roadside/admin/calls", response_model=List[RoadsideRequest])
+async def admin_list_calls(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today"),
+    call_number: Optional[int] = Query(None, description="filter to one call number"),
+    authorization: Optional[str] = Header(None),
+):
+    """List the day's calls (newest first) or look up one by its call number.
+    Admins see full details, including contact phone numbers."""
+    user = await get_current_user(authorization)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    day = (date or "").strip() or _road_day(datetime.now(timezone.utc))
+    q: dict = {"call_date": day}
+    if call_number is not None:
+        q["call_number"] = int(call_number)
+    docs = await db.roadside_requests.find(q, {"_id": 0}).sort("call_number", -1).limit(500).to_list(500)
+    return [await _hydrate(d, user["user_id"], force_reveal=True) for d in docs]
