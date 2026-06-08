@@ -112,6 +112,7 @@ export default function SettingsScreen() {
           <Row icon="grid-outline" label="Customize navigation bar" color="#0EA5E9" onPress={() => router.push("/customize-nav")} />
           <Row icon="lock-closed-outline" label="Privacy" color="#14B8A6" onPress={() => router.push("/privacy")} />
           <Row icon="notifications-outline" label="Notifications" color="#EF4444" onPress={() => router.push("/notifications")} />
+          <Row icon="game-controller-outline" label="Games" color="#8B5CF6" onPress={() => router.push("/games")} />
           <Row icon="bookmark-outline" label="Bookmarks" color={theme.primary} onPress={() => router.push("/bookmarks")} />
           <Row icon="people-outline" label="Connections" color="#7C3AED" onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })} />
           <Row icon="location-outline" label="Saved places" color="#22C55E" onPress={() => router.push("/(tabs)/favorites")} />

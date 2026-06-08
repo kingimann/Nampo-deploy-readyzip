@@ -44,6 +44,7 @@ from routes import (
     webhooks as webhooks_routes,
     factchecks as factchecks_routes,
     hazards as hazards_routes,
+    games as games_routes,
 )
 
 API_VERSION = "1.0.0"
@@ -245,6 +246,7 @@ def _register(parent: APIRouter):
     parent.include_router(forms_routes.router)
     parent.include_router(factchecks_routes.router)
     parent.include_router(hazards_routes.router)
+    parent.include_router(games_routes.router)
     parent.include_router(embed_routes.router)
     parent.include_router(render_admin_routes.router)
 

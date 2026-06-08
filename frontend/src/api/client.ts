@@ -351,6 +351,17 @@ export const api = {
   confirmHazard: (id: string) => request<Hazard>(`/hazards/${id}/confirm`, { method: "POST" }),
   dismissHazard: (id: string) => request<Hazard>(`/hazards/${id}/dismiss`, { method: "POST" }),
 
+  // ── Games (user-uploaded mini games, e.g. Three.js) ──
+  listGames: (mine?: boolean) => request<{ games: Game[] }>(`/games${mine ? "?mine=true" : ""}`),
+  createGame: (body: { title: string; description?: string; url?: string; html?: string; thumbnail?: string }) =>
+    request<Game>("/games", { method: "POST", body: JSON.stringify(body) }),
+  getGame: (id: string) => request<Game>(`/games/${id}`),
+  deleteGame: (id: string) => request<{ ok: boolean }>(`/games/${id}`, { method: "DELETE" }),
+  submitGameScore: (id: string, score: number) =>
+    request<{ ok: boolean; best: number }>(`/games/${id}/score`, { method: "POST", body: JSON.stringify({ score }) }),
+  gameLeaderboard: (id: string) => request<{ leaderboard: GameScore[] }>(`/games/${id}/leaderboard`),
+  recordGamePlay: (id: string) => request<{ ok: boolean }>(`/games/${id}/play`, { method: "POST" }),
+
   // ── Custom forms ──────────────────────────────────────────────────────────
   listForms: () => request<{ forms: FormDef[] }>("/forms"),
   createForm: (body: FormCreate) =>
@@ -1191,6 +1202,12 @@ export type Hazard = {
   mine: boolean;
   created_at?: string; expires_at?: string;
 };
+export type Game = {
+  id: string; title: string; description: string;
+  thumbnail?: string | null; owner_id?: string; owner_name?: string | null;
+  kind: "url" | "html"; plays: number; created_at?: string;
+};
+export type GameScore = { name: string; score: number; mine: boolean };
 export type PlaceCreate = {
   title: string; notes?: string; longitude: number; latitude: number; address?: string; category?: string;
 };
