@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, FlatList, SectionList, ActivityIndicator,
-  TextInput, Image, Modal, KeyboardAvoidingView, Platform, Alert, RefreshControl,
+  TextInput, Image, Modal, KeyboardAvoidingView, Platform, Alert, RefreshControl, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -217,64 +217,102 @@ export default function MessagesScreen() {
     return sameDay ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : d.toLocaleDateString();
   };
 
+  // Floating frosted top bar that hides on scroll-down, returns on scroll-up,
+  // mirroring the feed + marketplace headers.
+  const [topHidden, setTopHidden] = useState(false);
+  const [topBarH, setTopBarH] = useState(150);
+  const topHide = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const onScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    const dy = y - lastScrollY.current;
+    if (y <= 4) setTopHidden(false);
+    else if (dy > 6) setTopHidden(true);
+    else if (dy < -6) setTopHidden(false);
+    lastScrollY.current = y;
+  }, []);
+  useEffect(() => {
+    Animated.timing(topHide, {
+      toValue: topHidden ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [topHidden, topHide]);
+  useFocusEffect(useCallback(() => { setTopHidden(false); lastScrollY.current = 0; }, []));
+
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="messages-screen">
-      <View style={styles.header}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
-          <SidebarMenuButton />
-          <Text style={styles.title}>Messages</Text>
+      {/* Floating frosted top bar — hides on scroll-down, returns on scroll-up. */}
+      <Animated.View
+        onLayout={(e) => setTopBarH(e.nativeEvent.layout.height)}
+        pointerEvents={topHidden ? "none" : "box-none"}
+        style={[
+          styles.topBar,
+          GLASS,
+          {
+            opacity: topHide.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 0.25, 0] }),
+            transform: [{ translateY: topHide.interpolate({ inputRange: [0, 1], outputRange: [0, -(topBarH + insets.top + 14)] }) }],
+          },
+        ]}
+      >
+        <View style={styles.header}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+            <SidebarMenuButton />
+            <Text style={styles.title}>Messages</Text>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <TouchableOpacity
+              onPress={() => { if (msgOff) return; setMode("new-dm"); }}
+              disabled={msgOff}
+              style={[styles.iconBtn, msgOff && { opacity: 0.4 }]}
+              testID="new-chat-btn"
+            >
+              <Ionicons name="create-outline" size={20} color={theme.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <TouchableOpacity
-            onPress={() => { if (msgOff) return; setMode("new-dm"); }}
-            disabled={msgOff}
-            style={[styles.iconBtn, msgOff && { opacity: 0.4 }]}
-            testID="new-chat-btn"
-          >
-            <Ionicons name="create-outline" size={20} color={theme.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <View style={styles.searchWrap}>
-        <Ionicons name="search" size={16} color={theme.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search messages"
-          placeholderTextColor={theme.textMuted}
-          value={search}
-          onChangeText={setSearch}
-          testID="messages-search"
-        />
-        {!!search && (
-          <TouchableOpacity onPress={() => setSearch("")} testID="messages-search-clear">
-            <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={16} color={theme.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search messages"
+            placeholderTextColor={theme.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            testID="messages-search"
+          />
+          {!!search && (
+            <TouchableOpacity onPress={() => setSearch("")} testID="messages-search-clear">
+              <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {lockedCount > 0 ? (
+          <TouchableOpacity style={styles.unlockBanner} activeOpacity={0.85} onPress={() => setUnlockOpen(true)} testID="inbox-unlock">
+            <Ionicons name="lock-closed" size={16} color={theme.primary} />
+            <Text style={styles.unlockText} numberOfLines={2}>
+              {lockedCount} chat{lockedCount === 1 ? "" : "s"} locked on this device. Tap to enter your PIN and unlock.
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
           </TouchableOpacity>
+        ) : (
+          <View style={styles.encNote}>
+            <Ionicons name="lock-closed" size={12} color={theme.textMuted} />
+            <Text style={styles.encNoteText}>Your chats are encrypted</Text>
+          </View>
         )}
-      </View>
 
-      {lockedCount > 0 ? (
-        <TouchableOpacity style={styles.unlockBanner} activeOpacity={0.85} onPress={() => setUnlockOpen(true)} testID="inbox-unlock">
-          <Ionicons name="lock-closed" size={16} color={theme.primary} />
-          <Text style={styles.unlockText} numberOfLines={2}>
-            {lockedCount} chat{lockedCount === 1 ? "" : "s"} locked on this device. Tap to enter your PIN and unlock.
-          </Text>
-          <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.encNote}>
-          <Ionicons name="lock-closed" size={12} color={theme.textMuted} />
-          <Text style={styles.encNoteText}>Your chats are encrypted</Text>
-        </View>
-      )}
+        <RestrictionBanner kind="messaging" />
+      </Animated.View>
 
       <UnlockChatSheet
         visible={unlockOpen}
         onClose={() => setUnlockOpen(false)}
         onUnlocked={() => setKeyTick((t) => t + 1)}
       />
-
-      <RestrictionBanner kind="messaging" />
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
@@ -283,10 +321,13 @@ export default function MessagesScreen() {
           sections={sections}
           keyExtractor={(i) => i.id}
           stickySectionHeadersEnabled={false}
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80, gap: 8 }}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: topBarH + 12, paddingBottom: insets.bottom + 80, gap: 8 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
+              progressViewOffset={topBarH}
               onRefresh={() => { setRefreshing(true); load(); }}
               tintColor={theme.primary}
               colors={[theme.primary]}
@@ -548,6 +589,13 @@ export default function MessagesScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  topBar: {
+    position: "absolute", top: 6, left: 8, right: 8,
+    borderRadius: 24, paddingTop: 2, paddingBottom: 4,
+    zIndex: 40,
+    shadowColor: "#000", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+  },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8,
