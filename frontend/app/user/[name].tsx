@@ -49,6 +49,11 @@ export default function UserProfileScreen() {
   const { user: me } = useAuth();
   const [user, setUser] = useState<PublicUser | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [ptab, setPtab] = useState<"posts" | "replies" | "reposts" | "likes">("posts");
+  const [replies, setReplies] = useState<Post[] | null>(null);
+  const [reposts, setReposts] = useState<Post[] | null>(null);
+  const [likes, setLikes] = useState<Post[] | null>(null);
+  const [tabLoading, setTabLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
@@ -132,20 +137,38 @@ export default function UserProfileScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
   const onRefresh = () => { setRefreshing(true); load(); };
 
+  const patchPost = (id: string, fn: (p: Post) => Post) => {
+    const m = (arr: Post[]) => arr.map((x) => (x.id === id ? fn(x) : x));
+    setPosts(m);
+    setReplies((a) => (a ? m(a) : a));
+    setReposts((a) => (a ? m(a) : a));
+    setLikes((a) => (a ? m(a) : a));
+  };
+  const switchTab = useCallback(async (t: "posts" | "replies" | "reposts" | "likes") => {
+    setPtab(t);
+    const uid = user?.user_id;
+    if (!uid) return;
+    const need = (t === "replies" && replies == null) || (t === "reposts" && reposts == null) || (t === "likes" && likes == null);
+    if (!need) return;
+    setTabLoading(true);
+    try {
+      if (t === "replies") setReplies(await api.listUserReplies(uid));
+      else if (t === "reposts") setReposts(await api.listUserReposts(uid));
+      else if (t === "likes") setLikes(await api.listUserLikes(uid));
+    } catch {
+      if (t === "replies") setReplies([]); else if (t === "reposts") setReposts([]); else if (t === "likes") setLikes([]);
+    } finally { setTabLoading(false); }
+  }, [user?.user_id, replies, reposts, likes]);
+
   const onLike = async (p: Post) => {
-    setPosts((arr) => arr.map((x) => x.id !== p.id ? x : {
-      ...x, liked_by_me: !x.liked_by_me,
-      likes_count: x.likes_count + (x.liked_by_me ? -1 : 1),
-    }));
+    patchPost(p.id, (x) => ({ ...x, liked_by_me: !x.liked_by_me, likes_count: x.likes_count + (x.liked_by_me ? -1 : 1) }));
     try { await api.toggleLike(p.id); } catch { load(); }
   };
   const onRepost = async (p: Post) => {
-    try { await api.toggleRepost(p.repost_of || p.id); load(); } catch { load(); }
+    try { await api.toggleRepost(p.repost_of || p.id); setReposts(null); load(); } catch { load(); }
   };
   const onBookmark = async (p: Post) => {
-    setPosts((arr) => arr.map((x) => x.id !== p.id ? x : {
-      ...x, bookmarked_by_me: !x.bookmarked_by_me,
-    }));
+    patchPost(p.id, (x) => ({ ...x, bookmarked_by_me: !x.bookmarked_by_me }));
     try { await api.toggleBookmark(p.id); } catch { load(); }
   };
   const onReply = (p: Post) =>
@@ -184,7 +207,7 @@ export default function UserProfileScreen() {
         <View style={styles.center}><Text style={{ color: theme.textMuted }}>User not found.</Text></View>
       ) : (
         <FlatList
-          data={interleaveAds(posts)}
+          data={ptab === "posts" ? interleaveAds(posts) : ptab === "replies" ? (replies || []) : ptab === "reposts" ? (reposts || []) : (likes || [])}
           keyExtractor={(i) => (isAd(i) ? `ad-${i.__ad}` : i.id)}
           contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24, gap: 10 }}
           refreshControl={
@@ -381,11 +404,24 @@ export default function UserProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              <Text style={styles.postsLabel}>Posts</Text>
+              <View style={styles.ptabs}>
+                {(([["posts", "Posts"], ["replies", "Replies"], ["reposts", "Reposts"], ["likes", "Likes"]]) as const).map(([key, label]) => {
+                  const active = ptab === key;
+                  return (
+                    <TouchableOpacity key={key} style={[styles.ptab, active && styles.ptabActive]} onPress={() => switchTab(key)} testID={`uprofile-tab-${key}`}>
+                      <Text style={[styles.ptabText, { color: active ? theme.primary : theme.textMuted }]} numberOfLines={1}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
           }
           ListEmptyComponent={
-            <Text style={{ color: theme.textMuted, textAlign: "center", paddingVertical: 40 }}>No posts yet.</Text>
+            tabLoading
+              ? <ActivityIndicator color={theme.primary} style={{ marginTop: 24 }} />
+              : <Text style={{ color: theme.textMuted, textAlign: "center", paddingVertical: 40 }}>
+                  {ptab === "replies" ? "No replies yet." : ptab === "reposts" ? "No reposts yet." : ptab === "likes" ? "No liked posts yet." : "No posts yet."}
+                </Text>
           }
           renderItem={({ item }) => (
             isAd(item) ? <AdSlot placement="profile" host={user.user_id} index={item.__ad} /> : (
@@ -540,6 +576,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   dmBtnText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  ptabs: {
+    flexDirection: "row", gap: 2, marginTop: 16, alignSelf: "stretch",
+    backgroundColor: theme.surface, borderRadius: 14, padding: 4,
+    borderWidth: 1, borderColor: theme.border,
+  },
+  ptab: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 9, borderRadius: 10 },
+  ptabActive: { backgroundColor: theme.surfaceAlt },
+  ptabText: { fontSize: 12.5, fontWeight: "700" },
   postsLabel: {
     color: theme.textMuted, fontSize: 12, fontWeight: "800",
     textTransform: "uppercase", letterSpacing: 0.6,

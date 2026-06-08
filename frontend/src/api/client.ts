@@ -206,6 +206,9 @@ export const api = {
     return request<Post[]>(`/feed/reels${s ? `?${s}` : ""}`);
   },
   listUserPostsAll: (uid: string) => request<Post[]>(`/posts/user/${uid}/all`),
+  listUserReplies: (uid: string) => request<Post[]>(`/posts/user/${uid}/replies`),
+  listUserReposts: (uid: string) => request<Post[]>(`/posts/user/${uid}/reposts`),
+  listUserLikes: (uid: string) => request<Post[]>(`/posts/user/${uid}/likes`),
 
   searchUsers: (q: string) => request<PublicUser[]>(`/users/search?q=${encodeURIComponent(q)}`),
   getPublicUser: (id: string) => request<PublicUser>(`/users/${id}/public`),

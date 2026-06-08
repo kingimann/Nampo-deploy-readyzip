@@ -55,8 +55,12 @@ export default function ProfileScreen() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [myPosts, setMyPosts] = useState<Post[]>([]);
+  const [replies, setReplies] = useState<Post[] | null>(null);
+  const [reposts, setReposts] = useState<Post[] | null>(null);
+  const [likes, setLikes] = useState<Post[] | null>(null);
+  const [tabLoading, setTabLoading] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [profileTab, setProfileTab] = useState<"posts" | "media">("posts");
+  const [profileTab, setProfileTab] = useState<"posts" | "replies" | "reposts" | "media" | "likes">("posts");
 
   const loadPosts = useCallback(async () => {
     if (!user) return;
@@ -66,18 +70,46 @@ export default function ProfileScreen() {
     } catch {} finally { setLoadingPosts(false); }
   }, [user]);
 
+  // Lazily load a tab's content the first time it's opened.
+  const switchTab = useCallback(async (t: "posts" | "replies" | "reposts" | "media" | "likes") => {
+    setProfileTab(t);
+    if (!user) return;
+    const need = (t === "replies" && replies == null) || (t === "reposts" && reposts == null) || (t === "likes" && likes == null);
+    if (!need) return;
+    setTabLoading(true);
+    try {
+      if (t === "replies") setReplies(await api.listUserReplies(user.user_id));
+      else if (t === "reposts") setReposts(await api.listUserReposts(user.user_id));
+      else if (t === "likes") setLikes(await api.listUserLikes(user.user_id));
+    } catch {
+      if (t === "replies") setReplies([]); else if (t === "reposts") setReposts([]); else if (t === "likes") setLikes([]);
+    } finally { setTabLoading(false); }
+  }, [user, replies, reposts, likes]);
+
+  // Apply an optimistic engagement change / removal across every tab list.
+  const patchPost = (id: string, fn: (p: Post) => Post) => {
+    const m = (arr: Post[]) => arr.map((x) => (x.id === id ? fn(x) : x));
+    setMyPosts(m);
+    setReplies((a) => (a ? m(a) : a));
+    setReposts((a) => (a ? m(a) : a));
+    setLikes((a) => (a ? m(a) : a));
+  };
+  const removePostEverywhere = (id: string) => {
+    const f = (arr: Post[]) => arr.filter((x) => x.id !== id);
+    setMyPosts(f);
+    setReplies((a) => (a ? f(a) : a));
+    setReposts((a) => (a ? f(a) : a));
+    setLikes((a) => (a ? f(a) : a));
+  };
+
   useFocusEffect(useCallback(() => { loadPosts(); }, [loadPosts]));
 
   const onLike = async (p: Post) => {
-    setMyPosts((arr) => arr.map((x) => x.id !== p.id ? x : {
-      ...x, liked_by_me: !x.liked_by_me,
-      likes_count: x.likes_count + (x.liked_by_me ? -1 : 1),
-    }));
+    patchPost(p.id, (x) => ({ ...x, liked_by_me: !x.liked_by_me, likes_count: x.likes_count + (x.liked_by_me ? -1 : 1) }));
     try { await api.toggleLike(p.id); } catch { loadPosts(); }
   };
   const onDislike = async (p: Post) => {
-    setMyPosts((arr) => arr.map((x) => {
-      if (x.id !== p.id) return x;
+    patchPost(p.id, (x) => {
       const nowDis = !x.disliked_by_me;
       return {
         ...x,
@@ -86,16 +118,14 @@ export default function ProfileScreen() {
         liked_by_me: nowDis ? false : x.liked_by_me,
         likes_count: x.likes_count - (nowDis && x.liked_by_me ? 1 : 0),
       };
-    }));
+    });
     try { await api.toggleDislike(p.id); } catch { loadPosts(); }
   };
   const onRepost = async (p: Post) => {
-    try { await api.toggleRepost(p.repost_of || p.id); loadPosts(); } catch { loadPosts(); }
+    try { await api.toggleRepost(p.repost_of || p.id); setReposts(null); loadPosts(); } catch { loadPosts(); }
   };
   const onBookmark = async (p: Post) => {
-    setMyPosts((arr) => arr.map((x) => x.id !== p.id ? x : {
-      ...x, bookmarked_by_me: !x.bookmarked_by_me,
-    }));
+    patchPost(p.id, (x) => ({ ...x, bookmarked_by_me: !x.bookmarked_by_me }));
     try { await api.toggleBookmark(p.id); } catch { loadPosts(); }
   };
   const onReply = (p: Post) => router.push({ pathname: "/post/[id]", params: { id: p.id } });
@@ -105,7 +135,7 @@ export default function ProfileScreen() {
   const [confirmDel, setConfirmDel] = useState<Post | null>(null);
   const onMore = (p: Post) => { if (p.user_id === user?.user_id) setConfirmDel(p); };
   const doDelete = async (p: Post) => {
-    setMyPosts((arr) => arr.filter((x) => x.id !== p.id));
+    removePostEverywhere(p.id);
     try { await api.deletePost(p.id); } catch { loadPosts(); }
   };
 
@@ -386,25 +416,22 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.profileTabs}>
-          <TouchableOpacity
-            style={[styles.profileTab, profileTab === "posts" && styles.profileTabActive]}
-            onPress={() => setProfileTab("posts")}
-            testID="profile-tab-posts"
-          >
-            <Ionicons name="list" size={16} color={profileTab === "posts" ? theme.primary : theme.textMuted} />
-            <Text style={[styles.profileTabText, { color: profileTab === "posts" ? theme.primary : theme.textMuted }]}>Posts</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.profileTab, profileTab === "media" && styles.profileTabActive]}
-            onPress={() => setProfileTab("media")}
-            testID="profile-tab-media"
-          >
-            <Ionicons name="grid" size={15} color={profileTab === "media" ? theme.primary : theme.textMuted} />
-            <Text style={[styles.profileTabText, { color: profileTab === "media" ? theme.primary : theme.textMuted }]}>Photos &amp; videos</Text>
-          </TouchableOpacity>
+          {(([["posts", "Posts"], ["replies", "Replies"], ["reposts", "Reposts"], ["media", "Media"], ["likes", "Likes"]]) as const).map(([key, label]) => {
+            const active = profileTab === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[styles.profileTab, active && styles.profileTabActive]}
+                onPress={() => switchTab(key)}
+                testID={`profile-tab-${key}`}
+              >
+                <Text style={[styles.profileTabText, { color: active ? theme.primary : theme.textMuted }]} numberOfLines={1}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        {loadingPosts ? (
+        {((loadingPosts && (profileTab === "posts" || profileTab === "media")) || tabLoading) ? (
           <ActivityIndicator color={theme.primary} style={{ marginTop: 12 }} />
         ) : profileTab === "media" ? (
           (() => {
@@ -459,32 +486,41 @@ export default function ProfileScreen() {
               </View>
             );
           })()
-        ) : myPosts.length === 0 ? (
-          <View style={styles.postsEmpty}>
-            <Ionicons name="newspaper-outline" size={28} color={theme.textMuted} />
-            <Text style={styles.postsEmptyText}>No posts yet. Share something on the feed!</Text>
-          </View>
-        ) : (
-          <View style={{ gap: 10 }}>
-            {interleaveAds(myPosts).map((item) =>
-              isAd(item) ? (
-                <AdSlot key={`ad-${item.__ad}`} placement="profile" index={item.__ad} />
-              ) : (
-                <PostCard
-                  key={item.id}
-                  post={item}
-                  viewerId={user?.user_id}
-                  onLike={onLike}
-                  onDislike={onDislike}
-                  onRepost={onRepost}
-                  onReply={onReply}
-                  onBookmark={onBookmark}
-                  onMore={onMore}
-                />
-              ),
-            )}
-          </View>
-        )}
+        ) : (() => {
+          const activeList = profileTab === "replies" ? (replies || []) : profileTab === "reposts" ? (reposts || []) : profileTab === "likes" ? (likes || []) : myPosts;
+          if (activeList.length === 0) {
+            const msg = profileTab === "replies" ? "No replies yet." : profileTab === "reposts" ? "No reposts yet." : profileTab === "likes" ? "No liked posts yet." : "No posts yet. Share something on the feed!";
+            const icon = profileTab === "likes" ? "heart-outline" : profileTab === "reposts" ? "repeat" : profileTab === "replies" ? "chatbubble-outline" : "newspaper-outline";
+            return (
+              <View style={styles.postsEmpty}>
+                <Ionicons name={icon as any} size={28} color={theme.textMuted} />
+                <Text style={styles.postsEmptyText}>{msg}</Text>
+              </View>
+            );
+          }
+          const items: any[] = profileTab === "posts" ? interleaveAds(activeList) : activeList;
+          return (
+            <View style={{ gap: 10 }}>
+              {items.map((item) =>
+                isAd(item) ? (
+                  <AdSlot key={`ad-${item.__ad}`} placement="profile" index={item.__ad} />
+                ) : (
+                  <PostCard
+                    key={item.id}
+                    post={item}
+                    viewerId={user?.user_id}
+                    onLike={onLike}
+                    onDislike={onDislike}
+                    onRepost={onRepost}
+                    onReply={onReply}
+                    onBookmark={onBookmark}
+                    onMore={onMore}
+                  />
+                ),
+              )}
+            </View>
+          );
+        })()}
       </ScrollView>
 
       <ConfirmModal
@@ -734,16 +770,16 @@ const styles = StyleSheet.create({
   },
   postsCountText: { color: theme.textSecondary, fontSize: 12, fontWeight: "700" },
   profileTabs: {
-    flexDirection: "row", gap: 8, marginTop: 20, marginBottom: 12,
+    flexDirection: "row", gap: 2, marginTop: 20, marginBottom: 12,
     backgroundColor: theme.surface, borderRadius: 14, padding: 4,
     borderWidth: 1, borderColor: theme.border,
   },
   profileTab: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, paddingVertical: 9, borderRadius: 10,
+    paddingVertical: 9, paddingHorizontal: 2, borderRadius: 10,
   },
   profileTabActive: { backgroundColor: theme.surfaceAlt },
-  profileTabText: { fontSize: 13, fontWeight: "700" },
+  profileTabText: { fontSize: 12.5, fontWeight: "700" },
   mediaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   mediaTile: { width: "32%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: theme.surfaceAlt },
   mediaVideo: { backgroundColor: "rgba(0,0,0,0.25)", alignItems: "center", justifyContent: "center" },

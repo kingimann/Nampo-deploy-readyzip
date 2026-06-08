@@ -850,6 +850,60 @@ async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
     return await _hydrate_many(docs, me["user_id"])
 
 
+async def _user_posts_visible(me: dict, user_id: str) -> bool:
+    """False if the target is private and the viewer doesn't follow them."""
+    if user_id == me["user_id"]:
+        return True
+    owner = await db.users.find_one({"user_id": user_id}, {"_id": 0, "is_private": 1})
+    if owner and owner.get("is_private"):
+        follows = await db.follows.find_one(
+            {"follower_id": me["user_id"], "followee_id": user_id}, {"_id": 0, "follower_id": 1})
+        return bool(follows)
+    return True
+
+
+@router.get("/posts/user/{user_id}/replies", response_model=List[Post])
+async def user_replies(user_id: str, authorization: Optional[str] = Header(None)):
+    """The user's replies (posts that are comments on something)."""
+    me = await get_current_user(authorization)
+    if not await _user_posts_visible(me, user_id):
+        return []
+    docs = await db.posts.find(
+        {"user_id": user_id, "parent_id": {"$ne": None}}, {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    return await _hydrate_many(docs, me["user_id"])
+
+
+@router.get("/posts/user/{user_id}/reposts", response_model=List[Post])
+async def user_reposts(user_id: str, authorization: Optional[str] = Header(None)):
+    """The user's reposts (repost entries pointing at an original)."""
+    me = await get_current_user(authorization)
+    if not await _user_posts_visible(me, user_id):
+        return []
+    docs = await db.posts.find(
+        {"user_id": user_id, "repost_of": {"$ne": None}}, {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    return await _hydrate_many(docs, me["user_id"])
+
+
+@router.get("/posts/user/{user_id}/likes", response_model=List[Post])
+async def user_likes(user_id: str, authorization: Optional[str] = Header(None)):
+    """Posts the user has liked (👍), most recently liked first."""
+    me = await get_current_user(authorization)
+    if not await _user_posts_visible(me, user_id):
+        return []
+    rows = await db.post_reactions.find(
+        {"user_id": user_id, "emoji": "👍"}, {"_id": 0, "post_id": 1, "created_at": 1}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    ids = [r["post_id"] for r in rows if r.get("post_id")]
+    if not ids:
+        return []
+    found = await db.posts.find({"id": {"$in": ids}}, {"_id": 0}).to_list(len(ids))
+    by_id = {d["id"]: d for d in found}
+    docs = [by_id[i] for i in ids if i in by_id]   # preserve like order
+    return await _hydrate_many(docs, me["user_id"])
+
+
 class ReactBody(BaseModel):
     emoji: str
 
