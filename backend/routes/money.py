@@ -8,11 +8,13 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+import asyncpg
 import bcrypt
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
+from db import _to_json
 
 # How long the sender can reverse a money transfer before the recipient can claim it.
 REVERSAL_WINDOW_MIN = 5
@@ -41,16 +43,34 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
         return False
     now = datetime.now(timezone.utc)
     if session_id:
-        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "id": 1, "status": 1})
-        if existing:
-            if existing.get("status") == "completed":
-                return False   # already credited
+        # Atomically flip the pre-created 'processing' record to 'completed'.
+        # A single conditional UPDATE (status <> 'completed') is serialized by
+        # Postgres on the row, so only one of the concurrent webhook / on-return
+        # confirm / sync callers can win the flip — the previous find→credit→
+        # update sequence let all of them pass the check and double-credit.
+        # We credit only if our UPDATE is the one that changed the row.
+        patch = _to_json({"status": "completed", "completed_at": now,
+                          "amount": amount, "source": source})
+        row = None
+        try:
+            async with db.wallet_topups.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "UPDATE wallet_topups SET doc = doc || $2::jsonb "
+                    "WHERE doc->>'session_id' = $1 "
+                    "AND coalesce(doc->>'status', '') <> 'completed' "
+                    "RETURNING ctid",
+                    session_id, patch,
+                )
+        except asyncpg.UndefinedTableError:
+            row = None  # no top-ups recorded yet — falls through to the insert path
+        if row is not None:
             await _credit_wallet(uid, amount)
-            await db.wallet_topups.update_one(
-                {"session_id": session_id},
-                {"$set": {"status": "completed", "completed_at": now, "amount": amount, "source": source}},
-            )
             return True
+        # Nothing flipped: either it was already 'completed' (a concurrent caller
+        # won — skip) or there's no record for this session yet (credit fresh).
+        existing = await db.wallet_topups.find_one({"session_id": session_id}, {"_id": 0, "status": 1})
+        if existing is not None:
+            return False   # already credited
     await _credit_wallet(uid, amount)
     await db.wallet_topups.insert_one({
         "id": str(uuid.uuid4()), "user_id": uid, "amount": amount,
