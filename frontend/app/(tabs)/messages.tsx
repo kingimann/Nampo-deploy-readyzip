@@ -13,6 +13,7 @@ import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import { isE2E, tryDecrypt, getPeerPublicKey } from "@/src/utils/e2e";
 import UnlockChatSheet from "@/src/components/UnlockChatSheet";
+import { useKeyboardHeight } from "@/src/hooks/useKeyboardHeight";
 
 type Mode = "new-dm" | "new-group" | null;
 
@@ -21,6 +22,7 @@ export default function MessagesScreen() {
   const { user } = useAuth();
   const msgOff = !!user?.messaging_disabled;
   const insets = useSafeAreaInsets();
+  const kb = useKeyboardHeight();
   const [convs, setConvs] = useState<ConversationView[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -326,7 +328,7 @@ export default function MessagesScreen() {
               : "Say hi 👋";
             return (
               <TouchableOpacity
-                style={styles.convRow}
+                style={[styles.convRow, (item.unread_count || 0) > 0 && styles.convRowUnread]}
                 onPress={() => router.push({ pathname: "/chat/[id]", params: { id: item.id, name: displayName } })}
                 onLongPress={() => onLongPress(item)}
                 delayLongPress={350}
@@ -391,7 +393,7 @@ export default function MessagesScreen() {
           style={styles.modalBackdrop}
         >
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={resetCompose} />
-          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 24, maxHeight: "82%" }]}>
+          <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 24, maxHeight: "82%", marginBottom: kb }]}>
             <View style={styles.sheetHandle} />
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <Text style={styles.modalTitle}>
@@ -597,6 +599,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.border,
     paddingHorizontal: 14, paddingVertical: 12,
   },
+  // Unread conversations get an accent border so they stand out at a glance.
+  convRowUnread: { borderColor: theme.primary },
   avatar: {
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: theme.primary,
