@@ -1,18 +1,16 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ImageBackground, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Platform, TextInput, ScrollView, KeyboardAvoidingView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
+import { GLASS } from "@/src/lib/glass";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { useNavBar } from "@/src/context/NavBarContext";
-
-const BG_IMAGE =
-  "https://images.unsplash.com/photo-1774646598677-cc38cb3cac00?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjB0b3BvZ3JhcGhpYyUyMG1hcHxlbnwwfHx8fDE3ODA1NTgzMjd8MA&ixlib=rb-4.1.0&q=85";
 
 type Mode = "signin" | "signup";
 
@@ -156,8 +154,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <ImageBackground source={{ uri: BG_IMAGE }} style={styles.bg}>
-      <View style={styles.overlay} />
+    <View style={styles.bg}>
       <SafeAreaView style={{ flex: 1 }}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -319,22 +316,22 @@ export default function LoginScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
+  bg: { flex: 1, backgroundColor: theme.bg },
   scroll: { flexGrow: 1, padding: 24, justifyContent: "center", gap: 18 },
   logoBox: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   brand: { color: "#fff", fontSize: 32, fontWeight: "800", letterSpacing: -0.5 },
-  tagline: { color: "#cbd5e1", fontSize: 14, textAlign: "center" },
+  tagline: { color: theme.textSecondary, fontSize: 14, textAlign: "center" },
+  // Frosted-glass card — same surface as the feed cards / bottom pill.
   card: {
-    backgroundColor: "rgba(10,10,10,0.85)", borderRadius: 20,
-    borderWidth: 1, borderColor: theme.border, padding: 18, gap: 10,
+    borderRadius: 20, padding: 18, gap: 10,
+    ...GLASS,
   },
-  tabsRow: { flexDirection: "row", gap: 6, padding: 4, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
+  tabsRow: { flexDirection: "row", gap: 6, padding: 4, backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
   tab: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: "center" },
   tabActive: { backgroundColor: theme.primary },
   tabText: { color: theme.textSecondary, fontWeight: "700", fontSize: 13 },
@@ -345,7 +342,7 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, color: "#FCA5A5", fontSize: 13, lineHeight: 18, fontWeight: "600" },
   input: {
-    color: "#fff", fontSize: 14, backgroundColor: theme.surface,
+    color: "#fff", fontSize: 14, backgroundColor: theme.surfaceAlt,
     borderWidth: 1, borderColor: theme.border, borderRadius: 12,
     paddingHorizontal: 14, paddingVertical: 12,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
@@ -359,7 +356,7 @@ const styles = StyleSheet.create({
   infoText: { color: theme.primary, fontSize: 12.5, lineHeight: 18, fontWeight: "600" },
   helpText: { color: theme.textSecondary, fontSize: 12.5, lineHeight: 18 },
   forgotLink: { color: theme.primary, fontSize: 13, fontWeight: "700", textAlign: "center", marginTop: 10 },
-  segRow: { flexDirection: "row", gap: 6, padding: 4, backgroundColor: theme.surface, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
+  segRow: { flexDirection: "row", gap: 6, padding: 4, backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border },
   seg: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: "center" },
   segActive: { backgroundColor: theme.primary },
   segText: { color: theme.textSecondary, fontWeight: "700", fontSize: 12.5 },
