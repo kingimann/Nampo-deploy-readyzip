@@ -12,7 +12,10 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Post, mediaUri, FeaturedLink, BusinessProfile } from "@/src/api/client";
 import { theme } from "@/src/theme";
-import { shareLink, profilePath } from "@/src/utils/share";
+import { shareLink, profilePath, WEB_ORIGIN } from "@/src/utils/share";
+
+// Host (no scheme) for the live profile-link preview, e.g. "okayspace.ca".
+const WEB_HOST = WEB_ORIGIN.replace(/^https?:\/\//, "");
 import { GLASS } from "@/src/lib/glass";
 import {
   ACCENT_COLORS, resolveAccent, isValidHex, accentGradient,
@@ -999,7 +1002,7 @@ export default function ProfileScreen() {
               maxLength={80}
               testID="edit-name"
             />
-            <Text style={styles.label}>Username</Text>
+            <Text style={styles.label}>Username & profile link</Text>
             <View style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 0 }]}>
               <Text style={{ color: theme.textMuted, fontSize: 15, fontWeight: "700" }}>@</Text>
               <TextInput
@@ -1017,7 +1020,23 @@ export default function ProfileScreen() {
                 : usernameCheck.available === false ? <Ionicons name="close-circle" size={18} color="#EF4444" />
                 : null}
             </View>
-            <Text style={styles.helper}>3-20 chars · a-z, 0-9, _</Text>
+            {/* Live preview of the shareable profile link + availability. */}
+            <View style={styles.linkPreviewRow}>
+              <Ionicons name="link" size={13} color={theme.textMuted} />
+              <Text style={styles.linkPreviewText} numberOfLines={1}>
+                {WEB_HOST}/{editUsername || "username"}
+              </Text>
+              {usernameCheck.checking ? (
+                <Text style={styles.linkStatusMuted}>checking…</Text>
+              ) : usernameCheck.available === true ? (
+                <Text style={styles.linkStatusOk}>Available</Text>
+              ) : usernameCheck.available === false ? (
+                <Text style={styles.linkStatusBad}>Taken</Text>
+              ) : (editUsername && editUsername === (user?.username || "")) ? (
+                <Text style={styles.linkStatusMuted}>Current</Text>
+              ) : null}
+            </View>
+            <Text style={styles.helper}>3-20 chars · a-z, 0-9, _ · this is your shareable link</Text>
             <Text style={styles.label}>Bio</Text>
             <TextInput
               style={[styles.input, { height: 100, textAlignVertical: "top" }]}
@@ -1386,6 +1405,11 @@ const styles = StyleSheet.create({
   headerIconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   copiedPill: { position: "absolute", alignSelf: "center", bottom: 40, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
   copiedText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  linkPreviewRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+  linkPreviewText: { flex: 1, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
+  linkStatusOk: { color: "#22C55E", fontSize: 12, fontWeight: "800" },
+  linkStatusBad: { color: "#EF4444", fontSize: 12, fontWeight: "800" },
+  linkStatusMuted: { color: theme.textMuted, fontSize: 12, fontWeight: "700" },
 
   // ── Hero card (gradient cover + centered identity) ──────────────────────
   hero: {
