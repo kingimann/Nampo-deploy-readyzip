@@ -15,6 +15,26 @@ export default function Root({ children }: PropsWithChildren) {
         {/* Plain website — no PWA install / standalone "app" treatment on PC. */}
         <meta name="theme-color" content="#0B141A" />
         <link rel="apple-touch-icon" href="/icon.png" />
+        {/* Kill switch: unregister any stale service worker and clear caches left
+            over from the old installable-PWA build. A rogue/orphaned SW is the
+            classic cause of a "page keeps reloading" loop after the manifest is
+            removed. Harmless when there's nothing to clean up. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations()
+                    .then(function(rs){ rs.forEach(function(r){ r.unregister(); }); })
+                    .catch(function(){});
+                }
+                if (window.caches && caches.keys) {
+                  caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
         {/*
           Disable body scrolling on web to make ScrollView components work correctly.
           If you want to enable scrolling, remove `ScrollViewStyleReset` and

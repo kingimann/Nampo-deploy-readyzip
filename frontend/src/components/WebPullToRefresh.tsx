@@ -30,6 +30,10 @@ export default function WebPullToRefresh() {
 
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
+    // Touch-only gesture — never attach on desktop (mouse) so it can't trigger
+    // a reload there.
+    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    if (!coarse) return;
     const viewportH = () =>
       (window.visualViewport?.height || window.innerHeight || 800);
     // True when the scroll container under the finger is already at the top, so a
