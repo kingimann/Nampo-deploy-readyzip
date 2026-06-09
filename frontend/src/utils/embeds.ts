@@ -8,7 +8,7 @@ function twitchParents(): string {
   const hosts =
     Platform.OS === "web" && typeof window !== "undefined" && window.location?.hostname
       ? [window.location.hostname]
-      : ["nampo-web.onrender.com", "localhost"];
+      : ["okayspace.ca", "localhost"];
   return hosts.map((h) => `parent=${h}`).join("&");
 }
 

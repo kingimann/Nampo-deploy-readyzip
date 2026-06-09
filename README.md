@@ -317,7 +317,7 @@ NamiApp/
 | --- | :---: | :---: | --- | --- |
 | `DATABASE_URL` | **Yes** | **Yes** | — | PostgreSQL DSN (asyncpg). |
 | `CORS_ORIGINS` | No | No | `*` | Comma-separated allowed origins, or `*`. |
-| `WEB_APP_URL` | No | No | `https://nampo-web.onrender.com` | Public web app origin, used for payment return URLs and the canonical links in embeds/oEmbed. |
+| `WEB_APP_URL` | No | No | `https://okayspace.ca` | Public web app origin, used for payment return URLs and the canonical links in embeds/oEmbed. |
 | `MESSAGE_ENC_KEY` | No | **Yes** | *(none)* | Fernet key. If set, messages are encrypted at rest; otherwise plaintext. |
 | `FSQ_API_KEY` | No | **Yes** | `""` | Foursquare Places API key for `/api/foursquare/match`. |
 | `MAPBOX_TOKEN` | No | **Yes** | `""` | Server-side Mapbox token for address autocomplete on **embedded forms** (`/pub/geocode`). Without it, form address fields still work as plain text. (App maps use the client `EXPO_PUBLIC_MAPBOX_TOKEN`.) |

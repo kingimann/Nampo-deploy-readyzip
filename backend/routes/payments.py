@@ -65,7 +65,7 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 # Platform cut of each transaction, in percent (0 = creator gets everything).
 PLATFORM_FEE_PERCENT = float(os.environ.get("PLATFORM_FEE_PERCENT", "0") or 0)
 # Where Stripe sends users back after hosted onboarding / checkout.
-WEB_APP_URL = (os.environ.get("WEB_APP_URL", "https://nampo-web.onrender.com") or "").rstrip("/")
+WEB_APP_URL = (os.environ.get("WEB_APP_URL", "https://okayspace.ca") or "").rstrip("/")
 
 if stripe and STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY

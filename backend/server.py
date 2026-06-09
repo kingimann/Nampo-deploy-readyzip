@@ -63,7 +63,7 @@ app = FastAPI(
         "All endpoints are under the `/api` prefix. Interactive docs: `/docs` · "
         "OpenAPI schema: `/openapi.json`."
     ),
-    contact={"name": "OkaySpace", "url": "https://nampo-web.onrender.com"},
+    contact={"name": "OkaySpace", "url": "https://okayspace.ca"},
     license_info={"name": "Proprietary"},
 )
 

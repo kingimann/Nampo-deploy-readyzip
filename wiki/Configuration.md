@@ -8,7 +8,7 @@ Every integration is optional except the database + Mapbox; unset features degra
 | --- | :---: | :---: | --- | --- |
 | `DATABASE_URL` | **Yes** | **Yes** | — | PostgreSQL DSN (asyncpg). |
 | `CORS_ORIGINS` | No | No | `*` | Comma-separated allowed origins, or `*`. |
-| `WEB_APP_URL` | No | No | `https://nampo-web.onrender.com` | Public web origin for payment return URLs and the canonical links in embeds/oEmbed. |
+| `WEB_APP_URL` | No | No | `https://okayspace.ca` | Public web origin for payment return URLs and the canonical links in embeds/oEmbed. |
 | `MESSAGE_ENC_KEY` | No | **Yes** | *(none)* | Fernet key — encrypts stored messages at rest. |
 | `FSQ_API_KEY` | No | **Yes** | `""` | Foursquare Places key for business profiles. |
 | `MAPBOX_TOKEN` | No | **Yes** | `""` | Server-side Mapbox token powering address-autocomplete on **embedded forms** (`/pub/geocode`). Without it, form **address** fields still work as plain text. (The app's own maps use the client `EXPO_PUBLIC_MAPBOX_TOKEN`.) |

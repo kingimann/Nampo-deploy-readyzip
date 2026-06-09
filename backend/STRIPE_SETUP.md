@@ -27,7 +27,7 @@ How it works:
 | `STRIPE_SECRET_KEY` | `sk_test_…` / `sk_live_…` |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` |
 | `PLATFORM_FEE_PERCENT` | your cut, e.g. `0` or `10` |
-| `WEB_APP_URL` | `https://nampo-web.onrender.com` (return URLs) |
+| `WEB_APP_URL` | `https://okayspace.ca` (return URLs) |
 
 Redeploy the backend (it auto-deploys on push; env changes need a redeploy).
 

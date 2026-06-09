@@ -92,7 +92,7 @@ services:
       - key: TWILIO_FROM_NUMBER
         sync: false
       - key: WEB_APP_URL
-        value: https://nampo-web.onrender.com
+        value: https://okayspace.ca
       # Automated payouts: minimum balance to pay, and a secret a Render Cron Job
       # can send as the `X-Cron-Key` header to POST /api/payouts/run.
       - key: MIN_PAYOUT
@@ -127,6 +127,11 @@ services:
     # good build instead of publishing new commits.
     buildCommand: cd frontend && corepack enable && yarn install --network-timeout 1000000 && NODE_OPTIONS=--max-old-space-size=4096 npx expo export -p web
     staticPublishPath: frontend/dist
+    # Custom domain — okayspace.ca is the canonical web origin (the old
+    # nampo-web.onrender.com subdomain is disabled).
+    domains:
+      - okayspace.ca
+      - www.okayspace.ca
     pullRequestPreviewsEnabled: false
     autoDeploy: true
     branch: main

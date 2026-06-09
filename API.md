@@ -130,7 +130,7 @@ Let users sign in to your site with their OkaySpace account (authorization-code 
    `client_id`, `client_secret`, and one or more redirect URIs.
 2. **Send the user** to the consent screen:
    ```
-   https://nampo-web.onrender.com/oauth/authorize?client_id=...&redirect_uri=...&response_type=code&scope=profile%20email&state=xyz
+   https://okayspace.ca/oauth/authorize?client_id=...&redirect_uri=...&response_type=code&scope=profile%20email&state=xyz
    ```
    On approval we redirect to `redirect_uri?code=...&state=xyz`.
 3. **Exchange the code** (server-side):

@@ -23,7 +23,7 @@ from core import db
 
 router = APIRouter()
 
-WEB_APP_URL = (os.environ.get("WEB_APP_URL", "https://nampo-web.onrender.com") or "").rstrip("/")
+WEB_APP_URL = (os.environ.get("WEB_APP_URL", "https://okayspace.ca") or "").rstrip("/")
 
 # Lightweight per-IP rate limit for the JSON/oEmbed endpoints (in-memory, single
 # instance; resets on restart).

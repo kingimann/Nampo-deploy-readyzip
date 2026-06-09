@@ -14,7 +14,7 @@ import QrCode from "@/src/components/QrCode";
 
 const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {};
 const WEB_ORIGIN =
-  Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "https://nampo-web.onrender.com";
+  Platform.OS === "web" && typeof window !== "undefined" ? window.location.origin : "https://okayspace.ca";
 
 export default function PayQRScreen() {
   const router = useRouter();

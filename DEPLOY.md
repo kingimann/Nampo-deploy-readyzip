@@ -46,7 +46,7 @@ provisions a Postgres database **and** the API service together.
 5. Click **Apply**. Render creates the database, builds the Docker image and the
    web bundle, and deploys. Watch the API logs for `Uvicorn running`.
 6. Render gives you a backend URL like `https://nampo-backend.onrender.com` and a
-   web URL like `https://nampo-web.onrender.com`.
+   web URL like `https://okayspace.ca`.
 
 ### Step 2b — fix the web's backend URL (if you left it blank)
 

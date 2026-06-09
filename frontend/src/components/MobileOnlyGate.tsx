@@ -35,7 +35,7 @@ export default function MobileOnlyGate({ children }: { children: React.ReactNode
   const blocked = desktop && enabled && !bypassed;
   if (!blocked) return <>{children}</>;
 
-  const url = typeof window !== "undefined" ? window.location.origin : "https://nampo-web.onrender.com";
+  const url = typeof window !== "undefined" ? window.location.origin : "https://okayspace.ca";
   const allowAnyway = () => {
     try { localStorage.setItem(BYPASS_KEY, "1"); } catch {}
     setBypassed(true);
