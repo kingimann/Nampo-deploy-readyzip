@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  RefreshControl, Image, Alert,
+  RefreshControl, Image, Alert, Modal,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,6 +11,7 @@ import * as ImagePicker from "expo-image-picker";
 import { assetToUri } from "@/src/utils/thumbnail";
 import { api, Group, Post } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 import AdSlot from "@/src/components/AdSlot";
 import { interleaveAds, isAd } from "@/src/lib/ads";
@@ -22,6 +23,8 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const [postSheet, setPostSheet] = useState<Post | null>(null);
   const [group, setGroup] = useState<Group | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [pins, setPins] = useState<Post[]>([]);
@@ -94,7 +97,9 @@ export default function GroupDetailScreen() {
     }
   };
 
-  const onMore = (p: Post) => {
+  // Options for a post's ••• menu — rendered in an in-app sheet (Alert action
+  // sheets are a no-op on web, so Edit/Pin were unreachable there).
+  const postOpts = (p: Post): { label: string; destructive?: boolean; onPress: () => void }[] => {
     const mine = p.user_id === user?.user_id;
     const isPinned = !!group && (group.pinned_post_ids || []).includes(p.id);
     const opts: { label: string; destructive?: boolean; onPress: () => void }[] = [];
@@ -107,12 +112,9 @@ export default function GroupDetailScreen() {
     if (mine) {
       opts.push({ label: "Edit post", onPress: () => { setEditing(p); setReplyTo(null); setComposeOpen(true); } });
     }
-    if (opts.length === 0) return;
-    Alert.alert("Post options", undefined, [
-      ...opts.map((o) => ({ text: o.label, onPress: o.onPress, style: (o.destructive ? "destructive" : "default") as any })),
-      { text: "Cancel", style: "cancel" as any },
-    ]);
+    return opts;
   };
+  const onMore = (p: Post) => { if (postOpts(p).length > 0) setPostSheet(p); };
 
   const onPosted = (p: Post) => {
     if (editing) {
@@ -155,19 +157,11 @@ export default function GroupDetailScreen() {
 
   const clearCover = async () => {
     if (!group || !isOwner) return;
-    Alert.alert("Remove cover photo?", undefined, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            const upd = await api.updateGroup(group.id, { cover_image: "" });
-            setGroup(upd);
-          } catch {}
-        },
-      },
-    ]);
+    if (!(await confirm({ title: "Remove cover photo?", confirmLabel: "Remove", destructive: true }))) return;
+    try {
+      const upd = await api.updateGroup(group.id, { cover_image: "" });
+      setGroup(upd);
+    } catch {}
   };
 
   if (loading) {
@@ -406,12 +400,37 @@ export default function GroupDetailScreen() {
         editing={editing}
         groupId={group.id}
       />
+
+      <Modal visible={!!postSheet} transparent animationType="fade" onRequestClose={() => setPostSheet(null)}>
+        <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setPostSheet(null)}>
+          <View style={[styles.optSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={styles.optSheetTitle}>Post options</Text>
+            {(postSheet ? postOpts(postSheet) : []).map((o) => (
+              <TouchableOpacity
+                key={o.label}
+                style={styles.optSheetBtn}
+                onPress={() => { const fn = o.onPress; setPostSheet(null); fn(); }}
+              >
+                <Text style={[styles.optSheetBtnText, o.destructive && { color: theme.error }]}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.optSheetBtn} onPress={() => setPostSheet(null)}>
+              <Text style={styles.optSheetBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  optSheet: { backgroundColor: "#0E0E10", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, borderTopWidth: 1, borderColor: theme.border },
+  optSheetTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10, marginLeft: 4 },
+  optSheetBtn: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginTop: 6 },
+  optSheetBtnText: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
   backLink: { marginTop: 10, padding: 10 },
   header: {

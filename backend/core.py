@@ -106,6 +106,8 @@ async def init_pool() -> None:
         ("ad_events", "uniq_ad_events_day", "((doc ->> 'post_id'), (doc ->> 'viewer_id'), (doc ->> 'kind'), (doc ->> 'day'))", ["post_id", "viewer_id", "kind", "day"]),
         ("game_scores", "uniq_game_scores", "((doc ->> 'game_id'), (doc ->> 'user_id'))", ["game_id", "user_id"]),
         ("story_views", "uniq_story_views", "((doc ->> 'story_id'), (doc ->> 'viewer_id'))", ["story_id", "viewer_id"]),
+        ("ad_hides", "uniq_ad_hides", "((doc ->> 'viewer_id'), (doc ->> 'post_id'))", ["viewer_id", "post_id"]),
+        ("profile_view_payouts", "uniq_profile_view_payouts", "((doc ->> 'user_id'), (doc ->> 'milestone'))", ["user_id", "milestone"]),
     ]
     async with _real_db._pool.acquire() as conn:
         for table, idx, cols, keys in _DEDUP_UNIQUE_INDEXES:

@@ -699,7 +699,10 @@ async def delete_post(post_id: str, authorization: Optional[str] = Header(None))
     await db.posts.delete_one({"id": post_id})
     if doc.get("parent_id"):
         await db.posts.update_one({"id": doc["parent_id"]}, {"$inc": {"replies_count": -1}})
-    await db.post_likes.delete_many({"post_id": post_id})
+    # Clean up all engagement rows so nothing is orphaned.
+    for coll in (db.post_likes, db.post_dislikes, db.post_bookmarks,
+                 db.post_reactions, db.post_views, db.poll_votes):
+        await coll.delete_many({"post_id": post_id})
     return {"ok": True}
 
 
@@ -724,7 +727,10 @@ async def delete_posts_bulk(body: BulkDeletePostsBody, authorization: Optional[s
     for d in docs:
         if d.get("parent_id"):
             await db.posts.update_one({"id": d["parent_id"]}, {"$inc": {"replies_count": -1}})
-    await db.post_likes.delete_many({"post_id": {"$in": ids}})
+    # Clean up all engagement rows so nothing is orphaned.
+    for coll in (db.post_likes, db.post_dislikes, db.post_bookmarks,
+                 db.post_reactions, db.post_views, db.poll_votes):
+        await coll.delete_many({"post_id": {"$in": ids}})
     return {"ok": True, "deleted": len(ids)}
 
 

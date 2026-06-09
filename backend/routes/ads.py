@@ -293,12 +293,15 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
 async def hide_ad(post_id: str, authorization: Optional[str] = Header(None)):
     """Stop showing this ad to the current viewer."""
     me = await get_current_user(authorization)
-    exists = await db.ad_hides.find_one({"viewer_id": me["user_id"], "post_id": post_id}, {"_id": 0, "id": 1})
-    if not exists:
+    # Insert-first against the unique index so repeat/concurrent hides don't
+    # pile up duplicate rows.
+    try:
         await db.ad_hides.insert_one({
             "id": str(uuid.uuid4()), "viewer_id": me["user_id"], "post_id": post_id,
             "created_at": datetime.now(timezone.utc),
         })
+    except DuplicateKeyError:
+        pass
     return {"hidden": True}
 
 
@@ -310,10 +313,13 @@ async def report_ad(post_id: str, authorization: Optional[str] = Header(None)):
         "id": str(uuid.uuid4()), "reporter_id": me["user_id"], "post_id": post_id,
         "created_at": datetime.now(timezone.utc),
     })
-    await db.ad_hides.insert_one({
-        "id": str(uuid.uuid4()), "viewer_id": me["user_id"], "post_id": post_id,
-        "created_at": datetime.now(timezone.utc),
-    })
+    try:
+        await db.ad_hides.insert_one({
+            "id": str(uuid.uuid4()), "viewer_id": me["user_id"], "post_id": post_id,
+            "created_at": datetime.now(timezone.utc),
+        })
+    except DuplicateKeyError:
+        pass
     return {"reported": True}
 
 
@@ -871,5 +877,17 @@ async def record_profile_view(user_id: str, authorization: Optional[str] = Heade
     fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0, "profile_views": 1})
     new_count = int((fresh or {}).get("profile_views", 0) or 0)
     if new_count % PROFILE_VIEWS_PER_PAYOUT == 0:
-        await _maybe_credit_host(user_id, me["user_id"], PROFILE_VIEW_PAYOUT, kind="views", label="Profile views")
+        # Claim the milestone exactly once via the unique index, so concurrent
+        # views that land on the same multiple can't double-pay.
+        milestone = new_count // PROFILE_VIEWS_PER_PAYOUT
+        try:
+            await db.profile_view_payouts.insert_one({
+                "id": str(uuid.uuid4()), "user_id": user_id, "milestone": milestone,
+                "created_at": datetime.now(timezone.utc),
+            })
+            claimed = True
+        except DuplicateKeyError:
+            claimed = False
+        if claimed:
+            await _maybe_credit_host(user_id, me["user_id"], PROFILE_VIEW_PAYOUT, kind="views", label="Profile views")
     return {"ok": True, "views": new_count}

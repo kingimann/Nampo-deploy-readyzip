@@ -10,6 +10,7 @@ import { safeBack } from "@/src/utils/nav";
 import { api, RoadsideRequest } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { pickImages } from "@/src/utils/thumbnail";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 const SERVICES = [
@@ -31,6 +32,7 @@ const todayStr = () => {
 
 export default function AdminRoadsideCallsScreen() {
   const router = useRouter();
+  const confirm = useConfirm();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -84,31 +86,32 @@ export default function AdminRoadsideCallsScreen() {
 
   useFocusEffect(useCallback(() => { if (isAdmin) load(); }, [load, isAdmin]));
 
-  const deleteOne = (c: RoadsideRequest) => {
-    Alert.alert("Erase this call?", `Call #${c.call_number ?? "—"} (${c.service}) will be permanently removed.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Erase", style: "destructive", onPress: async () => {
-        try { await api.adminDeleteRoadsideCall(c.id); setCalls((arr) => arr.filter((x) => x.id !== c.id)); }
-        catch (e: any) { Alert.alert("Couldn't erase", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
-      } },
-    ]);
+  const deleteOne = async (c: RoadsideRequest) => {
+    if (!(await confirm({
+      title: "Erase this call?",
+      message: `Call #${c.call_number ?? "—"} (${c.service}) will be permanently removed.`,
+      confirmLabel: "Erase",
+      destructive: true,
+    }))) return;
+    try { await api.adminDeleteRoadsideCall(c.id); setCalls((arr) => arr.filter((x) => x.id !== c.id)); }
+    catch {}
   };
-  const eraseAll = (testOnly: boolean) => {
+  const eraseAll = async (testOnly: boolean) => {
     const scope = date.trim() ? `on ${date.trim()}` : "across all days";
     const what = testOnly ? `all test calls ${scope}` : `ALL calls ${scope}`;
-    Alert.alert(`Erase ${what}?`, "This permanently removes the matching calls.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Erase", style: "destructive", onPress: async () => {
-        try {
-          const params: { date?: string; all?: boolean; test_only?: boolean } = {};
-          if (date.trim()) params.date = date.trim(); else params.all = true;
-          if (testOnly) params.test_only = true;
-          const r = await api.adminEraseRoadsideCalls(params);
-          Alert.alert("Done", `Erased ${r.deleted} call${r.deleted === 1 ? "" : "s"}.`);
-          load();
-        } catch (e: any) { Alert.alert("Couldn't erase", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
-      } },
-    ]);
+    if (!(await confirm({
+      title: `Erase ${what}?`,
+      message: "This permanently removes the matching calls.",
+      confirmLabel: "Erase",
+      destructive: true,
+    }))) return;
+    try {
+      const params: { date?: string; all?: boolean; test_only?: boolean } = {};
+      if (date.trim()) params.date = date.trim(); else params.all = true;
+      if (testOnly) params.test_only = true;
+      await api.adminEraseRoadsideCalls(params);
+      load();
+    } catch {}
   };
 
   const create = async (isTest: boolean) => {

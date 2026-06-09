@@ -10,6 +10,7 @@ import { safeBack } from "@/src/utils/nav";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { api, Story, StoryViewer } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 const IMAGE_DURATION_MS = 5000;
@@ -19,6 +20,7 @@ export default function StoryViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [stories, setStories] = useState<Story[]>([]);
   const [idx, setIdx] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -128,24 +130,25 @@ export default function StoryViewerScreen() {
     } finally { setSending(false); }
   };
 
-  const deleteStory = () => {
+  const deleteStory = async () => {
     if (!current) return;
     const delId = current.id;
-    Alert.alert("Delete this story?", "It will disappear immediately.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => {
-        try {
-          await api.deleteStory(delId);
-          // Compute the next index off the filtered array, not the stale length.
-          setStories((arr) => {
-            const next = arr.filter((s) => s.id !== delId);
-            if (next.length === 0) safeBack();
-            else setIdx((i) => Math.min(i, next.length - 1));
-            return next;
-          });
-        } catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
-      }},
-    ]);
+    if (!(await confirm({
+      title: "Delete this story?",
+      message: "It will disappear immediately.",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
+    try {
+      await api.deleteStory(delId);
+      // Compute the next index off the filtered array, not the stale length.
+      setStories((arr) => {
+        const next = arr.filter((s) => s.id !== delId);
+        if (next.length === 0) safeBack();
+        else setIdx((i) => Math.min(i, next.length - 1));
+        return next;
+      });
+    } catch {}
   };
 
   const openViewers = async () => {

@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api, Group } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 import { GLASS } from "@/src/lib/glass";
 import { useFloatingHeader } from "@/src/hooks/useFloatingHeader";
@@ -17,6 +18,7 @@ const COLORS = ["#3B82F6", "#22C55E", "#EAB308", "#A855F7", "#EF4444", "#06B6D4"
 
 export default function GroupsScreen() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const fh = useFloatingHeader();
@@ -33,7 +35,6 @@ export default function GroupsScreen() {
     finally { setLoading(false); setRefreshing(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
-  useEffect(() => { load(); }, [load]);
 
   const submit = async () => {
     if (!draft.name.trim()) return;
@@ -59,6 +60,12 @@ export default function GroupsScreen() {
   };
 
   const remove = async (g: Group) => {
+    if (!(await confirm({
+      title: "Delete group?",
+      message: `"${g.name}" and its posts will be permanently deleted. This can't be undone.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
     setGroups((arr) => arr.filter((x) => x.id !== g.id));
     try { await api.deleteGroupNew(g.id); } catch { load(); }
   };

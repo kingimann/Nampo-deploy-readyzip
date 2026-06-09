@@ -1,14 +1,15 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
-  Image, Alert, SectionList,
+  Image, SectionList, Modal,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, Group } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 type Member = {
@@ -24,9 +25,12 @@ export default function MembersScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const insets = useSafeAreaInsets();
   const [group, setGroup] = useState<Group | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
+  const [memberSheet, setMemberSheet] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
 
   const isOwner = !!group && user?.user_id === group.owner_id;
@@ -52,68 +56,49 @@ export default function MembersScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const promote = (m: Member) => {
+  const promote = async (m: Member) => {
     if (!group) return;
-    Alert.alert("Make admin?", `${m.name} will be able to remove members.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Make admin", onPress: async () => {
-        try { await api.promoteMember(group.id, m.user_id); await load(); }
-        catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
-      }},
-    ]);
+    if (!(await confirm({ title: "Make admin?", message: `${m.name} will be able to remove members.`, confirmLabel: "Make admin" }))) return;
+    try { await api.promoteMember(group.id, m.user_id); await load(); } catch {}
   };
-  const demote = (m: Member) => {
+  const demote = async (m: Member) => {
     if (!group) return;
-    Alert.alert("Remove admin role?", `${m.name} will become a regular member.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Demote", onPress: async () => {
-        try { await api.demoteMember(group.id, m.user_id); await load(); }
-        catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
-      }},
-    ]);
+    if (!(await confirm({ title: "Remove admin role?", message: `${m.name} will become a regular member.`, confirmLabel: "Demote" }))) return;
+    try { await api.demoteMember(group.id, m.user_id); await load(); } catch {}
   };
-  const kick = (m: Member) => {
+  const kick = async (m: Member) => {
     if (!group) return;
-    Alert.alert("Remove from group?", `${m.name} will be removed.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: async () => {
-        try { await api.kickMember(group.id, m.user_id); await load(); }
-        catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
-      }},
-    ]);
+    if (!(await confirm({ title: "Remove from group?", message: `${m.name} will be removed.`, confirmLabel: "Remove", destructive: true }))) return;
+    try { await api.kickMember(group.id, m.user_id); await load(); } catch {}
   };
   const approve = async (r: Request) => {
     if (!group) return;
-    try { await api.approveJoinRequest(group.id, r.user_id); await load(); }
-    catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
+    try { await api.approveJoinRequest(group.id, r.user_id); await load(); } catch {}
   };
   const reject = async (r: Request) => {
     if (!group) return;
-    try { await api.rejectJoinRequest(group.id, r.user_id); await load(); }
-    catch (e: any) { Alert.alert("Failed", e?.message || "Try again"); }
+    try { await api.rejectJoinRequest(group.id, r.user_id); await load(); } catch {}
   };
 
-  const onMemberActions = (m: Member) => {
-    if (!canModerate) return;
-    if (m.role === "owner") return;
+  // Build the available moderation options for a member (used by the in-app
+  // action sheet — Alert action sheets don't work on web).
+  const memberOpts = (m: Member): { label: string; onPress: () => void; destructive?: boolean }[] => {
+    if (!canModerate || m.role === "owner") return [];
     const isAdmin = m.role === "admin";
     const opts: { label: string; onPress: () => void; destructive?: boolean }[] = [];
     if (isOwner) {
-      opts.push(
-        isAdmin
-          ? { label: "Remove admin role", onPress: () => demote(m) }
-          : { label: "Make admin", onPress: () => promote(m) }
-      );
+      opts.push(isAdmin
+        ? { label: "Remove admin role", onPress: () => demote(m) }
+        : { label: "Make admin", onPress: () => promote(m) });
     }
-    // Admins can kick non-admins; owners can kick anyone except owner
     if (isOwner || (myRole === "admin" && !isAdmin)) {
       opts.push({ label: "Remove from group", onPress: () => kick(m), destructive: true });
     }
-    if (opts.length === 0) return;
-    Alert.alert(m.name, undefined, [
-      ...opts.map((o) => ({ text: o.label, onPress: o.onPress, style: (o.destructive ? "destructive" : "default") as any })),
-      { text: "Cancel", style: "cancel" as any },
-    ]);
+    return opts;
+  };
+  const onMemberActions = (m: Member) => {
+    if (memberOpts(m).length === 0) return;
+    setMemberSheet(m);
   };
 
   if (loading || !group) {
@@ -209,12 +194,37 @@ export default function MembersScreen() {
         ItemSeparatorComponent={() => <View style={{ height: 6 }} />}
         SectionSeparatorComponent={() => <View style={{ height: 14 }} />}
       />
+
+      <Modal visible={!!memberSheet} transparent animationType="fade" onRequestClose={() => setMemberSheet(null)}>
+        <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setMemberSheet(null)}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={styles.sheetTitle} numberOfLines={1}>{memberSheet?.name}</Text>
+            {(memberSheet ? memberOpts(memberSheet) : []).map((o) => (
+              <TouchableOpacity
+                key={o.label}
+                style={styles.sheetBtn}
+                onPress={() => { const fn = o.onPress; setMemberSheet(null); fn(); }}
+              >
+                <Text style={[styles.sheetBtnText, o.destructive && { color: theme.error }]}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.sheetBtn} onPress={() => setMemberSheet(null)}>
+              <Text style={styles.sheetBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: "#0E0E10", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, borderTopWidth: 1, borderColor: theme.border },
+  sheetTitle: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10, marginLeft: 4 },
+  sheetBtn: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginTop: 6 },
+  sheetBtnText: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 10,

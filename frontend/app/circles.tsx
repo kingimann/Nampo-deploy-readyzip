@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, Circle, PublicUser } from "@/src/api/client";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 /**
@@ -106,6 +107,7 @@ function CircleEditor({ circle, onClose, onDeleted, onUpdated }: {
   circle: Circle | null; onClose: () => void; onDeleted: (id: string) => void; onUpdated: (c: Circle) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const confirm = useConfirm();
   const [members, setMembers] = useState<PublicUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -140,11 +142,14 @@ function CircleEditor({ circle, onClose, onDeleted, onUpdated }: {
     setMembers((m) => m.filter((x) => x.user_id !== u.user_id)); setCount((c) => Math.max(0, c - 1));
     try { const c = await api.updateCircle(circle.id, { remove_member_ids: [u.user_id] }); onUpdated(c); } catch {}
   };
-  const del = () => {
-    Alert.alert("Delete circle?", `"${circle.name}" will be removed. Posts shared only to it become visible to just you.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteCircle(circle.id); onDeleted(circle.id); onClose(); } catch {} } },
-    ]);
+  const del = async () => {
+    if (!(await confirm({
+      title: "Delete circle?",
+      message: `"${circle.name}" will be removed. Posts shared only to it become visible to just you.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
+    try { await api.deleteCircle(circle.id); onDeleted(circle.id); onClose(); } catch {}
   };
 
   return (

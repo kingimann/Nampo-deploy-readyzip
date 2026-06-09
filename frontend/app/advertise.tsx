@@ -195,14 +195,20 @@ export default function AdvertiseScreen() {
       // Real payments: hand off to Stripe Checkout; the webhook promotes the
       // post once payment confirms. Falls back to the test flow when off.
       if (payEnabled) {
+        // Real payment path. If it throws (declined OR user cancelled the
+        // sheet) we must NOT fall through to the test flow below, which would
+        // promote the post for free. Abort and let the user retry.
         try {
           await stripeCardPay({
             kind: "promote", creator_id: "", amount: chargeAmount,
             extra: { post_id: picking.id, days: selDays, ...(ppc ? { budget: campaignBudget, cpc: campaignCpc } : {}) },
           });
+        } catch {
           setBusy(false);
           return;
-        } catch {}
+        }
+        setBusy(false);
+        return;
       }
       // ── Test payment ────────────────────────────────────────────────
       await new Promise((r) => setTimeout(r, 1400));

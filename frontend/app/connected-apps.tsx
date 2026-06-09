@@ -5,12 +5,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, OAuthConnection } from "@/src/api/client";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 const SCOPE_LABELS: Record<string, string> = { profile: "profile", email: "email" };
 
 export default function ConnectedAppsScreen() {
   const router = useRouter();
+  const confirm = useConfirm();
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<OAuthConnection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,11 +22,14 @@ export default function ConnectedAppsScreen() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const revoke = (c: OAuthConnection) => {
-    Alert.alert("Revoke access", `Remove ${c.name}'s access to your OkaySpace account?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Revoke", style: "destructive", onPress: async () => { try { await api.revokeConnection(c.client_id); await load(); } catch {} } },
-    ]);
+  const revoke = async (c: OAuthConnection) => {
+    if (!(await confirm({
+      title: "Revoke access",
+      message: `Remove ${c.name}'s access to your OkaySpace account?`,
+      confirmLabel: "Revoke",
+      destructive: true,
+    }))) return;
+    try { await api.revokeConnection(c.client_id); await load(); } catch {}
   };
 
   const fmt = (iso?: string | null) => {

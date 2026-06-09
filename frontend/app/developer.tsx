@@ -9,6 +9,7 @@ import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as Clipboard from "expo-clipboard";
 import { api, ApiKey, DevWebhook, OAuthApp, WebhookDelivery } from "@/src/api/client";
+import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://nampo-backend.onrender.com";
@@ -324,6 +325,7 @@ const EMBED_ATTRS: [string, string][] = [
 
 export default function DeveloperScreen() {
   const router = useRouter();
+  const confirm = useConfirm();
   const insets = useSafeAreaInsets();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -382,11 +384,14 @@ export default function DeveloperScreen() {
       Alert.alert("Couldn't create app", errText(e));
     } finally { setAppBusy(false); }
   };
-  const removeOAuthApp = (clientId: string) => {
-    Alert.alert("Delete OAuth app", "Sites using it will stop being able to sign users in.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteOAuthApp(clientId); await load(); } catch {} } },
-    ]);
+  const removeOAuthApp = async (clientId: string) => {
+    if (!(await confirm({
+      title: "Delete OAuth app",
+      message: "Sites using it will stop being able to sign users in.",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
+    try { await api.deleteOAuthApp(clientId); await load(); } catch {}
   };
 
   const buyPack = async (packId: string) => {
@@ -473,11 +478,14 @@ export default function DeveloperScreen() {
     } finally { setRedelivering(null); }
   };
 
-  const removeWebhook = (id: string) => {
-    Alert.alert("Delete webhook", "Stop sending events to this URL?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteWebhook(id); await load(); } catch {} } },
-    ]);
+  const removeWebhook = async (id: string) => {
+    if (!(await confirm({
+      title: "Delete webhook",
+      message: "Stop sending events to this URL?",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
+    try { await api.deleteWebhook(id); await load(); } catch {}
   };
 
   const testWebhook = async (id: string) => {
@@ -494,11 +502,14 @@ export default function DeveloperScreen() {
     } finally { setWhTesting(null); }
   };
 
-  const revoke = (k: ApiKey) => {
-    Alert.alert("Revoke key", `Revoke "${k.label}"? Apps using it will stop working.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Revoke", style: "destructive", onPress: async () => { try { await api.revokeApiKey(k.id); await load(); } catch {} } },
-    ]);
+  const revoke = async (k: ApiKey) => {
+    if (!(await confirm({
+      title: "Revoke key",
+      message: `Revoke "${k.label}"? Apps using it will stop working.`,
+      confirmLabel: "Revoke",
+      destructive: true,
+    }))) return;
+    try { await api.revokeApiKey(k.id); await load(); } catch {}
   };
 
   return (
