@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
+import * as ImagePicker from "@/src/platform/image-picker";
 import { api, Post, PostMedia, Draft, mediaUri } from "@/src/api/client";
 import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 import { pickThumbnailUri } from "@/src/utils/thumbnail";

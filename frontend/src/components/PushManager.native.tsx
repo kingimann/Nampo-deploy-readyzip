@@ -5,8 +5,8 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { router } from "expo-router";
-import Constants from "expo-constants";
-import * as Device from "expo-device";
+import Constants from "@/src/platform/constants";
+import * as Device from "@/src/platform/device";
 import * as Notifications from "expo-notifications";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";

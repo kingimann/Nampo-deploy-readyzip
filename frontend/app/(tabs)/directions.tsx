@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as Location from "expo-location";
-import * as Speech from "expo-speech";
+import * as Speech from "@/src/platform/speech";
 import {
   MapboxWebView, MapboxWebViewHandle, MapboxEvent,
 } from "@/src/components/MapboxWebView";

@@ -4,7 +4,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useVideoPlayer, VideoView } from "expo-video";
+import { useVideoPlayer, VideoView } from "@/src/platform/video";
 import { PostMedia, mediaUri } from "@/src/api/client";
 import ReelPoster from "@/src/components/ReelPoster";
 import { theme } from "@/src/theme";

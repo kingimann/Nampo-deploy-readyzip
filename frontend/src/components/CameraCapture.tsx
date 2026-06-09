@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { CameraView, useCameraPermissions } from "@/src/platform/camera";
 import { Ionicons } from "@expo/vector-icons";
 import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 

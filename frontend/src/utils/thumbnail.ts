@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import * as ImagePicker from "expo-image-picker";
+import * as ImagePicker from "@/src/platform/image-picker";
 import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 
 /**

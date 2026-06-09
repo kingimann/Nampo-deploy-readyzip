@@ -6,7 +6,7 @@
 // ICON_VECTOR_VERSION must match @expo/vector-icons in package.json.
 // Usage: const [loaded, error] = useIconFonts();
 
-import Constants, { ExecutionEnvironment } from "expo-constants";
+import Constants, { ExecutionEnvironment } from "@/src/platform/constants";
 import { useFonts } from "expo-font";
 
 const ICON_VECTOR_VERSION = "15.0.3";

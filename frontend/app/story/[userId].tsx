@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { VideoView, useVideoPlayer } from "expo-video";
+import { VideoView, useVideoPlayer } from "@/src/platform/video";
 import { api, Story, StoryViewer } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";

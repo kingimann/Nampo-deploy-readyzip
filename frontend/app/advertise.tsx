@@ -7,7 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import * as ImagePicker from "expo-image-picker";
+import * as ImagePicker from "@/src/platform/image-picker";
 import { api, Post, AdCampaign, AdAccount, LinkAd, ReelAd, mediaUri } from "@/src/api/client";
 import { stripeCardPay } from "@/src/lib/stripeEmbed";
 import { uploadToCloudinary, cloudinaryEnabled } from "@/src/api/cloudinary";

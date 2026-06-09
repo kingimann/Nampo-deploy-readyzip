@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import * as ImagePicker from "expo-image-picker";
+import * as ImagePicker from "@/src/platform/image-picker";
 import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 import { api, StoryTrayItem } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";

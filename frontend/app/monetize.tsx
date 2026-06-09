@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
+import * as Clipboard from "@/src/platform/clipboard";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, PublisherSite } from "@/src/api/client";

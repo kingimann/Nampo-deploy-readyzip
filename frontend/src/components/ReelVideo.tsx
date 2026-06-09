@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, StyleSheet } from "react-native";
 import { useEvent } from "expo";
-import { useVideoPlayer, VideoView } from "expo-video";
+import { useVideoPlayer, VideoView } from "@/src/platform/video";
 import ReelPoster from "@/src/components/ReelPoster";
 
 /** Native reel player (expo-video). Web uses ReelVideo.web.tsx (raw <video>). */

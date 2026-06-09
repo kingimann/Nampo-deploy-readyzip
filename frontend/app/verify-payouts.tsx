@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import * as ImagePicker from "expo-image-picker";
+import * as ImagePicker from "@/src/platform/image-picker";
 import { api } from "@/src/api/client";
 import DatePickerField from "@/src/components/DatePickerField";
 import { theme } from "@/src/theme";

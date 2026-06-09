@@ -4,7 +4,7 @@
 // Usage: import { storage } from "@/src/utils/storage"; await storage.getItem(key, fallback);
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/src/platform/secure-store";
 
 import { AssertNoExtras, StorageBase, StorageItemValue } from "./storage-base";
 

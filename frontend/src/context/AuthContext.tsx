@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { Platform } from "react-native";
-import * as Linking from "expo-linking";
+import * as Linking from "@/src/platform/linking";
 import { api, SESSION_TOKEN_KEY, User, LoginResponse } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 import { ensureKeyPair } from "@/src/utils/e2e";
