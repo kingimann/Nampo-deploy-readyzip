@@ -6,6 +6,7 @@
  * to 0 height → blank screen). An error boundary renders any mount-time crash
  * to the DOM so failures are visible instead of a white page.
  */
+import "./expo-polyfill";
 import "react-native-url-polyfill/auto";
 import React from "react";
 import { AppRegistry } from "react-native";
