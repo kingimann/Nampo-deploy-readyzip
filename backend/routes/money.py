@@ -7,7 +7,7 @@ appear in the Wallet's Sent/Received lists automatically.
 import math
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import Optional
 
 import asyncpg
 import bcrypt

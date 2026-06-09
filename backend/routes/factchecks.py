@@ -6,7 +6,7 @@ publicly "shown" and is denormalized onto the post (`post.factcheck`) so feeds
 render it for free. Falls back to pending until then.
 """
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException

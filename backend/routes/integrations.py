@@ -66,7 +66,7 @@ async def _check_transitland() -> tuple[bool, str]:
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get("https://transit.land/api/v2/rest/feeds", params={"apikey": key, "limit": 1})
-        return (r.status_code == 200), (f"API reachable." if r.status_code == 200 else f"HTTP {r.status_code}")
+        return (r.status_code == 200), ("API reachable." if r.status_code == 200 else f"HTTP {r.status_code}")
     except Exception as e:
         return False, f"TransitLand call failed: {str(e)[:120]}"
 

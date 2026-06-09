@@ -11,7 +11,6 @@ Flow:
   4. The site calls `GET /oauth/userinfo` with that token to read the profile.
 """
 import secrets
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from urllib.parse import urlencode

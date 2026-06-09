@@ -2,7 +2,7 @@
 back and forth with staff; admins triage and resolve them."""
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel

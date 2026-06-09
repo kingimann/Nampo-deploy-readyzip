@@ -10,7 +10,7 @@ Play surface: the app loads `/api/pub/game/{id}` in a WebView (native) / iframe
 (web); for inline-HTML games we inject the SDK automatically.
 """
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response
