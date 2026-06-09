@@ -9,12 +9,14 @@ All requests and responses are JSON over HTTPS.
 ## Contents
 
 **Getting started**
+[Client platforms (web/PC & mobile)](#client-platforms-web--pc--mobile) ·
 [Authentication](#authentication) ·
 [Plans & access](#plans--access-paid) ·
 [Webhooks](#webhooks-pro) ·
 [Login with OkaySpace (OAuth2)](#login-with-nami-oauth2) ·
 [Conventions](#conventions) ·
-[Quick examples](#quick-examples)
+[Quick examples](#quick-examples) ·
+[Flutter & Dart integration](#flutter--dart-integration)
 
 **Endpoint groups**
 [Meta](#meta-public) ·
@@ -40,6 +42,25 @@ All requests and responses are JSON over HTTPS.
 [Admin & moderation](#admin--moderation-adminmod-only) ·
 [Developer & E2E keys](#developer-api-keys--e2e-keys) ·
 [Webhooks endpoints](#webhooks-pro-1)
+
+## Client platforms (web / PC & mobile)
+
+OkaySpace is **one** REST + WebSocket backend that serves every client — there is
+no platform-specific API. The same routes, auth, and payloads work from:
+
+- **Web / PC** — the app runs in any desktop or mobile browser (`https://okayspace.ca`).
+  CORS is open (`Access-Control-Allow-Origin: *`), so a browser app or your own
+  site can call the API directly. Keep the session token in `localStorage` (or a
+  cookie) and send it as `Authorization: Bearer <token>`.
+- **Mobile (iOS / Android)** — the native app, and any third-party mobile app
+  (including **Flutter**), hit the same endpoints. Store the token in the platform
+  secure store — Keychain / Keystore (`expo-secure-store`, `flutter_secure_storage`).
+- **Server-to-server** — use a **Developer API key** (Settings → Developer API) as
+  the Bearer token to run against your plan's quota.
+
+Realtime features (messaging presence, calls, ETA) use WebSockets at
+`wss://nampo-backend.onrender.com`; everything else is plain JSON over HTTPS and
+behaves identically on every platform.
 
 ## Authentication
 
@@ -198,6 +219,81 @@ curl -X POST $API/money/send -H "Authorization: Bearer $TOKEN" \
 
 `$API` = `https://nampo-backend.onrender.com/api`. Get `$TOKEN` from login, or use a
 Developer API key (Settings → Developer API).
+
+## Flutter & Dart integration
+
+The API is plain JSON over HTTPS, so Dart's `http` package is all you need — and
+because CORS is open, the same code runs on Flutter mobile **and** Flutter Web.
+
+```dart
+// pubspec.yaml → http: ^1.2.0   flutter_secure_storage: ^9.0.0
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+const api = 'https://nampo-backend.onrender.com/api';
+
+class OkaySpace {
+  String? token; // a session token from login, or a Developer API key
+
+  Future<void> login(String identifier, String password) async {
+    final r = await http.post(
+      Uri.parse('$api/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'identifier': identifier, 'password': password}),
+    );
+    if (r.statusCode != 200) throw Exception(jsonDecode(r.body)['detail']);
+    token = jsonDecode(r.body)['session_token'] as String;
+    // On mobile, persist it: await FlutterSecureStorage().write(key: 'tok', value: token);
+  }
+
+  Map<String, String> get _auth =>
+      {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'};
+
+  Future<List<dynamic>> feed() async {
+    final r = await http.get(Uri.parse('$api/posts/feed'), headers: _auth);
+    return jsonDecode(r.body) as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createPost(String text) async {
+    final r = await http.post(Uri.parse('$api/posts'),
+        headers: _auth, body: jsonEncode({'text': text}));
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+}
+```
+
+**Typed client (codegen).** Generate a fully-typed Dart/Flutter client from the
+OpenAPI schema instead of writing calls by hand:
+
+```bash
+dart pub global activate openapi_generator_cli
+openapi-generator generate \
+  -i https://nampo-backend.onrender.com/openapi.json \
+  -g dart-dio -o ./okayspace_client
+```
+
+**Realtime (WebSocket)** for messaging / calls / ETA:
+
+```dart
+// pubspec.yaml → web_socket_channel: ^2.4.0
+import 'package:web_socket_channel/web_socket_channel.dart';
+final ch = WebSocketChannel.connect(
+  Uri.parse('wss://nampo-backend.onrender.com/ws/conversations/<id>?token=<token>'),
+);
+ch.stream.listen((msg) => print(msg));
+```
+
+**Embed the whole app in Flutter.** To drop the full OkaySpace experience into a
+Flutter app, load the web client in a WebView:
+
+```dart
+// pubspec.yaml → webview_flutter: ^4.0.0
+import 'package:webview_flutter/webview_flutter.dart';
+final controller = WebViewController()
+  ..setJavaScriptMode(JavaScriptMode.unrestricted)
+  ..loadRequest(Uri.parse('https://okayspace.ca'));
+// return WebViewWidget(controller: controller);
+```
 
 ## Endpoint groups
 
