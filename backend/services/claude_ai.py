@@ -221,3 +221,18 @@ async def validate_form_submission(fields: list, values: dict) -> list:
         return [str(x)[:200] for x in (issues or [])][:12]
     except Exception:
         return []
+
+
+async def summarize_conversation(transcript: str) -> Optional[str]:
+    """Summarize a chat transcript for a participant catching up. Returns a
+    short bulleted summary, or None if AI is unavailable / the call fails."""
+    if not claude_ai_enabled():
+        return None
+    prompt = (
+        "Summarize the following chat conversation for a participant who wants to "
+        "catch up quickly. Use 3-6 short bullet points covering the main topics, "
+        "any decisions, open questions, and action items or plans. Be neutral and "
+        "factual, and don't invent details.\n\n"
+        f"Conversation:\n{transcript[:12000]}"
+    )
+    return await _ask(CLAUDE_TEXT_MODEL, prompt, max_tokens=450)

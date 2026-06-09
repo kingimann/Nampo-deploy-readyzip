@@ -137,6 +137,9 @@ export default function ChatScreen() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryLb, setGalleryLb] = useState<string | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [summarizing, setSummarizing] = useState(false);
   // Conversation settings (Messenger-style): color theme, disappearing timer, group name.
   const [convTheme, setConvTheme] = useState<string>("default");
   const [disappearSecs, setDisappearSecs] = useState<number>(0);
@@ -494,6 +497,30 @@ export default function ChatScreen() {
     const idx = messages.findIndex((x) => x.id === m.id);
     if (idx < 0) return;
     try { listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 }); } catch {}
+  };
+
+  // AI summary: assemble the (decrypted, on-device) transcript and ask the
+  // server's Claude endpoint to summarize it. Works for E2E chats too.
+  const summarizeChat = async () => {
+    setOptionsOpen(false);
+    if (!id) return;
+    setSummary(""); setSummarizing(true); setSummaryOpen(true);
+    try {
+      const lines = messages
+        .filter((m) => !m.deleted)
+        .slice(-150)
+        .map((m) => {
+          const who = m.sender_id === user?.user_id ? "You" : (isGroup ? "Member" : (peer?.name || name || "Them"));
+          return `${who}: ${previewOf(m)}`;
+        });
+      const transcript = lines.join("\n").trim();
+      if (!transcript) { setSummarizing(false); setSummary("Nothing to summarize yet."); return; }
+      const r = await api.summarizeConversation(id, transcript);
+      setSummary(r.summary);
+    } catch (e: any) {
+      setSummaryOpen(false);
+      Alert.alert("Couldn't summarize", String(e?.message || e).replace(/^\d{3}:\s*/, ""));
+    } finally { setSummarizing(false); }
   };
 
   // In-chat search over the loaded thread (works with E2E, since the text is
@@ -989,6 +1016,10 @@ export default function ChatScreen() {
               <Ionicons name="images-outline" size={20} color={theme.textPrimary} />
               <Text style={styles.optText}>Shared media, files &amp; links</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={styles.optRow} onPress={summarizeChat} testID="chat-summarize">
+              <Ionicons name="sparkles-outline" size={20} color={theme.primary} />
+              <Text style={styles.optText}>Summarize chat (AI)</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.optRow}
               onPress={() => { setOptionsOpen(false); setDisappearOpen(true); }}
@@ -1120,6 +1151,30 @@ export default function ChatScreen() {
         <TouchableOpacity style={styles.galLb} activeOpacity={1} onPress={() => setGalleryLb(null)}>
           {!!galleryLb && <Image source={{ uri: galleryLb }} style={{ width: "94%", height: "80%" }} resizeMode="contain" />}
         </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={summaryOpen} transparent animationType="fade" onRequestClose={() => setSummaryOpen(false)}>
+        <View style={styles.sumBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setSummaryOpen(false)} />
+          <View style={styles.sumCard}>
+            <View style={styles.sumHead}>
+              <Ionicons name="sparkles" size={16} color={theme.primary} />
+              <Text style={styles.sumTitle}>Chat summary</Text>
+            </View>
+            {summarizing ? (
+              <View style={{ paddingVertical: 28, alignItems: "center" }}>
+                <ActivityIndicator color={theme.primary} />
+                <Text style={styles.sumMuted}>Summarizing…</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }}><Text style={styles.sumText}>{summary}</Text></ScrollView>
+            )}
+            <Text style={styles.sumMuted}>AI-generated from this chat. Not stored.</Text>
+            <TouchableOpacity style={styles.sumDone} onPress={() => setSummaryOpen(false)}>
+              <Text style={styles.sumDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       {/* Disappearing messages picker */}
@@ -1869,6 +1924,14 @@ const styles = StyleSheet.create({
   galRowText: { flex: 1, color: theme.textPrimary, fontSize: 14 },
   galRowSub: { color: theme.textMuted, fontSize: 12 },
   galLb: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
+  sumBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center", padding: 24 },
+  sumCard: { width: "100%", maxWidth: 460, backgroundColor: theme.surface, borderRadius: 18, borderWidth: 1, borderColor: theme.border, padding: 18 },
+  sumHead: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  sumTitle: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  sumText: { color: theme.textPrimary, fontSize: 14.5, lineHeight: 21 },
+  sumMuted: { color: theme.textMuted, fontSize: 11.5, marginTop: 10, textAlign: "center" },
+  sumDone: { marginTop: 14, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.primary, alignItems: "center" },
+  sumDoneText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   searchBar: {
     flexDirection: "row", alignItems: "center", gap: 10,
     paddingHorizontal: 14, paddingVertical: 8,

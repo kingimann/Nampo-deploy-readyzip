@@ -564,6 +564,8 @@ export const api = {
     request<Message>(`/conversations/${conv_id}/messages/${msg_id}/pin`, { method: "POST" }),
   listPinnedMessages: (conv_id: string) =>
     request<Message[]>(`/conversations/${conv_id}/pinned`),
+  summarizeConversation: (conv_id: string, transcript: string) =>
+    request<{ summary: string }>(`/conversations/${conv_id}/summarize`, { method: "POST", body: JSON.stringify({ transcript }) }),
   reactToMessage: (conv_id: string, msg_id: string, emoji: string) =>
     request<Message>(`/conversations/${conv_id}/messages/${msg_id}/react`, {
       method: "POST", body: JSON.stringify({ emoji }),

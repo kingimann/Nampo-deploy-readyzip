@@ -850,6 +850,33 @@ async def pin_message(conv_id: str, msg_id: str, authorization: Optional[str] = 
     return Message(**_decrypt_msg(m2))
 
 
+class SummarizeBody(BaseModel):
+    transcript: str
+
+
+@router.post("/conversations/{conv_id}/summarize")
+async def summarize_conversation_route(
+    conv_id: str, body: SummarizeBody, authorization: Optional[str] = Header(None)
+):
+    """AI-summarize a conversation. The client sends the plaintext transcript
+    (so it works for end-to-end-encrypted chats too); the server runs Claude on
+    it and returns a short summary. The transcript is not stored."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    from services.claude_ai import summarize_conversation, claude_ai_enabled
+    if not claude_ai_enabled():
+        raise HTTPException(status_code=503, detail={"code": "ai_unavailable", "message": "AI summaries aren't configured on this server."})
+    transcript = (body.transcript or "").strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Nothing to summarize yet")
+    summary = await summarize_conversation(transcript)
+    if not summary:
+        raise HTTPException(status_code=502, detail="Couldn't generate a summary, try again")
+    return {"summary": summary}
+
+
 @router.get("/conversations/{conv_id}/pinned", response_model=List[Message])
 async def list_pinned(conv_id: str, authorization: Optional[str] = Header(None)):
     """The conversation's pinned messages, newest first."""
