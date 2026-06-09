@@ -6,7 +6,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@/src/platform/icons";
 import { Stack, useFocusEffect, useRouter } from "@/src/platform/navigation";
-import * as Location from "expo-location";
+import * as Location from "@/src/platform/location";
 import { safeBack } from "@/src/utils/nav";
 import { GLASS } from "@/src/lib/glass";
 import { useFloatingHeader } from "@/src/hooks/useFloatingHeader";

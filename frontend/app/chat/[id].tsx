@@ -10,7 +10,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@/src/platform/icons";
 import * as ImagePicker from "@/src/platform/image-picker";
 import * as DocumentPicker from "@/src/platform/document-picker";
-import * as Location from "expo-location";
+import * as Location from "@/src/platform/location";
 import * as Clipboard from "@/src/platform/clipboard";
 import {
   useAudioRecorder,

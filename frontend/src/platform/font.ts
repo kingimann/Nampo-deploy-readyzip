@@ -1,6 +1,6 @@
-/**
- * Fonts — internal seam over custom font loading.
- * Pass-through to `expo-font` today; once off Expo, fonts are linked natively
- * and this hook becomes a no-op shim. Part of the gradual move off Expo.
- */
-export * from "expo-font";
+/** Fonts seam — web loads fonts via CSS, so the hook resolves immediately. */
+export function useFonts(_map?: Record<string, any>): [boolean, Error | null] {
+  return [true, null];
+}
+export async function loadAsync(_map?: Record<string, any>): Promise<void> {}
+export function isLoaded(_name?: string): boolean { return true; }

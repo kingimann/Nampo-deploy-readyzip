@@ -1,6 +1,4 @@
-/**
- * SplashScreen — internal seam over the launch splash screen.
- * Pass-through to `expo-splash-screen` today; the eventual bare-RN swap
- * (react-native-bootsplash) happens here. Part of the gradual move off Expo.
- */
-export * from "expo-splash-screen";
+/** SplashScreen seam — no-op on web (the HTML shell handles first paint). */
+export async function preventAutoHideAsync(): Promise<boolean> { return true; }
+export async function hideAsync(): Promise<boolean> { return true; }
+export function setOptions(_opts: any): void {}
