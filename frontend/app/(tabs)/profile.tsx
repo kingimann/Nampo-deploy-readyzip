@@ -26,6 +26,7 @@ import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import PostCard from "@/src/components/PostCard";
 import ConfirmModal from "@/src/components/ConfirmModal";
 import ReelPoster from "@/src/components/ReelPoster";
+import PostComposer from "@/src/components/PostComposer";
 import BirthdayPicker from "@/src/components/BirthdayPicker";
 import { SOCIAL_PLATFORMS, SOCIAL_BY_KEY, socialUrl, fmtBirthday } from "@/src/lib/socials";
 import AdSlot from "@/src/components/AdSlot";
@@ -154,13 +155,21 @@ export default function ProfileScreen() {
   };
   const onReply = (p: Post) => router.push({ pathname: "/post/[id]", params: { id: p.id } });
 
-  // Delete your own posts straight from your profile (long-press a post or use
-  // its ••• menu → confirm).
+  // Edit or delete your own posts from your profile (long-press a post or use
+  // its ••• menu → "Edit or delete…").
   const [confirmDel, setConfirmDel] = useState<Post | null>(null);
-  const onMore = (p: Post) => { if (p.user_id === user?.user_id) setConfirmDel(p); };
+  const [actionPost, setActionPost] = useState<Post | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const onMore = (p: Post) => { if (p.user_id === user?.user_id) setActionPost(p); };
   const doDelete = async (p: Post) => {
     removePostEverywhere(p.id);
     try { await api.deletePost(p.id); } catch { loadPosts(); }
+  };
+  const onPosted = (updated: Post) => {
+    // Edit only here — replace the post in place across every tab list.
+    patchPost(updated.id, () => updated);
+    setEditingPost(null);
   };
 
   const changeAvatar = () => { if (!uploadingAvatar) setAvatarPickerOpen(true); };
@@ -724,6 +733,41 @@ export default function ProfileScreen() {
         destructive
         onCancel={() => setConfirmDel(null)}
         onConfirm={() => { const p = confirmDel; setConfirmDel(null); if (p) doDelete(p); }}
+      />
+
+      {/* Owner post actions: Edit (opens the composer) or Delete. */}
+      <Modal visible={!!actionPost} transparent animationType="fade" onRequestClose={() => setActionPost(null)}>
+        <TouchableOpacity style={styles.postActBackdrop} activeOpacity={1} onPress={() => setActionPost(null)}>
+          <View style={[styles.postActSheet, { paddingBottom: insets.bottom + 16 }]}>
+            <Text style={styles.postActLabel}>Your post</Text>
+            <TouchableOpacity
+              style={styles.postActBtn}
+              onPress={() => { const p = actionPost!; setActionPost(null); setEditingPost(p); setComposeOpen(true); }}
+              testID="profile-post-edit"
+            >
+              <Ionicons name="create-outline" size={18} color={theme.primary} />
+              <Text style={styles.postActBtnText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.postActBtn, { marginTop: 6 }]}
+              onPress={() => { const p = actionPost!; setActionPost(null); setConfirmDel(p); }}
+              testID="profile-post-delete"
+            >
+              <Ionicons name="trash-outline" size={18} color={theme.error} />
+              <Text style={[styles.postActBtnText, { color: theme.error }]}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.postActBtn, { marginTop: 6 }]} onPress={() => setActionPost(null)}>
+              <Text style={styles.postActBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      <PostComposer
+        visible={composeOpen}
+        onClose={() => { setComposeOpen(false); setEditingPost(null); }}
+        onPosted={onPosted}
+        editing={editingPost}
       />
 
       <Modal visible={avatarPickerOpen} transparent animationType="slide" onRequestClose={() => setAvatarPickerOpen(false)}>
@@ -1354,6 +1398,11 @@ const styles = StyleSheet.create({
   editTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 9, borderRadius: 10 },
   editTabOn: { backgroundColor: theme.surfaceAlt },
   editTabText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
+  postActBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  postActSheet: { backgroundColor: "#0E0E10", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, borderTopWidth: 1, borderColor: theme.border },
+  postActLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10, marginLeft: 4 },
+  postActBtn: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14 },
+  postActBtnText: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
   saveErrorRow: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(239,68,68,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginTop: 12 },
   saveErrorText: { flex: 1, color: "#EF4444", fontSize: 12.5, fontWeight: "600" },
   helper2: { color: theme.textMuted, fontSize: 11.5, marginBottom: 8, marginTop: -2 },

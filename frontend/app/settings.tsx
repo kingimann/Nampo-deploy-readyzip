@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Alert,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Image,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,6 +13,7 @@ import { GLASS } from "@/src/lib/glass";
 import { requestEditProfile } from "@/src/lib/editProfileIntent";
 import FadeIn from "@/src/components/FadeIn";
 import PressableScale from "@/src/components/PressableScale";
+import ConfirmModal from "@/src/components/ConfirmModal";
 
 const DEFAULT_AVATAR =
   "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHBlcnNvbnxlbnwwfHx8fDE3ODA1NTgzMjh8MA&ixlib=rb-4.1.0&q=85";
@@ -24,44 +25,38 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
   const [supportUnread, setSupportUnread] = React.useState(0);
+  // In-app confirmations + result banner — Alert.alert is a no-op on web, so
+  // the old Alert-based flows silently did nothing there.
+  const [confirmSignOut, setConfirmSignOut] = React.useState(false);
+  const [confirmPurge, setConfirmPurge] = React.useState(false);
+  const [purging, setPurging] = React.useState(false);
+  const [banner, setBanner] = React.useState("");
   useFocusEffect(React.useCallback(() => {
     api.supportUnreadCount().then((r) => setSupportUnread(r.count || 0)).catch(() => {});
   }, []));
+  React.useEffect(() => {
+    if (!banner) return;
+    const t = setTimeout(() => setBanner(""), 4000);
+    return () => clearTimeout(t);
+  }, [banner]);
 
-  const onSignOut = () => {
-    Alert.alert("Sign out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign out",
-        style: "destructive",
-        onPress: async () => {
-          await signOut();
-          router.replace("/login");
-        },
-      },
-    ]);
+  const onSignOut = () => setConfirmSignOut(true);
+  const doSignOut = async () => {
+    setConfirmSignOut(false);
+    await signOut();
+    router.replace("/login");
   };
 
-  const onPurgePosts = () => {
-    Alert.alert(
-      "Delete all your posts?",
-      "This permanently deletes every post you've made. This can't be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete all",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const r = await api.deletePostsBulk();
-              Alert.alert("Done", `Deleted ${r.deleted} post${r.deleted === 1 ? "" : "s"}.`);
-            } catch {
-              Alert.alert("Couldn't delete", "Please try again.");
-            }
-          },
-        },
-      ],
-    );
+  const onPurgePosts = () => setConfirmPurge(true);
+  const doPurgePosts = async () => {
+    setConfirmPurge(false);
+    setPurging(true);
+    try {
+      const r = await api.deletePostsBulk();
+      setBanner(`Deleted ${r.deleted} post${r.deleted === 1 ? "" : "s"}.`);
+    } catch {
+      setBanner("Couldn't delete your posts. Please try again.");
+    } finally { setPurging(false); }
   };
 
   const Row = ({
@@ -160,13 +155,39 @@ export default function SettingsScreen() {
         )}
 
         <View style={[styles.group, { marginTop: 24 }]}>
-          <Row icon="trash-outline" label="Delete all my posts" danger onPress={onPurgePosts} />
+          <Row icon="trash-outline" label={purging ? "Deleting all posts…" : "Delete all my posts"} danger onPress={onPurgePosts} />
           <Row icon="log-out-outline" label="Sign out" danger onPress={onSignOut} last />
         </View>
+
+        {!!banner && (
+          <View style={styles.banner}>
+            <Ionicons name="checkmark-circle" size={16} color={theme.primary} />
+            <Text style={styles.bannerText}>{banner}</Text>
+          </View>
+        )}
 
         <Text style={styles.version}>OkaySpace · v1.0.1</Text>
         </FadeIn>
       </ScrollView>
+
+      <ConfirmModal
+        visible={confirmPurge}
+        title="Delete all your posts?"
+        message="This permanently deletes every post you've made. This can't be undone."
+        confirmLabel="Delete all"
+        destructive
+        onCancel={() => setConfirmPurge(false)}
+        onConfirm={doPurgePosts}
+      />
+      <ConfirmModal
+        visible={confirmSignOut}
+        title="Sign out?"
+        message="You'll need to log in again to use your account."
+        confirmLabel="Sign out"
+        destructive
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={doSignOut}
+      />
     </SafeAreaView>
   );
 }
@@ -218,5 +239,7 @@ const styles = StyleSheet.create({
   },
   aboutText: { color: theme.textSecondary, fontSize: 15 },
 
+  banner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginTop: 14 },
+  bannerText: { flex: 1, color: theme.textPrimary, fontSize: 13.5, fontWeight: "600" },
   version: { color: theme.textMuted, fontSize: 12, textAlign: "center", marginTop: 30 },
 });
