@@ -560,6 +560,10 @@ export const api = {
     request<{ ok: boolean }>(`/conversations/${conv_id}/messages/${msg_id}`, {
       method: "DELETE",
     }),
+  pinMessage: (conv_id: string, msg_id: string) =>
+    request<Message>(`/conversations/${conv_id}/messages/${msg_id}/pin`, { method: "POST" }),
+  listPinnedMessages: (conv_id: string) =>
+    request<Message[]>(`/conversations/${conv_id}/pinned`),
   reactToMessage: (conv_id: string, msg_id: string, emoji: string) =>
     request<Message>(`/conversations/${conv_id}/messages/${msg_id}/react`, {
       method: "POST", body: JSON.stringify({ emoji }),
@@ -1328,6 +1332,7 @@ export type Message = {
   read_by?: string[];
   delivered_by?: string[];
   expires_at?: string | null;
+  pinned?: boolean;
   created_at: string;
 };
 export type CustomEmoji = { id: string; shortcode: string; image_base64: string; owner_id: string; created_at: string };

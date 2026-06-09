@@ -478,6 +478,19 @@ export default function ChatScreen() {
     try { await api.deleteMessage(id, m.id); } catch { load(); }
   };
 
+  const togglePin = async (m: Message) => {
+    setActionMsg(null);
+    if (!id) return;
+    setMessages((arr) => arr.map((x) => x.id === m.id ? { ...x, pinned: !x.pinned } : x));
+    try { const u = await api.pinMessage(id, m.id); setMessages((arr) => arr.map((x) => x.id === u.id ? u : x)); }
+    catch { load(); }
+  };
+  const jumpToMessage = (m: Message) => {
+    const idx = messages.findIndex((x) => x.id === m.id);
+    if (idx < 0) return;
+    try { listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 }); } catch {}
+  };
+
   const saveEdit = async () => {
     if (!editingMsg || !id) return;
     const draft = text.trim();
@@ -1009,6 +1022,20 @@ export default function ChatScreen() {
         keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 50 : 0}
         style={{ flex: 1 }}
       >
+        {(() => {
+          const pins = messages.filter((m) => m.pinned && !m.deleted);
+          if (pins.length === 0) return null;
+          const top = pins[pins.length - 1];
+          return (
+            <TouchableOpacity style={styles.pinBanner} activeOpacity={0.85} onPress={() => jumpToMessage(top)} testID="pinned-banner">
+              <Ionicons name="bookmark" size={13} color={theme.primary} />
+              <Text style={styles.pinBannerText} numberOfLines={1}>
+                {pins.length > 1 ? `${pins.length} pinned · ` : "Pinned · "}{previewOf(top)}
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+            </TouchableOpacity>
+          );
+        })()}
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
         ) : (
@@ -1016,6 +1043,7 @@ export default function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={(i) => i.id}
+            onScrollToIndexFailed={() => { try { listRef.current?.scrollToEnd({ animated: true }); } catch {} }}
             style={{ backgroundColor: themeColors.bg }}
             contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 16, gap: 12 }}
             renderItem={({ item }) => {
@@ -1443,6 +1471,16 @@ export default function ChatScreen() {
                 <Text style={styles.actionRowText}>Reply</Text>
               </TouchableOpacity>
             )}
+            {actionMsg && !actionMsg.deleted && (
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={() => { const m = actionMsg; togglePin(m); }}
+                testID="msg-action-pin"
+              >
+                <Ionicons name={actionMsg.pinned ? "bookmark" : "bookmark-outline"} size={18} color={theme.primary} />
+                <Text style={styles.actionRowText}>{actionMsg.pinned ? "Unpin" : "Pin"}</Text>
+              </TouchableOpacity>
+            )}
             {actionMsg && (actionMsg.type === "text" || actionMsg.type === "post") && plainOf(actionMsg).length > 0 && (
               <TouchableOpacity style={styles.actionRow} onPress={() => copyMessage(actionMsg)} testID="msg-action-copy">
                 <Ionicons name="copy-outline" size={18} color={theme.textPrimary} />
@@ -1662,6 +1700,13 @@ const styles = StyleSheet.create({
   replySnippet: { color: theme.textSecondary, fontSize: 13, marginTop: 1 },
 
   actionBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  pinBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 14, paddingVertical: 9,
+    backgroundColor: theme.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border,
+  },
+  pinBannerText: { flex: 1, color: theme.textSecondary, fontSize: 13, fontWeight: "600" },
   actionSheet: {
     backgroundColor: theme.surface,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,

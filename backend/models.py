@@ -355,6 +355,7 @@ class Message(BaseModel):
     read_by: List[str] = []        # which recipients have read it (group receipts)
     delivered_by: List[str] = []   # which recipients have received it
     expires_at: Optional[datetime] = None  # disappearing messages: auto-hidden after this
+    pinned: bool = False                    # pinned to the top of the conversation
     created_at: datetime
 
 

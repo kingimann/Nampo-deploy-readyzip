@@ -830,6 +830,40 @@ async def react_to_message(
     return Message(**_decrypt_msg(m2))
 
 
+@router.post("/conversations/{conv_id}/messages/{msg_id}/pin", response_model=Message)
+async def pin_message(conv_id: str, msg_id: str, authorization: Optional[str] = Header(None)):
+    """Toggle whether a message is pinned to the top of the conversation. Any
+    member can pin/unpin."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or uid not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    m = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    if not m or m.get("deleted"):
+        raise HTTPException(status_code=404, detail="Message not found")
+    await db.messages.update_one(
+        {"id": msg_id, "conversation_id": conv_id},
+        {"$set": {"pinned": not bool(m.get("pinned"))}},
+    )
+    m2 = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    return Message(**_decrypt_msg(m2))
+
+
+@router.get("/conversations/{conv_id}/pinned", response_model=List[Message])
+async def list_pinned(conv_id: str, authorization: Optional[str] = Header(None)):
+    """The conversation's pinned messages, newest first."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or uid not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    rows = await db.messages.find(
+        {"conversation_id": conv_id, "pinned": True, "deleted": {"$ne": True}}, {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    return [Message(**_decrypt_msg(m)) for m in rows]
+
+
 @router.delete("/conversations/{conv_id}/messages/{msg_id}")
 async def delete_message(
     conv_id: str, msg_id: str, authorization: Optional[str] = Header(None)
