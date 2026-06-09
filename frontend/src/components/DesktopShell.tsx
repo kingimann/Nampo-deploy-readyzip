@@ -215,8 +215,12 @@ const styles = StyleSheet.create({
   accountAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surfaceAlt },
   accountName: { color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
   accountHandle: { color: theme.textMuted, fontSize: 12.5 },
-  // The page content, pinned to a comfortable reading column and centred.
-  contentWrap: { flex: 1, alignItems: "center" },
+  // The page content sits in a fixed reading column. It must NOT flex-grow, or
+  // it balloons to fill the middle and centres a narrow column inside itself —
+  // leaving big empty gutters between the nav and the content. With a bounded
+  // width the three columns form one group that `row`'s justifyContent:center
+  // centres, so the content sits flush against both rails.
+  contentWrap: { width: CONTENT_MAX, flexGrow: 0, flexShrink: 1, alignItems: "center" },
   content: {
     flex: 1, width: "100%", maxWidth: CONTENT_MAX,
     borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: theme.border,
