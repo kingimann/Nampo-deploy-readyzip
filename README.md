@@ -143,14 +143,17 @@ code-generation guidance (Dart/Flutter, Swift, Kotlin, Go, …).
 
 ## Tech stack
 
-**Frontend**
-- React Native `0.81` + **Expo SDK 54** (new architecture)
-- **expo-router** (file-based, typed routes) on React Navigation
+**Frontend** (web-only)
+- React Native components rendered on the web via **`react-native-web`**
 - **TypeScript** (strict)
-- **expo-video** / **expo-audio** for playback and voice notes
 - **Mapbox GL JS** inside `react-native-webview` (`MapboxWebView`)
-- expo-location, expo-image-picker, expo-document-picker, expo-secure-store, expo-clipboard, expo-sharing, expo-haptics, expo-blur, reanimated, gesture-handler
 - `tweetnacl` for client-side E2E key material
+- **Migrating off Expo → a web-native stack.** All `expo-*`/`@expo/*` usage is
+  routed through `src/platform/*` seams; the in-progress target is **Vite +
+  `react-native-web` + `react-router-dom`** (replacing Expo's Metro bundler and
+  expo-router). See `frontend/src/platform/MIGRATION_PLAN.md` and
+  `frontend/src/web/README.md`. The original Expo setup still works on `main`
+  until the web stack is verified.
 
 **Backend**
 - **FastAPI** + **Uvicorn** (ASGI), **Pydantic v2**
@@ -392,7 +395,7 @@ Health checks:
 - `GET /` → `{"status":"ok","app":"OkaySpace API"}`
 - `GET /api/v1/info` → machine-readable API overview & capabilities
 
-### 2. Frontend (Expo)
+### 2. Frontend (web)
 
 ```bash
 cd frontend
@@ -403,12 +406,23 @@ EXPO_PUBLIC_MAPBOX_TOKEN=pk.your_mapbox_public_token
 EOF
 
 npm install        # or: yarn
-npx expo start     # then press i / a / w, or scan the QR in Expo Go
+
+# Web-native stack (Vite + react-native-web + react-router):
+npm run dev        # vite dev server  → http://localhost:8081
+npm run build:web  # production build → frontend/dist
+npm run preview    # serve the built site
+
+# Legacy Expo dev server (still on main until the Vite stack is verified):
+npx expo start     # press w for web
 ```
 
-Useful scripts (`frontend/package.json`): `npm run android`, `npm run ios`, `npm run web`, `npm run lint`.
+Useful scripts (`frontend/package.json`): `npm run dev` / `build:web` / `preview` (web stack), `npm run lint`.
 
-> On **web**, the Metro dev server proxies `/api/*` and `/health` to `http://localhost:8080`, so you don't need `EXPO_PUBLIC_BACKEND_URL`. On **native devices**, set it to a URL the device can reach (LAN IP or a tunnel), not `localhost`.
+> The app is **web-only**. The Vite/react-router stack is documented in
+> `frontend/src/web/README.md`; the migration plan is in
+> `frontend/src/platform/MIGRATION_PLAN.md`. Point the frontend at the backend
+> with `EXPO_PUBLIC_BACKEND_URL` (or proxy `/api/*` and `/health` to
+> `http://localhost:8080`).
 
 Create your first account from the sign-up screen, or directly against the API:
 
