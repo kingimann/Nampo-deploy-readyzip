@@ -11,20 +11,20 @@
 # To go back to a Render-managed DB, restore this block and set DATABASE_URL to
 # `fromDatabase` again.
 # databases:
-#   - name: nampo-db
+#   - name: okayspace-db
 #     plan: free
-#     databaseName: nampo
-#     user: nampo
+#     databaseName: okayspace
+#     user: okayspace
 
 services:
-  # API (FastAPI). This is the EXISTING, working backend service — its public URL
-  # (https://nampo-backend.onrender.com) holds the live data, so the service name
-  # must stay `nampo-backend` (renaming it in Render creates a new, empty service
-  # and breaks the web app's API calls). The web build points at it via
-  # EXPO_PUBLIC_BACKEND_URL below. The user-facing site is okayspace.ca (attached
-  # to the web service); this backend URL is internal/invisible to visitors.
+  # API (FastAPI) → https://okayspace-api.onrender.com. The web build calls it via
+  # EXPO_PUBLIC_BACKEND_URL below. Data lives in the external Neon Postgres
+  # (DATABASE_URL, sync:false) — independent of this service, so recreating it is
+  # safe as long as the same DATABASE_URL is set. To also serve the API at
+  # api.okayspace.ca, add a `domains: [api.okayspace.ca]` block here later, then
+  # point EXPO_PUBLIC_BACKEND_URL at it once DNS verifies.
   - type: web
-    name: nampo-backend
+    name: okayspace-api
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
@@ -32,13 +32,6 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     branch: main
-    # Custom API domain. Render will show a DNS record to add for api.okayspace.ca;
-    # once it verifies, the backend is reachable at https://api.okayspace.ca AND the
-    # existing nampo-backend.onrender.com URL. Only AFTER it's verified do we flip
-    # EXPO_PUBLIC_BACKEND_URL (below) to https://api.okayspace.ca — flipping early
-    # would break every API call until DNS propagates.
-    domains:
-      - api.okayspace.ca
     envVars:
       # External Postgres connection string (asyncpg DSN). Paste your Neon /
       # Supabase URL in the Render dashboard — sync:false keeps it out of git.
@@ -128,7 +121,7 @@ services:
   # EXPO_PUBLIC_BACKEND_URL (the backend allows CORS), so no proxy is needed.
   - type: web
     runtime: static
-    name: nampo-web
+    name: okayspace-web
     # NOTE: static sites have no `plan` field — they're free. Adding one fails
     # blueprint sync with "no such plan free for service type web".
     # Install with Yarn (this repo's declared packageManager) — npm ci crashes
@@ -140,8 +133,8 @@ services:
     # good build instead of publishing new commits.
     buildCommand: cd frontend && corepack enable && yarn install --network-timeout 1000000 && NODE_OPTIONS=--max-old-space-size=4096 npx expo export -p web
     staticPublishPath: frontend/dist
-    # Custom domain — okayspace.ca is the canonical web origin (the old
-    # nampo-web.onrender.com subdomain is disabled).
+    # Custom domain — okayspace.ca is the canonical web origin (Render also gives
+    # this service an okayspace-web.onrender.com URL, but visitors use okayspace.ca).
     domains:
       - okayspace.ca
       - www.okayspace.ca
@@ -152,13 +145,13 @@ services:
       # Expo SDK 54 requires Node >= 20.19.4.
       - key: NODE_VERSION
         value: "20.19.4"
-      # Baked into the web build at export time. MUST match the real, reachable
-      # backend URL (the existing nampo-backend service). Don't change this to a
-      # service that doesn't exist yet — the web app would fail every API call
-      # ("Failed to fetch") and login breaks. The Mapbox PUBLIC token is bundled
-      # too; paste it in the dashboard (sync:false) since it shouldn't live in git.
+      # Baked into the web build at export time — MUST match the backend service's
+      # real URL. The backend is named `okayspace-api`, so its URL is
+      # https://okayspace-api.onrender.com. If Render suffixes that name (already
+      # taken globally), update this to the actual URL it shows. The Mapbox PUBLIC
+      # token is bundled too; paste it in the dashboard (sync:false).
       - key: EXPO_PUBLIC_BACKEND_URL
-        value: https://nampo-backend.onrender.com
+        value: https://okayspace-api.onrender.com
       # Stripe publishable key (pk_…) for rendering Stripe inside the site.
       - key: EXPO_PUBLIC_STRIPE_KEY
         sync: false
