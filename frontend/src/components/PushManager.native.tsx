@@ -8,7 +8,8 @@ import { router } from "expo-router";
 import Constants from "expo-constants";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
-import { api } from "@/src/api/client";
+import { api, PUSH_TOKEN_KEY } from "@/src/api/client";
+import { storage } from "@/src/utils/storage";
 import { useAuth } from "@/src/context/AuthContext";
 
 // Show incoming pushes (incl. calls) while the app is foregrounded.
@@ -60,6 +61,8 @@ export default function PushManager() {
         const t = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
         if (!active) return;
         tokenRef.current = t.data;
+        // Persist so signOut can unregister it before the session is cleared.
+        await storage.setItem(PUSH_TOKEN_KEY, t.data);
         await api.registerPush(t.data, Platform.OS, "expo");
       } catch {}
     })();

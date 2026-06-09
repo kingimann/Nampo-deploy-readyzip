@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
-import { api, SESSION_TOKEN_KEY, User, LoginResponse } from "@/src/api/client";
+import { api, SESSION_TOKEN_KEY, PUSH_TOKEN_KEY, User, LoginResponse } from "@/src/api/client";
 import { storage } from "@/src/utils/storage";
 import { ensureKeyPair } from "@/src/utils/e2e";
 
@@ -77,6 +77,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const signOut = useCallback(async () => {
+    // Unregister this device's push token FIRST, while the session is still
+    // valid — otherwise the server can't identify whose token to remove and the
+    // device keeps receiving call/chat pushes after logout.
+    try {
+      const pushTok = await storage.getItem<string>(PUSH_TOKEN_KEY, "");
+      if (pushTok) await api.unregisterPush(pushTok);
+    } catch {
+      // ignore
+    }
+    await storage.setItem(PUSH_TOKEN_KEY, "").catch(() => {});
     try {
       await api.logout();
     } catch {

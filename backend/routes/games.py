@@ -18,6 +18,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from core import db, get_current_user
+from db import DuplicateKeyError
 
 router = APIRouter()
 
@@ -129,15 +130,25 @@ async def submit_score(game_id: str, body: ScoreSubmit, authorization: Optional[
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     score = float(body.score or 0)
+    name = user.get("name", "Player")
     key = {"game_id": game_id, "user_id": user["user_id"]}
-    existing = await db.game_scores.find_one(key, {"_id": 0, "best": 1})
-    best = max(score, float(existing.get("best", 0))) if existing else score
     now = datetime.now(timezone.utc)
-    if existing:
-        await db.game_scores.update_one(key, {"$set": {"best": best, "name": user.get("name", "Player"), "updated_at": now}})
-    else:
-        await db.game_scores.insert_one({**key, "best": best, "name": user.get("name", "Player"), "updated_at": now, "created_at": now})
-    return {"ok": True, "best": best}
+    # First score for this user → insert. The unique index (game_id, user_id)
+    # makes this race-safe: a concurrent first submit raises DuplicateKeyError
+    # and falls through to the conditional update below.
+    try:
+        await db.game_scores.insert_one({**key, "best": score, "name": name, "updated_at": now, "created_at": now})
+        return {"ok": True, "best": score}
+    except DuplicateKeyError:
+        pass
+    # Atomic: only raise the stored best when this score is strictly higher, so
+    # two concurrent submits can't clobber a higher score with a lower one.
+    await db.game_scores.update_one(
+        {**key, "best": {"$lt": score}},
+        {"$set": {"best": score, "name": name, "updated_at": now}},
+    )
+    row = await db.game_scores.find_one(key, {"_id": 0, "best": 1})
+    return {"ok": True, "best": float((row or {}).get("best", score))}
 
 
 @router.get("/games/{game_id}/leaderboard")

@@ -757,10 +757,15 @@ export default function ReelsScreen() {
     }));
   }, []);
 
+  // Tracks which reels have already counted a view/impression this session so we
+  // don't double-count. Cleared on scope switch / refresh so re-shown reels can
+  // record a fresh impression.
+  const recordedViews = useRef<Set<string>>(new Set());
   const switchScope = useCallback((s: "explore" | "following") => {
     setScope((cur) => {
       if (cur === s) return cur;
       setLoading(true); setItems([]); setActiveIdx(0);
+      recordedViews.current.clear();
       return s;
     });
   }, []);
@@ -779,7 +784,6 @@ export default function ReelsScreen() {
     if (focusIndex >= 0) setActiveIdx(focusIndex);
   }, [focusIndex]);
 
-  const recordedViews = useRef<Set<string>>(new Set());
   const onViewable = useRef(({ viewableItems }: any) => {
     if (viewableItems?.length) {
       const idx = viewableItems[0].index ?? 0;
@@ -847,7 +851,7 @@ export default function ReelsScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); load(); }}
+              onRefresh={() => { setRefreshing(true); recordedViews.current.clear(); load(); }}
               tintColor="#fff"
               colors={[theme.primary]}
             />

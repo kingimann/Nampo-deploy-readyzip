@@ -23,6 +23,7 @@ export default function SearchScreen() {
   const [popReels, setPopReels] = useState<Post[]>([]);
   const [popPosts, setPopPosts] = useState<Post[]>([]);
   const inputRef = useRef<TextInput>(null);
+  const runSeq = useRef(0);
 
   useEffect(() => { const t = setTimeout(() => inputRef.current?.focus(), 250); return () => clearTimeout(t); }, []);
   useEffect(() => {
@@ -34,12 +35,15 @@ export default function SearchScreen() {
   const run = useCallback(async (term: string) => {
     const s = term.trim();
     if (!s) { setPeople([]); setCommunities([]); setListings([]); return; }
+    // Tag each run so a slower earlier request can't overwrite newer results.
+    const seq = ++runSeq.current;
     setLoading(true);
     const [p, c, l] = await Promise.all([
       api.searchUsers(s).catch(() => []),
       api.listCommunities(s).catch(() => []),
       api.listListings({ q: s }).catch(() => []),
     ]);
+    if (seq !== runSeq.current) return;  // a newer search superseded this one
     setPeople(p); setCommunities(c); setListings(l);
     setLoading(false);
   }, []);

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl, Linking, Animated,
@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { assetToUri } from "@/src/utils/thumbnail";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Post, mediaUri, FeaturedLink } from "@/src/api/client";
 import { theme } from "@/src/theme";
@@ -19,6 +19,7 @@ import {
   AVATAR_FRAMES, PROFILE_BACKGROUNDS, frameColors, backgroundColors,
 } from "@/src/lib/profileCustomize";
 import { AvatarFrame, ProfileBackground } from "@/src/components/ProfileDecor";
+import { consumeEditProfileIntent } from "@/src/lib/editProfileIntent";
 import { useFloatingHeader } from "@/src/hooks/useFloatingHeader";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
 import PostCard from "@/src/components/PostCard";
@@ -68,6 +69,8 @@ export default function ProfileScreen() {
   const [editBg, setEditBg] = useState("default");
   const [usernameCheck, setUsernameCheck] = useState<{ checking: boolean; available: boolean | null }>({ checking: false, available: null });
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [editTab, setEditTab] = useState<"basics" | "look" | "about" | "links">("basics");
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
@@ -262,6 +265,8 @@ export default function ProfileScreen() {
     setEditFrame(user?.avatar_frame || "none");
     setEditBg(user?.profile_background || "default");
     setUsernameCheck({ checking: false, available: true });
+    setSaveError("");
+    setEditTab("basics");
     setEditOpen(true);
   };
 
@@ -281,26 +286,27 @@ export default function ProfileScreen() {
     setEditLinks((arr) => arr.map((l, idx) => (idx === i ? { ...l, [key]: val } : l)));
   const removeLink = (i: number) => setEditLinks((arr) => arr.filter((_, idx) => idx !== i));
 
-  // Open the editor ONCE when arriving from Settings → Edit profile (?edit=1).
-  // The one-shot guard + URL cleanup stops the editor from popping back up on a
-  // page refresh (on web, setParams alone doesn't reliably drop the query).
-  const params = useLocalSearchParams<{ edit?: string }>();
-  const didAutoOpen = useRef(false);
+  // Open the editor only when the user explicitly asked (Settings → Edit
+  // profile), via a one-shot in-memory intent. Uses focus (not mount) because
+  // the profile is a tab that stays mounted, and is deliberately NOT driven by
+  // a URL param, so the editor can't pop back up on a refresh or remount.
+  useFocusEffect(
+    useCallback(() => {
+      if (user && consumeEditProfileIntent()) openEdit();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.user_id]),
+  );
+
+  // Tidy up any stale ?edit=1 left in the URL from a previous build (inert now).
   useEffect(() => {
-    if (params.edit === "1" && user && !didAutoOpen.current) {
-      didAutoOpen.current = true;
-      openEdit();
-      router.setParams({ edit: undefined } as any);
-      if (Platform.OS === "web" && typeof window !== "undefined") {
-        const u = new URL(window.location.href);
-        if (u.searchParams.has("edit")) {
-          u.searchParams.delete("edit");
-          window.history.replaceState({}, "", u.toString());
-        }
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const u = new URL(window.location.href);
+      if (u.searchParams.has("edit")) {
+        u.searchParams.delete("edit");
+        window.history.replaceState({}, "", u.toString());
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.edit, user?.user_id]);
+  }, []);
 
   // Live username availability check
   useEffect(() => {
@@ -326,22 +332,26 @@ export default function ProfileScreen() {
 
   const saveEdit = async () => {
     setSaving(true);
+    setSaveError("");
     try {
       const u = editUsername.trim().toLowerCase();
-      if (u && u !== (user?.username || "")) {
+      const usernameChanged = !!u && u !== (user?.username || "");
+      if (usernameChanged) {
         if (!/^[a-z0-9_]{3,20}$/.test(u)) {
           throw new Error("Username must be 3-20 chars, a-z, 0-9, _");
         }
         if (usernameCheck.available === false) {
-          throw new Error("Username taken");
+          throw new Error("That username is taken");
         }
-        await api.setUsername(u);
       }
       // Keep only links that have a real URL; normalize the scheme.
       const links = editLinks
         .map((l) => ({ label: l.label.trim().slice(0, 40), url: normalizeLinkUrl(l.url) }))
         .filter((l) => /^https?:\/\//i.test(l.url))
         .slice(0, 5);
+      // Save the profile fields FIRST, then the username. (Username is a
+      // separate endpoint; doing it last means a username failure can't leave
+      // the rest unsaved, and a retry still re-applies the username.)
       await api.updateMe({
         name: editName, bio: editBio,
         location: editLocation, pronouns: editPronouns, birthday: editBirthday,
@@ -353,9 +363,13 @@ export default function ProfileScreen() {
         avatar_frame: editFrame,
         profile_background: editBg,
       });
+      if (usernameChanged) await api.setUsername(u);
       await refresh();
       setEditOpen(false);
     } catch (e: any) {
+      // Show the error inline — Alert.alert is a no-op on web, so without this
+      // a failed save (e.g. username taken) would look like nothing happened.
+      setSaveError(e?.message || "Couldn't save. Please try again.");
       Alert.alert("Couldn't save", e?.message || String(e));
     } finally { setSaving(false); }
   };
@@ -735,7 +749,32 @@ export default function ProfileScreen() {
           <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 24, maxHeight: "88%" }]}>
             <View style={styles.sheetHandle} />
             <Text style={styles.modalTitle}>Edit profile</Text>
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+            {/* Section tabs — keep the editor short and easy to navigate. */}
+            <View style={styles.editTabs}>
+              {([
+                ["basics", "Basics", "person-outline"],
+                ["look", "Look", "color-palette-outline"],
+                ["about", "About", "information-circle-outline"],
+                ["links", "Links", "link-outline"],
+              ] as const).map(([key, label, icon]) => {
+                const on = editTab === key;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.editTab, on && styles.editTabOn]}
+                    onPress={() => setEditTab(key)}
+                    testID={`edit-tab-${key}`}
+                  >
+                    <Ionicons name={icon as any} size={16} color={on ? theme.primary : theme.textMuted} />
+                    <Text style={[styles.editTabText, on && { color: theme.primary }]} numberOfLines={1}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {editTab === "basics" && (<>
             <Text style={styles.label}>Name</Text>
             <TextInput
               style={styles.input}
@@ -789,7 +828,9 @@ export default function ProfileScreen() {
               testID="edit-headline"
             />
             <Text style={styles.helper}>{editHeadline.length}/60</Text>
+            </>)}
 
+            {editTab === "look" && (<>
             <Text style={styles.label}>Accent color</Text>
             <View style={styles.swatchRow}>
               {ACCENT_COLORS.map((c) => {
@@ -797,20 +838,24 @@ export default function ProfileScreen() {
                 return (
                   <TouchableOpacity
                     key={c}
-                    style={[styles.swatch, { backgroundColor: c }, on && styles.swatchOn]}
+                    style={[styles.swatchWrap, on && styles.swatchWrapOn]}
                     onPress={() => setEditAccent(c)}
                     testID={`accent-${c}`}
                   >
-                    {on ? <Ionicons name="checkmark" size={15} color="#fff" /> : null}
+                    <View style={[styles.swatch, { backgroundColor: c }]}>
+                      {on ? <Ionicons name="checkmark" size={17} color="#fff" style={styles.checkShadow} /> : null}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
               <TouchableOpacity
-                style={[styles.swatch, styles.swatchClear]}
+                style={[styles.swatchWrap, !editAccent && styles.swatchWrapOn]}
                 onPress={() => setEditAccent("")}
                 testID="accent-clear"
               >
-                <Ionicons name="refresh" size={15} color={theme.textMuted} />
+                <View style={[styles.swatch, styles.swatchClear]}>
+                  <Ionicons name="refresh" size={15} color={theme.textMuted} />
+                </View>
               </TouchableOpacity>
             </View>
             <View style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 8 }]}>
@@ -833,21 +878,26 @@ export default function ProfileScreen() {
 
             <Text style={styles.label}>Avatar frame</Text>
             <Text style={styles.helper2}>A decorative ring around your profile picture.</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 2 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
               {AVATAR_FRAMES.map((f) => {
                 const on = editFrame === f.key;
                 const cols = frameColors(f.key);
                 return (
-                  <TouchableOpacity key={f.key} style={{ alignItems: "center", gap: 5 }} onPress={() => setEditFrame(f.key)} testID={`frame-${f.key}`}>
-                    {cols.length >= 2 ? (
-                      <AvatarFrame frame={f.key} size={42} ring={3}>
-                        <View style={styles.framePreviewInner} />
-                      </AvatarFrame>
-                    ) : (
-                      <View style={[styles.framePreviewNone, on && { borderColor: theme.primary }]}>
-                        <Ionicons name="ban-outline" size={18} color={theme.textMuted} />
-                      </View>
-                    )}
+                  <TouchableOpacity key={f.key} style={[styles.pickItem, on && styles.pickItemOn]} onPress={() => setEditFrame(f.key)} testID={`frame-${f.key}`}>
+                    <View>
+                      {cols.length >= 2 ? (
+                        <AvatarFrame frame={f.key} size={42} ring={3}>
+                          <View style={styles.framePreviewInner} />
+                        </AvatarFrame>
+                      ) : (
+                        <View style={styles.framePreviewNone}>
+                          <Ionicons name="ban-outline" size={18} color={theme.textMuted} />
+                        </View>
+                      )}
+                      {on ? (
+                        <View style={styles.checkBadge}><Ionicons name="checkmark" size={12} color="#fff" /></View>
+                      ) : null}
+                    </View>
                     <Text style={[styles.frameLabel, on && { color: theme.primary, fontWeight: "800" }]}>{f.label}</Text>
                   </TouchableOpacity>
                 );
@@ -861,22 +911,27 @@ export default function ProfileScreen() {
                 const on = editBg === b.key;
                 const cols = backgroundColors(b.key);
                 return (
-                  <TouchableOpacity key={b.key} style={styles.bgCellWrap} onPress={() => setEditBg(b.key)} testID={`bg-${b.key}`}>
-                    {cols.length >= 2 ? (
-                      <LinearGradient colors={cols as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.bgCell, on && styles.bgCellOn]}>
-                        {on ? <Ionicons name="checkmark-circle" size={18} color="#fff" /> : null}
-                      </LinearGradient>
-                    ) : (
-                      <View style={[styles.bgCell, { backgroundColor: theme.surfaceAlt }, on && styles.bgCellOn]}>
-                        {on ? <Ionicons name="checkmark-circle" size={18} color={theme.primary} /> : null}
-                      </View>
-                    )}
+                  <TouchableOpacity key={b.key} style={[styles.pickItem, on && styles.pickItemOn]} onPress={() => setEditBg(b.key)} testID={`bg-${b.key}`}>
+                    <View>
+                      {cols.length >= 2 ? (
+                        <LinearGradient colors={cols as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.bgCell} />
+                      ) : (
+                        <View style={[styles.bgCell, { backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center" }]}>
+                          <Ionicons name="square-outline" size={16} color={theme.textMuted} />
+                        </View>
+                      )}
+                      {on ? (
+                        <View style={styles.checkBadge}><Ionicons name="checkmark" size={12} color="#fff" /></View>
+                      ) : null}
+                    </View>
                     <Text style={[styles.frameLabel, on && { color: theme.primary, fontWeight: "800" }]}>{b.label}</Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
+            </>)}
 
+            {editTab === "about" && (<>
             <Text style={styles.label}>Pronouns</Text>
             <TextInput
               style={styles.input}
@@ -902,25 +957,6 @@ export default function ProfileScreen() {
 
             <Text style={styles.label}>Birthday</Text>
             <BirthdayPicker value={editBirthday} onChange={setEditBirthday} testID="edit-birthday" />
-
-            <Text style={styles.label}>Social links</Text>
-            {SOCIAL_PLATFORMS.map((p) => (
-              <View key={p.key} style={styles.socialInputRow}>
-                <Ionicons name={p.icon as any} size={20} color={theme.textSecondary} style={{ width: 24 }} />
-                {!!p.prefix && <Text style={styles.socialPrefix}>{p.prefix}</Text>}
-                <TextInput
-                  style={styles.socialInput}
-                  value={editSocials[p.key] || ""}
-                  onChangeText={(t) => setEditSocials((s) => ({ ...s, [p.key]: t.trim() }))}
-                  placeholder={`${p.label} ${p.prefix ? "handle" : "username or link"}`}
-                  placeholderTextColor={theme.textMuted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  maxLength={120}
-                  testID={`edit-social-${p.key}`}
-                />
-              </View>
-            ))}
 
             <Text style={styles.label}>Interests</Text>
             <Text style={styles.helper2}>Up to 12 tags shown as chips on your profile.</Text>
@@ -952,6 +988,27 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               </View>
             )}
+            </>)}
+
+            {editTab === "links" && (<>
+            <Text style={styles.label}>Social links</Text>
+            {SOCIAL_PLATFORMS.map((p) => (
+              <View key={p.key} style={styles.socialInputRow}>
+                <Ionicons name={p.icon as any} size={20} color={theme.textSecondary} style={{ width: 24 }} />
+                {!!p.prefix && <Text style={styles.socialPrefix}>{p.prefix}</Text>}
+                <TextInput
+                  style={styles.socialInput}
+                  value={editSocials[p.key] || ""}
+                  onChangeText={(t) => setEditSocials((s) => ({ ...s, [p.key]: t.trim() }))}
+                  placeholder={`${p.label} ${p.prefix ? "handle" : "username or link"}`}
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={120}
+                  testID={`edit-social-${p.key}`}
+                />
+              </View>
+            ))}
 
             <Text style={styles.label}>Featured links</Text>
             <Text style={styles.helper2}>Up to 5 links shown on your profile (link-in-bio).</Text>
@@ -991,7 +1048,16 @@ export default function ProfileScreen() {
                 <Text style={styles.addLinkText}>Add link</Text>
               </TouchableOpacity>
             )}
+            </>)}
+            </ScrollView>
 
+            {/* Sticky footer: error + Save stay visible regardless of section. */}
+            {!!saveError && (
+              <View style={styles.saveErrorRow}>
+                <Ionicons name="alert-circle" size={15} color="#EF4444" />
+                <Text style={styles.saveErrorText}>{saveError}</Text>
+              </View>
+            )}
             <TouchableOpacity
               style={[styles.saveBtn, saving && { opacity: 0.6 }]}
               onPress={saveEdit}
@@ -1000,7 +1066,6 @@ export default function ProfileScreen() {
             >
               {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save</Text>}
             </TouchableOpacity>
-            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1204,11 +1269,20 @@ const styles = StyleSheet.create({
   },
   linkLabel: { flex: 1, color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
 
+  editTabs: { flexDirection: "row", gap: 4, backgroundColor: theme.surface, borderRadius: 14, padding: 4, marginBottom: 14, borderWidth: 1, borderColor: theme.border },
+  editTab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 9, borderRadius: 10 },
+  editTabOn: { backgroundColor: theme.surfaceAlt },
+  editTabText: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
+  saveErrorRow: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(239,68,68,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, marginTop: 12 },
+  saveErrorText: { flex: 1, color: "#EF4444", fontSize: 12.5, fontWeight: "600" },
   helper2: { color: theme.textMuted, fontSize: 11.5, marginBottom: 8, marginTop: -2 },
-  swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
-  swatch: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
-  swatchOn: { borderColor: theme.textPrimary },
-  swatchClear: { backgroundColor: theme.surface, borderColor: theme.border },
+  swatchRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
+  // A selected swatch sits inside a highlighted ring so the choice is obvious.
+  swatchWrap: { padding: 3, borderRadius: 22, borderWidth: 2, borderColor: "transparent" },
+  swatchWrapOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  swatch: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  swatchClear: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  checkShadow: { textShadowColor: "rgba(0,0,0,0.55)", textShadowRadius: 3, textShadowOffset: { width: 0, height: 1 } },
   hexPreview: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: theme.border },
   interestEditWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
   interestEditChip: {
@@ -1224,9 +1298,16 @@ const styles = StyleSheet.create({
   addLinkText: { color: theme.primary, fontSize: 14, fontWeight: "700" },
   framePreviewInner: { width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surfaceAlt },
   framePreviewNone: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: theme.border, alignItems: "center", justifyContent: "center", backgroundColor: theme.surface },
-  frameLabel: { color: theme.textMuted, fontSize: 11, fontWeight: "600" },
-  bgGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  bgCellWrap: { alignItems: "center", gap: 5 },
-  bgCell: { width: 66, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
-  bgCellOn: { borderColor: theme.primary },
+  frameLabel: { color: theme.textMuted, fontSize: 11, fontWeight: "600", marginTop: 5 },
+  bgGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  bgCell: { width: 66, height: 44, borderRadius: 10 },
+  // Shared selectable tile (frames + backgrounds): a highlighted ring + filled
+  // check badge make the current selection unmistakable.
+  pickItem: { alignItems: "center", padding: 6, borderRadius: 14, borderWidth: 2, borderColor: "transparent" },
+  pickItemOn: { borderColor: theme.primary, backgroundColor: theme.surfaceAlt },
+  checkBadge: {
+    position: "absolute", top: -4, right: -4,
+    width: 20, height: 20, borderRadius: 10, backgroundColor: theme.primary,
+    alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: theme.surface,
+  },
 });

@@ -10,6 +10,7 @@ import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { GLASS } from "@/src/lib/glass";
+import { requestEditProfile } from "@/src/lib/editProfileIntent";
 import FadeIn from "@/src/components/FadeIn";
 import PressableScale from "@/src/components/PressableScale";
 
@@ -118,7 +119,7 @@ export default function SettingsScreen() {
 
         <Text style={styles.groupTitle}>Account</Text>
         <View style={styles.group}>
-          <Row icon="create-outline" label="Edit profile" color="#00A884" onPress={() => router.push({ pathname: "/(tabs)/profile", params: { edit: "1" } })} />
+          <Row icon="create-outline" label="Edit profile" color="#00A884" onPress={() => { requestEditProfile(); router.push("/(tabs)/profile"); }} />
           <Row icon="shield-checkmark-outline" label="Account & security" color="#22C55E" onPress={() => router.push("/account")} />
           <Row icon="lock-closed-outline" label="Privacy" color="#14B8A6" onPress={() => router.push("/privacy")} />
           <Row icon="notifications-outline" label="Notifications" color="#EF4444" onPress={() => router.push("/notifications")} />

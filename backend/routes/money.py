@@ -197,15 +197,14 @@ async def _require_answer(user_doc: dict, answer: Optional[str]):
     locked = user_doc.get("transfer_answer_locked_until")
     if locked:
         try:
-            if datetime.now(timezone.utc) < _norm_dt(locked):
-                raise HTTPException(status_code=429, detail={
-                    "code": "too_many_attempts",
-                    "message": "Too many incorrect answers. Try again later.",
-                })
-        except HTTPException:
-            raise
+            locked_dt = _norm_dt(locked)
         except Exception:
-            pass
+            locked_dt = None  # unparseable lock → fail closed (treat as locked)
+        if locked_dt is None or datetime.now(timezone.utc) < locked_dt:
+            raise HTTPException(status_code=429, detail={
+                "code": "too_many_attempts",
+                "message": "Too many incorrect answers. Try again later.",
+            })
     if not _verify(_norm(answer), h):
         await db.users.update_one({"user_id": uid}, {"$inc": {"transfer_answer_fails": 1}})
         fresh = await db.users.find_one({"user_id": uid}, {"_id": 0, "transfer_answer_fails": 1})
@@ -413,16 +412,16 @@ async def accept_transfer(tid: str, authorization: Optional[str] = Header(None))
     claimable = t.get("claimable_at")
     if claimable:
         try:
-            mins = (_norm_dt(claimable) - datetime.now(timezone.utc)).total_seconds() / 60.0
-            if mins > 0:
-                raise HTTPException(status_code=409, detail={
-                    "code": "not_yet_claimable",
-                    "message": f"Available to accept in about {max(1, round(mins))} min — the sender can still reverse it until then.",
-                })
-        except HTTPException:
-            raise
+            claim_dt = _norm_dt(claimable)
         except Exception:
-            pass
+            claim_dt = None  # unparseable → fail closed (treat as still locked)
+        now = datetime.now(timezone.utc)
+        if claim_dt is None or now < claim_dt:
+            mins = (claim_dt - now).total_seconds() / 60.0 if claim_dt else 1
+            raise HTTPException(status_code=409, detail={
+                "code": "not_yet_claimable",
+                "message": f"Available to accept in about {max(1, round(mins))} min — the sender can still reverse it until then.",
+            })
     amount = round(float(t.get("amount", 0) or 0), 2)
     sender = await db.users.find_one({"user_id": t["from_user_id"]}, {"_id": 0, "user_id": 1, "name": 1}) \
         or {"user_id": t["from_user_id"], "name": t.get("from_name", "Someone")}

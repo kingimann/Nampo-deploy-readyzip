@@ -105,6 +105,11 @@ async def transcribe_audio(audio_base64: str) -> Optional[str]:
     prov = active_provider()
     if not prov or not audio_base64:
         return None
+    # Reject oversized payloads BEFORE decoding — base64 is ~4/3 the raw size,
+    # so a 25 MB cap on decoded audio is ~34 MB of string; decoding first would
+    # buffer tens of MB into memory just to throw it away.
+    if len(audio_base64) > 35 * 1024 * 1024:
+        return None
     try:
         raw, mime, ext = _decode(audio_base64)
     except Exception:

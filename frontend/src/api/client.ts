@@ -8,6 +8,9 @@ import { storage } from "@/src/utils/storage";
 //   calls the API cross-origin. The backend allows CORS, so this just works.
 const BASE_URL: string = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
 export const SESSION_TOKEN_KEY = "session_token";
+// The device's current Expo push token, persisted so logout can unregister it
+// with the backend while the session is still valid.
+export const PUSH_TOKEN_KEY = "push_token";
 
 async function getToken(): Promise<string | null> {
   return (await storage.secureGet<string>(SESSION_TOKEN_KEY, "")) || null;
