@@ -4,8 +4,8 @@ import {
   Image, Alert, SectionList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, Group } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";

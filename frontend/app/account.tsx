@@ -4,8 +4,8 @@ import {
   ActivityIndicator, Platform, Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { Stack, useRouter, useFocusEffect } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { useAuth } from "@/src/context/AuthContext";
 import { api } from "@/src/api/client";

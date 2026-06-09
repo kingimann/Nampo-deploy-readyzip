@@ -4,11 +4,11 @@ import {
   Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl, Linking, Animated,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { LinearGradient } from "@/src/platform/linear-gradient";
-import * as ImagePicker from "@/src/platform/image-picker";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import * as ImagePicker from "expo-image-picker";
 import { assetToUri } from "@/src/utils/thumbnail";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "@/src/platform/navigation";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";

@@ -4,8 +4,8 @@ import {
   ActivityIndicator, Linking, Platform, Modal, TextInput, Share, Dimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, FsqProfile, Review, Place, buildPlaceKey } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";

@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image, Linking } from "react-native";
-import { Ionicons } from "@/src/platform/icons";
+import { Ionicons } from "@expo/vector-icons";
 import { LinkPreview } from "@/src/api/client";
 import { theme } from "@/src/theme";
 

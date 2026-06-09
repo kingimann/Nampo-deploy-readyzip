@@ -4,8 +4,8 @@ import {
   ActivityIndicator, Image, FlatList, Pressable, Platform, Alert,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { Stack, useFocusEffect, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, MoneyRequest, PublicUser, WalletBalance } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";

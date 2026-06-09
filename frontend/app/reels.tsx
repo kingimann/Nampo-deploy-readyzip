@@ -5,9 +5,9 @@ import {
   Modal, KeyboardAvoidingView, TextInput, ScrollView,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import * as Location from "@/src/platform/location";
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, Post, PublicUser, TaggedUser, mediaUri } from "@/src/api/client";
 import { pickThumbnailUri } from "@/src/utils/thumbnail";

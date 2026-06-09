@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { Ionicons } from "@/src/platform/icons";
-import { useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { Linking, Image } from "react-native";
 import { api, Post, LinkAdServe } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";

@@ -1,4 +1,4 @@
-import { router } from "@/src/platform/navigation";
+import { router } from "expo-router";
 
 /**
  * Go back when there's somewhere to go back to; otherwise navigate to a sensible
