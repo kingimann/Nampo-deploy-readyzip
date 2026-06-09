@@ -60,15 +60,17 @@ export default function MyMarketplaceScreen() {
   const loadSaved = useCallback(async () => {
     try { setSaved(await api.listSavedListings()); } catch { setSaved([]); }
   }, []);
-  const loadReviews = useCallback(async () => {
-    if (!user?.user_id) return;
-    try { setReviews(await api.listSellerReviews(user.user_id)); } catch { setReviews([]); }
+  const loadReviews = useCallback(async (asBusiness?: boolean, businessId?: string) => {
+    try {
+      if (asBusiness && businessId) setReviews(await api.listBusinessReviews(businessId));
+      else if (user?.user_id) setReviews(await api.listSellerReviews(user.user_id));
+    } catch { setReviews([]); }
   }, [user?.user_id]);
 
   const switchTab = (t: Tab) => {
     setTab(t);
     if (t === "saved" && saved == null) loadSaved();
-    if (t === "reviews" && reviews == null) loadReviews();
+    if (t === "reviews" && reviews == null) loadReviews(acting === "business", biz?.id);
   };
 
   const photoOf = (l: Listing) => (l.photos?.length ? l.photos[0] : l.photo_base64) || null;
@@ -110,7 +112,7 @@ export default function MyMarketplaceScreen() {
       <View style={styles.switcher}>
         <TouchableOpacity
           style={[styles.switchChip, !onBusiness && styles.switchChipOn]}
-          onPress={() => { setActing("personal"); setTab("listings"); }}
+          onPress={() => { setActing("personal"); setTab("listings"); setReviews(null); }}
           testID="mm-act-personal"
         >
           {user?.picture ? <Image source={{ uri: user.picture }} style={styles.switchChipImg} /> : <Ionicons name="person-circle-outline" size={18} color={!onBusiness ? theme.primary : theme.textMuted} />}
@@ -119,7 +121,7 @@ export default function MyMarketplaceScreen() {
         {biz ? (
           <TouchableOpacity
             style={[styles.switchChip, onBusiness && styles.switchChipOn]}
-            onPress={() => { setActing("business"); setTab("listings"); }}
+            onPress={() => { setActing("business"); setTab("listings"); setReviews(null); }}
             testID="mm-act-business"
           >
             {biz.logo ? <Image source={{ uri: biz.logo }} style={styles.switchChipImg} /> : <Ionicons name="business" size={16} color={onBusiness ? theme.primary : theme.textMuted} />}
@@ -247,7 +249,7 @@ export default function MyMarketplaceScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); load(); if (tab === "saved") loadSaved(); if (tab === "reviews") loadReviews(); }}
+              onRefresh={() => { setRefreshing(true); load(); if (tab === "saved") loadSaved(); if (tab === "reviews") loadReviews(acting === "business", biz?.id); }}
               tintColor={theme.primary}
             />
           }

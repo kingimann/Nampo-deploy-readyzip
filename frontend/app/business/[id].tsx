@@ -1,16 +1,25 @@
 import React, { useCallback, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Linking,
+  Modal, TextInput, Platform,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, BusinessProfile } from "@/src/api/client";
+import { api, BusinessProfile, MarketplaceReview } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { resolveAccent, accentGradient } from "@/src/lib/profileCustomize";
 import { AvatarFrame } from "@/src/components/ProfileDecor";
 import { LinearGradient } from "expo-linear-gradient";
+
+const REVIEW_CATEGORIES = [
+  { key: "communication", label: "Communication" },
+  { key: "as_described", label: "Item as described" },
+  { key: "shipping", label: "Handoff / shipping" },
+  { key: "friendliness", label: "Friendliness" },
+];
+const DEFAULT_RATINGS: Record<string, number> = { communication: 5, as_described: 5, shipping: 5, friendliness: 5 };
 
 function Stars({ value, size = 14 }: { value: number; size?: number }) {
   return (
@@ -27,18 +36,41 @@ export default function BusinessStorefrontScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [biz, setBiz] = useState<BusinessProfile | null>(null);
+  const [reviews, setReviews] = useState<MarketplaceReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+  const [writeOpen, setWriteOpen] = useState(false);
+  const [draftRatings, setDraftRatings] = useState<Record<string, number>>({ ...DEFAULT_RATINGS });
+  const [draftText, setDraftText] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const b = await api.getBusiness(String(id));
-      setBiz(b); setMissing(false);
+      const [b, r] = await Promise.all([
+        api.getBusiness(String(id)),
+        api.listBusinessReviews(String(id)).catch(() => []),
+      ]);
+      setBiz(b); setReviews(r); setMissing(false);
     } catch { setMissing(true); }
     finally { setLoading(false); }
   }, [id]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const openReview = () => {
+    setDraftRatings({ ...DEFAULT_RATINGS }); setDraftText("");
+    setWriteOpen(true);
+  };
+
+  const submitReview = async () => {
+    if (!id || saving) return;
+    setSaving(true);
+    try {
+      await api.addBusinessReview(String(id), draftRatings, draftText.trim());
+      setWriteOpen(false);
+      await load();
+    } catch {} finally { setSaving(false); }
+  };
 
   const accent = resolveAccent(biz?.accent);
 
@@ -156,8 +188,78 @@ export default function BusinessStorefrontScreen() {
               ))}
             </View>
           )}
+
+          <View style={styles.reviewsHead}>
+            <Text style={styles.sectionTitle}>Reviews</Text>
+            {(biz.can_review || biz.reviewed_by_me) && (
+              <TouchableOpacity style={styles.writeBtn} onPress={openReview} testID="business-write-review">
+                <Ionicons name="star-outline" size={15} color={theme.primary} />
+                <Text style={styles.writeBtnText}>{biz.reviewed_by_me ? "Edit review" : "Write a review"}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {reviews.length === 0 ? (
+            <Text style={styles.emptyText}>No reviews yet. Reviews come from buyers with a verified trade with this business.</Text>
+          ) : (
+            <View style={{ gap: 12, paddingHorizontal: 16 }}>
+              {reviews.map((r) => (
+                <View key={r.id} style={styles.reviewCard}>
+                  <View style={styles.reviewHead}>
+                    <View style={styles.reviewAvatar}>
+                      {r.reviewer.picture ? (
+                        <Image source={{ uri: r.reviewer.picture }} style={{ width: "100%", height: "100%" }} />
+                      ) : (
+                        <Text style={styles.reviewInit}>{(r.reviewer.name?.[0] || "?").toUpperCase()}</Text>
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.reviewName}>{r.reviewer.name}</Text>
+                      <Stars value={r.rating} />
+                    </View>
+                    {r.verified && <Ionicons name="shield-checkmark" size={14} color="#22C55E" />}
+                  </View>
+                  {!!r.text && <Text style={styles.reviewText}>{r.text}</Text>}
+                </View>
+              ))}
+            </View>
+          )}
         </ScrollView>
       )}
+
+      <Modal visible={writeOpen} transparent animationType="slide" onRequestClose={() => setWriteOpen(false)}>
+        <View style={styles.backdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !saving && setWriteOpen(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Rate this business</Text>
+            {REVIEW_CATEGORIES.map((c) => (
+              <View key={c.key} style={styles.catRow}>
+                <Text style={styles.catLabel}>{c.label}</Text>
+                <View style={styles.catStars}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <TouchableOpacity key={i} onPress={() => setDraftRatings((r) => ({ ...r, [c.key]: i }))} testID={`biz-star-${c.key}-${i}`}>
+                      <Ionicons name={(draftRatings[c.key] || 0) >= i ? "star" : "star-outline"} size={26} color="#F6C455" />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))}
+            <TextInput
+              style={styles.reviewInput}
+              placeholder="Share your experience (optional)"
+              placeholderTextColor={theme.textMuted}
+              value={draftText}
+              onChangeText={setDraftText}
+              multiline
+              maxLength={1000}
+              testID="biz-review-text"
+            />
+            <TouchableOpacity style={[styles.submitBtn, saving && { opacity: 0.6 }]} onPress={submitReview} disabled={saving} testID="biz-review-submit">
+              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Submit review</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -201,4 +303,23 @@ const styles = StyleSheet.create({
   tileImgPlaceholder: { alignItems: "center", justifyContent: "center" },
   tilePrice: { color: theme.textPrimary, fontSize: 15, fontWeight: "800", paddingHorizontal: 10, paddingTop: 8 },
   tileTitle: { color: theme.textSecondary, fontSize: 12.5, paddingHorizontal: 10, paddingBottom: 10, paddingTop: 1 },
+  reviewsHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 16 },
+  writeBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, marginTop: 16 },
+  writeBtnText: { color: theme.primary, fontSize: 12.5, fontWeight: "800" },
+  reviewCard: { backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 8 },
+  reviewHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  reviewAvatar: { width: 38, height: 38, borderRadius: 19, overflow: "hidden", backgroundColor: theme.primary, alignItems: "center", justifyContent: "center" },
+  reviewInit: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  reviewName: { color: theme.textPrimary, fontSize: 14, fontWeight: "800", marginBottom: 2 },
+  reviewText: { color: theme.textSecondary, fontSize: 14, lineHeight: 20 },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: theme.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingTop: 12, paddingHorizontal: 18, borderTopWidth: 1, borderColor: theme.border },
+  sheetHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.borderStrong, marginBottom: 14 },
+  sheetTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800", textAlign: "center", marginBottom: 14 },
+  catRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  catLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "600", flex: 1 },
+  catStars: { flexDirection: "row", gap: 4 },
+  reviewInput: { backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 12, minHeight: 90, textAlignVertical: "top", color: theme.textPrimary, fontSize: 14, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
+  submitBtn: { marginTop: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center" },
+  submitText: { color: "#fff", fontWeight: "800", fontSize: 15 },
 });

@@ -932,6 +932,12 @@ export const api = {
     request<BusinessProfile>("/marketplace/business", { method: "PUT", body: JSON.stringify(body) }),
   deleteBusiness: () =>
     request<{ ok: boolean }>("/marketplace/business", { method: "DELETE" }),
+  listBusinessReviews: (businessId: string) =>
+    request<MarketplaceReview[]>(`/marketplace/business/${businessId}/reviews`),
+  addBusinessReview: (businessId: string, ratings: Record<string, number>, text: string) =>
+    request<MarketplaceReview>(`/marketplace/business/${businessId}/reviews`, {
+      method: "POST", body: JSON.stringify({ ratings, text }),
+    }),
   listSellerReviews: (userId: string) =>
     request<MarketplaceReview[]>(`/marketplace/users/${userId}/reviews`),
   addSellerReview: (userId: string, ratings: Record<string, number>, text: string) =>
@@ -1091,7 +1097,8 @@ export type BusinessProfile = {
   category?: string | null; policies?: string | null; location?: string | null;
   contact_email?: string | null; contact_phone?: string | null; website?: string | null;
   listing_count?: number; rating?: number; review_count?: number;
-  is_owner?: boolean; listings?: Listing[]; created_at: string;
+  is_owner?: boolean; reviewed_by_me?: boolean; can_review?: boolean;
+  listings?: Listing[]; created_at: string;
 };
 export type BusinessProfilePatch = {
   name?: string; tagline?: string; bio?: string;
@@ -1100,7 +1107,7 @@ export type BusinessProfilePatch = {
   contact_email?: string; contact_phone?: string; website?: string;
 };
 export type MarketplaceReview = {
-  id: string; subject_user_id: string;
+  id: string; subject_user_id?: string | null; subject_business_id?: string | null;
   reviewer: PostAuthor;
   rating: number; ratings?: Record<string, number>; verified?: boolean; role?: "seller" | "buyer"; text?: string | null; created_at: string;
 };

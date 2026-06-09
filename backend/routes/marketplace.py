@@ -39,6 +39,28 @@ async def _has_verified_trade(a: str, b: str) -> bool:
     return bool(doc)
 
 
+async def _has_verified_personal_trade(a: str, b: str) -> bool:
+    """A confirmed trade between a and b on a PERSONAL listing (no business).
+    Personal reviews are earned only from personal trades — business trades earn
+    business reviews instead, keeping the two reputations completely separate."""
+    doc = await db.marketplace_trades.find_one(
+        {"status": "confirmed", "party_ids": {"$all": [a, b]},
+         "$or": [{"business_id": None}, {"business_id": {"$exists": False}}]},
+        {"_id": 0, "id": 1},
+    )
+    return bool(doc)
+
+
+async def _has_verified_business_trade(reviewer_id: str, business_id: str) -> bool:
+    """True if the reviewer has a confirmed trade made WITH this business
+    (a listing that was attributed to the business at the time of the trade)."""
+    doc = await db.marketplace_trades.find_one(
+        {"status": "confirmed", "business_id": business_id, "party_ids": reviewer_id},
+        {"_id": 0, "id": 1},
+    )
+    return bool(doc)
+
+
 async def _subject_trade_role(reviewer_id: str, subject_id: str) -> str:
     """In the verified trade between these two, was `subject_id` acting as the
     'seller' (the listing's owner) or the 'buyer'? Defaults to 'seller'."""
@@ -565,9 +587,14 @@ async def _hydrate_review(doc: dict) -> MarketplaceReview:
         name=author_doc.get("name", "Unknown") if author_doc else "Unknown",
         picture=author_doc.get("picture") if author_doc else None,
     )
-    verified = await _has_verified_trade(doc["reviewer_id"], doc["subject_user_id"])
+    biz_id = doc.get("subject_business_id")
+    if biz_id:
+        verified = await _has_verified_business_trade(doc["reviewer_id"], biz_id)
+    else:
+        verified = await _has_verified_trade(doc["reviewer_id"], doc.get("subject_user_id"))
     return MarketplaceReview(
-        id=doc["id"], subject_user_id=doc["subject_user_id"], reviewer=reviewer,
+        id=doc["id"], subject_user_id=doc.get("subject_user_id"),
+        subject_business_id=biz_id, reviewer=reviewer,
         rating=doc.get("rating", 5), ratings=doc.get("ratings") or {},
         verified=verified, role=doc.get("role", "seller"),
         text=doc.get("text", ""), created_at=doc["created_at"],
@@ -610,7 +637,7 @@ async def seller_profile(user_id: str, authorization: Optional[str] = Header(Non
     reviewed_by_me = bool(await db.marketplace_reviews.find_one(
         {"subject_user_id": user_id, "reviewer_id": me["user_id"]}, {"_id": 0, "id": 1}
     ))
-    can_review = me["user_id"] != user_id and await _has_verified_trade(me["user_id"], user_id)
+    can_review = me["user_id"] != user_id and await _has_verified_personal_trade(me["user_id"], user_id)
     return SellerProfile(
         user=pu, rating=rating, review_count=count, category_ratings=category_ratings,
         seller_rating=seller_rating, seller_review_count=seller_review_count,
@@ -665,15 +692,15 @@ def _clean_biz_patch(body: BusinessProfilePatch) -> dict:
     return out
 
 
-async def _business_rating(owner_id: str) -> Tuple[float, int]:
-    """The storefront's reputation mirrors the owner's seller-side reviews."""
+async def _business_rating(business_id: str) -> Tuple[float, int]:
+    """The storefront's reputation from its OWN reviews — completely separate
+    from the owner's personal seller/buyer reviews."""
     rows = await db.marketplace_reviews.find(
-        {"subject_user_id": owner_id}, {"_id": 0, "rating": 1, "role": 1}
+        {"subject_business_id": business_id}, {"_id": 0, "rating": 1}
     ).to_list(2000)
-    seller_rows = [r for r in rows if r.get("role", "seller") == "seller"]
-    if not seller_rows:
+    if not rows:
         return 0.0, 0
-    return round(sum(r.get("rating", 0) for r in seller_rows) / len(seller_rows), 1), len(seller_rows)
+    return round(sum(r.get("rating", 0) for r in rows) / len(rows), 1), len(rows)
 
 
 async def _hydrate_business(
@@ -693,7 +720,10 @@ async def _hydrate_business(
     listing_count = await db.listings.count_documents(
         {"business_id": doc["id"], "status": {"$ne": "sold"}}
     )
-    rating, review_count = await _business_rating(doc["owner_id"])
+    rating, review_count = await _business_rating(doc["id"])
+    reviewed_by_me = bool(await db.marketplace_reviews.find_one(
+        {"subject_business_id": doc["id"], "reviewer_id": viewer_id}, {"_id": 0, "id": 1}))
+    can_review = (viewer_id != doc["owner_id"]) and await _has_verified_business_trade(viewer_id, doc["id"])
     listings: List[Listing] = []
     if with_listings:
         ldocs = await db.listings.find(
@@ -711,6 +741,7 @@ async def _hydrate_business(
         website=doc.get("website"),
         listing_count=listing_count, rating=rating, review_count=review_count,
         is_owner=(viewer_id == doc["owner_id"]),
+        reviewed_by_me=reviewed_by_me, can_review=can_review,
         listings=listings, created_at=doc["created_at"],
     )
 
@@ -793,6 +824,58 @@ async def get_business(business_id: str, authorization: Optional[str] = Header(N
     return await _hydrate_business(doc, me["user_id"], with_listings=True, saved_ids=saved_ids)
 
 
+@router.get("/marketplace/business/{business_id}/reviews", response_model=List[MarketplaceReview])
+async def list_business_reviews(business_id: str, authorization: Optional[str] = Header(None)):
+    """A business storefront's own reviews — separate from the owner's personal reviews."""
+    await get_current_user(authorization)
+    docs = await db.marketplace_reviews.find(
+        {"subject_business_id": business_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return [await _hydrate_review(d) for d in docs]
+
+
+@router.post("/marketplace/business/{business_id}/reviews", response_model=MarketplaceReview)
+async def add_business_review(
+    business_id: str, body: MarketplaceReviewCreate, authorization: Optional[str] = Header(None)
+):
+    me = await get_current_user(authorization)
+    biz = await db.business_profiles.find_one({"id": business_id}, {"_id": 0, "id": 1, "owner_id": 1})
+    if not biz:
+        raise HTTPException(status_code=404, detail="Business not found")
+    if biz["owner_id"] == me["user_id"]:
+        raise HTTPException(status_code=400, detail="You can't review your own business")
+    if not await _has_verified_business_trade(me["user_id"], business_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only review a business after a verified trade with it. Exchange a trade code first.",
+        )
+    cats = _clean_category_ratings(body.ratings)
+    if cats:
+        rating = max(1, min(5, round(sum(cats.values()) / len(cats))))
+    else:
+        rating = max(1, min(5, int(body.rating or 5)))
+    text = (body.text or "")[:1000]
+    now = datetime.now(timezone.utc)
+    existing = await db.marketplace_reviews.find_one(
+        {"subject_business_id": business_id, "reviewer_id": me["user_id"]}, {"_id": 0}
+    )
+    if existing:
+        await db.marketplace_reviews.update_one(
+            {"id": existing["id"]},
+            {"$set": {"rating": rating, "ratings": cats, "text": text, "role": "seller", "created_at": now}},
+        )
+        rid = existing["id"]
+    else:
+        rid = str(uuid.uuid4())
+        await db.marketplace_reviews.insert_one({
+            "id": rid, "subject_business_id": business_id, "subject_user_id": None,
+            "reviewer_id": me["user_id"], "rating": rating, "ratings": cats,
+            "text": text, "role": "seller", "created_at": now,
+        })
+    doc = await db.marketplace_reviews.find_one({"id": rid}, {"_id": 0})
+    return await _hydrate_review(doc)
+
+
 # ---------- Trade verification (shared code) ----------
 @router.post("/listings/{listing_id}/trade/start")
 async def start_trade(listing_id: str, authorization: Optional[str] = Header(None)):
@@ -862,10 +945,15 @@ async def confirm_trade(body: TradeConfirm, authorization: Optional[str] = Heade
                 "code": "already_sold",
                 "message": "This listing has already been verified as sold.",
             })
+    # Capture whether this trade was with a business storefront, so reviews go to
+    # the right (separate) reputation: business trades → business reviews.
+    lst = await db.listings.find_one({"id": listing_id}, {"_id": 0, "business_id": 1}) if listing_id else None
+    trade_business_id = (lst or {}).get("business_id")
     # Claim this trade (single-winner) so the same code can't confirm twice.
     claimed = await db.marketplace_trades.update_one(
         {"id": trade["id"], "status": "pending"},
-        {"$set": {"party_ids": parties, "status": "confirmed", "buyer_id": me["user_id"], "confirmed_at": now}},
+        {"$set": {"party_ids": parties, "status": "confirmed", "buyer_id": me["user_id"],
+                  "business_id": trade_business_id, "confirmed_at": now}},
     )
     if getattr(claimed, "matched_count", 0) != 1:
         raise HTTPException(status_code=400, detail="This code has already been used")
@@ -884,10 +972,10 @@ async def add_seller_review(
     subj = await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1})
     if not subj:
         raise HTTPException(status_code=404, detail="User not found")
-    if not await _has_verified_trade(me["user_id"], user_id):
+    if not await _has_verified_personal_trade(me["user_id"], user_id):
         raise HTTPException(
             status_code=403,
-            detail="You can only review someone after a verified trade. Exchange a trade code first.",
+            detail="You can only review someone after a verified personal trade. Exchange a trade code first.",
         )
     # Granular per-category stars; the overall rating is their average.
     cats = _clean_category_ratings(body.ratings)

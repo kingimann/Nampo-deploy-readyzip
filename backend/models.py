@@ -599,7 +599,8 @@ class MarketplaceReviewCreate(BaseModel):
 
 class MarketplaceReview(BaseModel):
     id: str
-    subject_user_id: str
+    subject_user_id: Optional[str] = None       # personal seller/buyer review
+    subject_business_id: Optional[str] = None   # business storefront review (separate)
     reviewer: "PostAuthor"
     rating: int
     ratings: dict = {}               # granular per-category stars
@@ -670,9 +671,11 @@ class BusinessProfile(BaseModel):
     contact_phone: Optional[str] = None
     website: Optional[str] = None
     listing_count: int = 0
-    rating: float = 0.0
+    rating: float = 0.0                     # from the business's OWN reviews (separate from the owner)
     review_count: int = 0
     is_owner: bool = False                 # viewer owns this storefront
+    reviewed_by_me: bool = False           # viewer already reviewed this business
+    can_review: bool = False               # viewer has a verified trade with this business
     listings: List["Listing"] = []
     created_at: datetime
 
