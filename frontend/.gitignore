@@ -37,3 +37,6 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# Lockfile is not tracked in this repo (Render installs fresh).
+yarn.lock
