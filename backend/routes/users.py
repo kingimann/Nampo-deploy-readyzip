@@ -736,9 +736,28 @@ async def poke_user(user_id: str, authorization: Optional[str] = Header(None)):
 
 # ───────── Followers / Following lists ─────────
 
+async def _can_see_connections(me_id: str, target_id: str) -> bool:
+    """Whether `me_id` may see `target_id`'s followers/following, per the
+    target's connections_visibility setting (everyone | followers | nobody)."""
+    if me_id == target_id:
+        return True
+    target = await db.users.find_one({"user_id": target_id}, {"_id": 0, "connections_visibility": 1})
+    vis = (target or {}).get("connections_visibility") or "everyone"
+    if vis == "everyone":
+        return True
+    if vis == "nobody":
+        return False
+    # "followers": only people who follow the target may see their connections.
+    return bool(await db.follows.find_one(
+        {"follower_id": me_id, "followee_id": target_id}, {"_id": 0, "follower_id": 1}
+    ))
+
+
 @router.get("/users/{user_id}/followers", response_model=List[PublicUser])
 async def list_followers(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
+    if not await _can_see_connections(me["user_id"], user_id):
+        return []
     rows = await db.follows.find({"followee_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     return [await _public_user(r["follower_id"], me["user_id"]) for r in rows]
 
@@ -746,6 +765,8 @@ async def list_followers(user_id: str, authorization: Optional[str] = Header(Non
 @router.get("/users/{user_id}/following", response_model=List[PublicUser])
 async def list_following(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
+    if not await _can_see_connections(me["user_id"], user_id):
+        return []
     rows = await db.follows.find({"follower_id": user_id}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
     return [await _public_user(r["followee_id"], me["user_id"]) for r in rows]
 

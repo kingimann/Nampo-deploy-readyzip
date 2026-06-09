@@ -41,6 +41,9 @@ export default function PrivacyScreen() {
   const [msgPolicy, setMsgPolicy] = useState<string>(user?.message_policy || "everyone");
   const [searchable, setSearchable] = useState<boolean>(user?.searchable !== false);
   const [hideOnline, setHideOnline] = useState<boolean>(!!user?.hide_online);
+  const [connVis, setConnVis] = useState<string>(user?.connections_visibility || "everyone");
+  const [hideLikes, setHideLikes] = useState<boolean>(!!user?.hide_likes);
+  const [tagPolicy, setTagPolicy] = useState<string>(user?.tag_policy || "everyone");
 
   React.useEffect(() => {
     storage.getItem(HIDE_STORIES_KEY, false).then((h) => setShowStories(!h));
@@ -69,6 +72,9 @@ export default function PrivacyScreen() {
   const toggleSearchable = () => { const n = !searchable; setSearchable(n); patchMe({ searchable: n }); };
   const toggleHideOnline = () => { const n = !hideOnline; setHideOnline(n); patchMe({ hide_online: n }); };
   const pickMsgPolicy = (k: string) => { setMsgPolicy(k); patchMe({ message_policy: k }); };
+  const pickConnVis = (k: string) => { setConnVis(k); patchMe({ connections_visibility: k }); };
+  const toggleHideLikes = () => { const n = !hideLikes; setHideLikes(n); patchMe({ hide_likes: n }); };
+  const pickTagPolicy = (k: string) => { setTagPolicy(k); patchMe({ tag_policy: k }); };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="privacy-screen">
@@ -139,6 +145,58 @@ export default function PrivacyScreen() {
             </View>
             <View style={[styles.switch, hideOnline && styles.switchOn]}>
               <View style={[styles.knob, hideOnline && styles.knobOn]} />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.section}>Who can see your followers & following</Text>
+        <View style={styles.card}>
+          {MSG_POLICIES.map((p, i) => {
+            const on = connVis === p.k;
+            return (
+              <TouchableOpacity
+                key={p.k}
+                style={[styles.optRow, i < MSG_POLICIES.length - 1 && styles.optDivider]}
+                onPress={() => pickConnVis(p.k)}
+                testID={`privacy-conn-${p.k}`}
+              >
+                <Ionicons name={p.icon as any} size={18} color={on ? theme.primary : theme.textMuted} />
+                <Text style={[styles.optLabel, on && { color: theme.primary }]}>{p.label}</Text>
+                <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.section}>Who can tag you in a post</Text>
+        <View style={styles.card}>
+          {MSG_POLICIES.map((p, i) => {
+            const on = tagPolicy === p.k;
+            return (
+              <TouchableOpacity
+                key={p.k}
+                style={[styles.optRow, i < MSG_POLICIES.length - 1 && styles.optDivider]}
+                onPress={() => pickTagPolicy(p.k)}
+                testID={`privacy-tag-${p.k}`}
+              >
+                <Ionicons name={p.icon as any} size={18} color={on ? theme.primary : theme.textMuted} />
+                <Text style={[styles.optLabel, on && { color: theme.primary }]}>{p.label}</Text>
+                <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.section}>Likes activity</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.optRow} onPress={toggleHideLikes} testID="privacy-hide-likes">
+            <Ionicons name="heart-dislike-outline" size={18} color={theme.textMuted} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>Hide my likes</Text>
+              <Text style={styles.optSub}>Stop others from seeing the list of posts you've liked.</Text>
+            </View>
+            <View style={[styles.switch, hideLikes && styles.switchOn]}>
+              <View style={[styles.knob, hideLikes && styles.knobOn]} />
             </View>
           </TouchableOpacity>
         </View>

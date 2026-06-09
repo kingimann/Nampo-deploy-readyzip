@@ -51,6 +51,9 @@ class User(BaseModel):
     is_private: bool = False             # only followers can see your profile posts
     searchable: bool = True              # appear in user search
     hide_online: bool = False            # hide your online / last-seen status from others
+    connections_visibility: str = "everyone"  # who can see your followers/following: everyone | followers | nobody
+    hide_likes: bool = False             # hide the list of posts you've liked from others
+    tag_policy: str = "everyone"         # who can tag/mention you in a post: everyone | followers | nobody
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
     created_at: datetime
 
@@ -123,6 +126,9 @@ class ProfilePatch(BaseModel):
     is_private: Optional[bool] = None
     searchable: Optional[bool] = None
     hide_online: Optional[bool] = None
+    connections_visibility: Optional[str] = None  # everyone | followers | nobody
+    hide_likes: Optional[bool] = None             # hide your liked-posts list from others
+    tag_policy: Optional[str] = None              # who can tag you: everyone | followers | nobody
     currency: Optional[str] = None   # preferred display currency (USD, EUR, ...)
     sms_notifications: Optional[bool] = None  # mirror notifications to SMS (needs verified phone)
 

@@ -1086,6 +1086,9 @@ export type ProfilePatch = {
   payout_threshold?: number;
   default_comment_policy?: string;
   message_policy?: string;
+  connections_visibility?: string;
+  hide_likes?: boolean;
+  tag_policy?: string;
   default_likes_disabled?: boolean;
   is_private?: boolean;
   searchable?: boolean;

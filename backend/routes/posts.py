@@ -261,15 +261,29 @@ async def _hydrate_tagged(ids: Optional[list]) -> List[TaggedUser]:
 
 
 async def _clean_tag_ids(ids: Optional[list], exclude: Optional[str] = None) -> list:
-    """Dedupe, drop self/unknown ids, and cap how many people can be tagged."""
+    """Dedupe, drop self/unknown ids, honor each taggee's tag_policy
+    (everyone | followers | nobody), and cap how many people can be tagged.
+    `exclude` is the author — used both to skip self and as the actor for the
+    "followers" policy check."""
     out: list = []
     seen: set = set()
     for uid in (ids or []):
         if not isinstance(uid, str) or uid in seen or uid == exclude:
             continue
-        if await db.users.find_one({"user_id": uid}, {"_id": 0, "user_id": 1}):
-            seen.add(uid)
-            out.append(uid)
+        u = await db.users.find_one({"user_id": uid}, {"_id": 0, "user_id": 1, "tag_policy": 1})
+        if not u:
+            continue
+        policy = u.get("tag_policy") or "everyone"
+        if policy == "nobody":
+            continue
+        if policy == "followers" and exclude:
+            # Only allow the tag if the author follows this person.
+            if not await db.follows.find_one(
+                {"follower_id": exclude, "followee_id": uid}, {"_id": 0, "follower_id": 1}
+            ):
+                continue
+        seen.add(uid)
+        out.append(uid)
         if len(out) >= 20:
             break
     return out
@@ -892,6 +906,11 @@ async def user_likes(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     if not await _user_posts_visible(me, user_id):
         return []
+    # Respect the "hide my likes" privacy setting — only the owner sees the list.
+    if me["user_id"] != user_id:
+        owner = await db.users.find_one({"user_id": user_id}, {"_id": 0, "hide_likes": 1})
+        if (owner or {}).get("hide_likes"):
+            return []
     rows = await db.post_reactions.find(
         {"user_id": user_id, "emoji": "👍"}, {"_id": 0, "post_id": 1, "created_at": 1}
     ).sort("created_at", -1).limit(100).to_list(100)

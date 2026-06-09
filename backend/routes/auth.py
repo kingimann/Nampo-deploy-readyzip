@@ -231,6 +231,12 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
         patch["searchable"] = bool(body.searchable)
     if body.hide_online is not None:
         patch["hide_online"] = bool(body.hide_online)
+    if body.connections_visibility in ("everyone", "followers", "nobody"):
+        patch["connections_visibility"] = body.connections_visibility
+    if body.hide_likes is not None:
+        patch["hide_likes"] = bool(body.hide_likes)
+    if body.tag_policy in ("everyone", "followers", "nobody"):
+        patch["tag_policy"] = body.tag_policy
     if body.currency is not None:
         from core import normalize_currency
         patch["currency"] = normalize_currency(body.currency)
