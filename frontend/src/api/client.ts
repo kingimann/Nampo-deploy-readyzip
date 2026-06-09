@@ -1099,6 +1099,7 @@ export type ProfilePatch = {
   connections_visibility?: string;
   hide_likes?: boolean;
   tag_policy?: string;
+  muted_keywords?: string[];
   default_likes_disabled?: boolean;
   is_private?: boolean;
   searchable?: boolean;

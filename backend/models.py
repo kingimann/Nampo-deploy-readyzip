@@ -54,6 +54,7 @@ class User(BaseModel):
     connections_visibility: str = "everyone"  # who can see your followers/following: everyone | followers | nobody
     hide_likes: bool = False             # hide the list of posts you've liked from others
     tag_policy: str = "everyone"         # who can tag/mention you in a post: everyone | followers | nobody
+    muted_keywords: List[str] = []       # feed filter: hide posts whose text/hashtags match any of these
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
     created_at: datetime
 
@@ -129,6 +130,7 @@ class ProfilePatch(BaseModel):
     connections_visibility: Optional[str] = None  # everyone | followers | nobody
     hide_likes: Optional[bool] = None             # hide your liked-posts list from others
     tag_policy: Optional[str] = None              # who can tag you: everyone | followers | nobody
+    muted_keywords: Optional[List[str]] = None    # feed keyword/topic filters
     currency: Optional[str] = None   # preferred display currency (USD, EUR, ...)
     sms_notifications: Optional[bool] = None  # mirror notifications to SMS (needs verified phone)
 

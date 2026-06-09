@@ -237,6 +237,18 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
         patch["hide_likes"] = bool(body.hide_likes)
     if body.tag_policy in ("everyone", "followers", "nobody"):
         patch["tag_policy"] = body.tag_policy
+    if body.muted_keywords is not None:
+        # Clean: trim, lowercase, drop empties, dedupe (keep order), cap.
+        cleaned: list = []
+        seen = set()
+        for w in body.muted_keywords:
+            t = (w or "").strip().lower()[:60]
+            if t and t not in seen:
+                seen.add(t)
+                cleaned.append(t)
+            if len(cleaned) >= 200:
+                break
+        patch["muted_keywords"] = cleaned
     if body.currency is not None:
         from core import normalize_currency
         patch["currency"] = normalize_currency(body.currency)

@@ -102,6 +102,18 @@ export default function PrivacyScreen() {
           </TouchableOpacity>
         </View>
 
+        <Text style={styles.section}>Feed filters</Text>
+        <View style={styles.card}>
+          <TouchableOpacity style={styles.optRow} onPress={() => router.push("/muted-words")} testID="privacy-muted-words">
+            <Ionicons name="filter-outline" size={18} color={theme.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.optLabel}>Muted words</Text>
+              <Text style={styles.optSub}>Hide posts that mention specific words, topics, or hashtags from your feeds.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.textMuted} />
+          </TouchableOpacity>
+        </View>
+
         <Text style={styles.section}>Who can message you</Text>
         <View style={styles.card}>
           {MSG_POLICIES.map((p, i) => {

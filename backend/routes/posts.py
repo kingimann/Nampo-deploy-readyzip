@@ -832,6 +832,38 @@ async def _not_interested_ids(viewer_id: str) -> set:
         return set()
 
 
+def _muted_patterns(words: Optional[list]) -> list:
+    """Compile a viewer's muted keywords into (bareword, regex) pairs. Single
+    tokens match on word boundaries (so "art" doesn't hide "start"); phrases
+    match as a substring."""
+    pats = []
+    for w in (words or []):
+        t = (w or "").strip().lower()
+        if not t:
+            continue
+        bare = t.lstrip("#")
+        try:
+            rx = re.compile(r"\b" + re.escape(bare) + r"\b", re.IGNORECASE)
+        except re.error:
+            continue
+        pats.append((bare, rx))
+    return pats
+
+
+def _filter_muted(docs: list, patterns: list) -> list:
+    """Drop posts whose text or hashtags match any muted keyword."""
+    if not patterns:
+        return docs
+    out = []
+    for d in docs:
+        hay = (d.get("text") or "")
+        tags = {str(t).lower().lstrip("#") for t in (d.get("hashtags") or [])}
+        if any(bare in tags or rx.search(hay) for bare, rx in patterns):
+            continue
+        out.append(d)
+    return out
+
+
 @router.get("/feed/explore", response_model=List[Post])
 async def explore_feed(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -844,6 +876,7 @@ async def explore_feed(authorization: Optional[str] = Header(None)):
     docs = await cursor.to_list(300)
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
+    docs = _filter_muted(docs, _muted_patterns(user.get("muted_keywords")))
     ranked = await _rank_docs(docs, user["user_id"], 100)
     return await _hydrate_many(ranked, user["user_id"])
 
@@ -865,6 +898,7 @@ async def home_feed(authorization: Optional[str] = Header(None)):
     docs = await cursor.to_list(200)
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
+    docs = _filter_muted(docs, _muted_patterns(user.get("muted_keywords")))
     ranked = await _rank_docs(docs, user["user_id"], 100)
     return await _hydrate_many(ranked, user["user_id"])
 
