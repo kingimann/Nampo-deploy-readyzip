@@ -585,6 +585,43 @@ async def assess_scam(text: str) -> Optional[dict]:
         return None
 
 
+async def fact_check(claim: str) -> Optional[dict]:
+    """Fact-check a single claim with the local model. Returns
+    {verdict, explanation, source_url} where verdict is one of
+    'true' | 'false' | 'misleading' | 'unverifiable', or None when Ollama is off
+    or the call fails. The model is told to say 'unverifiable' rather than guess."""
+    if not (claim or "").strip():
+        return None
+    prompt = (
+        "You are a careful, neutral fact-checker. Assess the single claim below and "
+        "decide if it is factually accurate. Use only well-established facts; if you "
+        "are not confident or the claim is an opinion, prediction, or can't be "
+        "verified, say 'unverifiable' rather than guessing. Be concise and impartial.\n\n"
+        f"Claim:\n\"\"\"{(claim or '')[:2000]}\"\"\"\n\n"
+        'Reply with ONLY JSON: {"verdict": "true"|"false"|"misleading"|"unverifiable", '
+        '"explanation": "<one or two plain sentences explaining the verdict>", '
+        '"source_url": "<a reputable source URL if you are confident of one, else empty string>"}'
+    )
+    out = await _ollama_text(prompt, json_format=True, num_predict=320)
+    if not out:
+        return None
+    try:
+        data = json.loads(out)
+    except Exception:
+        return None
+    verdict = str(data.get("verdict", "unverifiable")).lower().strip()
+    if verdict not in ("true", "false", "misleading", "unverifiable"):
+        verdict = "unverifiable"
+    src = str(data.get("source_url", "") or "").strip()
+    if not (src.startswith("http://") or src.startswith("https://")):
+        src = ""
+    return {
+        "verdict": verdict,
+        "explanation": str(data.get("explanation", "") or "").strip()[:600],
+        "source_url": src[:500],
+    }
+
+
 async def validate_form_submission(fields: list, values: dict) -> list:
     """Ask the local model whether each answer is filled out properly for its
     field. Returns a list of human-readable issues (empty = looks good).

@@ -1541,7 +1541,7 @@ export type Notification = {
   id: string;
   user_id: string;
   type: "like" | "repost" | "reply" | "tag" | "message" | "group_invite" | "group_message" | "follow" | "poke"
-    | "call" | "support" | "roadside" | "moderation"
+    | "call" | "support" | "roadside" | "moderation" | "factcheck"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;

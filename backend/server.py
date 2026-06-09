@@ -334,8 +334,8 @@ async def startup():
     except Exception:
         pass
     try:
-        from services.claude_bot import start_bot
-        start_bot()                               # @claude replies in-app (if API key set)
+        from services.okay_bots import start_bots
+        start_bots()                              # seed @OkayAI + @OkayFacts and run their reply loop (Ollama)
     except Exception:
         pass
     try:
