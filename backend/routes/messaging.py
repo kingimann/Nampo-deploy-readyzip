@@ -124,6 +124,7 @@ async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
             avatar=conv.get("avatar"),
             theme=conv.get("theme"),
             disappearing_seconds=int(conv.get("disappearing_seconds") or 0),
+            receipts_enabled=viewer_id not in (conv.get("receipts_off") or []),
             members=members,
             owner_id=conv.get("owner_id"),
             last_message=Message(**last) if last else None,
@@ -146,6 +147,7 @@ async def _hydrate_conv(conv: dict, viewer_id: str) -> ConversationView:
         id=conv["id"], kind="dm",
         theme=conv.get("theme"),
         disappearing_seconds=int(conv.get("disappearing_seconds") or 0),
+        receipts_enabled=viewer_id not in (conv.get("receipts_off") or []),
         other_user=other,
         listing_id=conv.get("listing_id"),
         listing_title=conv.get("listing_title"),
@@ -450,6 +452,11 @@ async def list_messages(
     last_read = conv.get("last_read") or {}
     last_delivered = conv.get("last_delivered") or {}
     last_delivered[user["user_id"]] = now  # reflect this fetch immediately
+    # Read receipts are mutual: someone who turned them off for this conversation
+    # neither broadcasts their own "read" nor sees anyone else's. Delivered ticks
+    # are unaffected (WhatsApp-style). The viewer opting out hides all read state.
+    receipts_off = set(conv.get("receipts_off") or [])
+    viewer_sees_reads = user["user_id"] not in receipts_off
     out: List[Message] = []
     for d in docs:
         plain = _decrypt_msg(d)
@@ -457,7 +464,11 @@ async def list_messages(
         others = [p for p in conv["participant_ids"] if p != sender_id]
         if others:
             created = plain["created_at"]
-            read_by = [p for p in others if (last_read.get(p) is not None and last_read[p] >= created)]
+            read_by = [
+                p for p in others
+                if viewer_sees_reads and p not in receipts_off
+                and last_read.get(p) is not None and last_read[p] >= created
+            ]
             delivered_by = [p for p in others if (last_delivered.get(p) is not None and last_delivered[p] >= created)]
             plain["read_by"] = read_by
             plain["delivered_by"] = delivered_by
@@ -538,6 +549,13 @@ async def send_message(
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or user["user_id"] not in conv["participant_ids"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return Message(**await _create_message(conv_id, conv, user, body))
+
+
+async def _create_message(conv_id: str, conv: dict, user: dict, body: MessageCreate) -> dict:
+    """Validate `body`, persist the message, fan out notifications, and return the
+    decrypted message dict. Shared by the live send endpoint and the scheduled
+    message dispatcher so both paths behave identically."""
     if body.type == "text" and not (body.text or "").strip():
         raise HTTPException(status_code=400, detail="Empty message")
     if body.type == "place" and (body.place_longitude is None or body.place_latitude is None):
@@ -658,6 +676,13 @@ async def send_message(
                 link_prev = await fetch_link_preview(url)
             except Exception:
                 link_prev = None
+    poll_question = None
+    poll_options: list = []
+    if body.type == "poll":
+        poll_question = (body.poll_question or "").strip()[:200]
+        poll_options = [o.strip()[:80] for o in (body.poll_options or []) if o and o.strip()][:6]
+        if not poll_question or len(poll_options) < 2:
+            raise HTTPException(status_code=400, detail="A poll needs a question and at least 2 options")
     now = datetime.now(timezone.utc)
     dsec = int(conv.get("disappearing_seconds") or 0)
     expires_at = now + timedelta(seconds=dsec) if dsec > 0 else None
@@ -688,6 +713,9 @@ async def send_message(
         "form_title": form_title,
         "amount": tip_amount,
         "link_preview": link_prev,
+        "poll_question": poll_question,
+        "poll_options": poll_options,
+        "poll_votes": {},
         "reactions": {},
         "reply_to_id": reply_to_id,
         "deleted": False,
@@ -739,7 +767,7 @@ async def send_message(
             conversation_id=conv_id,
             message=preview,
         )
-    return Message(**_decrypt_msg(msg))
+    return _decrypt_msg(msg)
 
 
 @router.post("/conversations/{conv_id}/read")
@@ -753,6 +781,23 @@ async def mark_read(conv_id: str, authorization: Optional[str] = Header(None)):
         {"$set": {f"last_read.{user['user_id']}": datetime.now(timezone.utc)}},
     )
     return {"ok": True}
+
+
+class ReceiptsBody(BaseModel):
+    enabled: bool
+
+
+@router.post("/conversations/{conv_id}/receipts")
+async def set_read_receipts(conv_id: str, body: ReceiptsBody, authorization: Optional[str] = Header(None)):
+    """Turn read receipts on/off for just this conversation. When off you don't
+    send your read receipts here and you don't see the other side's either."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0, "participant_ids": 1})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    op = {"$pull": {"receipts_off": user["user_id"]}} if body.enabled else {"$addToSet": {"receipts_off": user["user_id"]}}
+    await db.conversations.update_one({"id": conv_id}, op)
+    return {"ok": True, "receipts_enabled": body.enabled}
 
 
 @router.patch("/conversations/{conv_id}/messages/{msg_id}", response_model=Message)
@@ -859,15 +904,15 @@ async def summarize_conversation_route(
     conv_id: str, body: SummarizeBody, authorization: Optional[str] = Header(None)
 ):
     """AI-summarize a conversation. The client sends the plaintext transcript
-    (so it works for end-to-end-encrypted chats too); the server runs Claude on
-    it and returns a short summary. The transcript is not stored."""
+    (so it works for end-to-end-encrypted chats too); the server runs the local
+    Ollama model on it and returns a short summary. The transcript is not stored."""
     user = await get_current_user(authorization)
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or user["user_id"] not in conv["participant_ids"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    from services.claude_ai import summarize_conversation, claude_ai_enabled
-    if not claude_ai_enabled():
-        raise HTTPException(status_code=503, detail={"code": "ai_unavailable", "message": "AI summaries aren't configured on this server."})
+    from services.ollama import summarize_conversation, ollama_enabled
+    if not ollama_enabled():
+        raise HTTPException(status_code=503, detail={"code": "ai_unavailable", "message": "AI summaries aren't configured on this server (set OLLAMA_HOST)."})
     transcript = (body.transcript or "").strip()
     if not transcript:
         raise HTTPException(status_code=400, detail="Nothing to summarize yet")
@@ -875,6 +920,252 @@ async def summarize_conversation_route(
     if not summary:
         raise HTTPException(status_code=502, detail="Couldn't generate a summary, try again")
     return {"summary": summary}
+
+
+class PollVoteBody(BaseModel):
+    option: int
+
+
+@router.post("/conversations/{conv_id}/messages/{msg_id}/vote", response_model=Message)
+async def vote_poll(conv_id: str, msg_id: str, body: PollVoteBody, authorization: Optional[str] = Header(None)):
+    """Cast (or change/clear) your vote on a poll message. Voting the same
+    option again clears your vote."""
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or uid not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    m = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    if not m or m.get("type") != "poll" or m.get("deleted"):
+        raise HTTPException(status_code=404, detail="Poll not found")
+    opts = m.get("poll_options") or []
+    if not (0 <= int(body.option) < len(opts)):
+        raise HTTPException(status_code=400, detail="Invalid option")
+    votes = dict(m.get("poll_votes") or {})
+    if votes.get(uid) == int(body.option):
+        votes.pop(uid, None)            # toggle off
+    else:
+        votes[uid] = int(body.option)
+    await db.messages.update_one({"id": msg_id, "conversation_id": conv_id}, {"$set": {"poll_votes": votes}})
+    m2 = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    return Message(**_decrypt_msg(m2))
+
+
+class TranscribeBody(BaseModel):
+    # For end-to-end encrypted voice notes the server can't read the audio, so the
+    # client decrypts it and posts the raw base64 here. Omit for plain voice notes.
+    audio_base64: Optional[str] = None
+
+
+@router.post("/conversations/{conv_id}/messages/{msg_id}/transcribe")
+async def transcribe_voice(conv_id: str, msg_id: str, body: TranscribeBody, authorization: Optional[str] = Header(None)):
+    """Transcribe a voice note to text. Returns {text, cached}. For E2E notes the
+    client must supply the decrypted `audio_base64`; the plaintext audio is used
+    only for this call and never stored."""
+    from services.transcribe import transcribe_audio, transcribe_enabled
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    m = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+    if not m or m.get("type") != "voice" or m.get("deleted"):
+        raise HTTPException(status_code=404, detail="Voice message not found")
+    # Already transcribed once (cached on a plain voice note) — hand it straight back.
+    if m.get("transcript"):
+        return {"text": m["transcript"], "cached": True}
+    if not transcribe_enabled():
+        raise HTTPException(status_code=503, detail={"code": "transcribe_unavailable", "message": "Voice transcription isn't set up on this server yet."})
+    stored = m.get("audio_base64") or ""
+    is_e2e = stored.startswith("e2eb:v1:")
+    audio = body.audio_base64 if (body.audio_base64 and is_e2e) else stored
+    if is_e2e and not body.audio_base64:
+        raise HTTPException(status_code=400, detail={"code": "need_decrypted_audio", "message": "This voice note is end-to-end encrypted — decrypt it client-side first."})
+    if not audio:
+        raise HTTPException(status_code=400, detail="No audio to transcribe")
+    text = await transcribe_audio(audio)
+    if not text:
+        raise HTTPException(status_code=502, detail="Couldn't transcribe this voice note")
+    # Cache only when the audio is the server's own non-E2E copy — never persist a
+    # client-decrypted E2E transcript (that would defeat end-to-end encryption).
+    if not is_e2e:
+        await db.messages.update_one({"id": msg_id, "conversation_id": conv_id}, {"$set": {"transcript": text}})
+    return {"text": text, "cached": False}
+
+
+class ScamCheckBody(BaseModel):
+    # End-to-end encrypted text is opaque to the server, so the client passes the
+    # decrypted plaintext here. Omit for plain messages (server reads its copy).
+    text: Optional[str] = None
+
+
+@router.post("/conversations/{conv_id}/messages/{msg_id}/scam-check")
+async def scam_check(conv_id: str, msg_id: str, body: ScamCheckBody, authorization: Optional[str] = Header(None)):
+    """Ask the AI whether a message looks like spam/scam/phishing. Returns
+    {risk, reason}. The plaintext is used only for this call and never stored."""
+    from services.ollama import assess_scam, ollama_enabled
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0, "participant_ids": 1})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if not ollama_enabled():
+        raise HTTPException(status_code=503, detail={"code": "ai_unavailable", "message": "Scam detection isn't set up on this server yet (set OLLAMA_HOST)."})
+    text = (body.text or "").strip()
+    if not text:
+        m = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
+        if not m:
+            raise HTTPException(status_code=404, detail="Message not found")
+        stored = _decrypt_msg(m).get("text") or ""
+        if stored.startswith("e2e:v1:"):
+            raise HTTPException(status_code=400, detail={"code": "need_decrypted_text", "message": "This message is end-to-end encrypted — pass the decrypted text."})
+        text = stored.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Nothing to check")
+    result = await assess_scam(text)
+    if result is None:
+        raise HTTPException(status_code=502, detail="Couldn't analyze this message")
+    return result
+
+
+# ── Scheduled messages ──────────────────────────────────────────────────────
+# A scheduled message stores the exact MessageCreate payload (already E2E
+# encrypted by the sender when applicable) plus a future `send_at`. A background
+# dispatcher materializes due ones through the same `_create_message` pipeline a
+# live send uses, so delivery, notifications and previews are identical.
+#
+# Money-moving / interactive types are intentionally not schedulable — a tip
+# should debit at the moment you tap, not silently in the future.
+_SCHEDULABLE = {"text", "place", "media", "post", "gif", "file", "contact", "poll"}
+
+
+class ScheduledCreate(BaseModel):
+    body: MessageCreate
+    send_at: datetime
+
+
+class ScheduledView(BaseModel):
+    id: str
+    conversation_id: str
+    sender_id: str
+    type: str
+    text: Optional[str] = None
+    poll_question: Optional[str] = None
+    send_at: datetime
+    created_at: datetime
+
+
+@router.post("/conversations/{conv_id}/scheduled", response_model=ScheduledView)
+async def schedule_message(conv_id: str, payload: ScheduledCreate, authorization: Optional[str] = Header(None)):
+    """Queue a message to be delivered at `send_at` (must be in the future)."""
+    user = await get_current_user(authorization)
+    if user.get("messaging_disabled"):
+        raise HTTPException(status_code=403, detail={"code": "messaging_disabled", "message": "Messaging has been disabled on your account by an administrator."})
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if payload.body.type not in _SCHEDULABLE:
+        raise HTTPException(status_code=400, detail="This kind of message can't be scheduled")
+    send_at = _norm_dt(payload.send_at)
+    now = datetime.now(timezone.utc)
+    if not send_at or send_at <= now + timedelta(seconds=10):
+        raise HTTPException(status_code=400, detail="Pick a time at least a minute in the future")
+    if send_at > now + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="Can't schedule more than a year ahead")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "conversation_id": conv_id,
+        "sender_id": user["user_id"],
+        "type": payload.body.type,
+        "payload": payload.body.model_dump(),
+        "send_at": send_at,
+        "created_at": now,
+        "sent": False,
+    }
+    await db.scheduled_messages.insert_one(doc.copy())
+    return ScheduledView(
+        id=doc["id"], conversation_id=conv_id, sender_id=user["user_id"], type=doc["type"],
+        text=None if (payload.body.text or "").startswith("e2e:v1:") else (payload.body.text or None),
+        poll_question=payload.body.poll_question, send_at=send_at, created_at=now,
+    )
+
+
+@router.get("/conversations/{conv_id}/scheduled", response_model=List[ScheduledView])
+async def list_scheduled(conv_id: str, authorization: Optional[str] = Header(None)):
+    """Your own pending (not-yet-sent) scheduled messages for this conversation."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    rows = await db.scheduled_messages.find(
+        {"conversation_id": conv_id, "sender_id": user["user_id"], "sent": {"$ne": True}}, {"_id": 0}
+    ).sort("send_at", 1).to_list(200)
+    out = []
+    for r in rows:
+        txt = r.get("payload", {}).get("text") or ""
+        out.append(ScheduledView(
+            id=r["id"], conversation_id=conv_id, sender_id=r["sender_id"], type=r.get("type", "text"),
+            text=None if txt.startswith("e2e:v1:") else (txt or None),
+            poll_question=r.get("payload", {}).get("poll_question"),
+            send_at=_norm_dt(r["send_at"]), created_at=_norm_dt(r["created_at"]),
+        ))
+    return out
+
+
+@router.delete("/conversations/{conv_id}/scheduled/{sid}")
+async def cancel_scheduled(conv_id: str, sid: str, authorization: Optional[str] = Header(None)):
+    """Cancel a pending scheduled message you created."""
+    user = await get_current_user(authorization)
+    res = await db.scheduled_messages.delete_one(
+        {"id": sid, "conversation_id": conv_id, "sender_id": user["user_id"], "sent": {"$ne": True}}
+    )
+    if getattr(res, "deleted_count", 0) != 1:
+        raise HTTPException(status_code=404, detail="Scheduled message not found")
+    return {"ok": True}
+
+
+async def _dispatch_scheduled_once() -> int:
+    """Deliver any scheduled messages whose time has come. Returns how many were
+    sent. Each is claimed atomically (sent True) before delivery so overlapping
+    ticks can't double-send."""
+    now = datetime.now(timezone.utc)
+    due = await db.scheduled_messages.find(
+        {"sent": {"$ne": True}, "send_at": {"$lte": now}}, {"_id": 0}
+    ).to_list(100)
+    count = 0
+    for r in due:
+        claimed = await db.scheduled_messages.update_one(
+            {"id": r["id"], "sent": {"$ne": True}}, {"$set": {"sent": True, "sent_at": now}}
+        )
+        if getattr(claimed, "matched_count", 0) != 1:
+            continue  # another worker grabbed it
+        try:
+            conv = await db.conversations.find_one({"id": r["conversation_id"]}, {"_id": 0})
+            user = await db.users.find_one({"user_id": r["sender_id"]}, {"_id": 0})
+            if not conv or not user or r["sender_id"] not in conv.get("participant_ids", []):
+                continue  # conversation gone or sender no longer a member — drop it
+            await _create_message(r["conversation_id"], conv, user, MessageCreate(**r["payload"]))
+            count += 1
+        except Exception:
+            # Leave it marked sent so a broken payload doesn't loop forever.
+            pass
+    return count
+
+
+def start_scheduled_dispatcher():
+    """Kick off the background loop that delivers scheduled messages (best-effort)."""
+    import asyncio
+
+    async def _loop():
+        while True:
+            try:
+                await _dispatch_scheduled_once()
+            except Exception:
+                pass
+            await asyncio.sleep(30)
+
+    try:
+        asyncio.create_task(_loop())
+    except Exception:
+        pass
 
 
 @router.get("/conversations/{conv_id}/pinned", response_model=List[Message])

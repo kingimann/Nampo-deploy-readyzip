@@ -270,8 +270,10 @@ class Review(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    type: Literal["text", "place", "media", "voice", "post", "gif", "file", "contact", "tip", "form"] = "text"
+    type: Literal["text", "place", "media", "voice", "post", "gif", "file", "contact", "tip", "form", "poll"] = "text"
     text: Optional[str] = ""
+    poll_question: Optional[str] = None      # type == "poll"
+    poll_options: Optional[List[str]] = None # type == "poll"
     amount: Optional[float] = None           # type == "tip"
     place_name: Optional[str] = None
     place_address: Optional[str] = None
@@ -331,6 +333,7 @@ class Message(BaseModel):
     media: List["PostMedia"] = []
     audio_base64: Optional[str] = None       # voice note
     audio_duration_ms: Optional[int] = None  # length of the voice note
+    transcript: Optional[str] = None         # cached speech-to-text (non-E2E voice notes)
     post_id: Optional[str] = None            # shared post (type == "post")
     gif_url: Optional[str] = None            # type == "gif"
     file_base64: Optional[str] = None        # type == "file"
@@ -345,6 +348,9 @@ class Message(BaseModel):
     form_title: Optional[str] = None         # denormalized title of the shared form
     amount: Optional[float] = None           # type == "tip"
     link_preview: Optional[dict] = None      # OpenGraph preview for links in text
+    poll_question: Optional[str] = None      # type == "poll"
+    poll_options: List[str] = []             # type == "poll"
+    poll_votes: dict = {}                    # {user_id: option_index}
     deleted: bool = False                    # soft-deleted tombstone
     reactions: dict = {}              # {user_id: emoji}
     reply_to_id: Optional[str] = None        # id of the message this replies to
@@ -383,6 +389,7 @@ class ConversationView(BaseModel):
     avatar: Optional[str] = None  # group avatar (None for DM)
     theme: Optional[str] = None  # conversation color theme key (Messenger-style)
     disappearing_seconds: int = 0  # 0 = off; otherwise messages auto-vanish after N seconds
+    receipts_enabled: bool = True   # whether the viewer sends/sees read receipts here
     other_user: Optional[PublicUser] = None  # only for DM
     members: List[PublicUser] = []           # group members (empty for DM)
     owner_id: Optional[str] = None           # group owner

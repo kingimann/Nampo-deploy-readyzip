@@ -570,6 +570,30 @@ export const api = {
     request<Message>(`/conversations/${conv_id}/messages/${msg_id}/react`, {
       method: "POST", body: JSON.stringify({ emoji }),
     }),
+  votePollMessage: (conv_id: string, msg_id: string, option: number) =>
+    request<Message>(`/conversations/${conv_id}/messages/${msg_id}/vote`, {
+      method: "POST", body: JSON.stringify({ option }),
+    }),
+  scheduleMessage: (conv_id: string, body: MessageCreate, send_at: string) =>
+    request<ScheduledMessage>(`/conversations/${conv_id}/scheduled`, {
+      method: "POST", body: JSON.stringify({ body, send_at }),
+    }),
+  listScheduledMessages: (conv_id: string) =>
+    request<ScheduledMessage[]>(`/conversations/${conv_id}/scheduled`),
+  cancelScheduledMessage: (conv_id: string, sid: string) =>
+    request<{ ok: boolean }>(`/conversations/${conv_id}/scheduled/${sid}`, { method: "DELETE" }),
+  transcribeVoiceMessage: (conv_id: string, msg_id: string, audio_base64?: string) =>
+    request<{ text: string; cached: boolean }>(`/conversations/${conv_id}/messages/${msg_id}/transcribe`, {
+      method: "POST", body: JSON.stringify({ audio_base64: audio_base64 || null }),
+    }),
+  setReadReceipts: (conv_id: string, enabled: boolean) =>
+    request<{ ok: boolean; receipts_enabled: boolean }>(`/conversations/${conv_id}/receipts`, {
+      method: "POST", body: JSON.stringify({ enabled }),
+    }),
+  scamCheckMessage: (conv_id: string, msg_id: string, text?: string) =>
+    request<{ risk: "low" | "medium" | "high"; reason: string }>(`/conversations/${conv_id}/messages/${msg_id}/scam-check`, {
+      method: "POST", body: JSON.stringify({ text: text || null }),
+    }),
   // Custom emojis (global registry, used as :shortcode: in chat).
   listCustomEmojis: () => request<CustomEmoji[]>("/emojis"),
   createCustomEmoji: (shortcode: string, image_base64: string) =>
@@ -1308,7 +1332,7 @@ export type FsqSearchResult = {
   rating?: number | null;
   price?: number | null;
 };
-export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact" | "tip" | "form";
+export type MsgType = "text" | "place" | "media" | "voice" | "post" | "gif" | "file" | "contact" | "tip" | "form" | "poll";
 export type Message = {
   id: string; conversation_id: string; sender_id: string;
   type: MsgType; text?: string;
@@ -1318,6 +1342,7 @@ export type Message = {
   media?: PostMedia[];
   audio_base64?: string | null;
   audio_duration_ms?: number | null;
+  transcript?: string | null;
   post_id?: string | null;
   gif_url?: string | null;
   file_base64?: string | null; file_name?: string | null; file_size?: number | null; file_mime?: string | null;
@@ -1335,6 +1360,9 @@ export type Message = {
   delivered_by?: string[];
   expires_at?: string | null;
   pinned?: boolean;
+  poll_question?: string | null;
+  poll_options?: string[];
+  poll_votes?: Record<string, number>;  // { user_id: option_index }
   created_at: string;
 };
 export type CustomEmoji = { id: string; shortcode: string; image_base64: string; owner_id: string; created_at: string };
@@ -1351,7 +1379,14 @@ export type MessageCreate = {
   file_base64?: string; file_name?: string; file_size?: number; file_mime?: string;
   contact_user_id?: string; contact_name?: string; contact_picture?: string;
   form_id?: string;
+  poll_question?: string;
+  poll_options?: string[];
   reply_to?: string;
+};
+export type ScheduledMessage = {
+  id: string; conversation_id: string; sender_id: string;
+  type: MsgType; text?: string | null; poll_question?: string | null;
+  send_at: string; created_at: string;
 };
 export type ConversationView = {
   id: string;
@@ -1360,6 +1395,7 @@ export type ConversationView = {
   avatar?: string | null;
   theme?: string | null;
   disappearing_seconds?: number;
+  receipts_enabled?: boolean;
   other_user?: PublicUser | null;
   members?: PublicUser[];
   owner_id?: string | null;
@@ -1505,7 +1541,7 @@ export type Notification = {
   id: string;
   user_id: string;
   type: "like" | "repost" | "reply" | "tag" | "message" | "group_invite" | "group_message" | "follow" | "poke"
-    | "call" | "support" | "roadside" | "moderation"
+    | "call" | "support" | "roadside" | "moderation" | "factcheck"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;

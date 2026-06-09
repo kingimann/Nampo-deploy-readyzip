@@ -1,19 +1,19 @@
-"""Hosted AI (Anthropic) checks for the roadside + marketplace flows.
+"""Hosted AI (Anthropic) **vision** checks for the roadside flow.
 
-Runs when no local Ollama model is configured (``OLLAMA_HOST`` unset), which is
-the default on hosted deployments — no AI server to run, just one API key:
+Claude is reserved for image/photo analysis only — all text AI (chat summaries,
+scam detection, listing-spam text judgement, form validation) runs on the local
+Ollama model instead (see ``services/ollama.py``). These vision helpers are used
+when no local Ollama vision model is configured (``OLLAMA_HOST`` unset):
   - ``classify_vehicle_photo``  — roadside photo shows a vehicle / the problem
   - ``verify_documents_claude`` — roadside insurance + ownership documents match
-  - ``classify_listing_spam``   — marketplace listing is spam / a scam
 
-Disabled unless ``ANTHROPIC_API_KEY`` is set (the same key the @claude bot uses).
-Best-effort: each helper fails open / returns "unavailable" when unconfigured or
-on any API/parse error — they never hard-block a user on an AI hiccup.
+Disabled unless ``ANTHROPIC_API_KEY`` is set. Best-effort: each helper fails open
+/ returns "unavailable" when unconfigured or on any API/parse error — they never
+hard-block a user on an AI hiccup.
 
 Configure with:
   ANTHROPIC_API_KEY     enables these checks (set in your host's dashboard)
   CLAUDE_VISION_MODEL   vision model id (default: claude-haiku-4-5 — cheapest)
-  CLAUDE_TEXT_MODEL     text model id   (default: claude-haiku-4-5)
 """
 import json
 import logging
@@ -158,81 +158,3 @@ async def verify_documents_claude(
     match = bool(parsed.get("match"))
     reason = str(parsed.get("reason") or "")[:300]
     return {"decision": "approve" if match else "reject", "reason": reason}
-
-
-async def classify_listing_spam(title: str, description: str) -> Optional[dict]:
-    """Return ``{"spam": bool, "reason": str}``, or None when unavailable
-    (not configured or on error) so the caller keeps its rule-based result."""
-    if not claude_ai_enabled():
-        return None
-    prompt = (
-        "You moderate a peer-to-peer marketplace. Decide if this listing is spam, a scam, "
-        "or an obviously low-quality placeholder. Genuine items for sale are fine — don't "
-        "flag those.\n"
-        f"Title: {title}\nDescription: {description}\n"
-        'Reply with ONLY JSON: {"spam": true|false, "reason": "<one short sentence>"}'
-    )
-    text = await _ask(CLAUDE_TEXT_MODEL, prompt)
-    if text is None:
-        return None
-    try:
-        parsed = json.loads(_extract_json(text))
-    except Exception:
-        return None
-    if isinstance(parsed, dict):
-        return {"spam": bool(parsed.get("spam")), "reason": str(parsed.get("reason") or "").strip()[:200]}
-    return None
-
-
-async def validate_form_submission(fields: list, values: dict) -> list:
-    """Ask Claude whether each answer is filled out properly for its field.
-    Returns a list of human-readable issues (empty = looks good). Best-effort:
-    returns [] when disabled or on any error so it never blocks a real submission
-    unfairly."""
-    if not claude_ai_enabled():
-        return []
-    lines = []
-    for f in (fields or []):
-        t = f.get("type")
-        if t in ("heading", "payment", "signature", "photo", "consent"):
-            continue
-        v = values.get(f.get("id"), "")
-        v = str(v)[:300] if v is not None else ""
-        req = ", required" if f.get("required") else ""
-        lines.append(f'- "{f.get("label")}" (type {t}{req}): {v!r}')
-    if not lines:
-        return []
-    prompt = (
-        "You are validating a form submission. For each field, decide if the answer is "
-        "filled out properly and plausibly matches the field's label and type (an email "
-        "looks like an email, a name isn't gibberish or blank, a phone has digits, a "
-        "required field isn't empty, an address looks like an address). Be lenient — only "
-        "flag clear problems, not style.\n\n"
-        + "\n".join(lines)
-        + '\n\nReply with ONLY JSON: {"issues": ["<short message naming the field and the problem>"]}'
-        " — use an empty list if everything looks fine."
-    )
-    text = await _ask(CLAUDE_TEXT_MODEL, prompt, max_tokens=400)
-    if not text:
-        return []
-    try:
-        data = json.loads(_extract_json(text))
-        issues = data.get("issues") if isinstance(data, dict) else None
-        return [str(x)[:200] for x in (issues or [])][:12]
-    except Exception:
-        return []
-
-
-async def summarize_conversation(transcript: str) -> Optional[str]:
-    """Summarize a chat transcript for a participant catching up. Returns a
-    short bulleted summary, or None if AI is unavailable / the call fails."""
-    if not claude_ai_enabled():
-        return None
-    prompt = (
-        "Summarize the following chat conversation for a participant who wants to "
-        "catch up quickly. Use 3-6 short bullet points covering the main topics, "
-        "any decisions, open questions, and action items or plans. Be neutral and "
-        "factual, and don't invent details.\n\n"
-        f"Conversation:\n{transcript[:12000]}"
-    )
-    return await _ask(CLAUDE_TEXT_MODEL, prompt, max_tokens=450)

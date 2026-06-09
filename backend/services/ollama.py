@@ -519,6 +519,148 @@ def _listing_rule_flags(title: str, description: str, photos, dup_existing: bool
     return reasons
 
 
+async def _ollama_text(prompt: str, *, json_format: bool = False, num_predict: int = 400) -> Optional[str]:
+    """Single-shot text completion via the local Ollama model. Returns the reply
+    text, or None when Ollama isn't configured or the call fails."""
+    if not ollama_enabled():
+        return None
+    body = {
+        "model": OLLAMA_TEXT_MODEL,
+        "stream": False,
+        "options": {"temperature": 0.2, "num_predict": num_predict},
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if json_format:
+        body["format"] = "json"
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(f"{OLLAMA_HOST}/api/chat", json=body)
+            resp.raise_for_status()
+            return (((resp.json() or {}).get("message") or {}).get("content") or "").strip() or None
+    except Exception:
+        return None
+
+
+async def summarize_conversation(transcript: str) -> Optional[str]:
+    """Summarize a chat transcript for someone catching up. Local-AI counterpart
+    of the hosted summarizer. Returns a short bulleted summary or None."""
+    if not (transcript or "").strip():
+        return None
+    prompt = (
+        "Summarize the following chat conversation for a participant who wants to "
+        "catch up quickly. Use 3-6 short bullet points covering the main topics, "
+        "any decisions, open questions, and action items or plans. Be neutral and "
+        "factual, and don't invent details.\n\n"
+        f"Conversation:\n{transcript[:12000]}"
+    )
+    return await _ollama_text(prompt, num_predict=450)
+
+
+async def assess_scam(text: str) -> Optional[dict]:
+    """Judge whether a single chat message looks like spam/scam/phishing via the
+    local Ollama model. Returns {risk, reason} or None when unavailable."""
+    if not (text or "").strip():
+        return None
+    prompt = (
+        "You are a scam and phishing detector for a private messaging app. Assess "
+        "the single message below. Consider classic red flags: requests for money, "
+        "gift cards, crypto or wire transfers; 'verify your account' / credential or "
+        "OTP phishing; too-good-to-be-true offers, lottery/prize/inheritance, fake "
+        "job or investment pitches; impersonation; urgency or threats; and suspicious "
+        "links. Ordinary friendly conversation is 'low'. Don't over-flag.\n\n"
+        f"Message:\n\"\"\"{(text or '')[:2000]}\"\"\"\n\n"
+        'Reply with ONLY JSON: {"risk": "low"|"medium"|"high", "reason": '
+        '"<one short sentence; empty if low>"}'
+    )
+    out = await _ollama_text(prompt, json_format=True, num_predict=160)
+    if not out:
+        return None
+    try:
+        data = json.loads(out)
+        risk = str(data.get("risk", "low")).lower()
+        if risk not in ("low", "medium", "high"):
+            risk = "low"
+        return {"risk": risk, "reason": str(data.get("reason", ""))[:240]}
+    except Exception:
+        return None
+
+
+async def fact_check(claim: str) -> Optional[dict]:
+    """Fact-check a single claim with the local model. Returns
+    {verdict, explanation, source_url} where verdict is one of
+    'true' | 'false' | 'misleading' | 'unverifiable', or None when Ollama is off
+    or the call fails. The model is told to say 'unverifiable' rather than guess."""
+    if not (claim or "").strip():
+        return None
+    prompt = (
+        "You are a careful, neutral fact-checker. Assess the single claim below and "
+        "decide if it is factually accurate. Use only well-established facts; if you "
+        "are not confident or the claim is an opinion, prediction, or can't be "
+        "verified, say 'unverifiable' rather than guessing. Be concise and impartial.\n\n"
+        f"Claim:\n\"\"\"{(claim or '')[:2000]}\"\"\"\n\n"
+        'Reply with ONLY JSON: {"verdict": "true"|"false"|"misleading"|"unverifiable", '
+        '"explanation": "<one or two plain sentences explaining the verdict>", '
+        '"source_url": "<a reputable source URL if you are confident of one, else empty string>"}'
+    )
+    out = await _ollama_text(prompt, json_format=True, num_predict=320)
+    if not out:
+        return None
+    try:
+        data = json.loads(out)
+    except Exception:
+        return None
+    verdict = str(data.get("verdict", "unverifiable")).lower().strip()
+    if verdict not in ("true", "false", "misleading", "unverifiable"):
+        verdict = "unverifiable"
+    src = str(data.get("source_url", "") or "").strip()
+    if not (src.startswith("http://") or src.startswith("https://")):
+        src = ""
+    return {
+        "verdict": verdict,
+        "explanation": str(data.get("explanation", "") or "").strip()[:600],
+        "source_url": src[:500],
+    }
+
+
+async def validate_form_submission(fields: list, values: dict) -> list:
+    """Ask the local model whether each answer is filled out properly for its
+    field. Returns a list of human-readable issues (empty = looks good).
+    Best-effort: returns [] when Ollama is off or on any error so it never blocks
+    a real submission unfairly."""
+    if not ollama_enabled():
+        return []
+    lines = []
+    for f in (fields or []):
+        t = f.get("type")
+        if t in ("heading", "payment", "signature", "photo", "consent"):
+            continue
+        v = values.get(f.get("id"), "")
+        v = str(v)[:300] if v is not None else ""
+        req = ", required" if f.get("required") else ""
+        lines.append(f'- "{f.get("label")}" (type {t}{req}): {v!r}')
+    if not lines:
+        return []
+    prompt = (
+        "You are validating a form submission. For each field, decide if the answer is "
+        "filled out properly and plausibly matches the field's label and type (an email "
+        "looks like an email, a name isn't gibberish or blank, a phone has digits, a "
+        "required field isn't empty, an address looks like an address). Be lenient — only "
+        "flag clear problems, not style.\n\n"
+        + "\n".join(lines)
+        + '\n\nReply with ONLY JSON: {"issues": ["<short message naming the field and the problem>"]}'
+        " — use an empty list if everything looks fine."
+    )
+    out = await _ollama_text(prompt, json_format=True, num_predict=400)
+    if not out:
+        return []
+    try:
+        data = json.loads(out)
+        issues = data.get("issues") if isinstance(data, dict) else None
+        return [str(x)[:200] for x in (issues or [])][:12]
+    except Exception:
+        return []
+
+
 async def moderate_listing(title: str, description: str, photos, dup_existing: bool = False) -> dict:
     """Decide whether a marketplace listing is spam / low-quality. Returns
     {flagged: bool, reasons: [str]}. Rule checks always run; the AI (when
@@ -548,16 +690,6 @@ async def moderate_listing(title: str, description: str, photos, dup_existing: b
                     reasons.append(r)
         except Exception:
             pass
-    else:
-        # No local Ollama model — use the hosted AI (Anthropic) for the spam/scam
-        # judgement. No-op when ANTHROPIC_API_KEY is also unset.
-        try:
-            from services.claude_ai import classify_listing_spam
-            res = await classify_listing_spam(title, description)
-            if res and res.get("spam"):
-                r = (res.get("reason") or "This looks like spam.").strip()[:200]
-                if r and r not in reasons:
-                    reasons.append(r)
-        except Exception:
-            pass
+    # When Ollama isn't configured the deterministic rule checks above still run;
+    # text spam judgement is local-AI only (Claude is reserved for photo/vision).
     return {"flagged": len(reasons) > 0, "reasons": reasons}

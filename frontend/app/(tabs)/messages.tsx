@@ -361,6 +361,8 @@ export default function MessagesScreen() {
                 ? "🎤 Voice message"
                 : last.type === "post"
                 ? "📄 Shared a post"
+                : last.type === "poll"
+                ? `📊 ${last.poll_question || "Poll"}`
                 : (last.text || "").startsWith("e2e:v1:")
                 ? (previews[item.id] || "🔒 Encrypted message")
                 : last.text

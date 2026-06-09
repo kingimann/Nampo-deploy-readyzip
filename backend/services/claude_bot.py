@@ -1,9 +1,10 @@
-"""Claude assistant bot — wires the @claude account to the Anthropic API so it
-replies inside OkaySpace (DMs + post mentions) to an allowlist of users.
+"""@claude assistant bot — wires the @claude account to the local Ollama model
+so it replies inside OkaySpace (DMs + post mentions) to an allowlist of users.
 
-Disabled unless ANTHROPIC_API_KEY is set. Owner-gated via CLAUDE_BOT_ALLOW
-(comma-separated usernames; default "iman"). Polls every few seconds — no
-realtime infra needed. Best-effort: failures never crash the app.
+Runs on the local Ollama model (text AI is Ollama-only; Claude is reserved for
+photo/vision). Disabled unless OLLAMA_HOST is set. Owner-gated via
+CLAUDE_BOT_ALLOW (comma-separated usernames; default "iman"). Polls every few
+seconds — no realtime infra needed. Best-effort: failures never crash the app.
 """
 import asyncio
 import logging
@@ -15,17 +16,16 @@ import httpx
 
 from core import db
 from services.encryption import encrypt_text, decrypt_text
+from services.ollama import OLLAMA_HOST, OLLAMA_TEXT_MODEL, ollama_enabled
 
 logger = logging.getLogger("claude_bot")
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-BOT_MODEL = os.environ.get("CLAUDE_BOT_MODEL", "claude-sonnet-4-6")
 ALLOW_USERNAMES = [u.strip().lower() for u in os.environ.get("CLAUDE_BOT_ALLOW", "iman").split(",") if u.strip()]
 POLL_SECONDS = int(os.environ.get("CLAUDE_BOT_POLL_SECONDS", "6") or 6)
 MAX_TOKENS = 600
 
 SYSTEM = (
-    "You are Claude, the friendly AI assistant living inside the OkaySpace app — a social "
+    "You are the friendly AI assistant living inside the OkaySpace app — a social "
     "network with maps, chat, a marketplace, payments and more. You're chatting with the "
     "app's owner. Be warm, concise and helpful. Plain text only (no markdown headers). "
     "Keep replies short unless asked for detail."
@@ -33,29 +33,28 @@ SYSTEM = (
 
 
 def _enabled() -> bool:
-    return bool(ANTHROPIC_API_KEY)
+    return ollama_enabled()
 
 
-async def _ask_claude(messages: list) -> str:
-    """Call the Anthropic Messages API and return the reply text."""
+async def _ask_ai(messages: list) -> str:
+    """Call the local Ollama chat API and return the reply text."""
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=90) as client:
             r = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
+                f"{OLLAMA_HOST}/api/chat",
+                json={
+                    "model": OLLAMA_TEXT_MODEL,
+                    "stream": False,
+                    "options": {"temperature": 0.6, "num_predict": MAX_TOKENS},
+                    "messages": [{"role": "system", "content": SYSTEM}, *messages],
                 },
-                json={"model": BOT_MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM, "messages": messages},
             )
             if r.status_code >= 400:
-                logger.warning("Anthropic API %s: %s", r.status_code, r.text[:300])
+                logger.warning("Ollama API %s: %s", r.status_code, r.text[:300])
                 return ""
-            data = r.json()
-            return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+            return (((r.json() or {}).get("message") or {}).get("content") or "").strip()
     except Exception as e:
-        logger.warning("Claude bot API call failed: %s", e)
+        logger.warning("Assistant bot API call failed: %s", e)
         return ""
 
 
@@ -131,7 +130,7 @@ async def _handle_dms(bot, allowed: set):
             history.append({"role": "assistant" if m.get("sender_id") == bot_id else "user", "content": t[:4000]})
         if not history or history[-1]["role"] != "user":
             continue
-        reply = await _ask_claude(history)
+        reply = await _ask_ai(history)
         if reply:
             await _send_dm(conv["id"], bot_id, bot.get("name", "Claude"), owner_id, reply)
             handled += 1
@@ -154,7 +153,7 @@ async def _handle_mentions(bot, allowed: set):
         if await db.bot_seen.find_one({"id": p["id"]}, {"_id": 0, "id": 1}):
             continue
         await db.bot_seen.insert_one({"id": p["id"], "created_at": datetime.now(timezone.utc)})
-        reply = await _ask_claude([{"role": "user", "content": (p.get("text") or "")[:4000]}])
+        reply = await _ask_ai([{"role": "user", "content": (p.get("text") or "")[:4000]}])
         if not reply:
             continue
         now = datetime.now(timezone.utc)
@@ -177,7 +176,7 @@ async def _handle_mentions(bot, allowed: set):
 
 
 async def _loop():
-    logger.info("Claude bot running (model=%s, allow=%s)", BOT_MODEL, ALLOW_USERNAMES)
+    logger.info("Assistant bot running (model=%s, allow=%s)", OLLAMA_TEXT_MODEL, ALLOW_USERNAMES)
     while True:
         try:
             bot = await _bot_user()
@@ -193,6 +192,6 @@ async def _loop():
 def start_bot():
     """Start the bot loop if an API key is configured."""
     if not _enabled():
-        logger.info("Claude bot disabled (ANTHROPIC_API_KEY not set)")
+        logger.info("Assistant bot disabled (OLLAMA_HOST not set)")
         return
     asyncio.create_task(_loop())

@@ -405,12 +405,12 @@ def _email_short(v, ftype: str = "") -> str:
 
 
 async def _ai_check(doc: dict, clean: dict) -> None:
-    """When the form has AI validation on, ask Claude to confirm answers look
-    properly filled in; raise 400 listing issues so the filler can fix them."""
+    """When the form has AI validation on, ask the local AI to confirm answers
+    look properly filled in; raise 400 listing issues so the filler can fix them."""
     if not doc.get("ai_validate"):
         return
     try:
-        from services.claude_ai import validate_form_submission
+        from services.ollama import validate_form_submission
         issues = await validate_form_submission(doc.get("fields") or [], clean)
     except Exception:
         issues = []

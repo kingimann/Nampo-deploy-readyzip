@@ -96,9 +96,11 @@ export default function FactcheckSheet({ visible, postId, onClose, onChanged }: 
                     )}
                   </View>
                   <Text style={styles.noteText}>{n.text}</Text>
-                  <TouchableOpacity onPress={() => Linking.openURL(n.source_url).catch(() => {})}>
-                    <Text style={styles.noteSource} numberOfLines={1}>🔗 {n.source_url}</Text>
-                  </TouchableOpacity>
+                  {!!n.source_url && (
+                    <TouchableOpacity onPress={() => Linking.openURL(n.source_url).catch(() => {})}>
+                      <Text style={styles.noteSource} numberOfLines={1}>🔗 {n.source_url}</Text>
+                    </TouchableOpacity>
+                  )}
                   <View style={styles.rateRow}>
                     <TouchableOpacity style={[styles.rateBtn, n.my_rating === true && styles.rateOn]} onPress={() => rate(n, true)}>
                       <Ionicons name="thumbs-up" size={14} color={n.my_rating === true ? "#fff" : theme.textSecondary} />
