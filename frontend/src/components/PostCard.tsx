@@ -253,6 +253,14 @@ export default function PostCard({
             {!!display.edited_at && (
               <Text style={styles.time}> · edited</Text>
             )}
+            {(display.min_sub_tier || 0) > 0 && (
+              <View style={styles.subTag} testID={`post-subwall-${post.id}`}>
+                <Ionicons name="lock-closed" size={10} color="#F5A623" />
+                <Text style={styles.subTagText}>
+                  Subscribers{(display.min_sub_tier || 1) > 1 ? ` · T${display.min_sub_tier}+` : ""}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
         {showMenu && (
@@ -737,6 +745,8 @@ const styles = StyleSheet.create({
   dot: { color: theme.textMuted, fontSize: 12 },
   time: { color: theme.textMuted, fontSize: 12 },
   body: { color: theme.textPrimary, fontSize: 14.5, lineHeight: 20 },
+  subTag: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: "rgba(245,166,35,0.16)" },
+  subTagText: { color: "#F5A623", fontSize: 10.5, fontWeight: "800" },
   paywall: { alignItems: "center", gap: 6, paddingVertical: 22, paddingHorizontal: 18, marginVertical: 4, borderRadius: 16, borderWidth: 1, borderColor: "rgba(245,166,35,0.35)", backgroundColor: "rgba(245,166,35,0.07)" },
   paywallIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(245,166,35,0.15)" },
   paywallTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
