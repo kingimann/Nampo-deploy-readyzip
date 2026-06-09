@@ -33,6 +33,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
   const image = content.media?.find((m) => m.type === "image");
   const videoUri = mediaUri(video);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [paused, setPaused] = useState(false);
   const [rate, setRate] = useState(1);          // base playback speed
   const [fastFwd, setFastFwd] = useState(false); // hold-to-2x
@@ -371,7 +372,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         </>
       )}
 
-      <View style={styles.rightCol}>
+      <View style={[styles.rightCol, { bottom: insets.bottom + 96 }]}>
         <TouchableOpacity style={styles.iconBtn} onPress={onUser}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarLetter}>{(content.author?.name?.[0] || "?").toUpperCase()}</Text>
@@ -436,7 +437,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         )}
       </View>
 
-      <View style={styles.bottom}>
+      <View style={[styles.bottom, { bottom: insets.bottom + 24 }]}>
         {isRepost && (
           <View style={styles.repostHint}>
             <Ionicons name="repeat" size={13} color="rgba(255,255,255,0.85)" />
@@ -627,6 +628,7 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
 function AdReel({ ad, active, muted, screenW, screenH, onSkip }: {
   ad: any; active: boolean; muted: boolean; screenW: number; screenH: number; onSkip?: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [paused, setPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -665,18 +667,18 @@ function AdReel({ ad, active, muted, screenW, screenH, onSkip }: {
           </View>
         )}
       </Pressable>
-      <View style={styles.adProgressTrack} pointerEvents="none">
+      <View style={[styles.adProgressTrack, { top: insets.top + 8 }]} pointerEvents="none">
         <View style={[styles.adProgressFill, { width: `${Math.round(progress * 100)}%` }]} />
       </View>
-      <View style={styles.adBadge} pointerEvents="none">
+      <View style={[styles.adBadge, { top: insets.top + 18 }]} pointerEvents="none">
         <Ionicons name="megaphone" size={11} color="#fff" />
         <Text style={styles.adBadgeText}>Sponsored · {Math.max(5, Math.min(60, ad.duration || 15))}s</Text>
       </View>
-      <TouchableOpacity style={styles.adSkip} onPress={() => canSkip && onSkip && onSkip()} disabled={!canSkip} testID={`reel-ad-skip-${ad.id}`}>
+      <TouchableOpacity style={[styles.adSkip, { top: insets.top + 16 }]} onPress={() => canSkip && onSkip && onSkip()} disabled={!canSkip} testID={`reel-ad-skip-${ad.id}`}>
         <Text style={styles.adSkipText}>{canSkip ? "Skip" : `Skip in ${Math.max(0, 5 - elapsed)}s`}</Text>
         {canSkip ? <Ionicons name="play-skip-forward" size={14} color="#fff" /> : null}
       </TouchableOpacity>
-      <View style={styles.adBottom} pointerEvents="box-none">
+      <View style={[styles.adBottom, { bottom: insets.bottom + 90 }]} pointerEvents="box-none">
         <Text style={styles.adAdvertiser}>{ad.owner_name}</Text>
         <Text style={styles.adHeadline} numberOfLines={2}>{ad.headline}</Text>
         {ad.url ? (
@@ -706,12 +708,17 @@ export default function ReelsScreen() {
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const listRef = useRef<FlatList>(null);
   const skipToNext = useCallback(() => {
-    setItems((arr) => {
-      const next = Math.min(activeIdx + 1, arr.length - 1);
-      try { listRef.current?.scrollToIndex({ index: next, animated: true }); } catch {}
-      return arr;
-    });
-  }, [activeIdx]);
+    const next = activeIdx + 1;
+    if (next >= items.length) {
+      // Ad is the last item — refresh to pull more reels rather than stall.
+      try { listRef.current?.scrollToOffset({ offset: Math.max(0, (items.length - 1) * screenH), animated: true }); } catch {}
+      return;
+    }
+    // scrollToOffset is more reliable than scrollToIndex on a paging list (esp.
+    // web), and we set the active index immediately so the next reel plays.
+    try { listRef.current?.scrollToOffset({ offset: next * screenH, animated: true }); } catch {}
+    setActiveIdx(next);
+  }, [activeIdx, items.length, screenH]);
 
   const load = useCallback(async () => {
     try {
