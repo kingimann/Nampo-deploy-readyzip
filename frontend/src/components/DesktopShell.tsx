@@ -139,12 +139,16 @@ export default function DesktopShell({ children }: { children: React.ReactNode }
         </Pressable>
         <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
           {ITEMS.map((it) => {
-            const active = isActive(it);
+            // Your own profile uses the vanity URL (okayspace.ca/<username>) so
+            // the address bar shows your handle, not the generic /profile tab.
+            const vanity = it.route === "/profile" && user?.username ? `/${user.username}` : null;
+            const target = vanity || it.route;
+            const active = isActive(it) || (!!vanity && pathname === vanity);
             return (
               <Pressable
                 key={it.route}
                 style={[styles.navItem, active && styles.navItemActive]}
-                onPress={() => router.push(it.route as any)}
+                onPress={() => router.push(target as any)}
                 testID={`desktop-nav-${it.label.toLowerCase()}`}
               >
                 <Ionicons
@@ -171,7 +175,7 @@ export default function DesktopShell({ children }: { children: React.ReactNode }
           <Text style={styles.postBtnText}>Post</Text>
         </Pressable>
 
-        <Pressable style={styles.account} onPress={() => router.push("/profile")} testID="desktop-account">
+        <Pressable style={styles.account} onPress={() => router.push((user?.username ? `/${user.username}` : "/profile") as any)} testID="desktop-account">
           <Image source={{ uri: user?.picture || "https://api.dicebear.com/7.x/initials/png?seed=" + encodeURIComponent(user?.name || "U") }} style={styles.accountAvatar} />
           <View style={{ flex: 1 }}>
             <Text style={styles.accountName} numberOfLines={1}>{user?.name || "You"}</Text>

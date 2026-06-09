@@ -434,6 +434,20 @@ export default function UserProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+              {user.user_id === me?.user_id && (
+                // Owner view (reached via the vanity URL okayspace.ca/<username>):
+                // offer Edit profile, which opens the full editor (the /profile tab).
+                <View style={styles.actionRow}>
+                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnGhost]} onPress={() => router.push("/profile")} testID="profile-edit-self">
+                    <Ionicons name="create-outline" size={15} color={theme.textPrimary} />
+                    <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>Edit profile</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionBtn, styles.actionBtnGhost]} onPress={onShareProfile} testID="profile-share-self">
+                    <Ionicons name="share-outline" size={15} color={theme.textPrimary} />
+                    <Text style={[styles.actionBtnText, { color: theme.textPrimary }]}>Share</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {user.user_id !== me?.user_id && (
                 <View style={styles.actionRow}>
                   <TouchableOpacity
