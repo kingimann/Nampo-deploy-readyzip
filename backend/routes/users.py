@@ -771,6 +771,22 @@ async def list_following(user_id: str, authorization: Optional[str] = Header(Non
     return [await _public_user(r["followee_id"], me["user_id"]) for r in rows]
 
 
+class BulkUnfollowBody(BaseModel):
+    user_ids: Optional[List[str]] = None   # omit/empty = unfollow EVERYONE you follow
+
+
+@router.post("/users/me/unfollow-bulk")
+async def unfollow_bulk(body: BulkUnfollowBody, authorization: Optional[str] = Header(None)):
+    """Mass-unfollow. With user_ids: unfollow just those. Without: purge your
+    entire following list at once."""
+    me = await get_current_user(authorization)
+    q: dict = {"follower_id": me["user_id"]}
+    if body.user_ids:
+        q["followee_id"] = {"$in": [u for u in body.user_ids if isinstance(u, str)][:5000]}
+    res = await db.follows.delete_many(q)
+    return {"ok": True, "unfollowed": getattr(res, "deleted_count", 0)}
+
+
 # ───────── Friends (Facebook-style, symmetric with request/accept) ─────────
 
 @router.post("/friends/request/{user_id}")

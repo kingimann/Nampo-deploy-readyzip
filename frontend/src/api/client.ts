@@ -693,6 +693,11 @@ export const api = {
     }),
   deletePost: (id: string) =>
     request<{ ok: boolean }>(`/posts/${id}`, { method: "DELETE" }),
+  // Delete many of your own posts. Omit post_ids to purge ALL your posts.
+  deletePostsBulk: (post_ids?: string[]) =>
+    request<{ ok: boolean; deleted: number }>("/posts/delete-bulk", {
+      method: "POST", body: JSON.stringify({ post_ids: post_ids ?? null }),
+    }),
   getPost: (id: string) => request<Post>(`/posts/${id}`),
   // ── Factcheck (community notes on posts) ──
   listFactchecks: (postId: string) =>
@@ -772,6 +777,11 @@ export const api = {
       `/hashtags/${encodeURIComponent(tag.replace(/^#/, ""))}/count`),
   toggleFollow: (uid: string) =>
     request<{ following: boolean }>(`/users/${uid}/follow`, { method: "POST" }),
+  // Mass-unfollow. Pass user_ids to unfollow those; omit to unfollow everyone.
+  unfollowBulk: (user_ids?: string[]) =>
+    request<{ ok: boolean; unfollowed: number }>("/users/me/unfollow-bulk", {
+      method: "POST", body: JSON.stringify({ user_ids: user_ids ?? null }),
+    }),
   pokeUser: (uid: string) =>
     request<{ ok: boolean; already?: boolean }>(`/users/${uid}/poke`, { method: "POST" }),
   // ── Money: send / request, gated by the sender's security question ──

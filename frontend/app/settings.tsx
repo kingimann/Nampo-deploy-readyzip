@@ -41,6 +41,28 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const onPurgePosts = () => {
+    Alert.alert(
+      "Delete all your posts?",
+      "This permanently deletes every post you've made. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete all",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const r = await api.deletePostsBulk();
+              Alert.alert("Done", `Deleted ${r.deleted} post${r.deleted === 1 ? "" : "s"}.`);
+            } catch {
+              Alert.alert("Couldn't delete", "Please try again.");
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const Row = ({
     icon, label, color = theme.primary, onPress, danger, last, badge,
   }: {
@@ -136,6 +158,7 @@ export default function SettingsScreen() {
         )}
 
         <View style={[styles.group, { marginTop: 24 }]}>
+          <Row icon="trash-outline" label="Delete all my posts" danger onPress={onPurgePosts} />
           <Row icon="log-out-outline" label="Sign out" danger onPress={onSignOut} last />
         </View>
 

@@ -682,6 +682,31 @@ async def delete_post(post_id: str, authorization: Optional[str] = Header(None))
     return {"ok": True}
 
 
+class BulkDeletePostsBody(BaseModel):
+    post_ids: Optional[List[str]] = None   # omit/empty = delete ALL your posts
+
+
+@router.post("/posts/delete-bulk")
+async def delete_posts_bulk(body: BulkDeletePostsBody, authorization: Optional[str] = Header(None)):
+    """Delete many of your own posts at once. With post_ids: just those.
+    Without: purge every post you've made."""
+    user = await get_current_user(authorization)
+    q: dict = {"user_id": user["user_id"]}
+    if body.post_ids:
+        q["id"] = {"$in": [p for p in body.post_ids if isinstance(p, str)][:2000]}
+    docs = await db.posts.find(q, {"_id": 0, "id": 1, "parent_id": 1}).to_list(5000)
+    ids = [d["id"] for d in docs]
+    if not ids:
+        return {"ok": True, "deleted": 0}
+    await db.posts.delete_many({"id": {"$in": ids}})
+    # Keep reply counts correct on any surviving parent posts.
+    for d in docs:
+        if d.get("parent_id"):
+            await db.posts.update_one({"id": d["parent_id"]}, {"$inc": {"replies_count": -1}})
+    await db.post_likes.delete_many({"post_id": {"$in": ids}})
+    return {"ok": True, "deleted": len(ids)}
+
+
 @router.get("/posts/{post_id}", response_model=Post)
 async def get_post(post_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
