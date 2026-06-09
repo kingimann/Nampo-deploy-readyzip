@@ -11,6 +11,7 @@ Play surface: the app loads `/api/pub/game/{id}` in a WebView (native) / iframe
 """
 from datetime import datetime, timezone
 from typing import Optional
+from xml.sax.saxutils import quoteattr
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response
@@ -66,8 +67,9 @@ async def create_game(body: GameCreate, authorization: Optional[str] = Header(No
         raise HTTPException(status_code=400, detail="Title is required")
     url = (body.url or "").strip()
     html = body.html or ""
-    if url and not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(status_code=400, detail="Game URL must be http/https")
+    if url and (not (url.startswith("http://") or url.startswith("https://"))
+                or any(c in url for c in " \t\r\n\"'<>")):
+        raise HTTPException(status_code=400, detail="Game URL must be a valid http/https URL")
     if not url and not html.strip():
         raise HTTPException(status_code=400, detail="Provide a game URL or inline HTML")
     if html and len(html) > HTML_MAX:
@@ -291,13 +293,15 @@ async def play_game(game_id: str, request: Request) -> Response:
         body = html
     else:
         # Hosted URL: load it in a full-screen iframe; the game includes the SDK.
-        url = doc["url"]
+        # quoteattr() wraps the URL in quotes and escapes them, so a crafted
+        # URL can't break out of the src attribute to inject markup/handlers.
+        src = quoteattr(doc["url"])
         body = (
             "<!doctype html><html><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
             "<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}iframe{border:0;width:100%;height:100%}</style>"
             f"{sdk_tag}</head><body>"
-            f"<iframe src='{url}' allow='fullscreen; gamepad; accelerometer; gyroscope'></iframe>"
+            f"<iframe src={src} allow='fullscreen; gamepad; accelerometer; gyroscope'></iframe>"
             "</body></html>"
         )
     return Response(content=body, media_type="text/html", headers={

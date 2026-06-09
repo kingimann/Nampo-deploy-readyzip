@@ -77,6 +77,10 @@ async def init_pool() -> None:
         ("custom_emojis", "uniq_custom_emoji_code", "((doc ->> 'shortcode'))"),
         ("communities", "uniq_community_name", "((doc ->> 'name'))"),
         ("community_members", "uniq_community_member", "((doc ->> 'community_id'), (doc ->> 'user_id'))"),
+        # Payment fulfillment ledger — the idempotency guard relies on this
+        # unique index so an event/session is fulfilled exactly once even under
+        # concurrent webhook + inline-confirm delivery.
+        ("payments_fulfilled", "uniq_payments_fulfilled_ref", "((doc ->> 'ref_id'))"),
         # Daily roadside call number is unique per day (rows without a number
         # have NULLs, which Postgres treats as distinct, so old rows are fine).
         ("roadside_requests", "uniq_roadside_call", "((doc ->> 'call_date'), (doc ->> 'call_number'))"),
@@ -455,6 +459,19 @@ def _user_doc_to_model(d: dict) -> dict:
         "twofa_enabled": bool(d.get("twofa_enabled", False)),
         "sms_notifications": bool(d.get("sms_notifications", False)),
         "bio": d.get("bio", ""),
+        # Public-profile details + customization (must round-trip so the app
+        # actually sees what was saved — otherwise edits appear not to persist).
+        "headline": d.get("headline"),
+        "location": d.get("location"),
+        "pronouns": d.get("pronouns"),
+        "birthday": d.get("birthday"),
+        "socials": d.get("socials"),
+        "cover_photo": d.get("cover_photo"),
+        "accent_color": d.get("accent_color"),
+        "interests": d.get("interests") or [],
+        "featured_links": d.get("featured_links") or [],
+        "avatar_frame": d.get("avatar_frame"),
+        "profile_background": d.get("profile_background"),
         "home_name": d.get("home_name"),
         "home_longitude": d.get("home_longitude"),
         "home_latitude": d.get("home_latitude"),
@@ -478,6 +495,11 @@ def _user_doc_to_model(d: dict) -> dict:
         "is_private": bool(d.get("is_private", False)),
         "searchable": bool(d.get("searchable", True)),
         "hide_online": bool(d.get("hide_online", False)),
+        "connections_visibility": d.get("connections_visibility") or "everyone",
+        "hide_likes": bool(d.get("hide_likes", False)),
+        "tag_policy": d.get("tag_policy") or "everyone",
+        "muted_keywords": d.get("muted_keywords") or [],
+        "boost_keywords": d.get("boost_keywords") or [],
         "created_at": d["created_at"],
     }
 

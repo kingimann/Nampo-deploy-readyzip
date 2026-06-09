@@ -9,6 +9,7 @@ Security note: env-var values are secrets. They're only returned to admins and
 the UI masks them behind a tap-to-reveal. Editing an env var triggers a redeploy.
 """
 import os
+import re
 from typing import Optional
 
 import httpx
@@ -20,6 +21,12 @@ from core import get_current_user, is_admin
 router = APIRouter()
 
 RENDER_API = "https://api.render.com/v1"
+
+# Only allow safe path characters so a service id / env-var key taken from the
+# URL can't inject extra path segments, query strings, or `..` traversal into
+# the upstream Render API call (Render ids look like "srv-…", env keys are
+# [A-Za-z0-9_]; neither contains dots, slashes, or query characters).
+_SAFE_PATH_RE = re.compile(r"^/[A-Za-z0-9_/-]+$")
 
 
 def _render_key() -> str:
@@ -37,6 +44,8 @@ async def _render(method: str, path: str, **kw) -> httpx.Response:
     key = _render_key()
     if not key:
         raise HTTPException(status_code=400, detail="RENDER_API_KEY is not set on the backend.")
+    if ".." in path or not _SAFE_PATH_RE.match(path):
+        raise HTTPException(status_code=400, detail="Invalid service id or env-var key.")
     async with httpx.AsyncClient(timeout=25) as c:
         r = await c.request(
             method, f"{RENDER_API}{path}",
@@ -44,9 +53,11 @@ async def _render(method: str, path: str, **kw) -> httpx.Response:
             **kw,
         )
     if r.status_code >= 400:
+        # Don't echo the upstream Render response body (it can contain account
+        # detail / reflected input); surface only the status to the admin.
         raise HTTPException(
             status_code=(r.status_code if 400 <= r.status_code < 500 else 502),
-            detail=f"Render API {r.status_code}: {r.text[:240]}",
+            detail=f"Render API request failed ({r.status_code}).",
         )
     return r
 

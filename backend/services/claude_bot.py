@@ -189,9 +189,16 @@ async def _loop():
         await asyncio.sleep(POLL_SECONDS)
 
 
+_BG_TASKS: set = set()
+
+
 def start_bot():
     """Start the bot loop if an API key is configured."""
     if not _enabled():
         logger.info("Assistant bot disabled (OLLAMA_HOST not set)")
         return
-    asyncio.create_task(_loop())
+    # Keep a strong reference: asyncio only holds a weak ref to a running task,
+    # so without this the loop could be garbage-collected mid-`await sleep`.
+    t = asyncio.create_task(_loop())
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)

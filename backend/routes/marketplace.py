@@ -708,16 +708,36 @@ async def contact_seller(listing_id: str, authorization: Optional[str] = Header(
         raise HTTPException(status_code=404, detail="Listing not found")
     if listing["user_id"] == user["user_id"]:
         raise HTTPException(status_code=400, detail="Cannot message yourself about your own listing")
+    # An admin-imposed messaging lock blocks opening new threads to message.
+    if user.get("messaging_disabled"):
+        raise HTTPException(status_code=403, detail={
+            "code": "messaging_disabled",
+            "message": "Messaging has been disabled on your account by an administrator.",
+        })
     seller_id = listing["user_id"]
     key = _conv_key(user["user_id"], seller_id)
-    existing = await db.conversations.find_one({"key": key}, {"_id": 0})
+    existing = await db.conversations.find_one(
+        {"key": key, "kind": {"$ne": "group"}}, {"_id": 0}
+    )
     if existing:
         conv = existing
     else:
+        # Honour the seller's "who can message me" policy when STARTING a new
+        # thread (mirrors get_or_create_conversation). Existing threads are left
+        # alone — the relationship already exists.
+        from routes.messaging import _can_message
+        seller_doc = await db.users.find_one({"user_id": seller_id}, {"_id": 0})
+        if seller_doc and not await _can_message(user["user_id"], seller_doc):
+            raise HTTPException(status_code=403, detail={
+                "code": "messages_restricted",
+                "message": "This account isn't accepting messages from you.",
+            })
         conv = {
             "id": str(uuid.uuid4()),
+            "kind": "dm",
             "key": key,
             "participant_ids": sorted([user["user_id"], seller_id]),
+            "deleted_by": [],
             "last_message_at": None,
             "created_at": datetime.now(timezone.utc),
         }
