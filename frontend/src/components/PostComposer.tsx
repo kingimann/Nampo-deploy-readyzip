@@ -6,7 +6,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { api, Post, PostMedia, Draft, PublicUser, mediaUri } from "@/src/api/client";
+import { api, Post, PostMedia, Draft, PublicUser, Circle, mediaUri } from "@/src/api/client";
 import { cloudinaryEnabled, uploadToCloudinary } from "@/src/api/cloudinary";
 import { pickThumbnailUri } from "@/src/utils/thumbnail";
 import ReelPoster from "@/src/components/ReelPoster";
@@ -129,6 +129,8 @@ export default function PostComposer({
   const [commentPolicy, setCommentPolicy] = useState<"everyone" | "followers" | "friends" | "nobody">("everyone");
   const [subTier, setSubTier] = useState(0); // 0 = public; 1-3 = subscribers-only
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [circles, setCircles] = useState<Circle[]>([]);
+  const [audienceCircle, setAudienceCircle] = useState<string | null>(null);
 
   // Privacy controls only make sense for a brand-new top-level (non-group) post.
   const showPrivacy = !editing && !replyTo && !quoting && !groupId;
@@ -225,6 +227,8 @@ export default function PostComposer({
       setThread([]);
       setTagged([]);
       setMentions([]);
+      setAudienceCircle(null);
+      if (showPrivacy) api.listCircles().then(setCircles).catch(() => {});
       setDraftId(null);
       setDiscardOpen(false);
       setDraftsOpen(false);
@@ -438,6 +442,7 @@ export default function PostComposer({
           } : undefined,
           ...(taggedIds.length ? { tagged_user_ids: taggedIds } : {}),
           ...(showPrivacy ? { likes_disabled: likesOff, comment_policy: commentPolicy, min_sub_tier: subTier } : {}),
+          ...(showPrivacy && audienceCircle ? { audience_circle_id: audienceCircle } : {}),
         });
       }
       // Post any additional thread parts as a self-reply chain off the root.
@@ -778,11 +783,12 @@ export default function PostComposer({
                   style={styles.audienceBtn}
                   testID="composer-privacy"
                 >
-                  <Ionicons name={(COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.icon as any) || "earth-outline"} size={16} color={theme.primary} />
+                  <Ionicons name={audienceCircle ? "people" : ((COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.icon as any) || "earth-outline")} size={16} color={theme.primary} />
                   <Text style={styles.audienceText} numberOfLines={1}>
-                    {subTier > 0 ? `Tier ${subTier}+` : COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.label}
+                    {audienceCircle ? (circles.find((c) => c.id === audienceCircle)?.name || "Circle")
+                      : subTier > 0 ? `Tier ${subTier}+` : COMMENT_POLICIES.find((p) => p.k === commentPolicy)?.label}
                   </Text>
-                  {subTier > 0 && <Ionicons name="star" size={13} color="#F5A623" />}
+                  {subTier > 0 && !audienceCircle && <Ionicons name="star" size={13} color="#F5A623" />}
                   {likesOff && <Ionicons name="heart-dislike-outline" size={14} color={theme.textMuted} />}
                 </TouchableOpacity>
               )}
@@ -844,6 +850,26 @@ export default function PostComposer({
                   </TouchableOpacity>
                 );
               })}
+              {circles.length > 0 && (
+                <>
+                  <Text style={styles.pSection}>Audience circle</Text>
+                  <TouchableOpacity style={styles.pOpt} onPress={() => setAudienceCircle(null)} testID="composer-circle-none">
+                    <Ionicons name="earth-outline" size={18} color={!audienceCircle ? theme.primary : theme.textMuted} />
+                    <Text style={[styles.pOptLabel, !audienceCircle && { color: theme.primary }]}>Everyone (no circle)</Text>
+                    <Ionicons name={!audienceCircle ? "radio-button-on" : "radio-button-off"} size={20} color={!audienceCircle ? theme.primary : theme.textMuted} />
+                  </TouchableOpacity>
+                  {circles.map((c) => {
+                    const on = audienceCircle === c.id;
+                    return (
+                      <TouchableOpacity key={c.id} style={styles.pOpt} onPress={() => { setAudienceCircle(c.id); setSubTier(0); }} testID={`composer-circle-${c.id}`}>
+                        <Ionicons name="people" size={18} color={on ? theme.primary : theme.textMuted} />
+                        <Text style={[styles.pOptLabel, on && { color: theme.primary }]} numberOfLines={1}>{c.name} · {c.member_count}</Text>
+                        <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={20} color={on ? theme.primary : theme.textMuted} />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
               <TouchableOpacity style={styles.pDone} onPress={() => setPrivacyOpen(false)} testID="composer-privacy-done">
                 <Text style={styles.pDoneText}>Done</Text>
               </TouchableOpacity>

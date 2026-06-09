@@ -782,6 +782,15 @@ export const api = {
     request<{ ok: boolean; unfollowed: number }>("/users/me/unfollow-bulk", {
       method: "POST", body: JSON.stringify({ user_ids: user_ids ?? null }),
     }),
+  // Audience circles (Close-Friends-style layers).
+  listCircles: () => request<Circle[]>("/circles"),
+  createCircle: (name: string, member_ids?: string[]) =>
+    request<Circle>("/circles", { method: "POST", body: JSON.stringify({ name, member_ids: member_ids ?? null }) }),
+  updateCircle: (id: string, body: { name?: string; add_member_ids?: string[]; remove_member_ids?: string[] }) =>
+    request<Circle>(`/circles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteCircle: (id: string) =>
+    request<{ ok: boolean }>(`/circles/${id}`, { method: "DELETE" }),
+  circleMembers: (id: string) => request<PublicUser[]>(`/circles/${id}/members`),
   pokeUser: (uid: string) =>
     request<{ ok: boolean; already?: boolean }>(`/users/${uid}/poke`, { method: "POST" }),
   // ── Money: send / request, gated by the sender's security question ──
@@ -1259,6 +1268,13 @@ export type PublicUser = {
   friend_status?: FriendStatus;
   poked_me?: boolean;
 };
+export type Circle = {
+  id: string;
+  name: string;
+  member_count: number;
+  member_ids: string[];
+  created_at?: string;
+};
 export type Place = {
   id: string; user_id: string; title: string; notes?: string;
   longitude: number; latitude: number; address?: string; category: string; created_at: string;
@@ -1713,6 +1729,8 @@ export type Post = {
   likes_disabled?: boolean;
   comment_policy?: string;
   min_sub_tier?: number;   // 0 = public; 1-3 = subscribers-only
+  audience_circle_id?: string | null;   // posted to an audience circle
+  audience_circle_name?: string | null;
   locked?: boolean;        // gated content the viewer hasn't unlocked
   can_comment?: boolean;
   liked_by_me: boolean; disliked_by_me?: boolean; reposted_by_me?: boolean; bookmarked_by_me?: boolean;
@@ -1760,6 +1778,7 @@ export type PostCreate = {
   likes_disabled?: boolean;
   comment_policy?: string;
   min_sub_tier?: number;   // 0 = public; 1-3 = subscribers-only
+  audience_circle_id?: string;   // restrict the post to one of your circles
   tagged_user_ids?: string[];
 };
 

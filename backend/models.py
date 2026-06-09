@@ -627,6 +627,7 @@ class PostCreate(BaseModel):
     comment_policy: Optional[str] = None               # everyone | followers | friends | nobody
     min_sub_tier: Optional[int] = None                 # 0 = public; 1-3 = subscribers-only (Twitch-style)
     tagged_user_ids: Optional[List[str]] = None        # people tagged in this post
+    audience_circle_id: Optional[str] = None           # if set, only this circle's members (+ you) can see it
 
 
 class CommunityCreate(BaseModel):
@@ -724,6 +725,8 @@ class Post(BaseModel):
     likes_disabled: bool = False
     comment_policy: str = "everyone"   # everyone | followers | friends | nobody
     min_sub_tier: int = 0              # 0 = public; 1-3 = subscribers-only (Twitch-style)
+    audience_circle_id: Optional[str] = None   # posted to an audience circle (only members + author see it)
+    audience_circle_name: Optional[str] = None # the circle's name, for a badge
     locked: bool = False              # gated content the viewer hasn't unlocked (content stripped)
     can_comment: bool = True           # may the current viewer comment?
     liked_by_me: bool = False

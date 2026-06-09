@@ -35,6 +35,7 @@ from routes import (
     payouts as payouts_routes,
     places as places_routes,
     posts as posts_routes,
+    circles as circles_routes,
     push as push_routes,
     render_admin as render_admin_routes,
     reviews as reviews_routes,
@@ -230,6 +231,7 @@ def _register(parent: APIRouter):
     parent.include_router(notifications_routes.router)
     parent.include_router(eta_routes.router)
     parent.include_router(posts_routes.router)
+    parent.include_router(circles_routes.router)
     parent.include_router(drafts_routes.router)
     parent.include_router(marketplace_routes.router)
     parent.include_router(groups_routes.router)

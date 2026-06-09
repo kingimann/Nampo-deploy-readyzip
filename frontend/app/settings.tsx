@@ -130,6 +130,7 @@ export default function SettingsScreen() {
           <Row icon="bookmark-outline" label="Bookmarks" color={theme.primary} onPress={() => router.push("/bookmarks")} />
           <Row icon="location-outline" label="Saved places" color="#22C55E" onPress={() => router.push("/(tabs)/favorites")} />
           <Row icon="people-outline" label="Connections" color="#7C3AED" onPress={() => router.push({ pathname: "/connections", params: { userId: user?.user_id || "", name: user?.name || "You", tab: "followers" } })} />
+          <Row icon="people-circle-outline" label="Circles" color="#0EA5E9" onPress={() => router.push("/circles")} />
           <Row icon="document-text-outline" label="Forms" color="#8B5CF6" onPress={() => router.push("/forms")} />
           <Row icon="game-controller-outline" label="Games" color="#8B5CF6" onPress={() => router.push("/games")} last />
         </View>

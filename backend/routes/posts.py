@@ -365,8 +365,15 @@ async def _hydrate_post(doc: dict, viewer_id: Optional[str]) -> Post:
     locked = False
     if min_tier > 0:
         locked = (await _viewer_sub_level(viewer_id, doc["user_id"])) < min_tier
+    # Audience-circle badge (the viewer can already see this post if it got here).
+    circle_id = doc.get("audience_circle_id")
+    circle_name = None
+    if circle_id:
+        c = await db.circles.find_one({"id": circle_id}, {"_id": 0, "name": 1})
+        circle_name = (c or {}).get("name")
     return Post(
         id=doc["id"], user_id=doc["user_id"], author=author,
+        audience_circle_id=circle_id, audience_circle_name=circle_name,
         text="" if locked else doc["text"],
         parent_id=doc.get("parent_id"),
         repost_of=doc.get("repost_of"),
@@ -516,12 +523,21 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
             "closed": False,
         }
 
+    # Audience circle: only valid on top-level posts to a circle you own.
+    audience_circle_id = None
+    if body.audience_circle_id and not parent_id:
+        owned = await db.circles.find_one(
+            {"id": body.audience_circle_id, "owner_id": user["user_id"]}, {"_id": 0, "id": 1}
+        )
+        if owned:
+            audience_circle_id = body.audience_circle_id
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["user_id"],
         "text": text,
         "parent_id": parent_id,
         "quote_of": quote_of,
+        "audience_circle_id": audience_circle_id,
         "place_name": body.place_name,
         "place_longitude": body.place_longitude,
         "place_latitude": body.place_latitude,
@@ -713,6 +729,8 @@ async def get_post(post_id: str, authorization: Optional[str] = Header(None)):
     doc = await db.posts.find_one({"id": post_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Post not found")
+    if not await _can_see_circle_post(user["user_id"], doc):
+        raise HTTPException(status_code=404, detail="Post not found")
     return await _hydrate_post(doc, user["user_id"])
 
 
@@ -871,6 +889,35 @@ def _filter_muted(docs: list, patterns: list) -> list:
     return out
 
 
+async def _viewer_circle_ids(viewer_id: str) -> set:
+    """Audience-circle ids (owned by anyone) that this viewer is a member of."""
+    try:
+        rows = await db.circles.find({"member_ids": viewer_id}, {"_id": 0, "id": 1}).to_list(2000)
+        return {r["id"] for r in rows}
+    except Exception:
+        return set()
+
+
+def _filter_circles(docs: list, viewer_id: str, member_circle_ids: set) -> list:
+    """Drop audience-circle posts the viewer isn't allowed to see (not the author
+    and not a member of the targeted circle)."""
+    out = []
+    for d in docs:
+        cid = d.get("audience_circle_id")
+        if not cid or d.get("user_id") == viewer_id or cid in member_circle_ids:
+            out.append(d)
+    return out
+
+
+async def _can_see_circle_post(viewer_id: str, doc: dict) -> bool:
+    """Single-post audience-circle check (for direct post access)."""
+    cid = doc.get("audience_circle_id")
+    if not cid or doc.get("user_id") == viewer_id:
+        return True
+    c = await db.circles.find_one({"id": cid}, {"_id": 0, "member_ids": 1})
+    return bool(c and viewer_id in (c.get("member_ids") or []))
+
+
 @router.get("/feed/explore", response_model=List[Post])
 async def explore_feed(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -884,6 +931,7 @@ async def explore_feed(authorization: Optional[str] = Header(None)):
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
     docs = _filter_muted(docs, _muted_patterns(user.get("muted_keywords")))
+    docs = _filter_circles(docs, user["user_id"], await _viewer_circle_ids(user["user_id"]))
     ranked = await _rank_docs(docs, user["user_id"], 100, _muted_patterns(user.get("boost_keywords")))
     return await _hydrate_many(ranked, user["user_id"])
 
@@ -906,6 +954,7 @@ async def home_feed(authorization: Optional[str] = Header(None)):
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
     docs = _filter_muted(docs, _muted_patterns(user.get("muted_keywords")))
+    docs = _filter_circles(docs, user["user_id"], await _viewer_circle_ids(user["user_id"]))
     ranked = await _rank_docs(docs, user["user_id"], 100, _muted_patterns(user.get("boost_keywords")))
     return await _hydrate_many(ranked, user["user_id"])
 
@@ -926,6 +975,9 @@ async def user_posts(user_id: str, authorization: Optional[str] = Header(None)):
         .sort("created_at", -1).limit(100)
     )
     docs = await cursor.to_list(100)
+    # Hide audience-circle posts from non-members (the owner always sees their own).
+    if user_id != me["user_id"]:
+        docs = _filter_circles(docs, me["user_id"], await _viewer_circle_ids(me["user_id"]))
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned posts first
     return await _hydrate_many(docs, me["user_id"])
 
