@@ -10,7 +10,7 @@ import * as ImagePicker from "expo-image-picker";
 import { assetToUri } from "@/src/utils/thumbnail";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
-import { api, Post, mediaUri, FeaturedLink } from "@/src/api/client";
+import { api, Post, mediaUri, FeaturedLink, BusinessProfile } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { GLASS } from "@/src/lib/glass";
 import {
@@ -99,6 +99,14 @@ export default function ProfileScreen() {
   const [tabLoading, setTabLoading] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [profileTab, setProfileTab] = useState<"posts" | "replies" | "reposts" | "media" | "likes">("posts");
+  // The user's separate business profile (storefront), if they have one — shown
+  // as a switcher right here next to their personal profile.
+  const [myBiz, setMyBiz] = useState<BusinessProfile | null>(null);
+  useFocusEffect(useCallback(() => {
+    let alive = true;
+    api.myBusiness().then((b) => { if (alive) setMyBiz(b); }).catch(() => {});
+    return () => { alive = false; };
+  }, []));
 
   const loadPosts = useCallback(async () => {
     if (!user) return;
@@ -671,6 +679,34 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+
+        {/* Personal ⇄ Business profile switcher — your business is a separate
+            profile that lives right here alongside your personal one. */}
+        <View style={styles.switcher}>
+          <View style={[styles.switchItem, styles.switchItemActive, { borderColor: accent }]}>
+            <Image source={{ uri: user?.picture || DEFAULT_AVATAR }} style={styles.switchAvatar} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchName} numberOfLines={1}>{user?.name || "You"}</Text>
+              <Text style={styles.switchKind}>Personal · current</Text>
+            </View>
+            <Ionicons name="checkmark-circle" size={20} color={accent} />
+          </View>
+          <TouchableOpacity
+            style={styles.switchItem}
+            activeOpacity={0.85}
+            onPress={() => router.push(myBiz ? { pathname: "/business/[id]", params: { id: myBiz.id } } : "/business")}
+            testID="profile-business-switch"
+          >
+            <View style={[styles.switchBizIcon, { backgroundColor: myBiz?.accent || theme.primary }]}>
+              {myBiz?.logo ? <Image source={{ uri: myBiz.logo }} style={styles.switchAvatar} /> : <Ionicons name="business" size={20} color="#fff" />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.switchName} numberOfLines={1}>{myBiz ? myBiz.name : "Business profile"}</Text>
+              <Text style={styles.switchKind} numberOfLines={1}>{myBiz ? "Business · tap to open" : "Create a separate storefront"}</Text>
+            </View>
+            <Ionicons name={myBiz ? "chevron-forward" : "add-circle-outline"} size={20} color={theme.textMuted} />
+          </TouchableOpacity>
         </View>
 
         {/* What others can see — visibility summary, tap to manage privacy. */}
@@ -1382,6 +1418,13 @@ const styles = StyleSheet.create({
   emailRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 9 },
   onlyYou: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: theme.surfaceAlt, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 },
   onlyYouText: { color: theme.textMuted, fontSize: 9.5, fontWeight: "800" },
+  switcher: { marginTop: 14, gap: 8 },
+  switchItem: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 10 },
+  switchItemActive: { borderWidth: 1.5 },
+  switchAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.surfaceAlt },
+  switchBizIcon: { width: 40, height: 40, borderRadius: 12, overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  switchName: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  switchKind: { color: theme.textMuted, fontSize: 12.5, fontWeight: "600", marginTop: 1 },
   visCard: {
     marginTop: 14, backgroundColor: theme.surface, borderRadius: 16,
     borderWidth: 1, borderColor: theme.border, padding: 14, gap: 8,
