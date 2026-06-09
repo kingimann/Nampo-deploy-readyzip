@@ -20,7 +20,7 @@ import {
 } from "expo-audio";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, Message, Post, PublicUser, CustomEmoji, FormDef } from "@/src/api/client";
+import { api, Message, Post, PublicUser, CustomEmoji, FormDef, mediaUri } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import EmojiText from "@/src/components/EmojiText";
@@ -135,6 +135,8 @@ export default function ChatScreen() {
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryLb, setGalleryLb] = useState<string | null>(null);
   // Conversation settings (Messenger-style): color theme, disappearing timer, group name.
   const [convTheme, setConvTheme] = useState<string>("default");
   const [disappearSecs, setDisappearSecs] = useState<number>(0);
@@ -981,6 +983,14 @@ export default function ChatScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.optRow}
+              onPress={() => { setOptionsOpen(false); setGalleryOpen(true); }}
+              testID="chat-shared-media"
+            >
+              <Ionicons name="images-outline" size={20} color={theme.textPrimary} />
+              <Text style={styles.optText}>Shared media, files &amp; links</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.optRow}
               onPress={() => { setOptionsOpen(false); setDisappearOpen(true); }}
               testID="chat-disappearing"
             >
@@ -1021,6 +1031,94 @@ export default function ChatScreen() {
               })}
             </View>
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Shared media / files / links gallery */}
+      <Modal visible={galleryOpen} animationType="slide" onRequestClose={() => setGalleryOpen(false)}>
+        <SafeAreaView edges={["top"]} style={styles.galRoot}>
+          <View style={styles.galHeader}>
+            <Text style={styles.galTitle}>Shared content</Text>
+            <TouchableOpacity onPress={() => setGalleryOpen(false)} hitSlop={8} testID="gallery-close">
+              <Ionicons name="close" size={24} color={theme.textPrimary} />
+            </TouchableOpacity>
+          </View>
+          {(() => {
+            const media: { uri: string; type: string; msgId: string }[] = [];
+            const files: Message[] = [];
+            const links: { url: string; msgId: string }[] = [];
+            const urlRe = /(https?:\/\/[^\s]+)/gi;
+            messages.forEach((m) => {
+              if (m.deleted) return;
+              if (m.type === "media") {
+                (m.media || []).forEach((mm, i) => {
+                  const resolved: any = isE2EMedia(mm.base64 || "") ? { ...mm, base64: blobs[`m:${m.id}:${i}`] } : mm;
+                  const uri = mediaUri(resolved);
+                  if (uri) media.push({ uri, type: mm.type, msgId: m.id });
+                });
+              } else if (m.type === "file") {
+                files.push(m);
+              }
+              const found = plainOf(m).match(urlRe);
+              if (found) found.forEach((u) => links.push({ url: u, msgId: m.id }));
+            });
+            const empty = !media.length && !files.length && !links.length;
+            return (
+              <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24 }}>
+                {empty && <Text style={styles.galEmpty}>No media, files or links shared yet.</Text>}
+                {media.length > 0 && (
+                  <>
+                    <Text style={styles.galSection}>Media · {media.length}</Text>
+                    <View style={styles.galGrid}>
+                      {media.map((it, i) => (
+                        <TouchableOpacity
+                          key={i}
+                          style={styles.galTile}
+                          activeOpacity={0.85}
+                          onPress={() => {
+                            if (it.type === "video") { setGalleryOpen(false); const mm = messages.find((x) => x.id === it.msgId); if (mm) jumpToMessage(mm); }
+                            else setGalleryLb(it.uri);
+                          }}
+                        >
+                          <Image source={{ uri: it.uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                          {it.type === "video" && <View style={styles.galVideo}><Ionicons name="play" size={18} color="#fff" /></View>}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )}
+                {files.length > 0 && (
+                  <>
+                    <Text style={styles.galSection}>Files · {files.length}</Text>
+                    {files.map((m) => (
+                      <TouchableOpacity key={m.id} style={styles.galRow} onPress={() => { setGalleryOpen(false); jumpToMessage(m); }}>
+                        <Ionicons name="document-outline" size={20} color={theme.primary} />
+                        <Text style={styles.galRowText} numberOfLines={1}>{m.file_name || "File"}</Text>
+                        {!!m.file_size && <Text style={styles.galRowSub}>{(m.file_size / 1024 / 1024).toFixed(1)}MB</Text>}
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+                {links.length > 0 && (
+                  <>
+                    <Text style={styles.galSection}>Links · {links.length}</Text>
+                    {links.map((l, i) => (
+                      <TouchableOpacity key={i} style={styles.galRow} onPress={() => Linking.openURL(l.url).catch(() => {})}>
+                        <Ionicons name="link-outline" size={20} color={theme.primary} />
+                        <Text style={[styles.galRowText, { color: theme.primary }]} numberOfLines={1}>{l.url}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                )}
+              </ScrollView>
+            );
+          })()}
+        </SafeAreaView>
+      </Modal>
+
+      <Modal visible={!!galleryLb} transparent animationType="fade" onRequestClose={() => setGalleryLb(null)}>
+        <TouchableOpacity style={styles.galLb} activeOpacity={1} onPress={() => setGalleryLb(null)}>
+          {!!galleryLb && <Image source={{ uri: galleryLb }} style={{ width: "94%", height: "80%" }} resizeMode="contain" />}
         </TouchableOpacity>
       </Modal>
 
@@ -1759,6 +1857,18 @@ const styles = StyleSheet.create({
   replySnippet: { color: theme.textSecondary, fontSize: 13, marginTop: 1 },
 
   actionBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  galRoot: { flex: 1, backgroundColor: theme.bg },
+  galHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  galTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  galEmpty: { color: theme.textMuted, fontSize: 14, textAlign: "center", paddingVertical: 50 },
+  galSection: { color: theme.textMuted, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 14, marginBottom: 8 },
+  galGrid: { flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  galTile: { width: "32%", aspectRatio: 1, borderRadius: 8, overflow: "hidden", backgroundColor: theme.surfaceAlt, position: "relative" },
+  galVideo: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.25)" },
+  galRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+  galRowText: { flex: 1, color: theme.textPrimary, fontSize: 14 },
+  galRowSub: { color: theme.textMuted, fontSize: 12 },
+  galLb: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
   searchBar: {
     flexDirection: "row", alignItems: "center", gap: 10,
     paddingHorizontal: 14, paddingVertical: 8,
