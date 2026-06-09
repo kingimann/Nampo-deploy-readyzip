@@ -32,6 +32,13 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     branch: main
+    # Custom API domain. Render will show a DNS record to add for api.okayspace.ca;
+    # once it verifies, the backend is reachable at https://api.okayspace.ca AND the
+    # existing nampo-backend.onrender.com URL. Only AFTER it's verified do we flip
+    # EXPO_PUBLIC_BACKEND_URL (below) to https://api.okayspace.ca — flipping early
+    # would break every API call until DNS propagates.
+    domains:
+      - api.okayspace.ca
     envVars:
       # External Postgres connection string (asyncpg DSN). Paste your Neon /
       # Supabase URL in the Render dashboard — sync:false keeps it out of git.
