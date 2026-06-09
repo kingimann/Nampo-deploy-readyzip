@@ -54,11 +54,6 @@ function RightRail() {
 
   return (
     <ScrollView style={styles.right} contentContainerStyle={{ paddingVertical: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
-      <Pressable style={styles.searchBtn} onPress={() => router.push("/search")} testID="desktop-search">
-        <Ionicons name="search" size={17} color={theme.textMuted} />
-        <Text style={styles.searchText}>Search OkaySpace</Text>
-      </Pressable>
-
       {tags.length > 0 && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Trending</Text>
@@ -106,7 +101,6 @@ export default function DesktopShell({ children }: { children: React.ReactNode }
   if (!desktop) return <>{children}</>;
 
   const fullBleed = FULL_BLEED.includes(pathname);
-  const showRight = !fullBleed && width >= WIDE_BP;
 
   const isActive = (it: Item) => {
     const ons = it.activeOn || [it.route];
@@ -173,8 +167,6 @@ export default function DesktopShell({ children }: { children: React.ReactNode }
           <View style={styles.content}>{children}</View>
         </View>
       )}
-
-      {showRight && <RightRail />}
     </View>
   );
 }
