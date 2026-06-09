@@ -435,6 +435,49 @@ async def _purge_user_data(uid: str) -> None:
         post_ids = [r["id"] for r in rows if r.get("id")]
     except Exception:
         post_ids = []
+    own = set(post_ids)
+
+    # Before deleting the user's engagement, fix the counters on OTHER people's
+    # content they touched (skip their own posts — those are being deleted).
+    async def _dec(coll: str, target_id, incs: dict):
+        if not target_id or target_id in own:
+            return
+        try:
+            await getattr(db, coll).update_one({"id": target_id}, {"$inc": incs})
+        except Exception:
+            pass
+
+    async def _scan(coll: str, filt: dict, fields: dict):
+        try:
+            proj = {"_id": 0, **{f: 1 for f in fields}}
+            return await getattr(db, coll).find(filt, proj).limit(100000).to_list(100000)
+        except Exception:
+            return []
+
+    # Reactions → likes_count + per-emoji tally on the reacted-to post.
+    for r in await _scan("post_reactions", {"user_id": uid}, {"post_id", "emoji"}):
+        incs = {"likes_count": -1}
+        if r.get("emoji"):
+            incs[f"reactions.{r['emoji']}"] = -1
+        await _dec("posts", r.get("post_id"), incs)
+    for r in await _scan("post_likes", {"user_id": uid}, {"post_id"}):
+        await _dec("posts", r.get("post_id"), {"likes_count": -1})
+    # Replies → parent replies_count.
+    for r in await _scan("posts", {"user_id": uid, "parent_id": {"$ne": None}}, {"parent_id"}):
+        await _dec("posts", r.get("parent_id"), {"replies_count": -1})
+    # Reposts → original reposts_count.
+    for r in await _scan("posts", {"user_id": uid, "repost_of": {"$ne": None}}, {"repost_of"}):
+        await _dec("posts", r.get("repost_of"), {"reposts_count": -1})
+    # Bookmarks → bookmarks_count.
+    for r in await _scan("post_bookmarks", {"user_id": uid}, {"post_id"}):
+        await _dec("posts", r.get("post_id"), {"bookmarks_count": -1})
+    # Saved listings → listing saved_count.
+    for r in await _scan("listing_saves", {"user_id": uid}, {"listing_id"}):
+        try:
+            await db.listings.update_one({"id": r.get("listing_id")}, {"$inc": {"saved_count": -1}})
+        except Exception:
+            pass
+
     await _del("posts", {"user_id": uid})
     if post_ids:
         await _del("posts", {"parent_id": {"$in": post_ids}})       # replies by others
