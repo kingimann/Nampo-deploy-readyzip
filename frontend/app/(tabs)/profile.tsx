@@ -34,6 +34,9 @@ function compactCount(n: number): string {
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
+const policyLabel = (p?: string): string =>
+  ({ everyone: "Everyone", followers: "Followers", friends: "Friends", nobody: "No one" }[p || "everyone"] || "Everyone");
+
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -349,7 +352,15 @@ export default function ProfileScreen() {
               </View>
             )}
 
-            {!!user?.email && <Text style={styles.email} numberOfLines={1}>{user.email}</Text>}
+            {!!user?.email && (
+              <View style={styles.emailRow}>
+                <Text style={styles.email} numberOfLines={1}>{user.email}</Text>
+                <View style={styles.onlyYou}>
+                  <Ionicons name="lock-closed" size={9} color={theme.textMuted} />
+                  <Text style={styles.onlyYouText}>Only you</Text>
+                </View>
+              </View>
+            )}
 
             <View style={styles.socialBar}>
               <TouchableOpacity
@@ -414,6 +425,39 @@ export default function ProfileScreen() {
             <Text style={styles.statLabel}>Reviews</Text>
           </View>
         </View>
+
+        {/* What others can see — visibility summary, tap to manage privacy. */}
+        <TouchableOpacity style={styles.visCard} activeOpacity={0.9} onPress={() => router.push("/privacy")} testID="profile-visibility">
+          <View style={styles.visHead}>
+            <Ionicons name={user?.is_private ? "lock-closed" : "earth"} size={16} color={theme.primary} />
+            <Text style={styles.visTitle}>{user?.is_private ? "Private account" : "Public account"}</Text>
+            <View style={{ flex: 1 }} />
+            <Text style={styles.visManage}>Manage</Text>
+            <Ionicons name="chevron-forward" size={14} color={theme.textMuted} />
+          </View>
+          <Text style={styles.visDesc}>
+            {user?.is_private
+              ? "Only followers you approve can see your posts. Your name, @username and bio stay public."
+              : "Anyone can see your posts, name, @username and bio, and follow you."}
+          </Text>
+          <View style={styles.visRows}>
+            {([
+              ["Appears in search", user?.searchable === false ? "No" : "Yes"],
+              ["Active / online status", user?.hide_online ? "Hidden" : "Visible"],
+              ["Who can message you", policyLabel(user?.message_policy)],
+              ["Who can comment on posts", policyLabel(user?.default_comment_policy)],
+            ] as const).map(([label, value]) => (
+              <View key={label} style={styles.visRow}>
+                <Text style={styles.visRowLabel}>{label}</Text>
+                <Text style={styles.visRowValue}>{value}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.visPrivate}>
+            <Ionicons name="lock-closed" size={11} color={theme.textMuted} />{" "}
+            Only you can see your email{user?.phone ? ", phone number" : ""}, and saved home/work places.
+          </Text>
+        </TouchableOpacity>
 
         <View style={styles.profileTabs}>
           {(([["posts", "Posts"], ["replies", "Replies"], ["reposts", "Reposts"], ["media", "Media"], ["likes", "Likes"]]) as const).map(([key, label]) => {
@@ -723,7 +767,23 @@ const styles = StyleSheet.create({
   socialInputRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 14, height: 50, marginBottom: 8 },
   socialPrefix: { color: theme.textMuted, fontSize: 15, fontWeight: "700" },
   socialInput: { flex: 1, color: theme.textPrimary, fontSize: 15, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
-  email: { color: theme.textMuted, fontSize: 13, marginTop: 9 },
+  email: { color: theme.textMuted, fontSize: 13 },
+  emailRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 9 },
+  onlyYou: { flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: theme.surfaceAlt, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2 },
+  onlyYouText: { color: theme.textMuted, fontSize: 9.5, fontWeight: "800" },
+  visCard: {
+    marginTop: 14, backgroundColor: theme.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: theme.border, padding: 14, gap: 8,
+  },
+  visHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  visTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
+  visManage: { color: theme.primary, fontSize: 13, fontWeight: "700", marginRight: 2 },
+  visDesc: { color: theme.textSecondary, fontSize: 12.5, lineHeight: 17 },
+  visRows: { gap: 2, marginTop: 2 },
+  visRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 5, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+  visRowLabel: { color: theme.textSecondary, fontSize: 13 },
+  visRowValue: { color: theme.textPrimary, fontSize: 13, fontWeight: "700" },
+  visPrivate: { color: theme.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
 
   socialBar: {
     flexDirection: "row", alignItems: "center", alignSelf: "stretch",
