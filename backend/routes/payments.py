@@ -24,6 +24,7 @@ from core import (
     db, get_current_user, API_PLANS, API_PLANS_BY_ID, _active_plan,
     API_OVERAGE_PACKS, API_OVERAGE_BY_ID, USAGE_PERIOD_DAYS, _norm_dt,
 )
+from db import DuplicateKeyError
 
 # Anti-fraud: after changing direct-deposit (bank/debit card), hold withdrawals
 # and outgoing money transfers for this many business days.
@@ -854,13 +855,21 @@ async def _ensure_customer(user: dict) -> str:
 
 
 async def _already_fulfilled(ref_id: str) -> bool:
-    """Idempotency guard so an inline payment is fulfilled exactly once."""
+    """Idempotency guard so a payment is fulfilled exactly once.
+
+    Race-safe: relies on the unique index on payments_fulfilled.ref_id (see
+    core._UNIQUE_INDEXES). We insert first and treat a DuplicateKeyError as
+    "already fulfilled", so two concurrent callers (e.g. the webhook arriving
+    alongside an inline confirm, or a duplicated Stripe retry) can never both
+    win — only the first insert succeeds.
+    """
     if not ref_id:
         return False
-    if await db.payments_fulfilled.find_one({"ref_id": ref_id}, {"_id": 0, "ref_id": 1}):
+    try:
+        await db.payments_fulfilled.insert_one({"ref_id": ref_id, "created_at": datetime.now(timezone.utc)})
+        return False
+    except DuplicateKeyError:
         return True
-    await db.payments_fulfilled.insert_one({"ref_id": ref_id, "created_at": datetime.now(timezone.utc)})
-    return False
 
 
 @router.post("/payments/pay-intent")
@@ -1247,7 +1256,14 @@ async def stripe_webhook(request: Request):
         return {"ok": True}
 
     if event.get("type") == "checkout.session.completed":
-        meta = (event.get("data", {}).get("object", {}) or {}).get("metadata", {}) or {}
+        obj = (event.get("data", {}).get("object", {}) or {})
+        # Idempotency: Stripe delivers webhooks at-least-once (retries until 2xx,
+        # and the same session can arrive more than once). Fulfill each completed
+        # session exactly once so tips/subscriptions/promotes can't double-credit.
+        session_id = obj.get("id")
+        if session_id and await _already_fulfilled(f"cs:{session_id}"):
+            return {"ok": True}
+        meta = obj.get("metadata", {}) or {}
         kind = meta.get("kind", "tip")
         creator_id = meta.get("creator_id")
         buyer_id = meta.get("buyer_id")

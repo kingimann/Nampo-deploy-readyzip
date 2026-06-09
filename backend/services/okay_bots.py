@@ -317,7 +317,14 @@ async def _run():
         await asyncio.sleep(POLL_SECONDS)
 
 
+_BG_TASKS: set = set()
+
+
 def start_bots():
     """Seed the OkayAI + OkayFacts accounts and (when Ollama is configured) run
     their reply loop."""
-    asyncio.create_task(_run())
+    # Keep a strong reference: asyncio only holds a weak ref to a running task,
+    # so without this the loop could be garbage-collected mid-`await sleep`.
+    t = asyncio.create_task(_run())
+    _BG_TASKS.add(t)
+    t.add_done_callback(_BG_TASKS.discard)

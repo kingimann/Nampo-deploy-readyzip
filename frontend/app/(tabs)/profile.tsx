@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Alert, RefreshControl, Linking, Animated,
@@ -281,12 +281,23 @@ export default function ProfileScreen() {
     setEditLinks((arr) => arr.map((l, idx) => (idx === i ? { ...l, [key]: val } : l)));
   const removeLink = (i: number) => setEditLinks((arr) => arr.filter((_, idx) => idx !== i));
 
-  // Open the editor when arriving from Settings → Edit profile (?edit=1).
+  // Open the editor ONCE when arriving from Settings → Edit profile (?edit=1).
+  // The one-shot guard + URL cleanup stops the editor from popping back up on a
+  // page refresh (on web, setParams alone doesn't reliably drop the query).
   const params = useLocalSearchParams<{ edit?: string }>();
+  const didAutoOpen = useRef(false);
   useEffect(() => {
-    if (params.edit === "1" && user) {
+    if (params.edit === "1" && user && !didAutoOpen.current) {
+      didAutoOpen.current = true;
       openEdit();
       router.setParams({ edit: undefined } as any);
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        const u = new URL(window.location.href);
+        if (u.searchParams.has("edit")) {
+          u.searchParams.delete("edit");
+          window.history.replaceState({}, "", u.toString());
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.edit, user?.user_id]);
