@@ -1206,7 +1206,9 @@ async def promote_post(
     'Sponsored' badge."""
     user = await get_current_user(authorization)
     from routes.payments import payments_live
-    if await payments_live():
+    # Admins (the platform owner) promote for free — even when real payments are
+    # on, they don't go through Stripe.
+    if await payments_live() and not is_admin(user):
         raise HTTPException(status_code=409, detail={"code": "use_stripe", "message": "Real payments are on — promote through Stripe checkout."})
     doc = await db.posts.find_one({"id": post_id, "user_id": user["user_id"]}, {"_id": 0})
     if not doc:

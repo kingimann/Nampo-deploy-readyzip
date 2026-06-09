@@ -194,7 +194,8 @@ export default function AdvertiseScreen() {
       const ppcOpts = ppc ? { budget: campaignBudget, cpc: campaignCpc } : undefined;
       // Real payments: hand off to Stripe Checkout; the webhook promotes the
       // post once payment confirms. Falls back to the test flow when off.
-      if (payEnabled) {
+      // Admins advertise for free, so they always use the direct (no-charge) path.
+      if (payEnabled && user?.role !== "admin") {
         // Real payment path. If it throws (declined OR user cancelled the
         // sheet) we must NOT fall through to the test flow below, which would
         // promote the post for free. Abort and let the user retry.
@@ -272,6 +273,14 @@ export default function AdvertiseScreen() {
           contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 30, gap: 12 }}
           ListHeaderComponent={
             <View style={{ gap: 12, marginBottom: 6 }}>
+              {user?.role === "admin" && (
+                <View style={styles.adminFree} testID="admin-free-ads">
+                  <Ionicons name="shield-checkmark" size={18} color="#22C55E" />
+                  <Text style={styles.adminFreeText}>
+                    You're an admin — all ad types (promoted posts, link ads, reel video ads) are free. No balance or payment needed.
+                  </Text>
+                </View>
+              )}
               {/* Prepaid ad account: keep campaigns running by loading a balance. */}
               <View style={styles.balanceCard}>
                 <View style={styles.balanceTop}>
@@ -558,7 +567,7 @@ export default function AdvertiseScreen() {
                   {busy ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.payBtnText}>{payEnabled ? `Continue · $${chargeAmount.toFixed(2)}` : `Pay $${chargeAmount.toFixed(2)}`}</Text>
+                    <Text style={styles.payBtnText}>{user?.role === "admin" ? "Post free ad" : payEnabled ? `Continue · $${chargeAmount.toFixed(2)}` : `Pay $${chargeAmount.toFixed(2)}`}</Text>
                   )}
                 </TouchableOpacity>
               </>
@@ -752,6 +761,12 @@ const styles = StyleSheet.create({
   linkRowTitle: { color: theme.textPrimary, fontSize: 13.5, fontWeight: "700" },
   linkRowMeta: { color: theme.textMuted, fontSize: 11.5, marginTop: 2 },
 
+  adminFree: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "rgba(34,197,94,0.10)", borderWidth: 1, borderColor: "rgba(34,197,94,0.45)",
+    borderRadius: 14, padding: 12,
+  },
+  adminFreeText: { flex: 1, color: theme.textPrimary, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   balanceCard: {
     backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border,
     padding: 16, gap: 8,
