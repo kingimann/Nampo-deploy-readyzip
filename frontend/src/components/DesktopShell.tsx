@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, Pressable, ScrollView, Platform, useWindowDimensions, Image,
+  View, Text, StyleSheet, Pressable, ScrollView, Platform, useWindowDimensions, Image, TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
@@ -43,6 +43,7 @@ function RightRail() {
   const router = useRouter();
   const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
+  const [q, setQ] = useState("");
   useEffect(() => {
     let alive = true;
     api.trendingHashtags().then((r) => { if (alive) setTags((r.hashtags || []).slice(0, 6)); }).catch(() => {});
@@ -50,8 +51,30 @@ function RightRail() {
     return () => { alive = false; };
   }, []);
 
+  // Submitting takes you to the full search screen (which shows live results),
+  // carrying the typed query so it picks up where you left off.
+  const submitSearch = () => {
+    const s = q.trim();
+    router.push(s ? { pathname: "/search", params: { q: s } } : "/search");
+  };
+
   return (
     <ScrollView style={styles.right} contentContainerStyle={{ paddingVertical: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={16} color={theme.textMuted} />
+        <TextInput
+          style={[styles.searchInput, Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null]}
+          value={q}
+          onChangeText={setQ}
+          onSubmitEditing={submitSearch}
+          placeholder="Search"
+          placeholderTextColor={theme.textMuted}
+          autoCapitalize="none"
+          returnKeyType="search"
+          testID="rail-search"
+        />
+      </View>
+
       {tags.length > 0 && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Trending</Text>
@@ -204,6 +227,14 @@ const styles = StyleSheet.create({
     borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.border,
     backgroundColor: theme.bg,
   },
+  // Search bar at the top of the right rail — full rail width, so it lines up
+  // with the left nav (both rails are RAIL_W).
+  searchBox: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border,
+    borderRadius: 999, paddingHorizontal: 14, height: 42,
+  },
+  searchInput: { flex: 1, color: theme.textPrimary, fontSize: 14, paddingVertical: 0 },
   card: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 2 },
   cardTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 6 },
   cardRow: { paddingVertical: 7 },

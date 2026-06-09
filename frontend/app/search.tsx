@@ -4,7 +4,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useLocalSearchParams } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, PublicUser, Community, Listing, Post, mediaUri } from "@/src/api/client";
 import { theme } from "@/src/theme";
@@ -14,7 +14,10 @@ const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : 
 export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [q, setQ] = useState("");
+  const params = useLocalSearchParams<{ q?: string }>();
+  // Seed from a ?q= param (e.g. the desktop right-rail search bar) so the query
+  // carries over and results run immediately.
+  const [q, setQ] = useState(typeof params.q === "string" ? params.q : "");
   const [people, setPeople] = useState<PublicUser[]>([]);
   const [communities, setCommunities] = useState<Community[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
