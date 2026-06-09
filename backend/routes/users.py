@@ -627,10 +627,32 @@ async def set_user_badge(user_id: str, body: UserBadgeBody, authorization: Optio
 
 @router.post("/presence/ping")
 async def presence_ping(authorization: Optional[str] = Header(None)):
-    """Heartbeat: mark the caller active now (drives online/offline status)."""
+    """Heartbeat: mark the caller active now (drives online/offline status) and
+    award activity points for being on the app, rate-limited so it can't be
+    farmed faster than ACTIVE_TICK_SECONDS regardless of how often it's called."""
+    from core import ACTIVE_POINTS_PER_TICK, ACTIVE_TICK_SECONDS, ACTIVE_POINTS_DAILY_CAP
     me = await get_current_user(authorization)
-    await db.users.update_one({"user_id": me["user_id"]}, {"$set": {"last_seen": datetime.now(timezone.utc)}})
-    return {"ok": True}
+    now = datetime.now(timezone.utc)
+    update: dict = {"$set": {"last_seen": now}}
+    # Award a point only if enough time has passed since the last awarded tick,
+    # and only up to a daily cap.
+    award = False
+    last_tick = me.get("points_last_tick")
+    try:
+        gap_ok = (not last_tick) or (now - _norm_dt(last_tick)).total_seconds() >= ACTIVE_TICK_SECONDS
+    except Exception:
+        gap_ok = True
+    if gap_ok:
+        today = now.strftime("%Y-%m-%d")
+        earned_today = int(me.get("points_active_day_count", 0) or 0) if me.get("points_active_day") == today else 0
+        if earned_today < ACTIVE_POINTS_DAILY_CAP:
+            award = True
+            update["$set"]["points_last_tick"] = now
+            update["$set"]["points_active_day"] = today
+            update["$set"]["points_active_day_count"] = earned_today + ACTIVE_POINTS_PER_TICK
+            update["$inc"] = {"points": ACTIVE_POINTS_PER_TICK}
+    await db.users.update_one({"user_id": me["user_id"]}, update)
+    return {"ok": True, "awarded": ACTIVE_POINTS_PER_TICK if award else 0}
 
 
 @router.get("/users/search", response_model=List[PublicUser])

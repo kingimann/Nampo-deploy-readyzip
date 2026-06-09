@@ -549,7 +549,10 @@ async def send_message(
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or user["user_id"] not in conv["participant_ids"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return Message(**await _create_message(conv_id, conv, user, body))
+    msg = Message(**await _create_message(conv_id, conv, user, body))
+    from core import award_points, POINTS_PER_MESSAGE
+    await award_points(user["user_id"], POINTS_PER_MESSAGE)
+    return msg
 
 
 async def _create_message(conv_id: str, conv: dict, user: dict, body: MessageCreate) -> dict:

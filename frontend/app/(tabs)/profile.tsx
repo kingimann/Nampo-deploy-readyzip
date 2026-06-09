@@ -465,6 +465,11 @@ export default function ProfileScreen() {
             {!!user?.username && (
               <Text style={[styles.handle, { color: accent }]} numberOfLines={1}>@{user.username}</Text>
             )}
+            <View style={[styles.scorePill, { borderColor: accent + "55" }]} testID="profile-score">
+              <Ionicons name="flame" size={14} color={accent} />
+              <Text style={[styles.scoreText, { color: accent }]}>{compactCount(user?.points || 0)}</Text>
+              <Text style={styles.scoreLabel}>points</Text>
+            </View>
             {!!user?.status && (
               <View style={[styles.statusPillP, { borderColor: accent + "55" }]}>
                 <Text style={styles.statusPillText} numberOfLines={1}>{user.status}</Text>
@@ -1383,6 +1388,9 @@ const styles = StyleSheet.create({
   headline: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", marginTop: 6, textAlign: "center", paddingHorizontal: 8 },
   statusPillP: { marginTop: 8, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.surfaceAlt, maxWidth: "90%" },
   statusPillText: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
+  scorePill: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.surfaceAlt },
+  scoreText: { fontSize: 14, fontWeight: "800" },
+  scoreLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
   interestWrap: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 7, marginTop: 12 },
   interestChip: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 11, paddingVertical: 5 },
   interestText: { fontSize: 12.5, fontWeight: "700" },

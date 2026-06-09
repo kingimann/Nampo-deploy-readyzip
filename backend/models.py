@@ -65,6 +65,7 @@ class User(BaseModel):
     muted_keywords: List[str] = []       # feed filter: hide posts whose text/hashtags match any of these
     boost_keywords: List[str] = []       # feed prioritize: surface posts whose text/hashtags match these higher
     needs_policy_agreement: bool = False  # must accept current ToS/Privacy before use
+    points: int = 0                       # Snapscore-style activity points
     created_at: datetime
 
 
@@ -109,6 +110,7 @@ class PublicUser(BaseModel):
     is_followed_by: bool = False
     friend_status: str = "none"  # none | request_sent | request_received | friends
     poked_me: bool = False        # this user has an active poke waiting for the viewer
+    points: int = 0               # Snapscore-style activity points
 
 
 class AdminUserPatch(BaseModel):

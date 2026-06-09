@@ -66,6 +66,8 @@ async def create_story(body: StoryCreate, authorization: Optional[str] = Header(
         "expires_at": now + timedelta(hours=STORY_TTL_HOURS),
     }
     await db.stories.insert_one(doc.copy())
+    from core import award_points, POINTS_PER_STORY
+    await award_points(user["user_id"], POINTS_PER_STORY)
     return await _hydrate_story(doc, user["user_id"])
 
 

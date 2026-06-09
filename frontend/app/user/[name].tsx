@@ -23,6 +23,12 @@ import { interleaveAds, isAd } from "@/src/lib/ads";
 import { withAppleFee } from "@/src/lib/pricing";
 import { stripeCardPay } from "@/src/lib/stripeEmbed";
 
+function compactCount(n: number): string {
+  if (!n || n < 1000) return String(n || 0);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10000 ? 1 : 0).replace(/\.0$/, "")}K`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+}
+
 const friendBtnLabel = (s?: FriendStatus): string => {
   switch (s) {
     case "friends": return "Friends";
@@ -247,6 +253,11 @@ export default function UserProfileScreen() {
               {!!user.role && user.role !== "user" && (
                 <Text style={styles.roleTag}>{user.role === "admin" ? "ADMIN" : "MODERATOR"}</Text>
               )}
+              <View style={[styles.scorePill, { borderColor: accent + "55" }]} testID="user-score">
+                <Ionicons name="flame" size={14} color={accent} />
+                <Text style={[styles.scoreText, { color: accent }]}>{compactCount(user.points || 0)}</Text>
+                <Text style={styles.scoreLabel}>points</Text>
+              </View>
               {!!user.status && (
                 <View style={[styles.statusPillP, { borderColor: accent + "55" }]}>
                   <Text style={styles.statusPillText} numberOfLines={1}>{user.status}</Text>
@@ -576,6 +587,9 @@ const styles = StyleSheet.create({
     marginTop: -18, marginHorizontal: -18, marginBottom: 0,
   },
   headline: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "600", textAlign: "center", marginTop: 2, paddingHorizontal: 20 },
+  scorePill: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.surfaceAlt },
+  scoreText: { fontSize: 14, fontWeight: "800" },
+  scoreLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "600" },
   statusPillP: { marginTop: 8, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: theme.surfaceAlt, maxWidth: "90%" },
   statusPillText: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
   interestWrap: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 7, marginTop: 10 },

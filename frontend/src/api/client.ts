@@ -1105,6 +1105,7 @@ export type User = {
   searchable?: boolean;
   hide_online?: boolean;
   needs_policy_agreement?: boolean;
+  points?: number;
 };
 export type ProfilePatch = {
   name?: string; bio?: string; picture?: string;
@@ -1295,6 +1296,7 @@ export type PublicUser = {
   is_followed_by?: boolean;
   friend_status?: FriendStatus;
   poked_me?: boolean;
+  points?: number;
 };
 export type Circle = {
   id: string;

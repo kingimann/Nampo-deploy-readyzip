@@ -448,6 +448,26 @@ def _needs_policy_agreement(d: dict) -> bool:
     )
 
 
+# ── Snapscore-style activity points ─────────────────────────────────────────
+# Users earn points for being active and creating content. Tunable here.
+ACTIVE_POINTS_PER_TICK = 1   # awarded per presence heartbeat (rate-limited)
+ACTIVE_TICK_SECONDS = 45     # min gap between awarded ticks (anti-farm)
+ACTIVE_POINTS_DAILY_CAP = 300  # max activity (heartbeat) points earnable per day
+POINTS_PER_POST = 5
+POINTS_PER_STORY = 3
+POINTS_PER_MESSAGE = 1
+
+
+async def award_points(user_id: str, n: int) -> None:
+    """Add `n` activity points to a user (best-effort; never raises)."""
+    if not user_id or n <= 0:
+        return
+    try:
+        await db.users.update_one({"user_id": user_id}, {"$inc": {"points": int(n)}})
+    except Exception:
+        pass
+
+
 def _user_doc_to_model(d: dict) -> dict:
     return {
         "user_id": d["user_id"],
@@ -500,6 +520,7 @@ def _user_doc_to_model(d: dict) -> dict:
         "is_private": bool(d.get("is_private", False)),
         "searchable": bool(d.get("searchable", True)),
         "hide_online": bool(d.get("hide_online", False)),
+        "points": int(d.get("points", 0) or 0),
         "connections_visibility": d.get("connections_visibility") or "everyone",
         "hide_likes": bool(d.get("hide_likes", False)),
         "tag_policy": d.get("tag_policy") or "everyone",
@@ -628,6 +649,7 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         is_followed_by=is_followed_by,
         friend_status=friend_status,
         poked_me=poked_me,
+        points=int(u.get("points", 0) or 0),
     )
 
 

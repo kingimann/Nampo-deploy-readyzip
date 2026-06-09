@@ -608,6 +608,8 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
     if tagged_ids:
         await _notify_tags(tagged_ids, user["user_id"], doc["id"], (text or "📷 tagged you")[:140])
 
+    from core import award_points, POINTS_PER_POST
+    await award_points(user["user_id"], POINTS_PER_POST)
     return await _hydrate_post(doc, user["user_id"])
 
 
