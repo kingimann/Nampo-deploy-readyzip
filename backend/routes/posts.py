@@ -1403,9 +1403,17 @@ async def report_post(
 ):
     """Flag a post or reel for moderation (one report per user per post)."""
     user = await get_current_user(authorization)
-    post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})
+    post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1, "user_id": 1, "min_sub_tier": 1})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+    # Subscriber-only posts: only subscribers (at tier), the author and admins can
+    # report — same gate as commenting / reacting.
+    _mtier = int(post.get("min_sub_tier") or 0)
+    if _mtier > 0 and (await _viewer_sub_level(user["user_id"], post["user_id"])) < _mtier:
+        raise HTTPException(status_code=403, detail={
+            "code": "subscribers_only",
+            "message": f"Subscribe at Tier {_mtier} or higher to report this post.",
+        })
     existing = await db.reports.find_one(
         {"post_id": post_id, "reporter_id": user["user_id"]}, {"_id": 0, "id": 1}
     )
