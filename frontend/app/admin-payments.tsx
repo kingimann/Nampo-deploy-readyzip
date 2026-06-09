@@ -126,7 +126,7 @@ export default function AdminPaymentsScreen() {
             <TouchableOpacity style={styles.toggleRow} onPress={toggleMobileOnly} disabled={savingMobile} testID="ap-mobile-only">
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowLabel}>Mobile only (web)</Text>
-                <Text style={styles.rowSub}>When on, desktop browsers see an "open on your phone" screen with a QR code. Phones &amp; tablets are unaffected.</Text>
+                <Text style={styles.rowSub}>Deprecated — the web app now runs as a full website on desktop. Toggling this no longer blocks PC browsers.</Text>
               </View>
               {savingMobile ? <ActivityIndicator color={theme.primary} size="small" /> : (
                 <View style={[styles.switch, mobileOnly && styles.switchOn]}>
