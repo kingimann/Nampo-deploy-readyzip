@@ -4,6 +4,9 @@
   "version": "1.0.1",
   "scripts": {
     "preinstall": "./scripts/check-pkg.js",
+    "dev": "vite",
+    "build:web": "vite build",
+    "preview": "vite preview",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
@@ -76,6 +79,8 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-router-dom": "^7.1.1",
+    "react-native-url-polyfill": "^2.0.0",
     "react-native-dotenv": "3.4.11",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-reanimated": "~4.1.1",
@@ -92,11 +97,14 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "@babel/plugin-transform-flow-strip-types": "^7.25.0",
     "@types/react": "~19.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
     "eslint": "9.25.0",
     "eslint-config-expo": "~10.0.0",
     "http-proxy": "^1.18.1",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vite": "^6.0.7"
   },
   "private": true,
   "overrides": {
