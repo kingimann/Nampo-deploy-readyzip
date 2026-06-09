@@ -187,7 +187,7 @@ class AdEvent(BaseModel):
     host_user_id: Optional[str] = None   # whose surface the ad was shown on
 
 
-@router.get("/ads/next")
+@router.get("/promoted/next")
 async def next_ad(
     placement: str = Query("feed"),
     slot: Optional[int] = Query(None),   # rotate inventory across slots in one scroll
@@ -246,7 +246,7 @@ async def _seen_recently(post_id: str, viewer_id: str, kind: str, hours: int) ->
         return True
 
 
-@router.post("/ads/{post_id}/event")
+@router.post("/promoted/{post_id}/event")
 async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     post = await db.posts.find_one({"id": post_id}, {"_id": 0})
@@ -290,7 +290,7 @@ async def ad_event(post_id: str, body: AdEvent, authorization: Optional[str] = H
     return {"ok": True}
 
 
-@router.post("/ads/{post_id}/hide")
+@router.post("/promoted/{post_id}/hide")
 async def hide_ad(post_id: str, authorization: Optional[str] = Header(None)):
     """Stop showing this ad to the current viewer."""
     me = await get_current_user(authorization)
@@ -306,7 +306,7 @@ async def hide_ad(post_id: str, authorization: Optional[str] = Header(None)):
     return {"hidden": True}
 
 
-@router.post("/ads/{post_id}/report")
+@router.post("/promoted/{post_id}/report")
 async def report_ad(post_id: str, authorization: Optional[str] = Header(None)):
     """Report an ad (and hide it from this viewer)."""
     me = await get_current_user(authorization)
@@ -458,7 +458,7 @@ async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_i
     return credited
 
 
-@router.post("/ads/links")
+@router.post("/promoted/links")
 async def create_link_ad(body: LinkAdCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     require_account_age(me, "advertise a link", MONETIZE_MIN_AGE_DAYS)
@@ -482,7 +482,7 @@ async def create_link_ad(body: LinkAdCreate, authorization: Optional[str] = Head
     return {k: doc[k] for k in ("id", "url", "headline", "description", "image", "ad_cpc", "promoted_until")}
 
 
-@router.get("/ads/links")
+@router.get("/promoted/links")
 async def my_link_ads(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     now = datetime.now(timezone.utc)
@@ -508,7 +508,7 @@ async def my_link_ads(authorization: Optional[str] = Header(None)):
     return {"ads": out}
 
 
-@router.delete("/ads/links/{ad_id}")
+@router.delete("/promoted/links/{ad_id}")
 async def delete_link_ad(ad_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     res = await db.link_ads.delete_one({"id": ad_id, "owner_id": me["user_id"]})
@@ -517,7 +517,7 @@ async def delete_link_ad(ad_id: str, authorization: Optional[str] = Header(None)
     return {"ok": True}
 
 
-@router.post("/ads/links/{ad_id}/event")
+@router.post("/promoted/links/{ad_id}/event")
 async def link_ad_event(ad_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
     """In-app impression/click on a link ad (host = whose surface it showed on)."""
     me = await get_current_user(authorization)
@@ -592,7 +592,7 @@ def _reel_ad_view(d: dict) -> dict:
     }
 
 
-@router.post("/ads/reels")
+@router.post("/promoted/reels")
 async def create_reel_ad(body: ReelAdCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     require_account_age(me, "advertise a reel", MONETIZE_MIN_AGE_DAYS)
@@ -622,14 +622,14 @@ async def create_reel_ad(body: ReelAdCreate, authorization: Optional[str] = Head
     return _reel_ad_view(doc)
 
 
-@router.get("/ads/reels")
+@router.get("/promoted/reels")
 async def my_reel_ads(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     rows = await db.reel_ads.find({"owner_id": me["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
     return {"ads": [_reel_ad_view(r) for r in rows]}
 
 
-@router.delete("/ads/reels/{ad_id}")
+@router.delete("/promoted/reels/{ad_id}")
 async def delete_reel_ad(ad_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     res = await db.reel_ads.delete_one({"id": ad_id, "owner_id": me["user_id"]})
@@ -638,7 +638,7 @@ async def delete_reel_ad(ad_id: str, authorization: Optional[str] = Header(None)
     return {"ok": True}
 
 
-@router.get("/ads/reels/serve")
+@router.get("/promoted/reels/serve")
 async def serve_reel_ad(authorization: Optional[str] = Header(None)):
     """Pick one active sponsored reel to inject into the feed (budget-weighted)."""
     me = await get_current_user(authorization)
@@ -664,7 +664,7 @@ async def serve_reel_ad(authorization: Optional[str] = Header(None)):
     return {"ad": _reel_ad_view(_r.choice(funded))}
 
 
-@router.post("/ads/reels/{ad_id}/event")
+@router.post("/promoted/reels/{ad_id}/event")
 async def reel_ad_event(ad_id: str, body: AdEvent, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     ad = await db.reel_ads.find_one({"id": ad_id}, {"_id": 0})
@@ -755,7 +755,7 @@ async def bot_run(body: BotRun, authorization: Optional[str] = Header(None)):
     }
 
 
-@router.get("/ads/campaigns")
+@router.get("/promoted/campaigns")
 async def my_campaigns(authorization: Optional[str] = Header(None)):
     """Analytics for the current user's promoted posts."""
     me = await get_current_user(authorization)
@@ -791,7 +791,7 @@ class AdTopup(BaseModel):
     amount: float
 
 
-@router.get("/ads/account")
+@router.get("/promoted/account")
 async def ad_account(authorization: Optional[str] = Header(None)):
     """Advertiser's prepaid ad-account: current balance, spend and rates."""
     me = await get_current_user(authorization)
@@ -838,7 +838,7 @@ async def ad_account(authorization: Optional[str] = Header(None)):
     }
 
 
-@router.post("/ads/account/topup")
+@router.post("/promoted/account/topup")
 async def ad_topup(body: AdTopup, authorization: Optional[str] = Header(None)):
     """Load funds into the prepaid ad account. Routes through Stripe Checkout
     when real payments are on; otherwise credits immediately (test mode)."""

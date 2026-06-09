@@ -27,7 +27,7 @@ CAPABILITIES = [
     {"group": "messaging", "base": "/conversations", "summary": "DMs & groups, media/voice/gif/tip, reactions, presence/typing, read receipts, E2E keys"},
     {"group": "money", "base": "/money", "summary": "P2P send (security question) + accept, request money, pay-by-QR"},
     {"group": "admin", "base": "/admin", "summary": "User management: verify, roles, ban/suspend/remove, audit log (admin only)"},
-    {"group": "ads", "base": "/ads", "summary": "Sponsored serving, impression/click events, campaigns, prepaid ad balance, link ads"},
+    {"group": "ads", "base": "/promoted", "summary": "Sponsored serving, impression/click events, campaigns, prepaid ad balance, link ads"},
     {"group": "publisher", "base": "/pub", "summary": "Display OkaySpace ads on your site & earn — sites, customizable embed snippet, public ad serving"},
     {"group": "forms", "base": "/forms", "summary": "Build forms, embed them anywhere (themeable), collect responses, CSV export, submission webhooks"},
     {"group": "factchecks", "base": "/posts/{id}/factchecks", "summary": "Community notes on posts (source required), Helpful/Not-helpful rating, auto-show on consensus"},

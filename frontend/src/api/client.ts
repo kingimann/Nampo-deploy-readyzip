@@ -263,30 +263,30 @@ export const api = {
   getWallet: () => request<WalletSummary>("/wallet"),
   // Ads + creator ad revenue
   getNextAd: (placement: string, slot?: number) =>
-    request<{ post: Post | null; house?: boolean; reason?: string | null; cta?: string; type?: "post" | "link"; link?: LinkAdServe }>(`/ads/next?placement=${encodeURIComponent(placement)}${slot != null ? `&slot=${slot}` : ""}`),
+    request<{ post: Post | null; house?: boolean; reason?: string | null; cta?: string; type?: "post" | "link"; link?: LinkAdServe }>(`/promoted/next?placement=${encodeURIComponent(placement)}${slot != null ? `&slot=${slot}` : ""}`),
   adEvent: (postId: string, type: "impression" | "click", host_user_id?: string) =>
-    request<{ ok: boolean }>(`/ads/${postId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
+    request<{ ok: boolean }>(`/promoted/${postId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
   linkAdEvent: (adId: string, type: "impression" | "click", host_user_id?: string) =>
-    request<{ ok: boolean }>(`/ads/links/${adId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
+    request<{ ok: boolean }>(`/promoted/links/${adId}/event`, { method: "POST", body: JSON.stringify({ type, host_user_id }) }),
   createLinkAd: (body: { url: string; headline: string; description?: string; image?: string; days?: number; cpc?: number }) =>
-    request<{ id: string }>("/ads/links", { method: "POST", body: JSON.stringify(body) }),
-  getLinkAds: () => request<{ ads: LinkAd[] }>("/ads/links"),
-  deleteLinkAd: (id: string) => request<{ ok: boolean }>(`/ads/links/${id}`, { method: "DELETE" }),
+    request<{ id: string }>("/promoted/links", { method: "POST", body: JSON.stringify(body) }),
+  getLinkAds: () => request<{ ads: LinkAd[] }>("/promoted/links"),
+  deleteLinkAd: (id: string) => request<{ ok: boolean }>(`/promoted/links/${id}`, { method: "DELETE" }),
   // Reel video ads (sponsored full-screen videos in the reels feed)
   createReelAd: (body: { video_url: string; thumbnail?: string | null; headline: string; description?: string; url?: string; cta?: string; duration?: number; days?: number; cpc?: number; budget?: number; skippable_after?: number }) =>
-    request<ReelAd>("/ads/reels", { method: "POST", body: JSON.stringify(body) }),
-  getReelAds: () => request<{ ads: ReelAd[] }>("/ads/reels"),
-  deleteReelAd: (id: string) => request<{ ok: boolean }>(`/ads/reels/${id}`, { method: "DELETE" }),
-  serveReelAd: () => request<{ ad: ReelAd | null }>("/ads/reels/serve"),
+    request<ReelAd>("/promoted/reels", { method: "POST", body: JSON.stringify(body) }),
+  getReelAds: () => request<{ ads: ReelAd[] }>("/promoted/reels"),
+  deleteReelAd: (id: string) => request<{ ok: boolean }>(`/promoted/reels/${id}`, { method: "DELETE" }),
+  serveReelAd: () => request<{ ad: ReelAd | null }>("/promoted/reels/serve"),
   reelAdEvent: (id: string, type: "impression" | "click") =>
-    request<{ ok: boolean }>(`/ads/reels/${id}/event`, { method: "POST", body: JSON.stringify({ type }) }),
+    request<{ ok: boolean }>(`/promoted/reels/${id}/event`, { method: "POST", body: JSON.stringify({ type }) }),
   // Publisher network — embed OkaySpace ads on your own site and earn.
   createPubSite: (body: { name: string; domain?: string }) =>
     request<PublisherSite>("/pub/sites", { method: "POST", body: JSON.stringify(body) }),
   getPubSites: () => request<{ sites: PublisherSite[] }>("/pub/sites"),
   deletePubSite: (id: string) => request<{ ok: boolean }>(`/pub/sites/${id}`, { method: "DELETE" }),
-  hideAd: (postId: string) => request<{ hidden: boolean }>(`/ads/${postId}/hide`, { method: "POST" }),
-  reportAd: (postId: string) => request<{ reported: boolean }>(`/ads/${postId}/report`, { method: "POST" }),
+  hideAd: (postId: string) => request<{ hidden: boolean }>(`/promoted/${postId}/hide`, { method: "POST" }),
+  reportAd: (postId: string) => request<{ reported: boolean }>(`/promoted/${postId}/report`, { method: "POST" }),
   recordProfileView: (userId: string) =>
     request<{ ok: boolean; views?: number }>(`/users/${userId}/view`, { method: "POST" }),
   // Payments (Stripe Connect) — inert until the server has STRIPE_SECRET_KEY set.
@@ -766,11 +766,11 @@ export const api = {
     request<{ ok: boolean }>(`/posts/${id}/not-interested`, { method: "POST" }),
   promotePost: (id: string, days = 7, opts?: { budget?: number; cpc?: number }) =>
     request<Post>(`/posts/${id}/promote`, { method: "POST", body: JSON.stringify({ days, ...(opts || {}) }) }),
-  getCampaigns: () => request<{ campaigns: AdCampaign[] }>("/ads/campaigns"),
-  getAdAccount: () => request<AdAccount>("/ads/account"),
+  getCampaigns: () => request<{ campaigns: AdCampaign[] }>("/promoted/campaigns"),
+  getAdAccount: () => request<AdAccount>("/promoted/account"),
   topupAdAccount: (amount: number) =>
     request<{ ok?: boolean; credited?: number; balance?: number; stripe: boolean; url?: string; id?: string }>(
-      "/ads/account/topup", { method: "POST", body: JSON.stringify({ amount }) }),
+      "/promoted/account/topup", { method: "POST", body: JSON.stringify({ amount }) }),
   getAdRevenue: () => request<AdRevenue>("/admin/ad-revenue"),
   getBotPosts: () => request<{ posts: BotPost[] }>("/admin/bot/posts"),
   runBot: (body: { post_id: string; views?: number; clicks?: number; likes?: number; comments?: number; earner_id?: string }) =>

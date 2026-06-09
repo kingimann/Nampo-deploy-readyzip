@@ -631,13 +631,13 @@ payouts to cash out (`payout_setup` notification).
 ### Ads & advertising
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/ads/next?placement=&slot=` | Next sponsored post for a feed slot |
-| POST | `/ads/{id}/event` | Record `impression` / `click` — `{type}` (attribution + billing) |
-| POST | `/ads/{id}/hide` · `/ads/{id}/report` | Hide / report a sponsored post |
-| GET | `/ads/campaigns` | Your promoted-post analytics |
-| GET | `/ads/account` · POST `/ads/account/topup` | Prepaid ad balance + top-up |
-| POST/GET/DELETE | `/ads/links` · POST `/ads/links/{id}/event` | **Link ads** — advertise your website (create/list/delete, track events) |
-| POST/GET/DELETE | `/ads/reels` · GET `/ads/reels/serve` · POST `/ads/reels/{id}/event` | **Reel (video) ads** — manage, serve into the reels feed, track |
+| GET | `/promoted/next?placement=&slot=` | Next sponsored post for a feed slot |
+| POST | `/promoted/{id}/event` | Record `impression` / `click` — `{type}` (attribution + billing) |
+| POST | `/promoted/{id}/hide` · `/promoted/{id}/report` | Hide / report a sponsored post |
+| GET | `/promoted/campaigns` | Your promoted-post analytics |
+| GET | `/promoted/account` · POST `/promoted/account/topup` | Prepaid ad balance + top-up |
+| POST/GET/DELETE | `/promoted/links` · POST `/promoted/links/{id}/event` | **Link ads** — advertise your website (create/list/delete, track events) |
+| POST/GET/DELETE | `/promoted/reels` · GET `/promoted/reels/serve` · POST `/promoted/reels/{id}/event` | **Reel (video) ads** — manage, serve into the reels feed, track |
 | POST | `/users/{id}/view` | Profile-view revenue tracking |
 
 > **Account-age gates** (env-tunable, admins exempt) — `403 account_too_new`:
