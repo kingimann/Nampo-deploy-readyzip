@@ -6,20 +6,28 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
-import { api, Community } from "@/src/api/client";
+import { api, Community, Post } from "@/src/api/client";
+import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { GLASS } from "@/src/lib/glass";
 import { useFloatingHeader } from "@/src/hooks/useFloatingHeader";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
+import PostCard from "@/src/components/PostCard";
+import CommentsSheet from "@/src/components/CommentsSheet";
 
 export default function CommunitiesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const fh = useFloatingHeader(110);
+  const fh = useFloatingHeader(150);
+  const { user } = useAuth();
+  const [view, setView] = useState<"feed" | "discover">("feed");
   const [items, setItems] = useState<Community[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feed, setFeed] = useState<Post[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [q, setQ] = useState("");
+  const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [draft, setDraft] = useState({ name: "", title: "", description: "" });
   const [creating, setCreating] = useState(false);
@@ -29,7 +37,21 @@ export default function CommunitiesScreen() {
     try { setItems(await api.listCommunities(q || undefined)); }
     catch {} finally { setLoading(false); setRefreshing(false); }
   }, [q]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  const loadFeed = useCallback(async () => {
+    try { setFeed(await api.communitiesFeed()); }
+    catch {} finally { setFeedLoading(false); setRefreshing(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { (view === "feed" ? loadFeed() : load()); }, [view, loadFeed, load]));
+
+  const applyEngagement = (u: Post) =>
+    setFeed((arr) => arr.map((p) => (p.id === u.id ? { ...p, liked_by_me: u.liked_by_me, likes_count: u.likes_count, disliked_by_me: u.disliked_by_me, dislikes_count: u.dislikes_count } : p)));
+  const onLike = async (p: Post) => { try { applyEngagement(await api.toggleLike(p.id)); } catch {} };
+  const onDislike = async (p: Post) => { try { applyEngagement(await api.toggleDislike(p.id)); } catch {} };
+  const onRepost = async (p: Post) => { try { await api.toggleRepost(p.repost_of || p.id); } catch {} };
+  const onBookmark = async (p: Post) => {
+    setFeed((arr) => arr.map((x) => (x.id === p.id ? { ...x, bookmarked_by_me: !x.bookmarked_by_me } : x)));
+    try { await api.toggleBookmark(p.id); } catch {}
+  };
 
   const create = async () => {
     const name = draft.name.trim().toLowerCase();
@@ -59,22 +81,66 @@ export default function CommunitiesScreen() {
           <View style={{ width: 36 }} />
         </View>
 
-        <View style={styles.searchPill}>
-          <Ionicons name="search" size={17} color={theme.textMuted} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search communities"
-            placeholderTextColor={theme.textMuted}
-            value={q}
-            onChangeText={setQ}
-            onSubmitEditing={load}
-            returnKeyType="search"
-            testID="communities-search"
-          />
+        <View style={styles.toggleRow}>
+          {(["feed", "discover"] as const).map((v) => (
+            <TouchableOpacity key={v} style={[styles.toggleBtn, view === v && styles.toggleBtnOn]} onPress={() => setView(v)} testID={`communities-tab-${v}`}>
+              <Text style={[styles.toggleText, view === v && { color: theme.primary }]}>{v === "feed" ? "Your feed" : "Discover"}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
+
+        {view === "discover" && (
+          <View style={styles.searchPill}>
+            <Ionicons name="search" size={17} color={theme.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search communities"
+              placeholderTextColor={theme.textMuted}
+              value={q}
+              onChangeText={setQ}
+              onSubmitEditing={load}
+              returnKeyType="search"
+              testID="communities-search"
+            />
+          </View>
+        )}
       </Animated.View>
 
-      {loading ? (
+      {view === "feed" ? (
+        feedLoading ? (
+          <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
+        ) : (
+          <FlatList
+            data={feed}
+            keyExtractor={(i) => i.id}
+            style={{ flex: 1 }}
+            onScroll={fh.onScroll}
+            scrollEventThrottle={16}
+            contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 12, paddingTop: fh.topBarH + 12, paddingBottom: insets.bottom + 90, gap: 10 }}
+            refreshControl={<RefreshControl refreshing={refreshing} progressViewOffset={fh.topBarH} onRefresh={() => { setRefreshing(true); loadFeed(); }} tintColor={theme.primary} />}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Ionicons name="newspaper-outline" size={40} color={theme.textMuted} />
+                <Text style={styles.emptyTitle}>Your feed is empty</Text>
+                <Text style={styles.emptySub}>Join communities in Discover to see their posts here.</Text>
+                <TouchableOpacity style={styles.discoverBtn} onPress={() => setView("discover")}><Text style={styles.discoverBtnText}>Discover communities</Text></TouchableOpacity>
+              </View>
+            }
+            renderItem={({ item }) => (
+              <PostCard
+                post={item}
+                viewerId={user?.user_id}
+                onLike={onLike}
+                onDislike={onDislike}
+                onRepost={onRepost}
+                onBookmark={onBookmark}
+                onReply={(p) => setCommentsPost(p)}
+                onComments={(p) => setCommentsPost(p)}
+              />
+            )}
+          />
+        )
+      ) : loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <FlatList
@@ -107,6 +173,8 @@ export default function CommunitiesScreen() {
           )}
         />
       )}
+
+      <CommentsSheet visible={!!commentsPost} post={commentsPost} onClose={() => setCommentsPost(null)} />
 
       <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + 16 }]} onPress={() => { setErr(null); setCreateOpen(true); }} testID="new-community-fab">
         <Ionicons name="add" size={26} color="#fff" />
@@ -149,6 +217,12 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   title: { color: theme.textPrimary, fontSize: 24, fontWeight: "800", letterSpacing: -0.4 },
+  toggleRow: { flexDirection: "row", gap: 8, marginHorizontal: 16, marginBottom: 8 },
+  toggleBtn: { flex: 1, alignItems: "center", paddingVertical: 9, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  toggleBtnOn: { backgroundColor: theme.surfaceAlt, borderColor: theme.primary },
+  toggleText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "800" },
+  discoverBtn: { marginTop: 14, backgroundColor: theme.primary, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 11 },
+  discoverBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
   searchPill: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 6, height: 44, backgroundColor: theme.surface, borderRadius: 14, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.border },
   searchInput: { flex: 1, color: theme.textPrimary, fontSize: 15, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },

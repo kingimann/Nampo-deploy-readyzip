@@ -275,7 +275,15 @@ export default function PostCard({
       </View>
 
       {!!display.community_name && (
-        <Text style={styles.communityTag}>/{display.community_name}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={styles.communityTag}>/{display.community_name}</Text>
+          {typeof display.author_karma === "number" && display.author_karma > 0 && (
+            <View style={styles.karmaTag}>
+              <Ionicons name="flame" size={10} color={theme.primary} />
+              <Text style={styles.karmaText}>{display.author_karma} karma</Text>
+            </View>
+          )}
+        </View>
       )}
       {!!display.title && (
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
@@ -762,6 +770,8 @@ const styles = StyleSheet.create({
   threadTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", lineHeight: 21, marginBottom: 3 },
   flairTag: { backgroundColor: theme.primary + "22", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginBottom: 3 },
   flairTagText: { color: theme.primary, fontSize: 11, fontWeight: "800" },
+  karmaTag: { flexDirection: "row", alignItems: "center", gap: 3 },
+  karmaText: { color: theme.primary, fontSize: 11, fontWeight: "700" },
   placeRow: {
     flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: theme.surfaceAlt, borderRadius: 8,

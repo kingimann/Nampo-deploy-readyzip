@@ -1145,6 +1145,12 @@ async def _apply_reaction(post_id: str, user: dict, emoji: str) -> Post:
             })
             from core import award_points, POINTS_PER_UPVOTE
             await award_points(doc["user_id"], POINTS_PER_UPVOTE)
+            # Per-community karma tally for the author (one per unique upvoter).
+            await db.community_karma_totals.update_one(
+                {"community_id": doc["community_id"], "user_id": doc["user_id"]},
+                {"$inc": {"karma": 1}, "$setOnInsert": {"id": str(uuid.uuid4())}},
+                upsert=True,
+            )
         except DuplicateKeyError:
             pass
     updated = await db.posts.find_one({"id": post_id}, {"_id": 0})

@@ -792,6 +792,7 @@ class Post(BaseModel):
     community_name: Optional[str] = None
     title: Optional[str] = None
     flair: Optional[str] = None        # forum post flair
+    author_karma: Optional[int] = None # author's karma in this community (forum context)
     factcheck: Optional[dict] = None   # shown community Factcheck note {id, text, source_url}
     created_at: datetime
 

@@ -36,6 +36,9 @@ const ICON: Record<Notification["type"], { name: any; color: string }> = {
   roadside:      { name: "construct",        color: "#F59E0B" },
   moderation:    { name: "shield-half",       color: "#F59E0B" },
   factcheck:     { name: "shield-checkmark",  color: "#0EA5E9" },
+  community_pin:     { name: "pin",            color: "#7C3AED" },
+  community_mod:     { name: "shield-checkmark", color: "#7C3AED" },
+  community_removed: { name: "trash",          color: "#EF4444" },
   money_request:         { name: "cash",        color: "#22C55E" },
   money_received:        { name: "cash",        color: "#22C55E" },
   money_request_paid:    { name: "checkmark-circle", color: "#22C55E" },
@@ -59,6 +62,9 @@ const VERB: Record<Notification["type"], string> = {
   roadside: "sent a roadside update",
   moderation: "flagged your listing",
   factcheck: "added a Factcheck to a post",
+  community_pin: "pinned your post 📌",
+  community_mod: "made you a moderator 🛡️",
+  community_removed: "removed your post",
   money_request: "requested money",
   money_received: "sent you money",
   money_request_paid: "paid your request",
@@ -128,7 +134,7 @@ export default function NotificationsScreen() {
       router.push({ pathname: "/chat/[id]", params: { id: n.conversation_id } });
     } else if ((n.type === "poke" || n.type === "follow") && n.actor_name) {
       router.push({ pathname: "/user/[name]", params: { name: n.actor_name } });
-    } else if ((n.type === "tag" || n.type === "factcheck") && n.post_id) {
+    } else if ((n.type === "tag" || n.type === "factcheck" || n.type === "community_pin") && n.post_id) {
       router.push({ pathname: "/post/[id]", params: { id: n.post_id } });
     } else if (n.post_id) {
       router.push({ pathname: "/(tabs)/feed" });

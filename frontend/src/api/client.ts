@@ -743,6 +743,7 @@ export const api = {
   leaveCommunity: (name: string) => request<{ joined: boolean }>(`/communities/${name}/join`, { method: "DELETE" }),
   communityPosts: (name: string, sort = "hot", flair?: string) =>
     request<Post[]>(`/communities/${name}/posts?sort=${sort}${flair ? `&flair=${encodeURIComponent(flair)}` : ""}`),
+  communitiesFeed: () => request<Post[]>("/communities/feed"),
   listUserPosts: (uid: string) => request<Post[]>(`/posts/user/${uid}`),
   homeFeed: () => request<Post[]>("/feed/home"),
   exploreFeed: () => request<Post[]>("/feed/explore"),
@@ -1642,6 +1643,7 @@ export type Notification = {
   user_id: string;
   type: "like" | "repost" | "reply" | "tag" | "message" | "group_invite" | "group_message" | "follow" | "poke"
     | "call" | "support" | "roadside" | "moderation" | "factcheck"
+    | "community_pin" | "community_mod" | "community_removed"
     | "money_request" | "money_received" | "money_request_paid" | "money_request_declined"
     | "money_accepted" | "money_declined";
   actor_id?: string | null;
@@ -1806,7 +1808,7 @@ export type Post = {
   promoted?: boolean; promoted_until?: string | null;
   pinned?: boolean;
   community_id?: string | null; community_name?: string | null; title?: string | null;
-  flair?: string | null;
+  flair?: string | null; author_karma?: number | null;
   factcheck?: { id: string; text: string; source_url: string } | null;  // shown community note
   edited_at?: string | null;
   created_at: string;

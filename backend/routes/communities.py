@@ -102,6 +102,43 @@ async def list_communities(q: Optional[str] = Query(None), authorization: Option
     return [await _hydrate_community(d, user["user_id"]) for d in docs]
 
 
+async def _attach_karma(posts: List[Post]) -> List[Post]:
+    """Set author_karma on each (community) post from the per-community tallies."""
+    pairs = {(p.community_id, p.user_id) for p in posts if p.community_id}
+    if not pairs:
+        return posts
+    cids = list({c for c, _ in pairs})
+    uids = list({u for _, u in pairs})
+    rows = await db.community_karma_totals.find(
+        {"community_id": {"$in": cids}, "user_id": {"$in": uids}},
+        {"_id": 0, "community_id": 1, "user_id": 1, "karma": 1},
+    ).to_list(2000)
+    km = {(r["community_id"], r["user_id"]): int(r.get("karma", 0) or 0) for r in rows}
+    for p in posts:
+        if p.community_id:
+            p.author_karma = km.get((p.community_id, p.user_id), 0)
+    return posts
+
+
+# NOTE: must be registered BEFORE "/communities/{name}" so "feed" isn't captured
+# as a community name.
+@router.get("/communities/feed", response_model=List[Post])
+async def communities_feed(authorization: Optional[str] = Header(None)):
+    """A single feed of recent threads across all communities you've joined."""
+    user = await get_current_user(authorization)
+    mems = await db.community_members.find(
+        {"user_id": user["user_id"]}, {"_id": 0, "community_id": 1}
+    ).limit(500).to_list(500)
+    cids = [m["community_id"] for m in mems]
+    if not cids:
+        return []
+    docs = await db.posts.find(
+        {"community_id": {"$in": cids}, "parent_id": None}, {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    out = [await _hydrate_post(d, user["user_id"]) for d in docs]
+    return await _attach_karma(out)
+
+
 @router.get("/communities/{name}", response_model=Community)
 async def get_community(name: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -166,6 +203,12 @@ async def add_moderator(name: str, user_id: str, authorization: Optional[str] = 
     )
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="That person isn't a member yet")
+    try:
+        from routes.notifications import emit_notification
+        await emit_notification(user_id=user_id, actor_id=user["user_id"], ntype="community_mod",
+                                message=f"in /{name.lower()}")
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -242,13 +285,19 @@ async def remove_community_post(name: str, post_id: str, authorization: Optional
     """Moderator removes a post from the community."""
     user = await get_current_user(authorization)
     doc = await _require_moderator(name, user)
-    post = await db.posts.find_one({"id": post_id, "community_id": doc["id"]}, {"_id": 0, "id": 1})
+    post = await db.posts.find_one({"id": post_id, "community_id": doc["id"]}, {"_id": 0, "id": 1, "user_id": 1})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     await db.posts.delete_one({"id": post_id})
     for coll in (db.post_likes, db.post_dislikes, db.post_bookmarks,
                  db.post_reactions, db.post_views, db.poll_votes):
         await coll.delete_many({"post_id": post_id})
+    try:
+        from routes.notifications import emit_notification
+        await emit_notification(user_id=post["user_id"], actor_id=user["user_id"],
+                                ntype="community_removed", message=f"in /{name.lower()}")
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -257,11 +306,18 @@ async def pin_community_post(name: str, post_id: str, authorization: Optional[st
     """Moderator pins/unpins a post to the top of the community."""
     user = await get_current_user(authorization)
     doc = await _require_moderator(name, user)
-    post = await db.posts.find_one({"id": post_id, "community_id": doc["id"]}, {"_id": 0, "pinned": 1})
+    post = await db.posts.find_one({"id": post_id, "community_id": doc["id"]}, {"_id": 0, "pinned": 1, "user_id": 1})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     new_val = not bool(post.get("pinned"))
     await db.posts.update_one({"id": post_id}, {"$set": {"pinned": new_val}})
+    if new_val:
+        try:
+            from routes.notifications import emit_notification
+            await emit_notification(user_id=post["user_id"], actor_id=user["user_id"],
+                                    ntype="community_pin", post_id=post_id, message=f"in /{name.lower()}")
+        except Exception:
+            pass
     return {"pinned": new_val}
 
 
@@ -334,4 +390,5 @@ async def community_posts(
         docs.sort(key=hot, reverse=True)
     # "new" keeps the created_at-desc order from the query
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned first (stable)
-    return [await _hydrate_post(d, user["user_id"]) for d in docs]
+    out = [await _hydrate_post(d, user["user_id"]) for d in docs]
+    return await _attach_karma(out)
