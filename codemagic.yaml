@@ -20,7 +20,7 @@ workflows:
     environment:
       vars:
         # The backend URL is public (not a secret), so it's fine in git.
-        EXPO_PUBLIC_BACKEND_URL: "https://okayspace.onrender.com"
+        EXPO_PUBLIC_BACKEND_URL: "https://okayspace-v0vx.onrender.com"
       node: 20.19.4
       # After creating the "okayspace_env" group with EXPO_PUBLIC_MAPBOX_TOKEN,
       # uncomment these two lines so the native map renders:
@@ -57,7 +57,7 @@ workflows:
     max_build_duration: 90
     environment:
       vars:
-        EXPO_PUBLIC_BACKEND_URL: "https://okayspace.onrender.com"
+        EXPO_PUBLIC_BACKEND_URL: "https://okayspace-v0vx.onrender.com"
       node: 20.19.4
       xcode: latest
       cocoapods: default

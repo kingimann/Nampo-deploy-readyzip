@@ -11,7 +11,7 @@ must be run with the CLI on a machine you're logged in on.
 > - `app.json` — `bundleIdentifier` / `package` (`com.okayspace.mobile`),
 >   iOS `infoPlist` usage strings, Android permissions, all config plugins,
 >   and `runtimeVersion` (policy `appVersion`) for OTA compatibility.
-> - The backend URL (`EXPO_PUBLIC_BACKEND_URL=https://okayspace.onrender.com`)
+> - The backend URL (`EXPO_PUBLIC_BACKEND_URL=https://okayspace-v0vx.onrender.com`)
 >   is baked into every build profile via `eas.json` → `build.base.env`.
 > - `package.json` scripts for every common build / submit / update command.
 > - `credentials/.gitignore` so store secrets are never committed.
@@ -155,7 +155,7 @@ Public, build-time values (anything the client reads) go under each profile's
 `env` in `eas.json`. They're already inherited from `build.base.env`:
 
 ```json
-"env": { "EXPO_PUBLIC_BACKEND_URL": "https://okayspace.onrender.com" }
+"env": { "EXPO_PUBLIC_BACKEND_URL": "https://okayspace-v0vx.onrender.com" }
 ```
 
 For **secret** values (never expose to the client) use EAS secrets instead:

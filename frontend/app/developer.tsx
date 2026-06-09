@@ -12,7 +12,7 @@ import { api, ApiKey, DevWebhook, OAuthApp, WebhookDelivery } from "@/src/api/cl
 import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 
-const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://okayspace.onrender.com";
+const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://okayspace-v0vx.onrender.com";
 const API_BASE = `${BASE}/api/v1`;
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";

@@ -17,14 +17,14 @@
 #     user: okayspace
 
 services:
-  # API (FastAPI) → https://okayspace.onrender.com. The web build calls it via
+  # API (FastAPI) → https://okayspace-v0vx.onrender.com. The web build calls it via
   # EXPO_PUBLIC_BACKEND_URL below. Data lives in the external Neon Postgres
   # (DATABASE_URL, sync:false) — independent of this service, so recreating it is
   # safe as long as the same DATABASE_URL is set. To also serve the API at
   # api.okayspace.ca, add a `domains: [api.okayspace.ca]` block here later, then
   # point EXPO_PUBLIC_BACKEND_URL at it once DNS verifies.
   - type: web
-    name: okayspace
+    name: okayspace-v0vx
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
@@ -147,11 +147,11 @@ services:
         value: "20.19.4"
       # Baked into the web build at export time — MUST match the backend service's
       # real URL. The backend is named `okayspace`, so its URL is
-      # https://okayspace.onrender.com. If Render suffixes that name (already
+      # https://okayspace-v0vx.onrender.com. If Render suffixes that name (already
       # taken globally), update this to the actual URL it shows. The Mapbox PUBLIC
       # token is bundled too; paste it in the dashboard (sync:false).
       - key: EXPO_PUBLIC_BACKEND_URL
-        value: https://okayspace.onrender.com
+        value: https://okayspace-v0vx.onrender.com
       # Stripe publishable key (pk_…) for rendering Stripe inside the site.
       - key: EXPO_PUBLIC_STRIPE_KEY
         sync: false
