@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Platform, useWindowDimensions, Image,
 } from "react-native";
@@ -7,16 +7,12 @@ import { usePathname, useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSidebar } from "@/src/context/SidebarContext";
-import { api, LeaderboardEntry } from "@/src/api/client";
 
 // Below this width we keep the mobile layout untouched. At/above it (desktop
-// web only) we render real website chrome: a persistent left nav rail and a
-// centred, max-width content column — instead of full-bleed mobile UI. The
-// right rail (trends / who-to-follow) only appears when there's room for it.
+// web only) we render website chrome: a persistent left nav rail and a centred,
+// max-width content column — instead of full-bleed mobile UI.
 const DESKTOP_BP = 900;
-const WIDE_BP = 1180;
 const RAIL_W = 244;
-const RIGHT_W = 280;
 const CONTENT_MAX = 760;
 
 type Item = {
@@ -37,58 +33,9 @@ const ITEMS: Item[] = [
   { label: "Profile", route: "/profile", icon: "person", activeOn: ["/profile"] },
 ];
 
-// Routes that should use the FULL desktop width (no centred column / right rail),
-// e.g. the map needs all the space it can get.
+// Routes that use the FULL desktop width (no centred column), e.g. the map
+// needs all the space it can get.
 const FULL_BLEED = ["/", "/directions"];
-
-function RightRail() {
-  const router = useRouter();
-  const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
-  const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
-  useEffect(() => {
-    let alive = true;
-    api.trendingHashtags().then((r) => { if (alive) setTags((r.hashtags || []).slice(0, 6)); }).catch(() => {});
-    api.pointsLeaderboard().then((r) => { if (alive) setLeaders((r.leaders || []).slice(0, 5)); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  return (
-    <ScrollView style={styles.right} contentContainerStyle={{ paddingVertical: 16, gap: 14 }} showsVerticalScrollIndicator={false}>
-      {tags.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Trending</Text>
-          {tags.map((t) => (
-            <Pressable key={t.tag} style={styles.tagRow} onPress={() => router.push({ pathname: "/hashtag/[tag]", params: { tag: t.tag } })} testID={`trend-${t.tag}`}>
-              <Text style={styles.tagText} numberOfLines={1}>#{t.tag}</Text>
-              <Text style={styles.tagCount}>{t.count} post{t.count === 1 ? "" : "s"}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {leaders.length > 0 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Top members</Text>
-          {leaders.map((u) => (
-            <Pressable key={u.user_id} style={styles.personRow} onPress={() => router.push({ pathname: "/user/[name]", params: { name: u.username || u.name } })} testID={`top-${u.user_id}`}>
-              <Image source={{ uri: u.picture || "https://api.dicebear.com/7.x/initials/png?seed=" + encodeURIComponent(u.name) }} style={styles.personAvatar} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.personName} numberOfLines={1}>{u.name}</Text>
-                <Text style={styles.personMeta} numberOfLines={1}>{u.points.toLocaleString()} pts</Text>
-              </View>
-              <Text style={styles.rank}>#{u.rank}</Text>
-            </Pressable>
-          ))}
-          <Pressable onPress={() => router.push("/leaderboard")} testID="right-leaderboard-all">
-            <Text style={styles.seeAll}>See leaderboard</Text>
-          </Pressable>
-        </View>
-      )}
-
-      <Text style={styles.footer}>OkaySpace · okayspace.ca</Text>
-    </ScrollView>
-  );
-}
 
 export default function DesktopShell({ children }: { children: React.ReactNode }) {
   const { width } = useWindowDimensions();
@@ -197,20 +144,4 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: theme.border,
     borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.border,
   },
-  // Right rail.
-  right: { width: RIGHT_W, paddingHorizontal: 16, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: theme.border },
-  searchBtn: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.surfaceAlt, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 11 },
-  searchText: { color: theme.textMuted, fontSize: 14, fontWeight: "600" },
-  card: { backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 4 },
-  cardTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: "800", marginBottom: 6 },
-  tagRow: { paddingVertical: 7 },
-  tagText: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
-  tagCount: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
-  personRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7 },
-  personAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surfaceAlt },
-  personName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
-  personMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1 },
-  rank: { color: theme.textMuted, fontSize: 13, fontWeight: "800" },
-  seeAll: { color: theme.primary, fontSize: 13, fontWeight: "700", paddingTop: 8 },
-  footer: { color: theme.textMuted, fontSize: 12, paddingHorizontal: 4, paddingTop: 4 },
 });
