@@ -107,6 +107,18 @@ export default function MyMarketplaceScreen() {
         </View>
       </View>
 
+      {/* Customize how you appear in the marketplace. */}
+      <View style={styles.mpActions}>
+        <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/shop")} testID="mm-customize-storefront">
+          <Ionicons name="color-palette-outline" size={17} color={theme.primary} />
+          <Text style={styles.mpActionText}>Customize storefront</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/business")} testID="mm-business">
+          <Ionicons name="business-outline" size={17} color={theme.primary} />
+          <Text style={styles.mpActionText}>Business profile</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.segment}>
         {(([["listings", "Listings"], ["saved", "Saved"], ["reviews", "Reviews"]]) as [Tab, string][]).map(([k, label]) => (
           <TouchableOpacity key={k} style={[styles.segItem, tab === k && styles.segItemOn]} onPress={() => switchTab(k)} testID={`mm-tab-${k}`}>
@@ -226,6 +238,12 @@ const styles = StyleSheet.create({
   ratingText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "600" },
   countText: { color: theme.textMuted, fontSize: 12.5, marginTop: 4 },
 
+  mpActions: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  mpAction: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+    ...GLASS, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingVertical: 11,
+  },
+  mpActionText: { color: theme.primary, fontSize: 13, fontWeight: "800" },
   segment: {
     flexDirection: "row", gap: 4,
     ...GLASS, borderRadius: 14, borderWidth: 1, borderColor: theme.border,
