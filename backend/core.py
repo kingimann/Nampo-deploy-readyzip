@@ -531,6 +531,7 @@ def _user_doc_to_model(d: dict) -> dict:
         # actually sees what was saved — otherwise edits appear not to persist).
         "status": d.get("status"),
         "headline": d.get("headline"),
+        "shop_policies": d.get("shop_policies"),
         "location": d.get("location"),
         "pronouns": d.get("pronouns"),
         "birthday": d.get("birthday"),
@@ -670,6 +671,7 @@ async def _public_user(user_id: str, viewer_id: Optional[str] = None):
         bio=u.get("bio", ""),
         status=u.get("status"),
         headline=u.get("headline"),
+        shop_policies=u.get("shop_policies"),
         location=u.get("location"),
         pronouns=u.get("pronouns"),
         birthday=u.get("birthday"),

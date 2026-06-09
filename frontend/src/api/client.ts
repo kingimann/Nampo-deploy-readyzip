@@ -1110,6 +1110,7 @@ export type User = {
   bio?: string;
   status?: string | null;
   headline?: string | null;
+  shop_policies?: string | null;
   location?: string | null;
   pronouns?: string | null;
   birthday?: string | null;
@@ -1153,6 +1154,7 @@ export type ProfilePatch = {
   name?: string; bio?: string; picture?: string;
   status?: string | null;
   headline?: string | null;
+  shop_policies?: string | null;
   location?: string | null; pronouns?: string | null; birthday?: string | null;
   socials?: Record<string, string>;
   cover_photo?: string | null;
@@ -1313,6 +1315,7 @@ export type PublicUser = {
   bio?: string;
   status?: string | null;
   headline?: string | null;
+  shop_policies?: string | null;
   location?: string | null;
   pronouns?: string | null;
   birthday?: string | null;

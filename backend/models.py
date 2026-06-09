@@ -23,6 +23,7 @@ class User(BaseModel):
     # Public profile details users fill in to display on their profile.
     status: Optional[str] = None        # short status (emoji + text), e.g. "🎯 Focusing"
     headline: Optional[str] = None      # short tagline shown under the name
+    shop_policies: Optional[str] = None # marketplace storefront note (shipping/returns/handoff)
     location: Optional[str] = None      # city / country
     pronouns: Optional[str] = None      # e.g. she/her, they/them
     birthday: Optional[str] = None      # YYYY-MM-DD (chosen via date picker)
@@ -87,6 +88,7 @@ class PublicUser(BaseModel):
     bio: Optional[str] = ""
     status: Optional[str] = None
     headline: Optional[str] = None
+    shop_policies: Optional[str] = None
     location: Optional[str] = None
     pronouns: Optional[str] = None
     birthday: Optional[str] = None
@@ -135,6 +137,7 @@ class ProfilePatch(BaseModel):
     picture: Optional[str] = None
     status: Optional[str] = None
     headline: Optional[str] = None
+    shop_policies: Optional[str] = None
     location: Optional[str] = None
     pronouns: Optional[str] = None
     birthday: Optional[str] = None

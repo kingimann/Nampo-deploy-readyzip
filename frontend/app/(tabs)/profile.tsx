@@ -65,6 +65,7 @@ export default function ProfileScreen() {
   const [editSocials, setEditSocials] = useState<Record<string, string>>({});
   const [editStatus, setEditStatus] = useState("");
   const [editHeadline, setEditHeadline] = useState("");
+  const [editShopPolicies, setEditShopPolicies] = useState("");
   const [editAccent, setEditAccent] = useState("");
   const [editInterests, setEditInterests] = useState<string[]>([]);
   const [interestInput, setInterestInput] = useState("");
@@ -284,6 +285,7 @@ export default function ProfileScreen() {
     setEditSocials({ ...(user?.socials || {}) });
     setEditStatus(user?.status || "");
     setEditHeadline(user?.headline || "");
+    setEditShopPolicies(user?.shop_policies || "");
     setEditAccent(user?.accent_color || "");
     setEditInterests([...(user?.interests || [])]);
     setInterestInput("");
@@ -394,6 +396,7 @@ export default function ProfileScreen() {
         socials: editSocials,
         status: editStatus,
         headline: editHeadline,
+        shop_policies: editShopPolicies,
         accent_color: editAccent && isValidHex(editAccent) ? editAccent : "",
         interests: editInterests,
         featured_links: links,
@@ -1161,6 +1164,19 @@ export default function ProfileScreen() {
 
             <Text style={styles.label}>Birthday</Text>
             <BirthdayPicker value={editBirthday} onChange={setEditBirthday} testID="edit-birthday" />
+
+            <Text style={styles.label}>Shop policies</Text>
+            <Text style={styles.helper2}>Shown on your marketplace seller profile (shipping, returns, meetup…).</Text>
+            <TextInput
+              style={[styles.input, { height: 80, textAlignVertical: "top" }]}
+              value={editShopPolicies}
+              onChangeText={setEditShopPolicies}
+              placeholder="Ships within 2 days · Meet downtown · No returns"
+              placeholderTextColor={theme.textMuted}
+              multiline
+              maxLength={500}
+              testID="edit-shop-policies"
+            />
 
             <Text style={styles.label}>Interests</Text>
             <Text style={styles.helper2}>Up to 12 tags shown as chips on your profile.</Text>

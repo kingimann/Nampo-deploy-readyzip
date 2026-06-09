@@ -177,6 +177,8 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
         patch["status"] = body.status.strip()[:50] or None
     if body.headline is not None:
         patch["headline"] = body.headline.strip()[:60] or None
+    if body.shop_policies is not None:
+        patch["shop_policies"] = body.shop_policies.strip()[:500] or None
     if body.cover_photo is not None:
         # A banner image URL / data URI; empty string clears it.
         patch["cover_photo"] = body.cover_photo or None

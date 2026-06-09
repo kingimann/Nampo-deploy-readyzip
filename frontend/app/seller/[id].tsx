@@ -11,6 +11,9 @@ import { api, SellerProfile, MarketplaceReview } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import VerificationBadges from "@/src/components/VerificationBadges";
+import { resolveAccent, accentGradient } from "@/src/lib/profileCustomize";
+import { AvatarFrame, ProfileBackground } from "@/src/components/ProfileDecor";
+import { LinearGradient } from "expo-linear-gradient";
 
 const REVIEW_CATEGORIES = [
   { key: "communication", label: "Communication" },
@@ -76,6 +79,7 @@ export default function SellerProfileScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const isMe = !!profile && profile.user.user_id === user?.user_id;
+  const accent = resolveAccent(profile?.user.accent_color);
 
   const submitReview = async () => {
     if (!id || saving) return;
@@ -100,6 +104,7 @@ export default function SellerProfileScreen() {
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="seller-screen">
+      <ProfileBackground background={profile?.user.profile_background} />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="seller-back">
@@ -113,16 +118,29 @@ export default function SellerProfileScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} showsVerticalScrollIndicator={false}>
+          {/* Cover / banner — the seller's cover photo, or an accent gradient */}
+          {profile.user.cover_photo ? (
+            <Image source={{ uri: profile.user.cover_photo }} style={styles.cover} resizeMode="cover" />
+          ) : (
+            <LinearGradient colors={accentGradient(profile.user.accent_color)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cover} />
+          )}
           <View style={styles.top}>
-            <View style={styles.avatar}>
-              {profile.user.picture ? (
-                <Image source={{ uri: profile.user.picture }} style={{ width: "100%", height: "100%" }} />
-              ) : (
-                <Text style={styles.avatarInit}>{(profile.user.name?.[0] || "?").toUpperCase()}</Text>
-              )}
-            </View>
+            <AvatarFrame frame={profile.user.avatar_frame} size={84} ring={3} style={{ marginTop: -46 }}>
+              <View style={styles.avatar}>
+                {profile.user.picture ? (
+                  <Image source={{ uri: profile.user.picture }} style={{ width: "100%", height: "100%" }} />
+                ) : (
+                  <Text style={styles.avatarInit}>{(profile.user.name?.[0] || "?").toUpperCase()}</Text>
+                )}
+              </View>
+            </AvatarFrame>
             <Text style={styles.name}>{profile.user.name}</Text>
-            {!!profile.user.username && <Text style={styles.handle}>@{profile.user.username}</Text>}
+            {!!profile.user.username && <Text style={[styles.handle, { color: accent }]}>@{profile.user.username}</Text>}
+            {!!profile.user.status && (
+              <View style={[styles.statusPill, { borderColor: accent + "55" }]}><Text style={styles.statusText} numberOfLines={1}>{profile.user.status}</Text></View>
+            )}
+            {!!profile.user.headline && <Text style={styles.headline} numberOfLines={2}>{profile.user.headline}</Text>}
+            {!!profile.user.bio && <Text style={styles.bio} numberOfLines={3}>{profile.user.bio}</Text>}
             <View style={styles.dualRating}>
               <View style={styles.dualCol}>
                 <Text style={styles.dualLabel}>As a seller</Text>
@@ -167,7 +185,7 @@ export default function SellerProfileScreen() {
               {!isMe && (
                 <>
                   <TouchableOpacity
-                    style={styles.primaryBtn}
+                    style={[styles.primaryBtn, { backgroundColor: accent }]}
                     onPress={() => router.push({ pathname: "/user/[name]", params: { name: profile.user.name } })}
                     testID="seller-view-profile"
                   >
@@ -189,6 +207,16 @@ export default function SellerProfileScreen() {
               )}
             </View>
           </View>
+
+          {!!profile.user.shop_policies && (
+            <View style={styles.shopCard}>
+              <View style={styles.shopHead}>
+                <Ionicons name="receipt-outline" size={15} color={accent} />
+                <Text style={styles.shopTitle}>Shop policies</Text>
+              </View>
+              <Text style={styles.shopText}>{profile.user.shop_policies}</Text>
+            </View>
+          )}
 
           <Text style={styles.sectionTitle}>Listings</Text>
           {profile.listings.length === 0 ? (
@@ -368,7 +396,16 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, color: theme.textPrimary, fontSize: 17, fontWeight: "800", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  top: { alignItems: "center", paddingVertical: 20, paddingHorizontal: 20, gap: 4 },
+  cover: { width: "100%", height: 120, backgroundColor: theme.surfaceAlt },
+  top: { alignItems: "center", paddingTop: 0, paddingBottom: 20, paddingHorizontal: 20, gap: 4 },
+  statusPill: { marginTop: 6, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: theme.surfaceAlt, maxWidth: "90%" },
+  statusText: { color: theme.textPrimary, fontSize: 13, fontWeight: "600" },
+  headline: { color: theme.textSecondary, fontSize: 14, fontWeight: "600", textAlign: "center", marginTop: 6, paddingHorizontal: 10 },
+  bio: { color: theme.textSecondary, fontSize: 13.5, textAlign: "center", marginTop: 6, lineHeight: 19, paddingHorizontal: 10 },
+  shopCard: { marginHorizontal: 16, marginTop: 6, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 14, gap: 6 },
+  shopHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  shopTitle: { color: theme.textPrimary, fontSize: 14.5, fontWeight: "800" },
+  shopText: { color: theme.textSecondary, fontSize: 13.5, lineHeight: 19 },
   avatar: {
     width: 84, height: 84, borderRadius: 42, overflow: "hidden",
     backgroundColor: theme.primary, alignItems: "center", justifyContent: "center", marginBottom: 6,
