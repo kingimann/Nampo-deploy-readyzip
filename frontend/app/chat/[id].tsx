@@ -99,6 +99,9 @@ export default function ChatScreen() {
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [actionMsg, setActionMsg] = useState<Message | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [matchPos, setMatchPos] = useState(0);
   const [recMs, setRecMs] = useState(0);
   const lastTapRef = useRef<Record<string, number>>({});
   // Messenger-style: time/read/seen stay hidden until you tap a message.
@@ -491,6 +494,32 @@ export default function ChatScreen() {
     try { listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 }); } catch {}
   };
 
+  // In-chat search over the loaded thread (works with E2E, since the text is
+  // already decrypted on this device).
+  const matches = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!q) return [] as number[];
+    const out: number[] = [];
+    messages.forEach((m, i) => {
+      if (m.deleted) return;
+      const hay = `${previewOf(m)} ${m.file_name || ""}`.toLowerCase();
+      if (hay.includes(q)) out.push(i);
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, searchQ, decrypted]);
+  const goMatch = (dir: number) => {
+    if (!matches.length) return;
+    const next = (matchPos + dir + matches.length) % matches.length;
+    setMatchPos(next);
+    try { listRef.current?.scrollToIndex({ index: matches[next], animated: true, viewPosition: 0.4 }); } catch {}
+  };
+  useEffect(() => {
+    setMatchPos(0);
+    if (matches.length) { try { listRef.current?.scrollToIndex({ index: matches[0], animated: true, viewPosition: 0.4 }); } catch {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQ]);
+
   const saveEdit = async () => {
     if (!editingMsg || !id) return;
     const draft = text.trim();
@@ -862,6 +891,9 @@ export default function ChatScreen() {
             </View>
           )}
         </View>
+        <TouchableOpacity onPress={() => setSearchOpen((v) => !v)} style={styles.iconBtn} testID="chat-search-toggle">
+          <Ionicons name="search" size={19} color={theme.textPrimary} />
+        </TouchableOpacity>
         <TouchableOpacity
           onPress={() => { api.ringCall(String(id)).catch(() => {}); router.push({ pathname: "/call/[id]", params: { id: String(id), name: name || "Call" } }); }}
           style={styles.iconBtn}
@@ -880,6 +912,33 @@ export default function ChatScreen() {
           <Ionicons name="ellipsis-horizontal" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
       </View>
+
+      {searchOpen && (
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={16} color={theme.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQ}
+            onChangeText={setSearchQ}
+            placeholder="Search in this chat"
+            placeholderTextColor={theme.textMuted}
+            autoFocus
+            testID="chat-search-input"
+          />
+          {!!searchQ.trim() && (
+            <Text style={styles.searchCount}>{matches.length ? `${matchPos + 1}/${matches.length}` : "0"}</Text>
+          )}
+          <TouchableOpacity onPress={() => goMatch(-1)} disabled={!matches.length} hitSlop={6}>
+            <Ionicons name="chevron-up" size={18} color={matches.length ? theme.textPrimary : theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => goMatch(1)} disabled={!matches.length} hitSlop={6}>
+            <Ionicons name="chevron-down" size={18} color={matches.length ? theme.textPrimary : theme.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setSearchOpen(false); setSearchQ(""); }} hitSlop={6} testID="chat-search-close">
+            <Ionicons name="close" size={18} color={theme.textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {(showRestore || showBackup) && (
         <TouchableOpacity
@@ -1700,6 +1759,17 @@ const styles = StyleSheet.create({
   replySnippet: { color: theme.textSecondary, fontSize: 13, marginTop: 1 },
 
   actionBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  searchBar: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: theme.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border,
+  },
+  searchInput: {
+    flex: 1, color: theme.textPrimary, fontSize: 15,
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}),
+  },
+  searchCount: { color: theme.textMuted, fontSize: 12.5, fontWeight: "700" },
   pinBanner: {
     flexDirection: "row", alignItems: "center", gap: 8,
     paddingHorizontal: 14, paddingVertical: 9,
