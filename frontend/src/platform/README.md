@@ -29,7 +29,7 @@ library) becomes a **one-file change** instead of editing every call site.
 2. ✅ Thin, low-usage libs: linear-gradient, status-bar, linking, constants,
    device, secure-store, speech, document-picker.
 3. ✅ Media: image-picker, camera, audio, video.
-4. Notifications, splash-screen, font.
+4. ✅ Notifications, splash-screen, font.
 5. **Icons** (`@expo/vector-icons`, ~115 files) → `react-native-vector-icons`.
 6. **Routing** (`expo-router`, ~99 files) → React Navigation. The big one.
 7. **Build system**: generate native `ios/`/`android/` projects, Metro/Babel

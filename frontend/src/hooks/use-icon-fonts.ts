@@ -7,7 +7,7 @@
 // Usage: const [loaded, error] = useIconFonts();
 
 import Constants, { ExecutionEnvironment } from "@/src/platform/constants";
-import { useFonts } from "expo-font";
+import { useFonts } from "@/src/platform/font";
 
 const ICON_VECTOR_VERSION = "15.0.3";
 

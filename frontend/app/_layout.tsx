@@ -1,5 +1,5 @@
 import { Stack, usePathname, useRouter } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
+import * as SplashScreen from "@/src/platform/splash-screen";
 import { useEffect } from "react";
 import { StatusBar } from "@/src/platform/status-bar";
 import { Platform, View } from "react-native";

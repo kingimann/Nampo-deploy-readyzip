@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 import { router } from "expo-router";
 import Constants from "@/src/platform/constants";
 import * as Device from "@/src/platform/device";
-import * as Notifications from "expo-notifications";
+import * as Notifications from "@/src/platform/notifications";
 import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 
