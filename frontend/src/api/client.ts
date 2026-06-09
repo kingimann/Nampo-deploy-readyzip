@@ -1111,6 +1111,11 @@ export type User = {
   status?: string | null;
   headline?: string | null;
   shop_policies?: string | null;
+  shop_name?: string | null;
+  shop_tagline?: string | null;
+  shop_logo?: string | null;
+  shop_banner?: string | null;
+  shop_accent?: string | null;
   location?: string | null;
   pronouns?: string | null;
   birthday?: string | null;
@@ -1155,6 +1160,11 @@ export type ProfilePatch = {
   status?: string | null;
   headline?: string | null;
   shop_policies?: string | null;
+  shop_name?: string | null;
+  shop_tagline?: string | null;
+  shop_logo?: string | null;
+  shop_banner?: string | null;
+  shop_accent?: string | null;
   location?: string | null; pronouns?: string | null; birthday?: string | null;
   socials?: Record<string, string>;
   cover_photo?: string | null;
@@ -1316,6 +1326,11 @@ export type PublicUser = {
   status?: string | null;
   headline?: string | null;
   shop_policies?: string | null;
+  shop_name?: string | null;
+  shop_tagline?: string | null;
+  shop_logo?: string | null;
+  shop_banner?: string | null;
+  shop_accent?: string | null;
   location?: string | null;
   pronouns?: string | null;
   birthday?: string | null;

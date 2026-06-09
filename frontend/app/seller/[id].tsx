@@ -79,7 +79,13 @@ export default function SellerProfileScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const isMe = !!profile && profile.user.user_id === user?.user_id;
-  const accent = resolveAccent(profile?.user.accent_color);
+  // Storefront branding falls back to the social profile when unset.
+  const u = profile?.user;
+  const accent = resolveAccent(u?.shop_accent || u?.accent_color);
+  const shopName = u?.shop_name || u?.name || "";
+  const shopLogo = u?.shop_logo || u?.picture;
+  const shopBanner = u?.shop_banner || u?.cover_photo;
+  const shopTagline = u?.shop_tagline || u?.headline;
 
   const submitReview = async () => {
     if (!id || saving) return;
@@ -110,7 +116,7 @@ export default function SellerProfileScreen() {
         <TouchableOpacity onPress={() => safeBack()} style={styles.iconBtn} testID="seller-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{profile?.user.name || name || "Seller"}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{shopName || name || "Seller"}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -118,28 +124,28 @@ export default function SellerProfileScreen() {
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 30 }} showsVerticalScrollIndicator={false}>
-          {/* Cover / banner — the seller's cover photo, or an accent gradient */}
-          {profile.user.cover_photo ? (
-            <Image source={{ uri: profile.user.cover_photo }} style={styles.cover} resizeMode="cover" />
+          {/* Storefront banner — shop banner, else profile cover, else gradient */}
+          {shopBanner ? (
+            <Image source={{ uri: shopBanner }} style={styles.cover} resizeMode="cover" />
           ) : (
-            <LinearGradient colors={accentGradient(profile.user.accent_color)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cover} />
+            <LinearGradient colors={accentGradient(profile.user.shop_accent || profile.user.accent_color)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cover} />
           )}
           <View style={styles.top}>
             <AvatarFrame frame={profile.user.avatar_frame} size={84} ring={3} style={{ marginTop: -46 }}>
               <View style={styles.avatar}>
-                {profile.user.picture ? (
-                  <Image source={{ uri: profile.user.picture }} style={{ width: "100%", height: "100%" }} />
+                {shopLogo ? (
+                  <Image source={{ uri: shopLogo }} style={{ width: "100%", height: "100%" }} />
                 ) : (
-                  <Text style={styles.avatarInit}>{(profile.user.name?.[0] || "?").toUpperCase()}</Text>
+                  <Text style={styles.avatarInit}>{(shopName?.[0] || "?").toUpperCase()}</Text>
                 )}
               </View>
             </AvatarFrame>
-            <Text style={styles.name}>{profile.user.name}</Text>
+            <Text style={styles.name}>{shopName}</Text>
             {!!profile.user.username && <Text style={[styles.handle, { color: accent }]}>@{profile.user.username}</Text>}
             {!!profile.user.status && (
               <View style={[styles.statusPill, { borderColor: accent + "55" }]}><Text style={styles.statusText} numberOfLines={1}>{profile.user.status}</Text></View>
             )}
-            {!!profile.user.headline && <Text style={styles.headline} numberOfLines={2}>{profile.user.headline}</Text>}
+            {!!shopTagline && <Text style={styles.headline} numberOfLines={2}>{shopTagline}</Text>}
             {!!profile.user.bio && <Text style={styles.bio} numberOfLines={3}>{profile.user.bio}</Text>}
             <View style={styles.dualRating}>
               <View style={styles.dualCol}>
@@ -204,6 +210,12 @@ export default function SellerProfileScreen() {
                     </TouchableOpacity>
                   )}
                 </>
+              )}
+              {isMe && (
+                <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: accent }]} onPress={() => router.push("/shop")} testID="seller-edit-storefront">
+                  <Ionicons name="storefront-outline" size={16} color="#fff" />
+                  <Text style={styles.primaryText}>Edit storefront</Text>
+                </TouchableOpacity>
               )}
             </View>
           </View>

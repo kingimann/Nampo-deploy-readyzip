@@ -115,6 +115,13 @@ export default function MyListingsScreen() {
           renderItem={renderItem}
           contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24, gap: 12 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} />}
+          ListHeaderComponent={
+            <TouchableOpacity style={styles.storefrontBtn} onPress={() => router.push("/shop")} testID="customize-storefront">
+              <Ionicons name="storefront-outline" size={18} color={theme.primary} />
+              <Text style={styles.storefrontText}>Customize your storefront</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          }
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><Ionicons name="pricetags-outline" size={30} color={theme.textMuted} /></View>
@@ -136,6 +143,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   headerTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: "800" },
+  storefrontBtn: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, marginBottom: 2 },
+  storefrontText: { flex: 1, color: theme.textPrimary, fontSize: 14.5, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   card: {
     backgroundColor: theme.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.border, overflow: "hidden",

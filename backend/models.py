@@ -24,6 +24,13 @@ class User(BaseModel):
     status: Optional[str] = None        # short status (emoji + text), e.g. "🎯 Focusing"
     headline: Optional[str] = None      # short tagline shown under the name
     shop_policies: Optional[str] = None # marketplace storefront note (shipping/returns/handoff)
+    # Storefront identity — marketplace-only branding, independent of the social
+    # profile (falls back to the profile's name/picture/cover/accent when unset).
+    shop_name: Optional[str] = None
+    shop_tagline: Optional[str] = None
+    shop_logo: Optional[str] = None
+    shop_banner: Optional[str] = None
+    shop_accent: Optional[str] = None
     location: Optional[str] = None      # city / country
     pronouns: Optional[str] = None      # e.g. she/her, they/them
     birthday: Optional[str] = None      # YYYY-MM-DD (chosen via date picker)
@@ -89,6 +96,11 @@ class PublicUser(BaseModel):
     status: Optional[str] = None
     headline: Optional[str] = None
     shop_policies: Optional[str] = None
+    shop_name: Optional[str] = None
+    shop_tagline: Optional[str] = None
+    shop_logo: Optional[str] = None
+    shop_banner: Optional[str] = None
+    shop_accent: Optional[str] = None
     location: Optional[str] = None
     pronouns: Optional[str] = None
     birthday: Optional[str] = None
@@ -138,6 +150,11 @@ class ProfilePatch(BaseModel):
     status: Optional[str] = None
     headline: Optional[str] = None
     shop_policies: Optional[str] = None
+    shop_name: Optional[str] = None
+    shop_tagline: Optional[str] = None
+    shop_logo: Optional[str] = None
+    shop_banner: Optional[str] = None
+    shop_accent: Optional[str] = None
     location: Optional[str] = None
     pronouns: Optional[str] = None
     birthday: Optional[str] = None
