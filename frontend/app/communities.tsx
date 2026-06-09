@@ -52,6 +52,12 @@ export default function CommunitiesScreen() {
     setFeed((arr) => arr.map((x) => (x.id === p.id ? { ...x, bookmarked_by_me: !x.bookmarked_by_me } : x)));
     try { await api.toggleBookmark(p.id); } catch {}
   };
+  const toggleFav = async (c: Community) => {
+    const next = !c.is_favorite;
+    setItems((arr) => arr.map((x) => (x.id === c.id ? { ...x, is_favorite: next } : x)));
+    try { next ? await api.favoriteCommunity(c.name) : await api.unfavoriteCommunity(c.name); }
+    catch { setItems((arr) => arr.map((x) => (x.id === c.id ? { ...x, is_favorite: !next } : x))); }
+  };
 
   const create = async () => {
     const name = draft.name.trim().toLowerCase();
@@ -168,6 +174,9 @@ export default function CommunitiesScreen() {
                 <Text style={styles.rowMeta} numberOfLines={1}>/{item.name} · {item.member_count || 0} members · {item.post_count || 0} posts</Text>
                 {!!item.description && <Text style={styles.rowDesc} numberOfLines={2}>{item.description}</Text>}
               </View>
+              <TouchableOpacity onPress={() => toggleFav(item)} hitSlop={8} testID={`community-fav-${item.name}`}>
+                <Ionicons name={item.is_favorite ? "star" : "star-outline"} size={20} color={item.is_favorite ? "#EAB308" : theme.textMuted} />
+              </TouchableOpacity>
               {item.is_member && <View style={styles.joinedDot}><Ionicons name="checkmark" size={13} color="#fff" /></View>}
             </TouchableOpacity>
           )}

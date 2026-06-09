@@ -110,6 +110,7 @@ async def init_pool() -> None:
         ("profile_view_payouts", "uniq_profile_view_payouts", "((doc ->> 'user_id'), (doc ->> 'milestone'))", ["user_id", "milestone"]),
         ("community_karma", "uniq_community_karma", "((doc ->> 'post_id'), (doc ->> 'voter_id'))", ["post_id", "voter_id"]),
         ("community_karma_totals", "uniq_community_karma_totals", "((doc ->> 'community_id'), (doc ->> 'user_id'))", ["community_id", "user_id"]),
+        ("community_favorites", "uniq_community_favorites", "((doc ->> 'community_id'), (doc ->> 'user_id'))", ["community_id", "user_id"]),
     ]
     async with _real_db._pool.acquire() as conn:
         for table, idx, cols, keys in _DEDUP_UNIQUE_INDEXES:

@@ -683,6 +683,8 @@ class CommunityPatch(BaseModel):
     rules: Optional[List[str]] = None
     flairs: Optional[List[str]] = None
     banner: Optional[str] = None       # "" clears the banner image
+    wiki: Optional[str] = None         # long-form about/wiki page ("" clears)
+    banned_keywords: Optional[List[str]] = None  # auto-mod: block posts containing these
 
 
 class Community(BaseModel):
@@ -695,10 +697,13 @@ class Community(BaseModel):
     banner: Optional[str] = None       # cover image (URL / data URI)
     rules: List[str] = []              # community rules shown in the sidebar
     flairs: List[str] = []             # post flair options
+    wiki: Optional[str] = None         # long-form about/wiki page
+    banned_keywords: List[str] = []    # auto-mod blocklist (visible to mods only)
     owner_id: str
     member_count: int = 0
     post_count: int = 0
     is_member: bool = False
+    is_favorite: bool = False          # viewer has favorited this community
     role: Optional[str] = None         # owner | mod | member | None
     can_moderate: bool = False         # viewer is owner or mod
     created_at: datetime

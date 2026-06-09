@@ -47,8 +47,9 @@ export default function CommunityScreen() {
   const [draft, setDraft] = useState<{ title: string; body: string; flair: string }>({ title: "", body: "", flair: "" });
   const [posting, setPosting] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [edit, setEdit] = useState({ title: "", description: "", rules: "", flairs: "", banner: "" as string | null });
+  const [edit, setEdit] = useState({ title: "", description: "", rules: "", flairs: "", banner: "" as string | null, wiki: "", banned: "" });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editErr, setEditErr] = useState("");
 
@@ -105,6 +106,14 @@ export default function CommunityScreen() {
     } catch {} finally { setPosting(false); }
   };
 
+  const toggleFavorite = async () => {
+    if (!community) return;
+    const next = !community.is_favorite;
+    setCommunity({ ...community, is_favorite: next });
+    try { next ? await api.favoriteCommunity(community.name) : await api.unfavoriteCommunity(community.name); }
+    catch { setCommunity((c) => (c ? { ...c, is_favorite: !next } : c)); }
+  };
+
   const openEdit = () => {
     if (!community) return;
     setEdit({
@@ -113,6 +122,8 @@ export default function CommunityScreen() {
       rules: (community.rules || []).join("\n"),
       flairs: (community.flairs || []).join(", "),
       banner: community.banner || "",
+      wiki: community.wiki || "",
+      banned: (community.banned_keywords || []).join(", "),
     });
     setEditErr("");
     setEditOpen(true);
@@ -133,10 +144,12 @@ export default function CommunityScreen() {
     try {
       const rules = edit.rules.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 15);
       const flairs = edit.flairs.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 20);
+      const banned = edit.banned.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50);
       const c = await api.updateCommunity(community.name, {
         title: edit.title.trim() || community.name,
         description: edit.description.trim(),
         rules, flairs, banner: edit.banner || "",
+        wiki: edit.wiki.trim(), banned_keywords: banned,
       });
       setCommunity(c);
       setEditOpen(false);
@@ -196,6 +209,9 @@ export default function CommunityScreen() {
                       <Text style={styles.cMeta}>{community.member_count || 0} members · {community.post_count || 0} posts ›</Text>
                     </TouchableOpacity>
                   </View>
+                  <TouchableOpacity style={styles.gearBtn} onPress={toggleFavorite} testID="community-favorite">
+                    <Ionicons name={community.is_favorite ? "star" : "star-outline"} size={20} color={community.is_favorite ? "#EAB308" : theme.textPrimary} />
+                  </TouchableOpacity>
                   {community.can_moderate && (
                     <TouchableOpacity style={styles.gearBtn} onPress={openEdit} testID="community-edit">
                       <Ionicons name="settings-outline" size={20} color={theme.textPrimary} />
@@ -216,6 +232,16 @@ export default function CommunityScreen() {
                     {rulesOpen && community.rules.map((r, i) => (
                       <Text key={i} style={styles.ruleItem}>{i + 1}. {r}</Text>
                     ))}
+                  </View>
+                )}
+                {!!community.wiki && (
+                  <View style={styles.rulesCard}>
+                    <TouchableOpacity style={styles.rulesHead} onPress={() => setAboutOpen((v) => !v)} testID="community-about">
+                      <Ionicons name="book-outline" size={16} color={theme.primary} />
+                      <Text style={styles.rulesTitle}>About this community</Text>
+                      <Ionicons name={aboutOpen ? "chevron-up" : "chevron-down"} size={16} color={theme.textMuted} />
+                    </TouchableOpacity>
+                    {aboutOpen && <Text style={styles.wikiText}>{community.wiki}</Text>}
                   </View>
                 )}
                 <View style={styles.searchPill}>
@@ -313,6 +339,11 @@ export default function CommunityScreen() {
               <TextInput style={styles.bodyInput} value={edit.rules} onChangeText={(t) => setEdit((e) => ({ ...e, rules: t }))} multiline placeholder={"Be respectful\nNo spam"} placeholderTextColor={theme.textMuted} />
               <Text style={styles.fieldLabel}>Flairs (comma-separated)</Text>
               <TextInput style={styles.titleInput} value={edit.flairs} onChangeText={(t) => setEdit((e) => ({ ...e, flairs: t }))} placeholder="Discussion, Question, News" placeholderTextColor={theme.textMuted} autoCapitalize="none" />
+              <Text style={styles.fieldLabel}>About / wiki</Text>
+              <TextInput style={[styles.bodyInput, { minHeight: 120 }]} value={edit.wiki} onChangeText={(t) => setEdit((e) => ({ ...e, wiki: t }))} multiline placeholder="A longer description, FAQ, or posting guidelines for your community." placeholderTextColor={theme.textMuted} />
+              <Text style={styles.fieldLabel}>Auto-mod: banned words (comma-separated)</Text>
+              <TextInput style={styles.titleInput} value={edit.banned} onChangeText={(t) => setEdit((e) => ({ ...e, banned: t }))} placeholder="spam, scam" placeholderTextColor={theme.textMuted} autoCapitalize="none" />
+              <Text style={styles.bannedHint}>New posts containing any of these words are blocked.</Text>
 
               {!!editErr && <Text style={styles.editErr}>{editErr}</Text>}
               <TouchableOpacity style={[styles.postBtn, savingEdit && { opacity: 0.5 }]} onPress={saveEdit} disabled={savingEdit} testID="community-save">
@@ -370,6 +401,8 @@ const styles = StyleSheet.create({
   rulesHead: { flexDirection: "row", alignItems: "center", gap: 8 },
   rulesTitle: { flex: 1, color: theme.textPrimary, fontSize: 14, fontWeight: "800" },
   ruleItem: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 8 },
+  wikiText: { color: theme.textSecondary, fontSize: 13.5, lineHeight: 20, marginTop: 8 },
+  bannedHint: { color: theme.textMuted, fontSize: 11.5, marginTop: 4 },
   flairRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
   flairChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
   flairChipOn: { backgroundColor: theme.primary, borderColor: theme.primary },

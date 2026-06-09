@@ -743,6 +743,8 @@ export const api = {
     request<{ pinned: boolean }>(`/communities/${name}/posts/${postId}/pin`, { method: "POST" }),
   joinCommunity: (name: string) => request<{ joined: boolean }>(`/communities/${name}/join`, { method: "POST" }),
   leaveCommunity: (name: string) => request<{ joined: boolean }>(`/communities/${name}/join`, { method: "DELETE" }),
+  favoriteCommunity: (name: string) => request<{ favorite: boolean }>(`/communities/${name}/favorite`, { method: "POST" }),
+  unfavoriteCommunity: (name: string) => request<{ favorite: boolean }>(`/communities/${name}/favorite`, { method: "DELETE" }),
   communityPosts: (name: string, sort = "hot", flair?: string, search?: string) =>
     request<Post[]>(`/communities/${name}/posts?sort=${sort}${flair ? `&flair=${encodeURIComponent(flair)}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`),
   communitiesFeed: () => request<Post[]>("/communities/feed"),
@@ -1860,13 +1862,15 @@ export type Community = {
   id: string; name: string; title: string; description?: string;
   color?: string; icon?: string; banner?: string | null;
   rules?: string[]; flairs?: string[];
+  wiki?: string | null; banned_keywords?: string[];
   owner_id: string;
   member_count?: number; post_count?: number;
-  is_member?: boolean; role?: string | null; can_moderate?: boolean; created_at: string;
+  is_member?: boolean; is_favorite?: boolean; role?: string | null; can_moderate?: boolean; created_at: string;
 };
 export type CommunityPatch = {
   title?: string; description?: string; color?: string; icon?: string;
   banner?: string | null; rules?: string[]; flairs?: string[];
+  wiki?: string | null; banned_keywords?: string[];
 };
 export type CommunityMember = {
   user_id: string; name: string; username?: string | null;

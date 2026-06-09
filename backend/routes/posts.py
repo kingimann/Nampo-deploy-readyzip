@@ -459,13 +459,22 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
     community_id = None
     flair = None
     if body.community_id:
-        comm = await db.communities.find_one({"id": body.community_id}, {"_id": 0, "id": 1, "flairs": 1})
+        comm = await db.communities.find_one({"id": body.community_id}, {"_id": 0, "id": 1, "flairs": 1, "banned_keywords": 1})
         if not comm:
             raise HTTPException(status_code=404, detail="Community not found")
         if not is_admin(user) and not await db.community_members.find_one(
             {"community_id": body.community_id, "user_id": user["user_id"]}, {"_id": 0, "id": 1}
         ):
             raise HTTPException(status_code=403, detail="Join the community to post here")
+        # Auto-moderation: block posts that contain a community's banned keywords.
+        banned = comm.get("banned_keywords") or []
+        if banned and not is_admin(user):
+            haystack = f"{title or ''} {text or ''}".lower()
+            if any(w and w in haystack for w in banned):
+                raise HTTPException(status_code=400, detail={
+                    "code": "blocked_keyword",
+                    "message": "Your post contains a word that's not allowed in this community.",
+                })
         community_id = body.community_id
         # Only accept a flair the community actually offers.
         if body.flair:

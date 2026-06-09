@@ -31,15 +31,24 @@ async def _hydrate_community(doc: dict, viewer_id: Optional[str]) -> Community:
         )
     member_count = await db.community_members.count_documents({"community_id": doc["id"]})
     role = member.get("role") if member else None
+    can_mod = role in ("owner", "mod")
+    is_fav = False
+    if viewer_id:
+        is_fav = bool(await db.community_favorites.find_one(
+            {"community_id": doc["id"], "user_id": viewer_id}, {"_id": 0, "id": 1}
+        ))
     return Community(
         id=doc["id"], name=doc["name"], title=doc.get("title") or doc["name"],
         description=doc.get("description", ""), color=doc.get("color", "#3B82F6"),
         icon=doc.get("icon", "people"), banner=doc.get("banner"),
         rules=doc.get("rules") or [], flairs=doc.get("flairs") or [],
+        wiki=doc.get("wiki"),
+        # The auto-mod blocklist is only exposed to moderators.
+        banned_keywords=(doc.get("banned_keywords") or []) if can_mod else [],
         owner_id=doc["owner_id"],
         member_count=member_count, post_count=doc.get("post_count", 0),
-        is_member=bool(member), role=role,
-        can_moderate=role in ("owner", "mod"),
+        is_member=bool(member), is_favorite=is_fav, role=role,
+        can_moderate=can_mod,
         created_at=doc["created_at"],
     )
 
@@ -122,7 +131,9 @@ async def list_communities(
         docs.sort(key=lambda d: int(d.get("post_count", 0) or 0), reverse=True)
     else:  # active / trending — most recently active first, then size
         docs.sort(key=lambda d: (_ts(d.get("last_activity_at")), int(d.get("post_count", 0) or 0)), reverse=True)
-    return [await _hydrate_community(d, user["user_id"]) for d in docs[:100]]
+    out = [await _hydrate_community(d, user["user_id"]) for d in docs[:100]]
+    out.sort(key=lambda c: not c.is_favorite)  # favorites first (stable)
+    return out
 
 
 async def _attach_karma(posts: List[Post]) -> List[Post]:
@@ -206,6 +217,10 @@ async def edit_community(name: str, body: CommunityPatch, authorization: Optiona
         patch["rules"] = _clean_str_list(body.rules, 200, 15)
     if body.flairs is not None:
         patch["flairs"] = _clean_str_list(body.flairs, 24, 20)
+    if body.wiki is not None:
+        patch["wiki"] = body.wiki.strip()[:8000] or None
+    if body.banned_keywords is not None:
+        patch["banned_keywords"] = [w.lower() for w in _clean_str_list(body.banned_keywords, 40, 50)]
     if patch:
         await db.communities.update_one({"id": doc["id"]}, {"$set": patch})
     fresh = await db.communities.find_one({"id": doc["id"]}, {"_id": 0})
@@ -403,6 +418,33 @@ async def leave_community(name: str, authorization: Optional[str] = Header(None)
         raise HTTPException(status_code=404, detail="Community not found")
     await db.community_members.delete_one({"community_id": doc["id"], "user_id": user["user_id"]})
     return {"joined": False}
+
+
+@router.post("/communities/{name}/favorite")
+async def favorite_community(name: str, authorization: Optional[str] = Header(None)):
+    """Pin a community to your favorites (sorted first in Discover)."""
+    user = await get_current_user(authorization)
+    doc = await db.communities.find_one({"name": name.lower()}, {"_id": 0, "id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Community not found")
+    try:
+        await db.community_favorites.insert_one({
+            "id": str(uuid.uuid4()), "community_id": doc["id"],
+            "user_id": user["user_id"], "created_at": datetime.now(timezone.utc),
+        })
+    except DuplicateKeyError:
+        pass
+    return {"favorite": True}
+
+
+@router.delete("/communities/{name}/favorite")
+async def unfavorite_community(name: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.communities.find_one({"name": name.lower()}, {"_id": 0, "id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Community not found")
+    await db.community_favorites.delete_one({"community_id": doc["id"], "user_id": user["user_id"]})
+    return {"favorite": False}
 
 
 @router.get("/communities/{name}/posts", response_model=List[Post])
