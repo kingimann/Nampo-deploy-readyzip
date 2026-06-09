@@ -249,6 +249,17 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
             if len(cleaned) >= 200:
                 break
         patch["muted_keywords"] = cleaned
+    if body.boost_keywords is not None:
+        cleaned2: list = []
+        seen2 = set()
+        for w in body.boost_keywords:
+            t = (w or "").strip().lower()[:60]
+            if t and t not in seen2:
+                seen2.add(t)
+                cleaned2.append(t)
+            if len(cleaned2) >= 200:
+                break
+        patch["boost_keywords"] = cleaned2
     if body.currency is not None:
         from core import normalize_currency
         patch["currency"] = normalize_currency(body.currency)

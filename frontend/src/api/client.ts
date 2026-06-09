@@ -1100,6 +1100,7 @@ export type ProfilePatch = {
   hide_likes?: boolean;
   tag_policy?: string;
   muted_keywords?: string[];
+  boost_keywords?: string[];
   default_likes_disabled?: boolean;
   is_private?: boolean;
   searchable?: boolean;

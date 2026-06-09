@@ -782,9 +782,16 @@ async def _viewer_affinity(viewer_id: str):
     return author_aff, tag_aff
 
 
-def _rank_score(doc: dict, author_aff: dict, tag_aff: dict, now: datetime) -> float:
-    """Blend personal affinity, overall engagement, and recency into one score."""
+def _rank_score(doc: dict, author_aff: dict, tag_aff: dict, now: datetime, boost: Optional[list] = None) -> float:
+    """Blend personal affinity, overall engagement, and recency into one score.
+    `boost` is the viewer's prioritized-keyword patterns — a strong bump so
+    those topics surface first."""
     score = 2.0 * author_aff.get(doc.get("user_id"), 0.0)
+    if boost:
+        hay = (doc.get("text") or "")
+        tags = {str(t).lower().lstrip("#") for t in (doc.get("hashtags") or [])}
+        if any(bare in tags or rx.search(hay) for bare, rx in boost):
+            score += 12.0
     for t in (doc.get("hashtags") or []):
         score += 1.0 * tag_aff.get(t, 0.0)
     eng = (
@@ -811,13 +818,13 @@ def _rank_score(doc: dict, author_aff: dict, tag_aff: dict, now: datetime) -> fl
     return score
 
 
-async def _rank_docs(docs: list, viewer_id: str, top: int) -> list:
+async def _rank_docs(docs: list, viewer_id: str, top: int, boost: Optional[list] = None) -> list:
     """Personalized re-rank: best matches for this viewer first."""
     if not docs:
         return docs
     author_aff, tag_aff = await _viewer_affinity(viewer_id)
     now = datetime.now(timezone.utc)
-    ranked = sorted(docs, key=lambda d: _rank_score(d, author_aff, tag_aff, now), reverse=True)
+    ranked = sorted(docs, key=lambda d: _rank_score(d, author_aff, tag_aff, now, boost), reverse=True)
     return ranked[:top]
 
 
@@ -877,7 +884,7 @@ async def explore_feed(authorization: Optional[str] = Header(None)):
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
     docs = _filter_muted(docs, _muted_patterns(user.get("muted_keywords")))
-    ranked = await _rank_docs(docs, user["user_id"], 100)
+    ranked = await _rank_docs(docs, user["user_id"], 100, _muted_patterns(user.get("boost_keywords")))
     return await _hydrate_many(ranked, user["user_id"])
 
 
@@ -899,7 +906,7 @@ async def home_feed(authorization: Optional[str] = Header(None)):
     skip = await _not_interested_ids(user["user_id"])
     docs = [d for d in docs if d.get("id") not in skip]
     docs = _filter_muted(docs, _muted_patterns(user.get("muted_keywords")))
-    ranked = await _rank_docs(docs, user["user_id"], 100)
+    ranked = await _rank_docs(docs, user["user_id"], 100, _muted_patterns(user.get("boost_keywords")))
     return await _hydrate_many(ranked, user["user_id"])
 
 
