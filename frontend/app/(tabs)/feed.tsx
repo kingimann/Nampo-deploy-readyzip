@@ -397,7 +397,15 @@ export default function FeedScreen() {
       {/* Floating frosted top bar — hides on scroll-down, returns on scroll-up,
           mirroring the bottom LiquidTabBar (and sharing its glass material). */}
       <Animated.View
-        onLayout={(e) => setTopBarH(e.nativeEvent.layout.height)}
+        onLayout={(e) => {
+          // Only react to real height changes. On web, ResizeObserver (plus the
+          // frosted-glass backdrop) re-fires onLayout with sub-pixel deltas; an
+          // unguarded setState here re-renders → re-measures → setState → … an
+          // infinite render loop that pins the feed (and looks like the page
+          // constantly reloading). Ignoring <1px changes lets it settle.
+          const h = e.nativeEvent.layout.height;
+          setTopBarH((prev) => (Math.abs(prev - h) > 1 ? h : prev));
+        }}
         pointerEvents={topHidden ? "none" : "box-none"}
         style={[
           styles.topBar,
