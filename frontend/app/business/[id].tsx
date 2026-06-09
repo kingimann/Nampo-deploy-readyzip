@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, BusinessProfile, MarketplaceReview } from "@/src/api/client";
+import { shareLink } from "@/src/utils/share";
 import { theme } from "@/src/theme";
 import { resolveAccent, accentGradient } from "@/src/lib/profileCustomize";
 import { AvatarFrame } from "@/src/components/ProfileDecor";
@@ -40,6 +41,8 @@ export default function BusinessStorefrontScreen() {
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
   const [writeOpen, setWriteOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  React.useEffect(() => { if (!copied) return; const t = setTimeout(() => setCopied(false), 1800); return () => clearTimeout(t); }, [copied]);
   const [draftRatings, setDraftRatings] = useState<Record<string, number>>({ ...DEFAULT_RATINGS });
   const [draftText, setDraftText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,6 +59,11 @@ export default function BusinessStorefrontScreen() {
     finally { setLoading(false); }
   }, [id]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const onShare = async () => {
+    const r = await shareLink(`/business/${id}`, { title: biz?.name || "Business on OkaySpace" });
+    if (r === "copied") setCopied(true);
+  };
 
   const openReview = () => {
     setDraftRatings({ ...DEFAULT_RATINGS }); setDraftText("");
@@ -82,7 +90,9 @@ export default function BusinessStorefrontScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{biz?.name || "Business"}</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={onShare} style={styles.iconBtn} testID="business-share" hitSlop={8}>
+          <Ionicons name="share-outline" size={22} color={theme.textPrimary} />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -260,6 +270,13 @@ export default function BusinessStorefrontScreen() {
           </View>
         </View>
       </Modal>
+
+      {copied && (
+        <View style={styles.copiedPill} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={14} color="#fff" />
+          <Text style={styles.copiedText}>Link copied</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -322,4 +339,6 @@ const styles = StyleSheet.create({
   reviewInput: { backgroundColor: theme.surfaceAlt, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingHorizontal: 14, paddingVertical: 12, minHeight: 90, textAlignVertical: "top", color: theme.textPrimary, fontSize: 14, ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : {}) },
   submitBtn: { marginTop: 16, paddingVertical: 14, borderRadius: 14, backgroundColor: theme.primary, alignItems: "center" },
   submitText: { color: "#fff", fontWeight: "800", fontSize: 15 },
+  copiedPill: { position: "absolute", alignSelf: "center", bottom: 40, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  copiedText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 });

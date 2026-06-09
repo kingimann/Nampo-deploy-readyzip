@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
+import { shareLink, profilePath } from "@/src/utils/share";
 import { api, Post, PublicUser, FriendStatus, SubTier } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
@@ -53,7 +54,10 @@ const friendBtnStyle = (s?: FriendStatus) => {
 };
 
 export default function UserProfileScreen() {
-  const { name, subscribe } = useLocalSearchParams<{ name: string; subscribe?: string }>();
+  // This screen backs both /user/<name> and the vanity /<username> route, so it
+  // accepts either param. The vanity username takes precedence when present.
+  const { name: nameParam, username, subscribe } = useLocalSearchParams<{ name?: string; username?: string; subscribe?: string }>();
+  const name = (username || nameParam || "") as string;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user: me } = useAuth();
@@ -78,6 +82,14 @@ export default function UserProfileScreen() {
   const goBack = () => {
     if (router.canGoBack()) safeBack();
     else router.replace("/feed");
+  };
+
+  const [linkCopied, setLinkCopied] = useState(false);
+  useEffect(() => { if (!linkCopied) return; const t = setTimeout(() => setLinkCopied(false), 1800); return () => clearTimeout(t); }, [linkCopied]);
+  const onShareProfile = async () => {
+    const path = user ? profilePath(user) : `/${name}`;
+    const r = await shareLink(path, { title: user?.name ? `${user.name} on OkaySpace` : "Profile on OkaySpace" });
+    if (r === "copied") setLinkCopied(true);
   };
 
   const onSubscribe = async () => {
@@ -123,8 +135,10 @@ export default function UserProfileScreen() {
       // profile (is_following / friend_status / is_subscribed / stats). Search
       // results alone omit those, which is why follow/add-friend looked broken.
       const matches = await api.searchUsers(name);
-      let foundId = (matches.find((u) => u.name === name) || matches[0])?.user_id;
-      const fallback = matches.find((u) => u.name === name) || matches[0] || null;
+      // Prefer an exact username match (vanity URLs), then exact name, then first.
+      const exact = matches.find((u) => u.username === name) || matches.find((u) => u.name === name);
+      let foundId = (exact || matches[0])?.user_id;
+      const fallback = exact || matches[0] || null;
       // /users/search excludes the current user, so resolve self directly.
       if (!foundId && me && (me.name === name || me.username === name)) foundId = me.user_id;
       if (!foundId) return;
@@ -212,7 +226,9 @@ export default function UserProfileScreen() {
           <Ionicons name="chevron-back" size={22} color={theme.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>@{name}</Text>
-        <View style={{ width: 36 }} />
+        <TouchableOpacity onPress={onShareProfile} style={styles.backBtn} hitSlop={10} testID="user-share">
+          <Ionicons name="share-outline" size={20} color={theme.textPrimary} />
+        </TouchableOpacity>
       </View>
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
@@ -569,6 +585,12 @@ export default function UserProfileScreen() {
           </Modal>
         </>
       )}
+      {linkCopied && (
+        <View style={styles.copiedPill} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={14} color="#fff" />
+          <Text style={styles.copiedText}>Link copied</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -586,6 +608,8 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   title: { color: theme.textPrimary, fontSize: 17, fontWeight: "800" },
+  copiedPill: { position: "absolute", alignSelf: "center", bottom: 40, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  copiedText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   profileBlock: {
     alignItems: "center", padding: 18, gap: 6,

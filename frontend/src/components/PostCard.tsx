@@ -20,6 +20,7 @@ import ShareToChatSheet from "./ShareToChatSheet";
 import PostViewersModal from "./PostViewersModal";
 import VerifiedBadge from "./VerifiedBadge";
 import UserBadges from "./UserBadges";
+import { shareLink as shareViaSheet } from "@/src/utils/share";
 
 // Frosted-glass surface — matches the floating bottom nav pill and sidebar.
 const GLASS: any =
@@ -81,6 +82,12 @@ export default function PostCard({
   const router = useRouter();
   const [likers, setLikers] = useState<{ open: boolean; kind: "likers" | "reposters" }>({ open: false, kind: "likers" });
   const [shareOpen, setShareOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  React.useEffect(() => {
+    if (!shareCopied) return;
+    const t = setTimeout(() => setShareCopied(false), 1800);
+    return () => clearTimeout(t);
+  }, [shareCopied]);
   const [viewersOpen, setViewersOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
@@ -187,11 +194,14 @@ export default function PostCard({
     finally { setAnalyticsLoading(false); }
   };
 
-  // Share a public link to this post (web URL when configured, else deep link).
+  // Share a public okayspace.ca link to this post (works for photos, videos,
+  // reels — they're all posts). Uses the WEB origin, not the API server.
   const shareLink = async () => {
-    const base = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
-    const url = base ? `${base.replace(/\/$/, "")}/post/${display.id}` : `atlas://post/${display.id}`;
-    try { await Share.share({ message: display.text ? `${display.text}\n\n${url}` : url, url }); } catch {}
+    const res = await shareViaSheet(`/post/${display.id}`, {
+      title: "Post on OkaySpace",
+      message: display.text || undefined,
+    });
+    if (res === "copied") setShareCopied(true);
   };
 
   if (hidden) return null;
@@ -440,6 +450,13 @@ export default function PostCard({
           )
         )}
       </View>
+
+      {shareCopied && (
+        <View style={styles.copiedPill} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={14} color="#fff" />
+          <Text style={styles.copiedText}>Link copied</Text>
+        </View>
+      )}
 
       <LikersModal
         visible={likers.open}
@@ -790,5 +807,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border,
   },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  copiedPill: { position: "absolute", alignSelf: "center", bottom: 16, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  copiedText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   actionText: { color: theme.textSecondary, fontSize: 12, fontWeight: "600" },
 });

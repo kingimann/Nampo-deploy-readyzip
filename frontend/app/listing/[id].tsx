@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import * as Clipboard from "expo-clipboard";
+import { shareLink } from "@/src/utils/share";
 import { api, Listing } from "@/src/api/client";
 import ListingComments from "@/src/components/ListingComments";
 import VerificationBadges from "@/src/components/VerificationBadges";
@@ -35,6 +36,8 @@ export default function ListingDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reported, setReported] = useState(false);
+  const [copied, setCopied] = useState(false);
+  React.useEffect(() => { if (!copied) return; const t = setTimeout(() => setCopied(false), 1800); return () => clearTimeout(t); }, [copied]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -122,6 +125,12 @@ export default function ListingDetailScreen() {
     try { await api.deleteListing(listing.id); safeBack(); } catch {}
   };
 
+  const onShareListing = async () => {
+    if (!listing) return;
+    const r = await shareLink(`/listing/${listing.id}`, { title: listing.title });
+    if (r === "copied") setCopied(true);
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="listing-detail-screen">
       <Stack.Screen options={{ headerShown: false }} />
@@ -132,6 +141,9 @@ export default function ListingDetailScreen() {
         <Text style={styles.headerTitle} numberOfLines={1}>{listing?.title || "Listing"}</Text>
         {mine ? (
           <View style={{ flexDirection: "row" }}>
+            <TouchableOpacity onPress={onShareListing} style={styles.iconBtn} testID="listing-share">
+              <Ionicons name="share-outline" size={20} color={theme.textPrimary} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => router.push({ pathname: "/(tabs)/marketplace", params: { edit: listing!.id } })} style={styles.iconBtn} testID="listing-edit">
               <Ionicons name="create-outline" size={21} color={theme.primary} />
             </TouchableOpacity>
@@ -141,6 +153,9 @@ export default function ListingDetailScreen() {
           </View>
         ) : (
           <View style={{ flexDirection: "row" }}>
+            <TouchableOpacity onPress={onShareListing} style={styles.iconBtn} testID="listing-share">
+              <Ionicons name="share-outline" size={20} color={theme.textPrimary} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => setReportOpen(true)} style={styles.iconBtn} testID="listing-report">
               <Ionicons name="flag-outline" size={19} color={theme.textSecondary} />
             </TouchableOpacity>
@@ -398,6 +413,13 @@ export default function ListingDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {copied && (
+        <View style={styles.copiedPill} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={14} color="#fff" />
+          <Text style={styles.copiedText}>Link copied</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -422,6 +444,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border,
   },
   iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  copiedPill: { position: "absolute", alignSelf: "center", bottom: 40, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  copiedText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   headerTitle: { flex: 1, color: theme.textPrimary, fontSize: 16, fontWeight: "700", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 

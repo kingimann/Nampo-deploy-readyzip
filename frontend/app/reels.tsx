@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
+import { shareLink } from "@/src/utils/share";
 import { api, Post, PublicUser, TaggedUser, mediaUri } from "@/src/api/client";
 import { pickThumbnailUri } from "@/src/utils/thumbnail";
 import { theme } from "@/src/theme";
@@ -408,6 +409,10 @@ function Reel({ post, active, muted, onToggleMute, onOpenComments, screenW, scre
         <TouchableOpacity style={styles.iconBtn} onPress={onRepost} testID={`reel-repost-${post.id}`}>
           <Ionicons name="repeat" size={28} color={reposted ? "#22C55E" : "#fff"} />
           <Text style={styles.metric}>{repostCount}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => shareLink(`/post/${post.id}`, { title: "Reel on OkaySpace", message: content.text || undefined })} testID={`reel-share-${post.id}`}>
+          <Ionicons name="share-outline" size={27} color="#fff" />
+          <Text style={styles.metric}>Share</Text>
         </TouchableOpacity>
         <View style={styles.iconBtn}>
           <Ionicons name="eye-outline" size={26} color="#fff" />

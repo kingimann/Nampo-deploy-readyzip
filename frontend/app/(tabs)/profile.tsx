@@ -12,6 +12,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useAuth } from "@/src/context/AuthContext";
 import { api, Post, mediaUri, FeaturedLink, BusinessProfile } from "@/src/api/client";
 import { theme } from "@/src/theme";
+import { shareLink, profilePath } from "@/src/utils/share";
 import { GLASS } from "@/src/lib/glass";
 import {
   ACCENT_COLORS, resolveAccent, isValidHex, accentGradient,
@@ -102,6 +103,13 @@ export default function ProfileScreen() {
   // The user's separate business profile (storefront), if they have one — shown
   // as a switcher right here next to their personal profile.
   const [myBiz, setMyBiz] = useState<BusinessProfile | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  React.useEffect(() => { if (!linkCopied) return; const t = setTimeout(() => setLinkCopied(false), 1800); return () => clearTimeout(t); }, [linkCopied]);
+  const onShareProfile = async () => {
+    if (!user) return;
+    const r = await shareLink(profilePath(user), { title: `${user.name} on OkaySpace` });
+    if (r === "copied") setLinkCopied(true);
+  };
   useFocusEffect(useCallback(() => {
     let alive = true;
     api.myBusiness().then((b) => { if (alive) setMyBiz(b); }).catch(() => {});
@@ -481,6 +489,9 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <SidebarMenuButton />
           <Text style={styles.title}>Profile</Text>
+          <TouchableOpacity onPress={onShareProfile} style={styles.headerIconBtn} testID="profile-share-btn">
+            <Ionicons name="share-outline" size={21} color={theme.textPrimary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push("/settings")} style={styles.headerIconBtn} testID="open-settings-btn">
             <Ionicons name="settings-outline" size={22} color={theme.textPrimary} />
           </TouchableOpacity>
@@ -1352,6 +1363,12 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      {linkCopied && (
+        <View style={styles.copiedPill} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={14} color="#fff" />
+          <Text style={styles.copiedText}>Profile link copied</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1367,6 +1384,8 @@ const styles = StyleSheet.create({
   header: { paddingTop: 16, paddingBottom: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 4 },
   title: { flex: 1, color: theme.textPrimary, fontSize: 28, fontWeight: "800", letterSpacing: -0.5, textAlign: "center" },
   headerIconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  copiedPill: { position: "absolute", alignSelf: "center", bottom: 40, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  copiedText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 
   // ── Hero card (gradient cover + centered identity) ──────────────────────
   hero: {
