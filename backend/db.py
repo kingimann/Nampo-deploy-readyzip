@@ -59,7 +59,7 @@ _NUMERIC_FIELDS = {
     "replies_count", "reposts_count", "views_count", "reactions_total",
     "bookmarks_count", "shares_count", "price", "amount", "best", "score",
     "member_count", "subscriber_count", "follower_count", "profile_views",
-    "points",
+    "points", "karma",
 }
 
 

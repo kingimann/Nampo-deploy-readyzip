@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, Community, CommunityMember } from "@/src/api/client";
+import { api, Community, CommunityMember, CommunityKarmaEntry } from "@/src/api/client";
 import { useConfirm } from "@/src/context/ConfirmContext";
 import { theme } from "@/src/theme";
 import { AvatarFrame } from "@/src/components/ProfileDecor";
@@ -20,6 +20,8 @@ export default function CommunityMembersScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const [community, setCommunity] = useState<Community | null>(null);
   const [members, setMembers] = useState<CommunityMember[]>([]);
+  const [top, setTop] = useState<CommunityKarmaEntry[]>([]);
+  const [tab, setTab] = useState<"members" | "top">("members");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sheet, setSheet] = useState<CommunityMember | null>(null);
@@ -30,8 +32,8 @@ export default function CommunityMembersScreen() {
   const load = useCallback(async () => {
     if (!name) return;
     try {
-      const [c, m] = await Promise.all([api.getCommunity(name), api.communityMembers(name)]);
-      setCommunity(c); setMembers(m.members);
+      const [c, m, t] = await Promise.all([api.getCommunity(name), api.communityMembers(name), api.communityTop(name)]);
+      setCommunity(c); setMembers(m.members); setTop(t.leaders);
     } catch {} finally { setLoading(false); setRefreshing(false); }
   }, [name]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -63,12 +65,48 @@ export default function CommunityMembersScreen() {
         <TouchableOpacity onPress={() => safeBack()} style={styles.backBtn} hitSlop={10} testID="members-back">
           <Ionicons name="chevron-back" size={24} color={theme.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.title} numberOfLines={1}>{community ? `/${community.name} members` : "Members"}</Text>
+        <Text style={styles.title} numberOfLines={1}>{community ? `/${community.name}` : "Members"}</Text>
         <View style={{ width: 40 }} />
+      </View>
+
+      <View style={styles.toggleRow}>
+        {(["members", "top"] as const).map((t) => (
+          <TouchableOpacity key={t} style={[styles.toggleBtn, tab === t && styles.toggleBtnOn]} onPress={() => setTab(t)} testID={`members-tab-${t}`}>
+            <Text style={[styles.toggleText, tab === t && { color: theme.primary }]}>{t === "members" ? "Members" : "Top karma"}</Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={theme.primary} /></View>
+      ) : tab === "top" ? (
+        <FlatList
+          data={top}
+          keyExtractor={(e) => e.user_id}
+          contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 24, gap: 8 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.primary} colors={[theme.primary]} />}
+          ListEmptyComponent={<Text style={styles.empty}>No karma yet — upvotes on members' posts here will rank them.</Text>}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.row}
+              activeOpacity={0.85}
+              onPress={() => { if (item.username) router.push({ pathname: "/user/[name]", params: { name: item.username } }); }}
+            >
+              <Text style={styles.rank}>{item.rank}</Text>
+              <AvatarFrame frame={item.avatar_frame} size={42} ring={2}>
+                <Image source={{ uri: item.picture || undefined }} style={styles.avatar} />
+              </AvatarFrame>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+                {!!item.username && <Text style={styles.handle} numberOfLines={1}>@{item.username}</Text>}
+              </View>
+              <View style={styles.karmaWrap}>
+                <Ionicons name="flame" size={14} color={theme.primary} />
+                <Text style={styles.karmaVal}>{item.karma}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        />
       ) : (
         <FlatList
           data={members}
@@ -139,6 +177,14 @@ const styles = StyleSheet.create({
   backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   title: { flex: 1, color: theme.textPrimary, fontSize: 17, fontWeight: "800", textAlign: "center" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  toggleRow: { flexDirection: "row", gap: 8, paddingHorizontal: 14, paddingBottom: 10 },
+  toggleBtn: { flex: 1, alignItems: "center", paddingVertical: 9, borderRadius: 12, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border },
+  toggleBtnOn: { backgroundColor: theme.surfaceAlt, borderColor: theme.primary },
+  toggleText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "800" },
+  empty: { color: theme.textMuted, fontSize: 13, textAlign: "center", marginTop: 40, paddingHorizontal: 30 },
+  rank: { width: 22, textAlign: "center", color: theme.textMuted, fontSize: 15, fontWeight: "800" },
+  karmaWrap: { flexDirection: "row", alignItems: "center", gap: 4 },
+  karmaVal: { color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
   row: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: theme.surface, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12 },
   avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: theme.surfaceAlt },
   name: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },

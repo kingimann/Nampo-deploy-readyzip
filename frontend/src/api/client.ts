@@ -733,6 +733,8 @@ export const api = {
     request<{ ok: boolean }>(`/communities/${name}/mods/${userId}`, { method: "DELETE" }),
   communityMembers: (name: string) =>
     request<{ members: CommunityMember[] }>(`/communities/${name}/members`),
+  communityTop: (name: string) =>
+    request<{ leaders: CommunityKarmaEntry[] }>(`/communities/${name}/top`),
   removeCommunityMember: (name: string, userId: string) =>
     request<{ ok: boolean }>(`/communities/${name}/members/${userId}`, { method: "DELETE" }),
   removeCommunityPost: (name: string, postId: string) =>
@@ -1870,6 +1872,10 @@ export type CommunityMember = {
   user_id: string; name: string; username?: string | null;
   picture?: string | null; avatar_frame?: string | null;
   verified?: boolean; role: string;
+};
+export type CommunityKarmaEntry = {
+  rank: number; user_id: string; name: string; username?: string | null;
+  picture?: string | null; avatar_frame?: string | null; verified?: boolean; karma: number;
 };
 
 export const MAPBOX_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_TOKEN as string;

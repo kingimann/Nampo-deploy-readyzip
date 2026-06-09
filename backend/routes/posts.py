@@ -572,7 +572,10 @@ async def create_post(body: PostCreate, authorization: Optional[str] = Header(No
     }
     await db.posts.insert_one(doc.copy())
     if community_id and not parent_id:
-        await db.communities.update_one({"id": community_id}, {"$inc": {"post_count": 1}})
+        await db.communities.update_one(
+            {"id": community_id},
+            {"$inc": {"post_count": 1}, "$set": {"last_activity_at": datetime.now(timezone.utc)}},
+        )
     if parent_id:
         await db.posts.update_one({"id": parent_id}, {"$inc": {"replies_count": 1}})
         parent = await db.posts.find_one({"id": parent_id}, {"_id": 0})

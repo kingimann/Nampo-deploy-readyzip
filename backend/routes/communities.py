@@ -88,7 +88,11 @@ async def create_community(body: CommunityCreate, authorization: Optional[str] =
 
 
 @router.get("/communities", response_model=List[Community])
-async def list_communities(q: Optional[str] = Query(None), authorization: Optional[str] = Header(None)):
+async def list_communities(
+    q: Optional[str] = Query(None),
+    sort: str = Query("active"),   # active (trending) | top | new
+    authorization: Optional[str] = Header(None),
+):
     user = await get_current_user(authorization)
     filt: dict = {}
     if q and q.strip():
@@ -97,9 +101,28 @@ async def list_communities(q: Optional[str] = Query(None), authorization: Option
             {"name": {"$regex": pattern, "$options": "i"}},
             {"title": {"$regex": pattern, "$options": "i"}},
         ]
-    docs = await db.communities.find(filt, {"_id": 0}).limit(100).to_list(100)
-    docs.sort(key=lambda d: d.get("post_count", 0), reverse=True)
-    return [await _hydrate_community(d, user["user_id"]) for d in docs]
+    docs = await db.communities.find(filt, {"_id": 0}).limit(200).to_list(200)
+
+    def _ts(v) -> float:
+        try:
+            return _norm_dt(v).timestamp()
+        except Exception:
+            return 0.0
+
+    if q and q.strip():
+        # Relevance-ish: exact/prefix name match first, then post_count.
+        ql = q.strip().lower()
+        docs.sort(key=lambda d: (
+            0 if d.get("name", "") == ql else 1 if d.get("name", "").startswith(ql) else 2,
+            -int(d.get("post_count", 0) or 0),
+        ))
+    elif sort == "new":
+        docs.sort(key=lambda d: _ts(d.get("created_at")), reverse=True)
+    elif sort == "top":
+        docs.sort(key=lambda d: int(d.get("post_count", 0) or 0), reverse=True)
+    else:  # active / trending — most recently active first, then size
+        docs.sort(key=lambda d: (_ts(d.get("last_activity_at")), int(d.get("post_count", 0) or 0)), reverse=True)
+    return [await _hydrate_community(d, user["user_id"]) for d in docs[:100]]
 
 
 async def _attach_karma(posts: List[Post]) -> List[Post]:
@@ -261,6 +284,40 @@ async def list_members(name: str, authorization: Optional[str] = Header(None)):
             "role": r.get("role", "member"),
         })
     return {"members": out}
+
+
+@router.get("/communities/{name}/top")
+async def community_top(name: str, authorization: Optional[str] = Header(None)):
+    """Top members of a community by karma (upvotes received on their posts)."""
+    await get_current_user(authorization)
+    doc = await db.communities.find_one({"name": name.lower()}, {"_id": 0, "id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Community not found")
+    rows = await db.community_karma_totals.find(
+        {"community_id": doc["id"], "karma": {"$gt": 0}}, {"_id": 0, "user_id": 1, "karma": 1}
+    ).sort("karma", -1).limit(50).to_list(50)
+    ids = [r["user_id"] for r in rows]
+    users = {}
+    if ids:
+        urows = await db.users.find(
+            {"user_id": {"$in": ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "username": 1, "picture": 1, "verified": 1, "avatar_frame": 1},
+        ).to_list(len(ids))
+        users = {u["user_id"]: u for u in urows}
+    leaders = []
+    for r in rows:
+        u = users.get(r["user_id"], {})
+        leaders.append({
+            "rank": len(leaders) + 1,
+            "user_id": r["user_id"],
+            "name": u.get("name", ""),
+            "username": u.get("username"),
+            "picture": u.get("picture"),
+            "avatar_frame": u.get("avatar_frame"),
+            "verified": bool(u.get("verified", False)),
+            "karma": int(r.get("karma", 0) or 0),
+        })
+    return {"leaders": leaders}
 
 
 @router.delete("/communities/{name}/members/{user_id}")
