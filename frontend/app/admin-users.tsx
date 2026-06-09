@@ -4,8 +4,8 @@ import {
   ActivityIndicator, Modal, Pressable, Platform, Alert, ScrollView, useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { Stack, useFocusEffect, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, AdminUser, AdminTxn, Badge } from "@/src/api/client";
 import UserBadges from "@/src/components/UserBadges";

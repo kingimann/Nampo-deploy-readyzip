@@ -4,8 +4,8 @@ import {
   ActivityIndicator, RefreshControl, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { useFocusEffect, useRouter, Stack } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { api, Notification, NetworkActivity } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import { GLASS } from "@/src/lib/glass";

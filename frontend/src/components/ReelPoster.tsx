@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
-import { LinearGradient } from "@/src/platform/linear-gradient";
-import { Ionicons } from "@/src/platform/icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 
 /**

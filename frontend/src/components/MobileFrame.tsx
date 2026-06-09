@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Platform, View, Text, StyleSheet, useWindowDimensions } from "react-native";
-import { Ionicons } from "@/src/platform/icons";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 
 // Width the mobile layout is designed for. On screens wider than BREAKPOINT

@@ -4,8 +4,8 @@ import {
   TextInput, ActivityIndicator, Platform, Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import * as ImagePicker from "@/src/platform/image-picker";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { api, CustomEmoji } from "@/src/api/client";
 import { useKeyboardHeight } from "@/src/hooks/useKeyboardHeight";
 import { theme } from "@/src/theme";

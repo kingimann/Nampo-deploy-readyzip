@@ -4,8 +4,8 @@ import {
   Modal, KeyboardAvoidingView, Platform, Share,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { useLocalSearchParams, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, Guide, Place } from "@/src/api/client";
 import { theme } from "@/src/theme";

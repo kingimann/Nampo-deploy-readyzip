@@ -4,8 +4,8 @@ import {
   ScrollView, Pressable, Modal, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { useRouter, useFocusEffect } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSidebar } from "@/src/context/SidebarContext";
 import { useSidebarMenu } from "@/src/context/SidebarMenuContext";
 import { useAuth } from "@/src/context/AuthContext";

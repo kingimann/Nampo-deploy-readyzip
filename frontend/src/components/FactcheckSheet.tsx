@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, Modal, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, Linking, Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
+import { Ionicons } from "@expo/vector-icons";
 import { api, Factcheck } from "@/src/api/client";
 import { useKeyboardHeight } from "@/src/hooks/useKeyboardHeight";
 import { theme } from "@/src/theme";

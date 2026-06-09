@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { Ionicons } from "@/src/platform/icons";
-import { useAudioPlayer, useAudioPlayerStatus } from "@/src/platform/audio";
+import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { theme } from "@/src/theme";
 
 function fmt(ms?: number | null): string {

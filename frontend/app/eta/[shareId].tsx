@@ -3,8 +3,8 @@ import {
   View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Platform,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { useLocalSearchParams, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   MapboxWebView, MapboxWebViewHandle,
 } from "@/src/components/MapboxWebView";

@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "@/src/platform/navigation";
+import { usePathname, useRouter } from "expo-router";
 
 /**
  * Lightweight browser-style history so a right-edge swipe can go "forward"

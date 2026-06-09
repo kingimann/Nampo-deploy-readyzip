@@ -3,9 +3,9 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Platform,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import * as Clipboard from "@/src/platform/clipboard";
-import { Stack, useFocusEffect, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
+import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { api, PublisherSite } from "@/src/api/client";
 import { theme } from "@/src/theme";

@@ -1,5 +1,5 @@
 import React from "react";
-import { Ionicons } from "@/src/platform/icons";
+import { Ionicons } from "@expo/vector-icons";
 
 /** Twitter/Instagram-style blue verified checkmark. */
 export default function VerifiedBadge({ size = 14, style }: { size?: number; style?: any }) {

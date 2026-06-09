@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Ionicons } from "@/src/platform/icons";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "@/src/theme";
 
 /**

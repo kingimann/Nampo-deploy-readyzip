@@ -3,8 +3,8 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@/src/platform/icons";
-import { Stack, useRouter } from "@/src/platform/navigation";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
 import { useNavBar, NAV_CATALOG, NavShortcut } from "@/src/context/NavBarContext";
 import { theme } from "@/src/theme";

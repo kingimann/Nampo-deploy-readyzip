@@ -4,7 +4,7 @@
  */
 import React from "react";
 import { Text, StyleSheet, Linking, Platform } from "react-native";
-import { useRouter } from "@/src/platform/navigation";
+import { useRouter } from "expo-router";
 import { theme } from "@/src/theme";
 
 const TOKEN_RE = /(#[A-Za-z0-9_]{1,50})|(@[A-Za-z0-9_]{1,30})|(https?:\/\/[^\s]+)/g;

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ActivityIndicator, Platform } from "react-native";
-import { Ionicons } from "@/src/platform/icons";
+import { Ionicons } from "@expo/vector-icons";
 import { api, ListingComment } from "@/src/api/client";
 import { theme } from "@/src/theme";
 import VerifiedBadge from "@/src/components/VerifiedBadge";
