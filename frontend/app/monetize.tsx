@@ -14,7 +14,7 @@ const webInput = Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : 
 
 // The embed snippet must hit the public API host (NOT the web origin), so we
 // fall back to the deployed backend if the build-time env var is missing.
-const FALLBACK_BACKEND = "https://okayspace.onrender.com";
+const FALLBACK_BACKEND = "https://okayspace-v0vx.onrender.com";
 function apiOrigin(): string {
   const env = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
   return (env || FALLBACK_BACKEND).replace(/\/$/, "");

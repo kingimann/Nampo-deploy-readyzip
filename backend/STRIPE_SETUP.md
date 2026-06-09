@@ -17,7 +17,7 @@ How it works:
 1. Create a Stripe account → enable **Connect** (Settings → Connect).
 2. Grab your **Secret key** (`sk_live_…` or `sk_test_…` for testing).
 3. Add a webhook endpoint pointing at:
-   `https://okayspace.onrender.com/api/payments/webhook`
+   `https://okayspace-v0vx.onrender.com/api/payments/webhook`
    subscribe to **`checkout.session.completed`**, and copy its **signing secret**
    (`whsec_…`).
 
@@ -75,7 +75,7 @@ batched and paid out on each creator's cadence (bi-weekly / monthly):
 - To also drive it from an external scheduler, set `CRON_SECRET` and add a **Render
   Cron Job** that calls:
   ```
-  curl -X POST https://okayspace.onrender.com/api/payouts/run \
+  curl -X POST https://okayspace-v0vx.onrender.com/api/payouts/run \
     -H "X-Cron-Key: $CRON_SECRET"
   ```
 - Admins can also trigger a batch from the Wallet ("Run now") or `POST /payouts/run`.

@@ -1,8 +1,8 @@
 # OkaySpace REST API
 
-Base URL: `https://okayspace.onrender.com/api`
-Interactive docs (Swagger): `https://okayspace.onrender.com/docs`
-OpenAPI schema: `https://okayspace.onrender.com/openapi.json`
+Base URL: `https://okayspace-v0vx.onrender.com/api`
+Interactive docs (Swagger): `https://okayspace-v0vx.onrender.com/docs`
+OpenAPI schema: `https://okayspace-v0vx.onrender.com/openapi.json`
 
 All requests and responses are JSON over HTTPS.
 
@@ -59,7 +59,7 @@ no platform-specific API. The same routes, auth, and payloads work from:
   the Bearer token to run against your plan's quota.
 
 Realtime features (messaging presence, calls, ETA) use WebSockets at
-`wss://okayspace.onrender.com`; everything else is plain JSON over HTTPS and
+`wss://okayspace-v0vx.onrender.com`; everything else is plain JSON over HTTPS and
 behaves identically on every platform.
 
 ## Authentication
@@ -75,12 +75,12 @@ Generate API keys in the app: **Settings → Developer API → Generate**. Keys 
 shown once; store them securely. Revoke anytime from the same screen.
 
 ```bash
-curl https://okayspace.onrender.com/api/posts/feed \
+curl https://okayspace-v0vx.onrender.com/api/posts/feed \
   -H "Authorization: Bearer $OKAYSPACE_KEY"
 ```
 
 ```js
-const res = await fetch("https://okayspace.onrender.com/api/posts/feed", {
+const res = await fetch("https://okayspace-v0vx.onrender.com/api/posts/feed", {
   headers: { Authorization: `Bearer ${process.env.OKAYSPACE_KEY}` },
 });
 const feed = await res.json();
@@ -89,7 +89,7 @@ const feed = await res.json();
 ```python
 import requests
 r = requests.get(
-    "https://okayspace.onrender.com/api/posts/feed",
+    "https://okayspace-v0vx.onrender.com/api/posts/feed",
     headers={"Authorization": f"Bearer {OKAYSPACE_KEY}"},
 )
 feed = r.json()
@@ -156,14 +156,14 @@ Let users sign in to your site with their OkaySpace account (authorization-code 
    On approval we redirect to `redirect_uri?code=...&state=xyz`.
 3. **Exchange the code** (server-side):
    ```bash
-   curl -X POST https://okayspace.onrender.com/api/oauth/token \
+   curl -X POST https://okayspace-v0vx.onrender.com/api/oauth/token \
      -H "Content-Type: application/json" \
      -d '{"grant_type":"authorization_code","code":"...","client_id":"...","client_secret":"...","redirect_uri":"..."}'
    # → { access_token, token_type: "Bearer", expires_in, scope }
    ```
 4. **Get the profile**:
    ```bash
-   curl https://okayspace.onrender.com/api/oauth/userinfo \
+   curl https://okayspace-v0vx.onrender.com/api/oauth/userinfo \
      -H "Authorization: Bearer <access_token>"
    # → { sub, name, preferred_username, picture, verified, email? }
    ```
@@ -217,7 +217,7 @@ curl -X POST $API/money/send -H "Authorization: Bearer $TOKEN" \
   -d '{"to_user_id":"u_123","amount":10,"note":"lunch","answer":"fluffy"}'
 ```
 
-`$API` = `https://okayspace.onrender.com/api`. Get `$TOKEN` from login, or use a
+`$API` = `https://okayspace-v0vx.onrender.com/api`. Get `$TOKEN` from login, or use a
 Developer API key (Settings → Developer API).
 
 ## Flutter & Dart integration
@@ -230,7 +230,7 @@ because CORS is open, the same code runs on Flutter mobile **and** Flutter Web.
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-const api = 'https://okayspace.onrender.com/api';
+const api = 'https://okayspace-v0vx.onrender.com/api';
 
 class OkaySpace {
   String? token; // a session token from login, or a Developer API key
@@ -268,7 +268,7 @@ OpenAPI schema instead of writing calls by hand:
 ```bash
 dart pub global activate openapi_generator_cli
 openapi-generator generate \
-  -i https://okayspace.onrender.com/openapi.json \
+  -i https://okayspace-v0vx.onrender.com/openapi.json \
   -g dart-dio -o ./okayspace_client
 ```
 
@@ -278,7 +278,7 @@ openapi-generator generate \
 // pubspec.yaml → web_socket_channel: ^2.4.0
 import 'package:web_socket_channel/web_socket_channel.dart';
 final ch = WebSocketChannel.connect(
-  Uri.parse('wss://okayspace.onrender.com/ws/conversations/<id>?token=<token>'),
+  Uri.parse('wss://okayspace-v0vx.onrender.com/ws/conversations/<id>?token=<token>'),
 );
 ch.stream.listen((msg) => print(msg));
 ```

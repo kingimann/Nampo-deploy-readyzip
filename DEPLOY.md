@@ -35,7 +35,7 @@ provisions a Postgres database **and** the API service together.
 4. It will prompt for a few values:
    - `FSQ_API_KEY` (backend) → leave blank (only needed for Foursquare matching).
    - `EXPO_PUBLIC_BACKEND_URL` (web) → the API's URL. If you don't know it yet,
-     it's `https://okayspace.onrender.com` (Render names it after the
+     it's `https://okayspace-v0vx.onrender.com` (Render names it after the
      service). You can also leave it blank now and set it after the first
      deploy, then re-deploy the static site — see the note in Step 2b.
    - `EXPO_PUBLIC_MAPBOX_TOKEN` (web) → a Mapbox **public** token (for maps).
@@ -45,7 +45,7 @@ provisions a Postgres database **and** the API service together.
    automatically (that's the `fromDatabase` block in `render.yaml`).
 5. Click **Apply**. Render creates the database, builds the Docker image and the
    web bundle, and deploys. Watch the API logs for `Uvicorn running`.
-6. Render gives you a backend URL like `https://okayspace.onrender.com` and a
+6. Render gives you a backend URL like `https://okayspace-v0vx.onrender.com` and a
    web URL like `https://okayspace.ca`.
 
 ### Step 2b — fix the web's backend URL (if you left it blank)
@@ -59,7 +59,7 @@ deploy**. The web app will then talk to your API.
 > Don't want the web site? Delete the `okayspace-web` block from `render.yaml` —
 > the API and database deploy fine on their own, and you ship mobile via EAS.
 
-**Test it:** open `https://okayspace.onrender.com/health` — you should see
+**Test it:** open `https://okayspace-v0vx.onrender.com/health` — you should see
 `{"status":"ok"}`. The tables are created automatically on first use, so there
 is no migration step.
 
@@ -79,7 +79,7 @@ Render URL.
 
 **Local development:** create `frontend/.env`:
 ```
-EXPO_PUBLIC_BACKEND_URL=https://okayspace.onrender.com
+EXPO_PUBLIC_BACKEND_URL=https://okayspace-v0vx.onrender.com
 EXPO_PUBLIC_MAPBOX_TOKEN=pk.your_mapbox_public_token
 ```
 No trailing slash, no `/api` — the client adds that itself. (For local web dev
@@ -108,7 +108,7 @@ build points at your Render backend.
 The app uses plain email/password auth. Register through the sign-up screen, or
 hit the API directly to confirm it works:
 ```bash
-curl -X POST https://okayspace.onrender.com/api/auth/register \
+curl -X POST https://okayspace-v0vx.onrender.com/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"you@example.com","password":"supersecret","name":"You","username":"you"}'
 ```

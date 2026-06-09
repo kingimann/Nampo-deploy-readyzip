@@ -6,7 +6,7 @@
   "build": {
     "base": {
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://okayspace.onrender.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://okayspace-v0vx.onrender.com"
       }
     },
     "development": {

@@ -13,7 +13,7 @@ import { useConfirm } from "@/src/context/ConfirmContext";
 import SignatureImage from "@/src/components/SignatureImage";
 import { theme } from "@/src/theme";
 
-const FALLBACK_BACKEND = "https://okayspace.onrender.com";
+const FALLBACK_BACKEND = "https://okayspace-v0vx.onrender.com";
 function apiOrigin(): string {
   const env = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
   return (env || FALLBACK_BACKEND).replace(/\/$/, "");
