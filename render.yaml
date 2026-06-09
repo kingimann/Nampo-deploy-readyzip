@@ -121,7 +121,7 @@ services:
     # Install with Yarn (this repo's declared packageManager) — npm ci crashes
     # here with "Exit handler never called!" (an npm 10/11 bug). Corepack ships
     # with Node 20 and provides yarn@1.22.22 from package.json's packageManager.
-    buildCommand: cd frontend && corepack enable && yarn install --network-timeout 1000000 && npx expo export -p web
+    buildCommand: cd frontend && corepack enable && yarn install --network-timeout 1000000 && yarn build:web
     staticPublishPath: frontend/dist
     pullRequestPreviewsEnabled: false
     autoDeploy: true
@@ -130,7 +130,7 @@ services:
       # Expo SDK 54 requires Node >= 20.19.4.
       - key: NODE_VERSION
         value: "20.19.4"
-      # Baked into the web build at export time. The backend URL is not secret,
+      # Baked into the web build at build time (Vite define). The backend URL is not secret,
       # so hardcode it here (the API service is named nampo-backend). If you
       # rename the API service, update this. The Mapbox PUBLIC token is bundled
       # too; paste it in the dashboard (sync:false) since it shouldn't live in git.
@@ -149,9 +149,9 @@ services:
       - key: EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET
         sync: false
     # Never let the app SHELL go stale: index.html must revalidate every load so
-    # new deploys are picked up immediately (the hashed JS/CSS under
-    # /_expo/static/* keep their default long cache — they're content-hashed and
-    # safe). This is the cure for "I deployed but the PWA still shows the old UI".
+    # new deploys are picked up immediately (the hashed JS/CSS under /assets/*
+    # keep their default long cache — they're content-hashed and safe). This is
+    # the cure for "I deployed but the PWA still shows the old UI".
     headers:
       - path: /
         name: Cache-Control
@@ -160,7 +160,7 @@ services:
         name: Cache-Control
         value: "no-cache, must-revalidate"
     routes:
-      # SPA fallback — the app exports a single index.html (web.output: single).
+      # SPA fallback — Vite emits a single index.html; react-router needs every path served it.
       - type: rewrite
         source: /*
         destination: /index.html

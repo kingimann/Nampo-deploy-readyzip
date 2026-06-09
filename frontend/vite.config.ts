@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { transform } from "esbuild";
 import path from "node:path";
@@ -39,7 +39,15 @@ function rnNodeModulesJsx(): Plugin {
  * RN-flavored dependency that ships untranspiled Flow/JSX (react-native-web
  * itself is fine; some RN libs aren't). See src/web/README.md.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // The app reads its config from `process.env.EXPO_PUBLIC_*` (backend URL,
+  // Mapbox/Stripe/Cloudinary). Bake those into the build so they're available at
+  // runtime (Vite doesn't expose process.env to the client by default).
+  const env = loadEnv(mode, process.cwd(), "EXPO_PUBLIC_");
+  const envDefines = Object.fromEntries(
+    Object.entries(env).map(([k, v]) => [`process.env.${k}`, JSON.stringify(v)]),
+  );
+  return {
   plugins: [
     rnNodeModulesJsx(),
     react({
@@ -71,9 +79,14 @@ export default defineConfig({
   },
   define: {
     // RN/Expo code expects these globals.
-    __DEV__: JSON.stringify(process.env.NODE_ENV !== "production"),
+    __DEV__: JSON.stringify(mode !== "production"),
     global: "window",
-    "process.env": {},
+    "process.env.NODE_ENV": JSON.stringify(mode),
+    // Specific EXPO_PUBLIC_* values (must come before the {} fallback below so
+    // esbuild's longest-match picks them for `process.env.EXPO_PUBLIC_*`).
+    ...envDefines,
+    // Anything else read off process.env resolves to undefined (no ReferenceError).
+    "process.env": "{}",
   },
   optimizeDeps: {
     // Pre-bundle RN-web and friends; esbuild handles their CJS/ESM interop.
@@ -86,4 +99,5 @@ export default defineConfig({
   },
   server: { port: 8081 },
   build: { outDir: "dist", target: "es2020" },
+  };
 });
