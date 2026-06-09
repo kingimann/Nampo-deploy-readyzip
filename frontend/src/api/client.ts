@@ -574,6 +574,14 @@ export const api = {
     request<Message>(`/conversations/${conv_id}/messages/${msg_id}/vote`, {
       method: "POST", body: JSON.stringify({ option }),
     }),
+  scheduleMessage: (conv_id: string, body: MessageCreate, send_at: string) =>
+    request<ScheduledMessage>(`/conversations/${conv_id}/scheduled`, {
+      method: "POST", body: JSON.stringify({ body, send_at }),
+    }),
+  listScheduledMessages: (conv_id: string) =>
+    request<ScheduledMessage[]>(`/conversations/${conv_id}/scheduled`),
+  cancelScheduledMessage: (conv_id: string, sid: string) =>
+    request<{ ok: boolean }>(`/conversations/${conv_id}/scheduled/${sid}`, { method: "DELETE" }),
   // Custom emojis (global registry, used as :shortcode: in chat).
   listCustomEmojis: () => request<CustomEmoji[]>("/emojis"),
   createCustomEmoji: (shortcode: string, image_base64: string) =>
@@ -1361,6 +1369,11 @@ export type MessageCreate = {
   poll_question?: string;
   poll_options?: string[];
   reply_to?: string;
+};
+export type ScheduledMessage = {
+  id: string; conversation_id: string; sender_id: string;
+  type: MsgType; text?: string | null; poll_question?: string | null;
+  send_at: string; created_at: string;
 };
 export type ConversationView = {
   id: string;

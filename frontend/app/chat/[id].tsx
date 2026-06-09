@@ -20,7 +20,7 @@ import {
 } from "expo-audio";
 import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, Message, Post, PublicUser, CustomEmoji, FormDef, mediaUri } from "@/src/api/client";
+import { api, Message, Post, PublicUser, CustomEmoji, FormDef, ScheduledMessage, mediaUri } from "@/src/api/client";
 import MediaGrid from "@/src/components/MediaGrid";
 import RestrictionBanner from "@/src/components/RestrictionBanner";
 import EmojiText from "@/src/components/EmojiText";
@@ -136,6 +136,12 @@ export default function ChatScreen() {
   const [pollQ, setPollQ] = useState("");
   const [pollOpts, setPollOpts] = useState<string[]>(["", ""]);
   const [pollSending, setPollSending] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleText, setScheduleText] = useState("");
+  const [scheduleAt, setScheduleAt] = useState<Date | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduledList, setScheduledList] = useState<ScheduledMessage[]>([]);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [tipOpen, setTipOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -760,6 +766,45 @@ export default function ChatScreen() {
       const updated = await api.votePollMessage(id, item.id, option);
       setMessages((ms) => ms.map((m) => (m.id === item.id ? updated : m)));
     } catch {}
+  };
+
+  const loadScheduled = useCallback(async () => {
+    if (!id) return;
+    try { setScheduledList(await api.listScheduledMessages(id)); } catch {}
+  }, [id]);
+  useEffect(() => { loadScheduled(); }, [loadScheduled]);
+
+  const openSchedule = () => {
+    setScheduleText(text.trim());
+    // Default to one hour out, rounded to the next 5 minutes.
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 5) * 5, 0, 0);
+    setScheduleAt(d);
+    setScheduleOpen(true);
+  };
+
+  const sendScheduled = async () => {
+    if (!id) return;
+    const draft = scheduleText.trim();
+    if (!draft || !scheduleAt) return;
+    if (scheduleAt.getTime() <= Date.now() + 60 * 1000) return;
+    setScheduling(true);
+    try {
+      const payload = groupE2E ? await encryptForRecipients(draft, groupRecipients)
+        : peerKey ? await encryptForPeer(draft, peerKey) : draft;
+      await api.scheduleMessage(id, { type: "text", text: payload }, scheduleAt.toISOString());
+      setScheduleOpen(false);
+      setText("");
+      await loadScheduled();
+    } catch {} finally {
+      setScheduling(false);
+    }
+  };
+
+  const cancelScheduled = async (sid: string) => {
+    if (!id) return;
+    setScheduledList((l) => l.filter((s) => s.id !== sid));
+    try { await api.cancelScheduledMessage(id, sid); } catch { loadScheduled(); }
   };
 
   const send = async () => {
@@ -1582,6 +1627,16 @@ export default function ChatScreen() {
             </View>
           </Modal>
 
+          {scheduledList.length > 0 && !editingMsg && !recording && (
+            <TouchableOpacity style={styles.editBanner} onPress={() => setScheduledOpen(true)} testID="scheduled-banner">
+              <Ionicons name="time-outline" size={16} color={theme.primary} />
+              <Text style={styles.editBannerText} numberOfLines={1}>
+                {scheduledList.length} scheduled message{scheduledList.length === 1 ? "" : "s"}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+
           {editingMsg && !recording && (
             <View style={styles.editBanner}>
               <Ionicons name="create-outline" size={16} color={theme.primary} />
@@ -1682,6 +1737,8 @@ export default function ChatScreen() {
                   <TouchableOpacity
                     style={[styles.sendBtn, sending && { opacity: 0.5 }]}
                     onPress={send}
+                    onLongPress={editingMsg ? undefined : openSchedule}
+                    delayLongPress={350}
                     disabled={sending}
                     testID="send-btn"
                   >
@@ -1768,6 +1825,109 @@ export default function ChatScreen() {
             >
               {pollSending ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.pollSendText}>Send poll</Text>}
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Schedule a message for later */}
+      <Modal visible={scheduleOpen} transparent animationType="slide" onRequestClose={() => setScheduleOpen(false)}>
+        <View style={styles.pollSheetWrap}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setScheduleOpen(false)} testID="schedule-backdrop" />
+          <View style={[styles.pollSheet, { paddingBottom: insets.bottom + 18 }]}>
+            <View style={styles.attachHandle} />
+            <Text style={styles.pollSheetTitle}>Schedule message</Text>
+            <TextInput
+              style={[styles.pollInput, { minHeight: 70, textAlignVertical: "top" }]}
+              placeholder="Message to send later…"
+              placeholderTextColor={theme.textMuted}
+              value={scheduleText}
+              onChangeText={setScheduleText}
+              multiline
+              maxLength={2000}
+              testID="schedule-text"
+            />
+            <Text style={styles.scheduleLabel}>When</Text>
+            <View style={styles.scheduleChips}>
+              {[
+                { label: "In 1 hour", ms: 60 * 60 * 1000 },
+                { label: "In 3 hours", ms: 3 * 60 * 60 * 1000 },
+                { label: "Tonight 8 PM", at: () => { const d = new Date(); d.setHours(20, 0, 0, 0); if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1); return d; } },
+                { label: "Tomorrow 9 AM", at: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; } },
+              ].map((p: any) => {
+                const target = p.at ? p.at() : new Date(Date.now() + p.ms);
+                const active = scheduleAt && Math.abs(scheduleAt.getTime() - target.getTime()) < 60 * 1000;
+                return (
+                  <TouchableOpacity
+                    key={p.label}
+                    style={[styles.scheduleChip, active && styles.scheduleChipActive]}
+                    onPress={() => setScheduleAt(target)}
+                    testID={`schedule-chip-${p.label}`}
+                  >
+                    <Text style={[styles.scheduleChipText, active && { color: "#fff" }]}>{p.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.scheduleCustomRow}>
+              <TouchableOpacity
+                style={styles.scheduleStep}
+                onPress={() => setScheduleAt((d) => new Date((d?.getTime() || Date.now()) - 15 * 60 * 1000))}
+                testID="schedule-minus"
+              >
+                <Ionicons name="remove" size={18} color={theme.primary} />
+              </TouchableOpacity>
+              <Text style={styles.scheduleWhen} testID="schedule-when">
+                {scheduleAt
+                  ? scheduleAt.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                  : "Pick a time"}
+              </Text>
+              <TouchableOpacity
+                style={styles.scheduleStep}
+                onPress={() => setScheduleAt((d) => new Date((d?.getTime() || Date.now()) + 15 * 60 * 1000))}
+                testID="schedule-plus"
+              >
+                <Ionicons name="add" size={18} color={theme.primary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.scheduleHint}>Use −/+ to adjust by 15 minutes.</Text>
+            <TouchableOpacity
+              style={[styles.pollSendBtn, { backgroundColor: theme.primary }, (scheduling || !scheduleText.trim() || !scheduleAt || (scheduleAt?.getTime() || 0) <= Date.now() + 60 * 1000) && { opacity: 0.5 }]}
+              onPress={sendScheduled}
+              disabled={scheduling || !scheduleText.trim() || !scheduleAt || (scheduleAt?.getTime() || 0) <= Date.now() + 60 * 1000}
+              testID="schedule-send"
+            >
+              {scheduling ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.pollSendText}>Schedule</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Manage pending scheduled messages */}
+      <Modal visible={scheduledOpen} transparent animationType="slide" onRequestClose={() => setScheduledOpen(false)}>
+        <View style={styles.pollSheetWrap}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setScheduledOpen(false)} testID="scheduled-list-backdrop" />
+          <View style={[styles.pollSheet, { paddingBottom: insets.bottom + 18 }]}>
+            <View style={styles.attachHandle} />
+            <Text style={styles.pollSheetTitle}>Scheduled messages</Text>
+            {scheduledList.length === 0 ? (
+              <Text style={styles.scheduleHint}>Nothing scheduled.</Text>
+            ) : (
+              scheduledList.map((s) => (
+                <View key={s.id} style={styles.scheduledRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.scheduledRowText} numberOfLines={2}>
+                      {s.type === "poll" ? `📊 ${s.poll_question || "Poll"}` : s.text ? s.text : s.type === "text" ? "🔒 Encrypted message" : `📎 ${s.type}`}
+                    </Text>
+                    <Text style={styles.scheduledRowTime}>
+                      {new Date(s.send_at).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => cancelScheduled(s.id)} testID={`schedule-cancel-${s.id}`} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="trash-outline" size={20} color={theme.error} />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
           </View>
         </View>
       </Modal>
@@ -2055,6 +2215,19 @@ const styles = StyleSheet.create({
   pollAddOptText: { fontSize: 14, fontWeight: "700" },
   pollSendBtn: { borderRadius: 14, alignItems: "center", justifyContent: "center", paddingVertical: 14, marginTop: 6 },
   pollSendText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  // Schedule sheet
+  scheduleLabel: { color: theme.textMuted, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, marginTop: 2 },
+  scheduleChips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  scheduleChip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 18, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border },
+  scheduleChipActive: { backgroundColor: theme.primary, borderColor: theme.primary },
+  scheduleChipText: { color: theme.textPrimary, fontSize: 13, fontWeight: "700" },
+  scheduleCustomRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 },
+  scheduleStep: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.surfaceAlt, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border },
+  scheduleWhen: { flex: 1, textAlign: "center", color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
+  scheduleHint: { color: theme.textMuted, fontSize: 12, marginTop: 2, marginBottom: 6 },
+  scheduledRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: theme.border },
+  scheduledRowText: { color: theme.textPrimary, fontSize: 14, fontWeight: "600" },
+  scheduledRowTime: { color: theme.primary, fontSize: 12, fontWeight: "700", marginTop: 3 },
   placeHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   placeName: { color: theme.textPrimary, fontSize: 14, fontWeight: "700", flex: 1 },
   placeAddr: { color: theme.textSecondary, fontSize: 12 },

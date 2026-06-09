@@ -342,6 +342,11 @@ async def startup():
         asyncio.create_task(_backfill_avatars())  # give pictureless users a default avatar (one-time)
     except Exception:
         pass
+    try:
+        from routes.messaging import start_scheduled_dispatcher
+        start_scheduled_dispatcher()              # deliver scheduled messages when due
+    except Exception:
+        pass
     logger.info("Startup complete")
 
 

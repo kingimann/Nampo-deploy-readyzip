@@ -538,6 +538,13 @@ async def send_message(
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
     if not conv or user["user_id"] not in conv["participant_ids"]:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return Message(**await _create_message(conv_id, conv, user, body))
+
+
+async def _create_message(conv_id: str, conv: dict, user: dict, body: MessageCreate) -> dict:
+    """Validate `body`, persist the message, fan out notifications, and return the
+    decrypted message dict. Shared by the live send endpoint and the scheduled
+    message dispatcher so both paths behave identically."""
     if body.type == "text" and not (body.text or "").strip():
         raise HTTPException(status_code=400, detail="Empty message")
     if body.type == "place" and (body.place_longitude is None or body.place_latitude is None):
@@ -749,7 +756,7 @@ async def send_message(
             conversation_id=conv_id,
             message=preview,
         )
-    return Message(**_decrypt_msg(msg))
+    return _decrypt_msg(msg)
 
 
 @router.post("/conversations/{conv_id}/read")
@@ -914,6 +921,148 @@ async def vote_poll(conv_id: str, msg_id: str, body: PollVoteBody, authorization
     await db.messages.update_one({"id": msg_id, "conversation_id": conv_id}, {"$set": {"poll_votes": votes}})
     m2 = await db.messages.find_one({"id": msg_id, "conversation_id": conv_id}, {"_id": 0})
     return Message(**_decrypt_msg(m2))
+
+
+# ── Scheduled messages ──────────────────────────────────────────────────────
+# A scheduled message stores the exact MessageCreate payload (already E2E
+# encrypted by the sender when applicable) plus a future `send_at`. A background
+# dispatcher materializes due ones through the same `_create_message` pipeline a
+# live send uses, so delivery, notifications and previews are identical.
+#
+# Money-moving / interactive types are intentionally not schedulable — a tip
+# should debit at the moment you tap, not silently in the future.
+_SCHEDULABLE = {"text", "place", "media", "post", "gif", "file", "contact", "poll"}
+
+
+class ScheduledCreate(BaseModel):
+    body: MessageCreate
+    send_at: datetime
+
+
+class ScheduledView(BaseModel):
+    id: str
+    conversation_id: str
+    sender_id: str
+    type: str
+    text: Optional[str] = None
+    poll_question: Optional[str] = None
+    send_at: datetime
+    created_at: datetime
+
+
+@router.post("/conversations/{conv_id}/scheduled", response_model=ScheduledView)
+async def schedule_message(conv_id: str, payload: ScheduledCreate, authorization: Optional[str] = Header(None)):
+    """Queue a message to be delivered at `send_at` (must be in the future)."""
+    user = await get_current_user(authorization)
+    if user.get("messaging_disabled"):
+        raise HTTPException(status_code=403, detail={"code": "messaging_disabled", "message": "Messaging has been disabled on your account by an administrator."})
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if payload.body.type not in _SCHEDULABLE:
+        raise HTTPException(status_code=400, detail="This kind of message can't be scheduled")
+    send_at = _norm_dt(payload.send_at)
+    now = datetime.now(timezone.utc)
+    if not send_at or send_at <= now + timedelta(seconds=10):
+        raise HTTPException(status_code=400, detail="Pick a time at least a minute in the future")
+    if send_at > now + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="Can't schedule more than a year ahead")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "conversation_id": conv_id,
+        "sender_id": user["user_id"],
+        "type": payload.body.type,
+        "payload": payload.body.model_dump(),
+        "send_at": send_at,
+        "created_at": now,
+        "sent": False,
+    }
+    await db.scheduled_messages.insert_one(doc.copy())
+    return ScheduledView(
+        id=doc["id"], conversation_id=conv_id, sender_id=user["user_id"], type=doc["type"],
+        text=None if (payload.body.text or "").startswith("e2e:v1:") else (payload.body.text or None),
+        poll_question=payload.body.poll_question, send_at=send_at, created_at=now,
+    )
+
+
+@router.get("/conversations/{conv_id}/scheduled", response_model=List[ScheduledView])
+async def list_scheduled(conv_id: str, authorization: Optional[str] = Header(None)):
+    """Your own pending (not-yet-sent) scheduled messages for this conversation."""
+    user = await get_current_user(authorization)
+    conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv or user["user_id"] not in conv["participant_ids"]:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    rows = await db.scheduled_messages.find(
+        {"conversation_id": conv_id, "sender_id": user["user_id"], "sent": {"$ne": True}}, {"_id": 0}
+    ).sort("send_at", 1).to_list(200)
+    out = []
+    for r in rows:
+        txt = r.get("payload", {}).get("text") or ""
+        out.append(ScheduledView(
+            id=r["id"], conversation_id=conv_id, sender_id=r["sender_id"], type=r.get("type", "text"),
+            text=None if txt.startswith("e2e:v1:") else (txt or None),
+            poll_question=r.get("payload", {}).get("poll_question"),
+            send_at=_norm_dt(r["send_at"]), created_at=_norm_dt(r["created_at"]),
+        ))
+    return out
+
+
+@router.delete("/conversations/{conv_id}/scheduled/{sid}")
+async def cancel_scheduled(conv_id: str, sid: str, authorization: Optional[str] = Header(None)):
+    """Cancel a pending scheduled message you created."""
+    user = await get_current_user(authorization)
+    res = await db.scheduled_messages.delete_one(
+        {"id": sid, "conversation_id": conv_id, "sender_id": user["user_id"], "sent": {"$ne": True}}
+    )
+    if getattr(res, "deleted_count", 0) != 1:
+        raise HTTPException(status_code=404, detail="Scheduled message not found")
+    return {"ok": True}
+
+
+async def _dispatch_scheduled_once() -> int:
+    """Deliver any scheduled messages whose time has come. Returns how many were
+    sent. Each is claimed atomically (sent True) before delivery so overlapping
+    ticks can't double-send."""
+    now = datetime.now(timezone.utc)
+    due = await db.scheduled_messages.find(
+        {"sent": {"$ne": True}, "send_at": {"$lte": now}}, {"_id": 0}
+    ).to_list(100)
+    count = 0
+    for r in due:
+        claimed = await db.scheduled_messages.update_one(
+            {"id": r["id"], "sent": {"$ne": True}}, {"$set": {"sent": True, "sent_at": now}}
+        )
+        if getattr(claimed, "matched_count", 0) != 1:
+            continue  # another worker grabbed it
+        try:
+            conv = await db.conversations.find_one({"id": r["conversation_id"]}, {"_id": 0})
+            user = await db.users.find_one({"user_id": r["sender_id"]}, {"_id": 0})
+            if not conv or not user or r["sender_id"] not in conv.get("participant_ids", []):
+                continue  # conversation gone or sender no longer a member — drop it
+            await _create_message(r["conversation_id"], conv, user, MessageCreate(**r["payload"]))
+            count += 1
+        except Exception:
+            # Leave it marked sent so a broken payload doesn't loop forever.
+            pass
+    return count
+
+
+def start_scheduled_dispatcher():
+    """Kick off the background loop that delivers scheduled messages (best-effort)."""
+    import asyncio
+
+    async def _loop():
+        while True:
+            try:
+                await _dispatch_scheduled_once()
+            except Exception:
+                pass
+            await asyncio.sleep(30)
+
+    try:
+        asyncio.create_task(_loop())
+    except Exception:
+        pass
 
 
 @router.get("/conversations/{conv_id}/pinned", response_model=List[Message])
