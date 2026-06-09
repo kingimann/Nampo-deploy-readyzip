@@ -6,7 +6,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useFocusEffect, useRouter } from "expo-router";
 import { safeBack } from "@/src/utils/nav";
-import { api, Listing, MarketplaceReview, SellerProfile } from "@/src/api/client";
+import { api, Listing, MarketplaceReview, SellerProfile, BusinessProfile } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { theme } from "@/src/theme";
 import { GLASS } from "@/src/lib/glass";
@@ -38,11 +38,22 @@ export default function MyMarketplaceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [saved, setSaved] = useState<Listing[] | null>(null);
   const [reviews, setReviews] = useState<MarketplaceReview[] | null>(null);
+  // Which profile you're viewing the marketplace as — personal or business.
+  const [acting, setActing] = useState<"personal" | "business">("personal");
+  const [biz, setBiz] = useState<BusinessProfile | null>(null);   // full storefront (with listings)
 
   const load = useCallback(async () => {
     if (!user?.user_id) { setLoading(false); return; }
-    try { setProfile(await api.getSellerProfile(user.user_id)); }
-    catch {} finally { setLoading(false); setRefreshing(false); }
+    try {
+      const [sp, mine] = await Promise.all([
+        api.getSellerProfile(user.user_id),
+        api.myBusiness().catch(() => null),
+      ]);
+      setProfile(sp);
+      // Pull the full business (with its listings) so the business view is ready.
+      if (mine) { try { setBiz(await api.getBusiness(mine.id)); } catch { setBiz(mine); } }
+      else setBiz(null);
+    } catch {} finally { setLoading(false); setRefreshing(false); }
   }, [user?.user_id]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -80,43 +91,97 @@ export default function MyMarketplaceScreen() {
     </TouchableOpacity>
   );
 
-  const listings = profile?.listings || [];
-  const gridData: Listing[] = tab === "listings" ? listings : tab === "saved" ? (saved || []) : [];
+  const onBusiness = acting === "business" && !!biz;
+  const personalListings = profile?.listings || [];
+  const bizListings = biz?.listings || [];
+  const activeListings = onBusiness ? bizListings : personalListings;
+  const gridData: Listing[] = tab === "listings" ? activeListings : tab === "saved" ? (saved || []) : [];
+
+  // Identity shown in the summary depends on which profile you're acting as.
+  const idName = onBusiness ? biz!.name : (user?.name || "You");
+  const idAvatar = onBusiness ? biz!.logo : user?.picture;
+  const idRating = onBusiness ? (biz!.rating || 0) : (profile?.rating || 0);
+  const idReviews = onBusiness ? (biz!.review_count || 0) : (profile?.review_count || 0);
+  const idCount = onBusiness ? (biz!.listing_count ?? bizListings.length) : (profile?.listing_count ?? personalListings.length);
 
   const segment = (
     <>
+      {/* Personal ⇄ Business profile switcher for the marketplace. */}
+      <View style={styles.switcher}>
+        <TouchableOpacity
+          style={[styles.switchChip, !onBusiness && styles.switchChipOn]}
+          onPress={() => { setActing("personal"); setTab("listings"); }}
+          testID="mm-act-personal"
+        >
+          {user?.picture ? <Image source={{ uri: user.picture }} style={styles.switchChipImg} /> : <Ionicons name="person-circle-outline" size={18} color={!onBusiness ? theme.primary : theme.textMuted} />}
+          <Text style={[styles.switchChipText, !onBusiness && styles.switchChipTextOn]} numberOfLines={1}>Personal</Text>
+        </TouchableOpacity>
+        {biz ? (
+          <TouchableOpacity
+            style={[styles.switchChip, onBusiness && styles.switchChipOn]}
+            onPress={() => { setActing("business"); setTab("listings"); }}
+            testID="mm-act-business"
+          >
+            {biz.logo ? <Image source={{ uri: biz.logo }} style={styles.switchChipImg} /> : <Ionicons name="business" size={16} color={onBusiness ? theme.primary : theme.textMuted} />}
+            <Text style={[styles.switchChipText, onBusiness && styles.switchChipTextOn]} numberOfLines={1}>{biz.name}</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={[styles.switchChip, { borderStyle: "dashed" }]} onPress={() => router.push("/business")} testID="mm-act-create-business">
+            <Ionicons name="add" size={17} color={theme.textMuted} />
+            <Text style={styles.switchChipText} numberOfLines={1}>Add business</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       <View style={styles.summary}>
         <View style={styles.avatar}>
-          {user?.picture
-            ? <Image source={{ uri: user.picture }} style={styles.avatarImg} />
-            : <Text style={styles.avatarInit}>{(user?.name?.[0] || "?").toUpperCase()}</Text>}
+          {idAvatar
+            ? <Image source={{ uri: idAvatar }} style={styles.avatarImg} />
+            : onBusiness
+              ? <Ionicons name="business" size={26} color="#fff" />
+              : <Text style={styles.avatarInit}>{(idName?.[0] || "?").toUpperCase()}</Text>}
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.name} numberOfLines={1}>{user?.name}</Text>
+          <Text style={styles.name} numberOfLines={1}>{idName}</Text>
           <View style={styles.ratingRow}>
-            <Stars rating={profile?.rating || 0} />
+            <Stars rating={idRating} />
             <Text style={styles.ratingText}>
-              {profile?.review_count
-                ? `${(profile.rating || 0).toFixed(1)} · ${profile.review_count} review${profile.review_count === 1 ? "" : "s"}`
+              {idReviews
+                ? `${idRating.toFixed(1)} · ${idReviews} review${idReviews === 1 ? "" : "s"}`
                 : "No reviews yet"}
             </Text>
           </View>
           <Text style={styles.countText}>
-            {(profile?.listing_count ?? listings.length)} listing{(profile?.listing_count ?? listings.length) === 1 ? "" : "s"}
+            {idCount} listing{idCount === 1 ? "" : "s"}{onBusiness ? " · Business" : ""}
           </Text>
         </View>
       </View>
 
-      {/* Customize how you appear in the marketplace. */}
+      {/* Customize how you appear in the marketplace — context-aware. */}
       <View style={styles.mpActions}>
-        <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/shop")} testID="mm-customize-storefront">
-          <Ionicons name="color-palette-outline" size={17} color={theme.primary} />
-          <Text style={styles.mpActionText}>Customize storefront</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/business")} testID="mm-business">
-          <Ionicons name="business-outline" size={17} color={theme.primary} />
-          <Text style={styles.mpActionText}>Business profile</Text>
-        </TouchableOpacity>
+        {onBusiness ? (
+          <>
+            <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/business")} testID="mm-edit-business">
+              <Ionicons name="create-outline" size={17} color={theme.primary} />
+              <Text style={styles.mpActionText}>Edit business</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.mpAction} onPress={() => router.push({ pathname: "/business/[id]", params: { id: biz!.id } })} testID="mm-view-storefront">
+              <Ionicons name="storefront-outline" size={17} color={theme.primary} />
+              <Text style={styles.mpActionText}>View storefront</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/shop")} testID="mm-customize-storefront">
+              <Ionicons name="color-palette-outline" size={17} color={theme.primary} />
+              <Text style={styles.mpActionText}>Customize storefront</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.mpAction} onPress={() => router.push("/business")} testID="mm-business">
+              <Ionicons name="business-outline" size={17} color={theme.primary} />
+              <Text style={styles.mpActionText}>{biz ? "Business profile" : "Add business"}</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <View style={styles.segment}>
@@ -238,6 +303,15 @@ const styles = StyleSheet.create({
   ratingText: { color: theme.textSecondary, fontSize: 12.5, fontWeight: "600" },
   countText: { color: theme.textMuted, fontSize: 12.5, marginTop: 4 },
 
+  switcher: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  switchChip: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+    ...GLASS, borderRadius: 12, borderWidth: 1, borderColor: theme.border, paddingVertical: 10, paddingHorizontal: 10,
+  },
+  switchChipOn: { borderColor: theme.primary, borderWidth: 1.5 },
+  switchChipImg: { width: 20, height: 20, borderRadius: 10, backgroundColor: theme.surfaceAlt },
+  switchChipText: { color: theme.textSecondary, fontSize: 13.5, fontWeight: "800", maxWidth: 120 },
+  switchChipTextOn: { color: theme.primary },
   mpActions: { flexDirection: "row", gap: 10, marginBottom: 12 },
   mpAction: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
