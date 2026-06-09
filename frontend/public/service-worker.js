@@ -1,26 +1,27 @@
 /* Self-destroying service worker.
  *
  * The old installable-PWA build registered a service worker that cached the app
- * shell and caused a "page keeps refreshing" loop (the cached shell can't be
- * evicted by the page it's intercepting, so a fresh deploy never reaches the
- * browser). This neutralizer is shipped at that worker's path; the browser
+ * shell. This neutralizer is shipped at that worker's path; the browser
  * revalidates the worker script on navigation, picks up THIS version, and it
- * then deletes all caches, unregisters itself, and reloads any open tab once to
- * a clean, worker-free state.
+ * then deletes all caches and unregisters itself. The next plain navigation is
+ * served fresh from the network (the current app ships no worker), so the
+ * stale shell is gone for good.
  *
- * The current app ships no service worker, so once this runs the loop is gone
- * for good. It is never registered by the current build — a stray copy on disk
- * is harmless; it only activates by replacing an already-registered worker.
+ * IMPORTANT: it does NOT reload/navigate clients. An earlier version called
+ * clients.navigate() here, which created an infinite reload loop — the old
+ * cached shell would re-register this worker, which reloaded, which served the
+ * cached shell again, and so on. Clearing caches + unregistering (with no
+ * forced reload) breaks that cycle.
  */
 self.addEventListener("install", function () {
-  // Activate immediately instead of waiting for the old worker's tabs to close.
   self.skipWaiting();
 });
 
 self.addEventListener("activate", function (event) {
   event.waitUntil(
     (async function () {
-      // Drop every Cache Storage entry the old worker left behind.
+      // Drop every Cache Storage entry the old worker left behind, so nothing
+      // can keep serving the stale app shell.
       try {
         if (self.caches && caches.keys) {
           var keys = await caches.keys();
@@ -31,23 +32,13 @@ self.addEventListener("activate", function (event) {
           );
         }
       } catch (e) {}
-      // Remove this worker's registration entirely.
+      // Remove this worker's registration entirely. No navigate() — see note.
       try {
         await self.registration.unregister();
-      } catch (e) {}
-      // Reload open tabs once so they re-fetch the clean, worker-free shell.
-      try {
-        var clients = await self.clients.matchAll({ type: "window" });
-        clients.forEach(function (c) {
-          try {
-            c.navigate(c.url);
-          } catch (e) {}
-        });
       } catch (e) {}
     })()
   );
 });
 
-// No "fetch" handler on purpose: a worker without one does not intercept
-// network requests, so navigations go straight to the network even in the brief
-// window before this worker finishes unregistering.
+// No "fetch" handler: a worker without one does not intercept requests, so
+// navigations go straight to the network.
