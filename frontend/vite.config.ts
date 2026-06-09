@@ -61,6 +61,9 @@ export default defineConfig(({ mode }) => {
     alias: {
       // RN component model on the web.
       "react-native": "react-native-web",
+      // react-native-webview has no web build and reaches for native modules at
+      // import (blank screen). Components use an <iframe> on web anyway.
+      "react-native-webview": path.resolve(__dirname, "src/web/shims/react-native-webview.tsx"),
       // Mirror tsconfig "@/*": ["./*"].
       "@": path.resolve(__dirname, "."),
     },
