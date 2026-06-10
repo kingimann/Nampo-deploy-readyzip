@@ -134,13 +134,19 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - Site roles: `user` / `mod` / `admin`; bootstrap admins via `ADMIN_EMAILS`
 - Admins **verify** users and assign roles from any profile; mods/admins can delete any post
 - **Admin panels**: payments & fees, platform/ad revenue, user moderation (ban/suspend/role/verify) + audit log, custom badges, the **@claude test bot**, roadside verifications, support triage, and an **Integrations & SDKs** status board (configured + live health checks + remediation)
-- **In-site UX guards (web)**: all confirmations are in-app dialogs (no browser `window.confirm`), plus a keyboard-refresh confirm and disabled right-click / dev-tools shortcuts
+- **In-site UX guards (web)**: important confirmations use in-app dialogs, while simpler `Alert.alert` prompts route through the browser's native dialog on web (so their buttons actually work); plus a keyboard-refresh confirm and disabled right-click / dev-tools shortcuts
 
 ### Discovery
 - User search, saved **places** + **recents**, **guides** (curated, optionally public/cloneable collections with shareable slugs), place **reviews** (1–5★)
 - **Communities (forum)**: a full Reddit-style system — create/discover (favorites first, **trending** sort + relevance search), join/favorite, post threads, up/down-vote, comment, and sort **Hot / New / Top / Rising** (real time-decayed "hot") with **flair filters** and **in-community search**. Each community has a **banner**, editable **rules**, **post flairs**, an **About/wiki** page, and **auto-moderation** (banned-word blocklist). **Moderators** (owner promotes members) can **remove/pin** posts, **manage members**, and edit settings. **Karma** (a 👍 on your post) feeds both your global points and a **per-community karma badge + leaderboard**. A **"Your feed"** tab aggregates threads across the communities you've joined, and mods/authors get **community notifications** (pinned/removed/promoted)
 - **Groups**: public/private chat communities with posts, pinned posts, join requests, and member roles — distinct from the forum
 - Notifications feed (unread counts, mark-as-read)
+
+### Web app (responsive + PWA)
+- The same Expo client runs in any browser, exported as a **static site** (`okayspace.ca`) — no separate web codebase.
+- **Desktop chrome (≥ 900px)**: a three-column shell — a **left nav rail**, a **centred content column** flush against both rails, and a **right rail** with **search**, **trending hashtags** and **top members**. Below 900px it falls back to the full mobile UI with the floating tab bar.
+- **Vanity profile URLs**: every profile is shareable at `okayspace.ca/<username>` (the address bar rewrites `/user/<name>` → the handle once a profile loads); route groups are hidden so URLs stay clean (`/feed`, `/marketplace`, `/profile`).
+- **Installable PWA**: web manifest + branded launch splash, locked viewport with internal scrolling, and a **pull-to-refresh** gesture on touch devices. Native confirmations are used for key actions; simpler `Alert`s fall back to the browser dialog on web.
 
 ### Developer API
 A first-class, paid Developer API (Settings → Developer API) for building on OkaySpace
@@ -470,15 +476,17 @@ require an `Authorization: Bearer <session token | API key>` header.
 | **Embed content** | `/pub/post/{id}`, `/pub/profile/{username}`(+`/posts`), `/pub/listing/{id}`, `/pub/guide/{slug}`, `/pub/{post,profile,listing,guide}-card`, `/pub/content-embed.js`, `/pub/oembed` | Public JSON, themeable iframe cards (posts, profiles, marketplace listings, guides), a `<script>` loader, cursor-paginated profile feed, and an **oEmbed** provider. |
 | **Webhooks** | `/webhooks`(+`/{id}`,`/{id}/test`,`/{id}/deliveries`), `/webhooks/events` | Register signed event webhooks (20+ events), test pings, and delivery logs. |
 | **Login with OkaySpace (OAuth2)** | `/oauth/apps`, `/oauth/authorize`, `/oauth/token`, `/oauth/userinfo`, `/oauth/connections` | OAuth2 authorization-code provider so other sites can "Sign in with OkaySpace". |
-| **Publisher / Ads** | `/ads/next`, `/ads/{id}/event`, `/ads/reels*`, `/ads/campaigns`, `/ads/account*`, `/ads/links*`, `/pub/sites*`, `/pub/embed.js`, `/pub/unit`, `/pub/ad` | Sponsored posts, reel video ads, prepaid ad accounts, link ads, and the publisher network (customizable embeddable ad units + earn). |
+| **Publisher / Ads** | `/promoted/next`, `/promoted/{id}/event`, `/promoted/reels*`, `/promoted/campaigns`, `/promoted/account*`, `/promoted/links*`, `/pub/sites*`, `/pub/embed.js`, `/pub/unit`, `/pub/ad` | Sponsored posts, reel video ads, prepaid ad accounts, link ads, and the publisher network (customizable embeddable ad units + earn). The serving/event paths use `/promoted/*` (not `/ads/*`) so ad blockers don't strip them. |
 | **Payments / Money** | `/payments/config\|pay-intent\|checkout\|payouts/*\|webhook\|api-plan*\|api-usage*`, `/money/*`, `/wallet/*`, `/currencies` | Inline card payments, in-app payout setup, instant cash-out, P2P send/request (security question, reversal), wallet top-up/cash-out, display currency, and Developer-API plans/usage. |
 | **Admin** | `/admin/users\|audit\|badges\|revenue\|ad-revenue\|fees\|test-payments\|mobile-only\|reset/*`, `/admin/users/{id}/wallet`, `/admin/integrations?live=1` | User moderation, audit log, badges, revenue/fees, simulated-payment toggle, set a wallet balance, and the integrations/SDK status board. |
 | **Meta** | `/version`, `/v1/info`, `/public/app-config` | API name/version, machine-readable capability overview, and public client config. |
 
 The full set of endpoints is the source of truth — see each module under
 `backend/routes/`. For a developer-facing reference see **`API.md`**, the in-app
-**Developer API** screen, the machine-readable **`GET /api/v1/info`**, and the
-interactive **Swagger docs at `/docs`** (`/openapi.json` for the schema).
+**Developer API** screen (which documents **330+ endpoints across ~25 groups**,
+each kept in sync with the live routes), the machine-readable
+**`GET /api/v1/info`**, and the interactive **Swagger docs at `/docs`**
+(`/openapi.json` for the schema).
 
 ---
 
