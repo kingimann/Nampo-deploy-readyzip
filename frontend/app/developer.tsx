@@ -577,6 +577,7 @@ const GROUPS: Group[] = [
       { method: "GET", path: "/games/{id}", desc: "Get a game.", auth: true },
       { method: "DELETE", path: "/games/{id}", desc: "Delete a game (owner or staff).", auth: true },
       { method: "POST", path: "/games/{id}/score", desc: "Submit a score (host-mediated; best is kept).", auth: true, body: `{"score":100}` },
+      { method: "POST", path: "/games/{id}/play", desc: "Record a play (increments the game's play count).", auth: true },
       { method: "GET", path: "/games/{id}/leaderboard", desc: "Top scores for a game.", auth: true },
       { method: "GET", path: "/pub/games/sdk.js", desc: "Public: the OkaySpace Games SDK (OkaySpaceGames.ready/submitScore/getPlayer/exit + create3D).", auth: false },
       { method: "GET", path: "/pub/game/{id}", desc: "Public: the playable game frame (SDK injected for inline games).", auth: false },
