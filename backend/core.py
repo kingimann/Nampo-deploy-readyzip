@@ -109,6 +109,11 @@ async def init_pool() -> None:
         # inserting two reaction rows and double-incrementing likes_count — without
         # it that guard was dead code. Deduped first since rows may already exist.
         ("post_reactions", "uniq_post_reactions", "((doc ->> 'post_id'), (doc ->> 'user_id'))", ["post_id", "user_id"]),
+        # "Not interested" feed signal — one row per (post, user). The insert is
+        # guarded by DuplicateKeyError, so without this index repeated taps pile up
+        # duplicate rows. No counter is affected (it's read as a filter set), but
+        # the index matches intent and bounds the table.
+        ("post_not_interested", "uniq_post_not_interested", "((doc ->> 'post_id'), (doc ->> 'user_id'))", ["post_id", "user_id"]),
         ("conversations", "uniq_conversation_key", "((doc ->> 'key'))", ["key"]),
         ("reviews", "uniq_reviews_user_place", "((doc ->> 'user_id'), (doc ->> 'place_key'))", ["user_id", "place_key"]),
         ("ad_events", "uniq_ad_events_day", "((doc ->> 'post_id'), (doc ->> 'viewer_id'), (doc ->> 'kind'), (doc ->> 'day'))", ["post_id", "viewer_id", "kind", "day"]),
