@@ -33,7 +33,16 @@ export default function WebPullToRefresh() {
     // Touch-only gesture — never attach on desktop (mouse) so it can't trigger
     // a reload there.
     const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-    if (!coarse) return;
+    // Only the INSTALLED PWA (standalone display mode) disables the browser's
+    // own pull-to-refresh, so only there do we need to provide our own. In a
+    // normal browser tab this gesture is redundant AND, on touch-capable
+    // laptops, can misfire window.location.reload() — the "page keeps
+    // reloading" some users hit. Gate it to standalone so a regular tab is
+    // never reloaded by it.
+    const standalone =
+      (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches) ||
+      (navigator as any).standalone === true;
+    if (!coarse || !standalone) return;
     const viewportH = () =>
       (window.visualViewport?.height || window.innerHeight || 800);
     // True when the scroll container under the finger is already at the top, so a

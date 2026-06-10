@@ -19,6 +19,7 @@ import MobileOnlyGate from "@/src/components/MobileOnlyGate";
 import MobileFrame from "@/src/components/MobileFrame";
 import DesktopShell from "@/src/components/DesktopShell";
 import WebPullToRefresh from "@/src/components/WebPullToRefresh";
+import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
 import UsernameGate from "@/src/components/UsernameGate";
@@ -149,7 +150,9 @@ export default function RootLayout() {
                           <View style={{ flex: 1 }}>
                             {/* Web: instant transitions (the fade adds lag and jank
                                 to every navigation). Native keeps the fade. */}
-                            <Stack screenOptions={{ headerShown: false, animation: Platform.OS === "web" ? "none" : "fade", animationDuration: 220, contentStyle: { backgroundColor: "#0A0A0A" } }} />
+                            <AppErrorBoundary>
+                              <Stack screenOptions={{ headerShown: false, animation: Platform.OS === "web" ? "none" : "fade", animationDuration: 220, contentStyle: { backgroundColor: "#0A0A0A" } }} />
+                            </AppErrorBoundary>
                             {Platform.OS !== "web" && <EdgeSwipe />}
                           </View>
                         </DesktopShell>
