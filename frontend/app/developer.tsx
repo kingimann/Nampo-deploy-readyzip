@@ -997,6 +997,165 @@ val api = OkaySpace("YOUR_API_KEY")
 val feed = api.get("/feed/home")
 api.post("/posts", JSONObject().put("text", "Hello from Kotlin 🤖"))`;
 
+const GO_CLIENT = `// Go — standard library only. Works with JSON object OR array responses.
+package okayspace
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+)
+
+const Base = "${API_BASE}"
+
+type Client struct{ Key string }
+
+func New(key string) *Client { return &Client{Key: key} }
+
+type apiError struct {
+	Error struct {
+		Code    string \`json:"code"\`
+		Message string \`json:"message"\`
+	} \`json:"error"\`
+}
+
+func (c *Client) do(method, path string, body any) (any, error) {
+	var buf io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		buf = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequest(method, Base+path, buf)
+	req.Header.Set("Authorization", "Bearer "+c.Key)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		var e apiError
+		json.Unmarshal(data, &e)
+		return nil, fmt.Errorf("okayspace %s: %s", e.Error.Code, e.Error.Message)
+	}
+	var out any // object or array
+	json.Unmarshal(data, &out)
+	return out, nil
+}
+
+func (c *Client) Get(path string) (any, error)            { return c.do("GET", path, nil) }
+func (c *Client) Post(path string, body any) (any, error) { return c.do("POST", path, body) }
+
+// Usage
+// api := okayspace.New("YOUR_API_KEY")
+// feed, _ := api.Get("/feed/home")
+// api.Post("/posts", map[string]any{"text": "Hello from Go 🐹"})`;
+
+const RUST_CLIENT = `// Rust — reqwest (blocking) + serde_json.
+// Cargo.toml → reqwest = { version = "0.12", features = ["blocking", "json"] }
+//             serde_json = "1"
+use serde_json::Value;
+
+const BASE: &str = "${API_BASE}";
+
+pub struct OkaySpace {
+    key: String,
+    http: reqwest::blocking::Client,
+}
+
+impl OkaySpace {
+    pub fn new(key: &str) -> Self {
+        Self { key: key.to_string(), http: reqwest::blocking::Client::new() }
+    }
+
+    pub fn get(&self, path: &str) -> Result<Value, String> {
+        self.send("GET", path, None)
+    }
+    pub fn post(&self, path: &str, body: Value) -> Result<Value, String> {
+        self.send("POST", path, Some(body))
+    }
+
+    fn send(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, String> {
+        let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
+        let mut req = self.http.request(m, format!("{BASE}{path}")).bearer_auth(&self.key);
+        if let Some(b) = body { req = req.json(&b); }
+        let resp = req.send().map_err(|e| e.to_string())?;
+        let ok = resp.status().is_success();
+        let json: Value = resp.json().map_err(|e| e.to_string())?;
+        if !ok {
+            let e = &json["error"];
+            return Err(format!("okayspace {}: {}",
+                e["code"].as_str().unwrap_or("error"),
+                e["message"].as_str().unwrap_or("request failed")));
+        }
+        Ok(json)
+    }
+}
+
+// Usage
+// let api = OkaySpace::new("YOUR_API_KEY");
+// let feed = api.get("/feed/home")?;
+// api.post("/posts", serde_json::json!({ "text": "Hello from Rust 🦀" }))?;`;
+
+// Trimmed-but-accurate example response bodies (fields match the API models).
+const SHAPE_POST = `// GET /feed/home  → Post[]  (one element shown)
+{
+  "id": "p_a1b2c3",
+  "user_id": "u_123",
+  "author": {
+    "user_id": "u_123", "name": "Ada Lovelace", "username": "ada",
+    "picture": "https://cdn.okayspace.ca/u_123.jpg",
+    "verified": true, "badges": []
+  },
+  "text": "gm ☕ #buildinpublic",
+  "media": [
+    { "type": "image", "url": "https://cdn.okayspace.ca/p1.jpg",
+      "width": 1200, "height": 800, "thumbnail": null }
+  ],
+  "hashtags": ["buildinpublic"],
+  "poll": null,
+  "likes_count": 42, "dislikes_count": 0,
+  "reactions": [{ "emoji": "🔥", "count": 5 }],
+  "reactions_total": 5, "my_reaction": "🔥",
+  "replies_count": 3, "reposts_count": 1,
+  "bookmarks_count": 2, "views_count": 1280,
+  "comment_policy": "everyone", "min_sub_tier": 0, "locked": false,
+  "liked_by_me": false, "bookmarked_by_me": false, "promoted": false,
+  "created_at": "2026-06-10T14:03:22Z"
+}`;
+
+const SHAPE_USER = `// GET /users/{id}/public  → PublicUser
+{
+  "user_id": "u_123",
+  "name": "Ada Lovelace",
+  "username": "ada",
+  "picture": "https://cdn.okayspace.ca/u_123.jpg",
+  "bio": "first programmer",
+  "location": "London",
+  "interests": ["math", "poetry"],
+  "verified": true, "id_verified": true,
+  "role": "user", "badges": [],
+  "online": true, "last_seen": "2026-06-10T14:01:00Z",
+  "sub_price": 4.99, "is_subscribed": false, "subscriber_count": 318,
+  "is_following": true, "is_followed_by": false,
+  "friend_status": "friends",
+  "points": 9120, "level": 14, "level_title": "Trailblazer",
+  "stats": { "posts": 274, "followers": 1200, "following": 80 }
+}`;
+
+const SHAPE_ERROR = `// Any non-2xx — one consistent envelope (mirrored under "detail")
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Request validation failed — text: field required",
+    "fields": [{ "field": "text", "message": "field required" }]
+  },
+  "detail": { "code": "validation_error", "message": "…" }
+}`;
+
 const CONTENT_SNIPPET = `<!-- Embed a OkaySpace post, profile, listing, guide, or community -->
 <!-- swap data-post for data-profile / data-listing / data-guide / data-community -->
 <script async src="${BASE}/api/pub/content-embed.js"
@@ -1646,6 +1805,33 @@ export default function DeveloperScreen() {
         <Text style={styles.body}>An OkHttp client with the same error handling. Call it off the main thread (e.g. `Dispatchers.IO`).</Text>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(KOTLIN_CLIENT, "Kotlin client")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{KOTLIN_CLIENT}</Text>
+        </TouchableOpacity>
+
+        {/* Go */}
+        <Text style={[styles.groupTitle, { marginTop: 22 }]}>Go</Text>
+        <Text style={styles.body}>Standard-library only — no modules to add. Returns `any`, so it handles both object and array responses.</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(GO_CLIENT, "Go client")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{GO_CLIENT}</Text>
+        </TouchableOpacity>
+
+        {/* Rust */}
+        <Text style={[styles.groupTitle, { marginTop: 22 }]}>Rust</Text>
+        <Text style={styles.body}>A `reqwest` blocking client returning `serde_json::Value`. Swap to the async client by dropping `blocking` and `.await`-ing `send()`.</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(RUST_CLIENT, "Rust client")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{RUST_CLIENT}</Text>
+        </TouchableOpacity>
+
+        {/* Response shapes */}
+        <Text style={[styles.groupTitle, { marginTop: 22 }]}>Response shapes</Text>
+        <Text style={styles.body}>Real (trimmed) example bodies so you can model your types. Field names match the API exactly.</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(SHAPE_POST, "Post shape")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{SHAPE_POST}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.codeBlock, { marginTop: 8 }]} onPress={() => copy(SHAPE_USER, "User shape")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{SHAPE_USER}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.codeBlock, { marginTop: 8 }]} onPress={() => copy(SHAPE_ERROR, "Error shape")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{SHAPE_ERROR}</Text>
         </TouchableOpacity>
 
         {/* Conventions */}
