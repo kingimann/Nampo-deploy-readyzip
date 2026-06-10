@@ -687,6 +687,65 @@ final c = WebViewController()
     '${BASE}/api/pub/post-card?post=POST_ID'
     '&theme=dark&accent=00A884&radius=16'));
 // build(): SizedBox(height: 320, child: WebViewWidget(controller: c))`;
+
+const DART_PAGINATE = `// Walk every page of a list. Cursor where supported, else offset.
+Future<List<dynamic>> fetchAll(OkaySpace api, String path) async {
+  final out = <dynamic>[];
+  String? cursor;
+  do {
+    final sep = path.contains('?') ? '&' : '?';
+    final q = cursor != null ? '\${sep}cursor=\$cursor' : '';
+    final page = await api.get('\$path\$q');
+    final items = page is List ? page : (page['items'] as List? ?? const []);
+    out.addAll(items);
+    cursor = page is Map ? page['next_cursor'] as String? : null;
+  } while (cursor != null);
+  return out;
+}
+// Or simple offset paging:
+//   await api.get('/feed/home?limit=20&offset=40');`;
+
+const DART_OAUTH = `// "Sign in with OkaySpace" (OAuth2 authorization-code).
+// 1) Send the user to the consent page (url_launcher / flutter_web_auth_2):
+final authUrl = Uri.parse('${BASE}/api/oauth/authorize').replace(queryParameters: {
+  'client_id': 'YOUR_CLIENT_ID',
+  'redirect_uri': 'https://yourapp.com/callback',
+  'response_type': 'code',
+});
+// …open authUrl, then capture ?code=… from the redirect.
+
+// 2) Exchange the code on YOUR SERVER (keep client_secret off the device):
+final r = await http.post(Uri.parse('${BASE}/api/oauth/token'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'grant_type': 'authorization_code',
+      'code': code,
+      'client_id': 'YOUR_CLIENT_ID',
+      'client_secret': 'YOUR_CLIENT_SECRET',   // server only!
+      'redirect_uri': 'https://yourapp.com/callback',
+    }));
+final token = jsonDecode(r.body)['access_token'];
+
+// 3) Use the token like any key:
+final me = await OkaySpace(token).get('/oauth/userinfo'); // {sub,name,picture,…}`;
+
+const DART_WEBHOOK = `// pubspec.yaml → crypto: ^3.0.0   (verify in your Dart backend)
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+
+bool verifyWebhook(String rawBody, String sigHeader, String secret) {
+  // X-OkaySpace-Signature looks like "sha256=<hex>"
+  final expected = 'sha256=' +
+      Hmac(sha256, utf8.encode(secret)).convert(utf8.encode(rawBody)).toString();
+  if (sigHeader.length != expected.length) return false;
+  var diff = 0;                                   // constant-time compare
+  for (var i = 0; i < expected.length; i++) {
+    diff |= sigHeader.codeUnitAt(i) ^ expected.codeUnitAt(i);
+  }
+  return diff == 0;
+}
+// Reject with 401 if it doesn't match. Use the RAW request body, not re-encoded JSON.`;
+
 const CONTENT_SNIPPET = `<!-- Embed a OkaySpace post, profile, listing, guide, or community -->
 <!-- swap data-post for data-profile / data-listing / data-guide / data-community -->
 <script async src="${BASE}/api/pub/content-embed.js"
@@ -1303,6 +1362,18 @@ export default function DeveloperScreen() {
         <Text style={[styles.body, { marginTop: 8 }]}>Drop a OkaySpace post / profile / listing card into a Flutter screen (no key needed):</Text>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_CARD, "Flutter card")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{DART_CARD}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>Page through any list (cursor where supported, else offset):</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_PAGINATE, "Dart pagination")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_PAGINATE}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>“Sign in with OkaySpace” (OAuth2) — exchange the code server-side so the client secret never ships in the app:</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_OAUTH, "Dart OAuth")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_OAUTH}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>Verify incoming webhooks (HMAC-SHA256 of the raw body) in a Dart backend:</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_WEBHOOK, "Dart webhook verify")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_WEBHOOK}</Text>
         </TouchableOpacity>
         <Text style={[styles.body, { marginTop: 8 }]}>
           Packages: <Text style={styles.codeInline}>http</Text> or <Text style={styles.codeInline}>dio</Text> (REST), <Text style={styles.codeInline}>web_socket_channel</Text> (realtime), <Text style={styles.codeInline}>flutter_secure_storage</Text> (keys), <Text style={styles.codeInline}>webview_flutter</Text> (embeds). For a fully-typed client, use the dart-dio codegen above.
