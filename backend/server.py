@@ -52,6 +52,47 @@ from routes import (
 
 API_VERSION = "1.0.0"
 
+# Tag metadata — groups endpoints into named, described sections in /docs and the
+# OpenAPI schema (which in turn drives nicer folders in generated SDKs/Postman).
+OPENAPI_TAGS = [
+    {"name": "Meta", "description": "Service metadata, health, feature flags and API discovery."},
+    {"name": "Auth", "description": "Sign-in, sessions, API keys and account management."},
+    {"name": "Users", "description": "Profiles, follows, blocks and user search."},
+    {"name": "Places", "description": "Saved places, geocoding and location search."},
+    {"name": "Guides", "description": "Curated place collections and travel guides."},
+    {"name": "Reviews", "description": "Ratings and reviews for places."},
+    {"name": "Messaging", "description": "Direct messages, conversations and attachments."},
+    {"name": "Notifications", "description": "In-app notifications and read state."},
+    {"name": "Routing", "description": "ETA, directions and live trip sharing."},
+    {"name": "Posts", "description": "The social feed: posts, comments, likes and reposts."},
+    {"name": "Circles", "description": "Private friend circles and shared content."},
+    {"name": "Drafts", "description": "Saved drafts for posts and other content."},
+    {"name": "Marketplace", "description": "Listings, businesses and buyer/seller flows."},
+    {"name": "Groups", "description": "Group membership, posts and join requests."},
+    {"name": "Communities", "description": "Public communities and moderation."},
+    {"name": "Foursquare", "description": "Foursquare-backed place enrichment."},
+    {"name": "Stories", "description": "24h ephemeral image/video stories."},
+    {"name": "Payments", "description": "Checkout, subscriptions and Stripe integration."},
+    {"name": "Webhooks", "description": "Outbound event subscriptions (HMAC-signed)."},
+    {"name": "Ads", "description": "In-feed ad serving and tracking."},
+    {"name": "Ad Network", "description": "Advertiser campaigns and creatives."},
+    {"name": "Payouts", "description": "Creator earnings and payout accounts."},
+    {"name": "OAuth", "description": "OAuth2 authorization-code flow for third-party apps."},
+    {"name": "Money", "description": "Wallet, transfers and balances."},
+    {"name": "Transit", "description": "Public-transit lines, stops and arrivals."},
+    {"name": "Integrations", "description": "Third-party service connections."},
+    {"name": "Calls", "description": "Voice and video call signaling."},
+    {"name": "Push", "description": "Push-notification device registration."},
+    {"name": "Roadside", "description": "Roadside assistance requests."},
+    {"name": "Support", "description": "Help tickets and contact."},
+    {"name": "Forms", "description": "Dynamic forms and submissions."},
+    {"name": "Fact Checks", "description": "Community fact-checking of posts."},
+    {"name": "Hazards", "description": "Road and area hazard reports."},
+    {"name": "Games", "description": "Mini-games and leaderboards."},
+    {"name": "Embed", "description": "oEmbed and shareable embed cards."},
+    {"name": "Admin", "description": "Render/admin-only operational endpoints."},
+]
+
 app = FastAPI(
     title="OkaySpace API",
     version=API_VERSION,
@@ -65,6 +106,7 @@ app = FastAPI(
     ),
     contact={"name": "OkaySpace", "url": "https://okayspace.ca"},
     license_info={"name": "Proprietary"},
+    openapi_tags=OPENAPI_TAGS,
 )
 
 _origins = os.environ.get("CORS_ORIGINS", "*")
@@ -221,42 +263,42 @@ async def health():
 
 
 def _register(parent: APIRouter):
-    parent.include_router(meta_routes.router)
-    parent.include_router(auth_routes.router)
-    parent.include_router(users_routes.router)
-    parent.include_router(places_routes.router)
-    parent.include_router(guides_routes.router)
-    parent.include_router(reviews_routes.router)
-    parent.include_router(messaging_routes.router)
-    parent.include_router(notifications_routes.router)
-    parent.include_router(eta_routes.router)
-    parent.include_router(posts_routes.router)
-    parent.include_router(circles_routes.router)
-    parent.include_router(drafts_routes.router)
-    parent.include_router(marketplace_routes.router)
-    parent.include_router(groups_routes.router)
-    parent.include_router(communities_routes.router)
-    parent.include_router(fsq_routes.router)
-    parent.include_router(stories_routes.router)
-    parent.include_router(payments_routes.router)
-    parent.include_router(webhooks_routes.router)
-    parent.include_router(ads_routes.router)
-    parent.include_router(adnetwork_routes.router)
-    parent.include_router(payouts_routes.router)
-    parent.include_router(oauth_routes.router)
-    parent.include_router(money_routes.router)
-    parent.include_router(transit_routes.router)
-    parent.include_router(integrations_routes.router)
-    parent.include_router(calls_routes.router)
-    parent.include_router(push_routes.router)
-    parent.include_router(roadside_routes.router)
-    parent.include_router(support_routes.router)
-    parent.include_router(forms_routes.router)
-    parent.include_router(factchecks_routes.router)
-    parent.include_router(hazards_routes.router)
-    parent.include_router(games_routes.router)
-    parent.include_router(embed_routes.router)
-    parent.include_router(render_admin_routes.router)
+    parent.include_router(meta_routes.router, tags=["Meta"])
+    parent.include_router(auth_routes.router, tags=["Auth"])
+    parent.include_router(users_routes.router, tags=["Users"])
+    parent.include_router(places_routes.router, tags=["Places"])
+    parent.include_router(guides_routes.router, tags=["Guides"])
+    parent.include_router(reviews_routes.router, tags=["Reviews"])
+    parent.include_router(messaging_routes.router, tags=["Messaging"])
+    parent.include_router(notifications_routes.router, tags=["Notifications"])
+    parent.include_router(eta_routes.router, tags=["Routing"])
+    parent.include_router(posts_routes.router, tags=["Posts"])
+    parent.include_router(circles_routes.router, tags=["Circles"])
+    parent.include_router(drafts_routes.router, tags=["Drafts"])
+    parent.include_router(marketplace_routes.router, tags=["Marketplace"])
+    parent.include_router(groups_routes.router, tags=["Groups"])
+    parent.include_router(communities_routes.router, tags=["Communities"])
+    parent.include_router(fsq_routes.router, tags=["Foursquare"])
+    parent.include_router(stories_routes.router, tags=["Stories"])
+    parent.include_router(payments_routes.router, tags=["Payments"])
+    parent.include_router(webhooks_routes.router, tags=["Webhooks"])
+    parent.include_router(ads_routes.router, tags=["Ads"])
+    parent.include_router(adnetwork_routes.router, tags=["Ad Network"])
+    parent.include_router(payouts_routes.router, tags=["Payouts"])
+    parent.include_router(oauth_routes.router, tags=["OAuth"])
+    parent.include_router(money_routes.router, tags=["Money"])
+    parent.include_router(transit_routes.router, tags=["Transit"])
+    parent.include_router(integrations_routes.router, tags=["Integrations"])
+    parent.include_router(calls_routes.router, tags=["Calls"])
+    parent.include_router(push_routes.router, tags=["Push"])
+    parent.include_router(roadside_routes.router, tags=["Roadside"])
+    parent.include_router(support_routes.router, tags=["Support"])
+    parent.include_router(forms_routes.router, tags=["Forms"])
+    parent.include_router(factchecks_routes.router, tags=["Fact Checks"])
+    parent.include_router(hazards_routes.router, tags=["Hazards"])
+    parent.include_router(games_routes.router, tags=["Games"])
+    parent.include_router(embed_routes.router, tags=["Embed"])
+    parent.include_router(render_admin_routes.router, tags=["Admin"])
 
 
 # `/api/v1` is the documented, stable base. `/api` stays as a back-compat alias
@@ -285,12 +327,14 @@ def _custom_openapi():
         ),
     }
     schema["security"] = [{"BearerAuth": []}]
-    base = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
-    if base:
-        schema["servers"] = [
-            {"url": f"{base}/api/v1", "description": "Production · v1"},
-            {"url": f"{base}/api", "description": "Production · unversioned (legacy)"},
-        ]
+    # Always advertise a base URL so generated clients (dart-dio, swift, etc.)
+    # and Swagger's "Try it out" hit the live API even when RENDER_EXTERNAL_URL
+    # isn't injected (e.g. local schema dumps).
+    base = (os.environ.get("RENDER_EXTERNAL_URL") or "https://okayspace-v0vx.onrender.com").rstrip("/")
+    schema["servers"] = [
+        {"url": f"{base}/api/v1", "description": "Production · v1 (stable)"},
+        {"url": f"{base}/api", "description": "Production · unversioned (legacy alias)"},
+    ]
     app.openapi_schema = schema
     return schema
 
