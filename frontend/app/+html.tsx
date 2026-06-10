@@ -16,20 +16,40 @@ export default function Root({ children }: PropsWithChildren) {
         <meta name="theme-color" content="#0B141A" />
         <link rel="apple-touch-icon" href="/icon.png" />
         {/* Kill switch: unregister any stale service worker and clear caches left
-            over from the old installable-PWA build. A rogue/orphaned SW is the
-            classic cause of a "page keeps reloading" loop after the manifest is
-            removed. Harmless when there's nothing to clean up. */}
+            over from the old installable-PWA build. A rogue/orphaned SW from that
+            build is the cause of the "page keeps reloading" loop (it reloads the
+            tab faster than the neutralizer at /sw.js can replace it).
+
+            Fix: unregister ALL workers + clear ALL caches, then — if a worker was
+            actually CONTROLLING this page — do exactly ONE reload so the next
+            load is uncontrolled (no worker ⇒ no reload). The one-time reload is
+            loop-proof: we set a guard flag and only reload if it provably
+            persisted, so a browser that can't write storage (the original cause
+            of the unbreakable loop) simply skips the reload instead of looping. */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                if ('serviceWorker' in navigator) {
-                  navigator.serviceWorker.getRegistrations()
-                    .then(function(rs){ rs.forEach(function(r){ r.unregister(); }); })
-                    .catch(function(){});
-                }
                 if (window.caches && caches.keys) {
                   caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
+                }
+                if ('serviceWorker' in navigator) {
+                  var hadController = !!navigator.serviceWorker.controller;
+                  navigator.serviceWorker.getRegistrations()
+                    .then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister().catch(function(){}); })); })
+                    .then(function(){
+                      if (!hadController) return; // nothing was controlling us — no reload needed
+                      try {
+                        if (!sessionStorage.getItem('__oks_sw_done')) {
+                          sessionStorage.setItem('__oks_sw_done', '1');
+                          // Only reload if the guard actually persisted — never loop.
+                          if (sessionStorage.getItem('__oks_sw_done') === '1') {
+                            location.reload();
+                          }
+                        }
+                      } catch (e) {}
+                    })
+                    .catch(function(){});
                 }
               } catch (e) {}
             `,

@@ -12,7 +12,6 @@ import { api, SESSION_TOKEN_KEY, PUSH_TOKEN_KEY, User, LoginResponse } from "@/s
 import { storage } from "@/src/utils/storage";
 import { ensureKeyPair } from "@/src/utils/e2e";
 import { addSavedAccount } from "@/src/lib/savedAccounts";
-import { useLoopProbe } from "@/src/lib/loopProbe";
 
 type AuthState = {
   loading: boolean;
@@ -29,7 +28,6 @@ const Ctx = createContext<AuthState | null>(null);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  useLoopProbe("AuthProvider");
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 

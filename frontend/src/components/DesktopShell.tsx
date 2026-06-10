@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Platform, Image, TextInput,
 } from "react-native";
@@ -8,7 +8,6 @@ import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSidebar } from "@/src/context/SidebarContext";
 import { api, LeaderboardEntry } from "@/src/api/client";
-import { useLoopProbe } from "@/src/lib/loopProbe";
 import { useIsDesktop } from "@/src/hooks/useIsDesktop";
 
 // Below this width we keep the mobile layout untouched. At/above it (desktop
@@ -42,7 +41,6 @@ const FULL_BLEED = ["/", "/directions"];
 
 // Right rail — trending hashtags + top members. Same width as the left nav rail.
 function RightRail() {
-  useLoopProbe("RightRail");
   const router = useRouter();
   const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
@@ -121,15 +119,6 @@ export default function DesktopShell({ children }: { children: React.ReactNode }
   const pathname = usePathname() || "/";
   const router = useRouter();
   const sidebar = useSidebar();
-  // DIAGNOSTIC: report which consumed input changed between renders, so a
-  // re-render loop names its own driver.
-  const _prev = useRef<Record<string, unknown>>({});
-  const _cur: Record<string, unknown> = {
-    atDesktop, pathname, userId: user?.user_id ?? null, hasUser: !!user, sidebar,
-  };
-  const _changed = Object.keys(_cur).filter((k) => _prev.current[k] !== _cur[k]);
-  _prev.current = _cur;
-  useLoopProbe("DesktopShell", _changed);
 
   const desktop = atDesktop && !!user;
   if (!desktop) return <>{children}</>;

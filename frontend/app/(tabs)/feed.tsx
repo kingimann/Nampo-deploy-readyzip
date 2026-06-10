@@ -22,7 +22,6 @@ import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 import ConfirmModal from "@/src/components/ConfirmModal";
 import { storage } from "@/src/utils/storage";
-import { useLoopProbe } from "@/src/lib/loopProbe";
 import { useIsDesktop } from "@/src/hooks/useIsDesktop";
 
 export const HIDE_STORIES_KEY = "hide_stories";
@@ -94,7 +93,6 @@ export default function FeedScreen() {
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const [showStories, setShowStories] = useState(true);
   const viewedRef = useRef<Set<string>>(new Set());
-  const _probePrev = useRef<Record<string, unknown>>({});
 
   // Honor the "hide stories" preference (re-checked on focus so a change in
   // Settings takes effect when returning to the feed).
@@ -328,16 +326,6 @@ export default function FeedScreen() {
     }
     setReplyTo(null); setEditing(null);
   };
-
-  // DIAGNOSTIC: name which state/input drives the FeedScreen re-render loop.
-  const _snap: Record<string, unknown> = {
-    desktopWeb, tab, loading, refreshing, topHidden, topBarH, newCount,
-    composeOpen, showStories, unreadNotif, userId: user?.user_id ?? null, postsLen: posts.length,
-    insetsTop: insets.top, insetsBottom: insets.bottom, compose: params.compose ?? null,
-  };
-  const _chg = Object.keys(_snap).filter((k) => _probePrev.current[k] !== _snap[k]);
-  _probePrev.current = _snap;
-  useLoopProbe("FeedScreen", _chg);
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="feed-screen">
