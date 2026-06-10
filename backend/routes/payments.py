@@ -1449,7 +1449,7 @@ class ToggleBody(BaseModel):
 async def admin_get_mobile_only(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     _admin_only(me)
-    return {"mobile_only": bool(await _setting("mobile_only", False))}
+    return {"mobile_only": bool(await _setting("mobile_only", True))}
 
 
 @router.post("/admin/mobile-only")

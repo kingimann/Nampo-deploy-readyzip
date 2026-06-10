@@ -29,9 +29,11 @@ async def public_app_config():
     the web-update kill-switch token."""
     try:
         doc = await db.app_settings.find_one({"key": "mobile_only"}, {"_id": 0, "value": 1})
-        mobile_only = bool(doc and doc.get("value"))
+        # Phone-first: default ON (block desktop) when unset; an explicit admin
+        # setting (True/False) always wins.
+        mobile_only = bool(doc.get("value")) if doc else True
     except Exception:
-        mobile_only = False
+        mobile_only = True
     try:
         wb = await db.app_settings.find_one({"key": "web_build"}, {"_id": 0, "value": 1})
         web_build = resolve_web_build(wb.get("value") if wb else None)
