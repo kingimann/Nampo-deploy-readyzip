@@ -764,6 +764,26 @@ async def delete_posts_bulk(body: BulkDeletePostsBody, authorization: Optional[s
     return {"ok": True, "deleted": len(ids)}
 
 
+# NOTE: this static route MUST be registered before /posts/{post_id} below, or
+# FastAPI matches /posts/popular as /posts/{post_id} (post_id="popular") and 404s.
+@router.get("/posts/popular", response_model=List[Post])
+async def popular_posts(limit: int = Query(8, ge=1, le=20), authorization: Optional[str] = Header(None)):
+    """Top recent non-video posts by engagement (for discovery)."""
+    user = await get_current_user(authorization)
+    since = datetime.now(timezone.utc) - timedelta(days=21)
+    docs = await db.posts.find(
+        {"parent_id": None, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]},
+         "created_at": {"$gte": since}},
+        {"_id": 0},
+    ).sort("likes_count", -1).limit(120).to_list(120)
+    skip = await _not_interested_ids(user["user_id"])
+    docs = [d for d in docs
+            if d.get("id") not in skip and not d.get("repost_of")
+            and not any(m.get("type") == "video" for m in (d.get("media") or []))]
+    docs.sort(key=_engagement_score, reverse=True)
+    return await _hydrate_many(docs[:limit], user["user_id"])
+
+
 @router.get("/posts/{post_id}", response_model=Post)
 async def get_post(post_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -1362,24 +1382,6 @@ def _engagement_score(d: dict) -> float:
         + 1.5 * (d.get("replies_count", 0) or 0)
         + 0.1 * (d.get("views_count", 0) or 0)
     )
-
-
-@router.get("/posts/popular", response_model=List[Post])
-async def popular_posts(limit: int = Query(8, ge=1, le=20), authorization: Optional[str] = Header(None)):
-    """Top recent non-video posts by engagement (for discovery)."""
-    user = await get_current_user(authorization)
-    since = datetime.now(timezone.utc) - timedelta(days=21)
-    docs = await db.posts.find(
-        {"parent_id": None, "group_id": {"$in": [None, ""]}, "community_id": {"$in": [None, ""]},
-         "created_at": {"$gte": since}},
-        {"_id": 0},
-    ).sort("likes_count", -1).limit(120).to_list(120)
-    skip = await _not_interested_ids(user["user_id"])
-    docs = [d for d in docs
-            if d.get("id") not in skip and not d.get("repost_of")
-            and not any(m.get("type") == "video" for m in (d.get("media") or []))]
-    docs.sort(key=_engagement_score, reverse=True)
-    return await _hydrate_many(docs[:limit], user["user_id"])
 
 
 @router.get("/reels/popular", response_model=List[Post])

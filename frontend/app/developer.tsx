@@ -567,6 +567,7 @@ export default function DeveloperScreen() {
   const [creating, setCreating] = useState(false);
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [openGroup, setOpenGroup] = useState<string | null>("Authentication");
+  const [epQuery, setEpQuery] = useState("");
   const [lang, setLang] = useState<Lang>("curl");
   const [plan, setPlan] = useState<Awaited<ReturnType<typeof api.getApiPlan>> | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -1140,30 +1141,63 @@ export default function DeveloperScreen() {
 
         {/* Endpoint reference */}
         <Text style={styles.groupTitle}>Endpoint reference</Text>
-        {GROUPS.map((g) => {
-          const open = openGroup === g.title;
-          return (
-            <View key={g.title} style={styles.refGroup}>
-              <TouchableOpacity style={styles.refHeader} onPress={() => setOpenGroup(open ? null : g.title)} activeOpacity={0.7}>
-                <Ionicons name={g.icon} size={17} color={theme.primary} />
-                <Text style={styles.refTitle}>{g.title}</Text>
-                <Text style={styles.refCount}>{g.endpoints.length}</Text>
-                <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={theme.textMuted} />
-              </TouchableOpacity>
-              {open && g.endpoints.map((e, i) => (
-                <View key={i} style={styles.epRow}>
-                  <View style={styles.epLine}>
-                    <Text style={[styles.method, { color: METHOD_COLOR[e.method], borderColor: METHOD_COLOR[e.method] + "66" }]}>{e.method}</Text>
-                    <Text style={styles.epPath} selectable>{e.path}</Text>
-                    {e.auth === false && <Text style={styles.publicTag}>public</Text>}
+        <View style={styles.epSearch}>
+          <Ionicons name="search" size={15} color={theme.textMuted} />
+          <TextInput
+            style={[styles.epSearchInput, Platform.OS === "web" ? ({ outlineStyle: "none" } as object) : null]}
+            value={epQuery}
+            onChangeText={setEpQuery}
+            placeholder="Search endpoints — path, method or words"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            testID="ep-search"
+          />
+          {!!epQuery && (
+            <TouchableOpacity onPress={() => setEpQuery("")} hitSlop={8} testID="ep-search-clear">
+              <Ionicons name="close-circle" size={16} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+        {(() => {
+          const q = epQuery.trim().toLowerCase();
+          const groups = q
+            ? GROUPS.map((g) => ({
+                ...g,
+                endpoints: g.endpoints.filter((e) =>
+                  e.path.toLowerCase().includes(q) ||
+                  e.method.toLowerCase().includes(q) ||
+                  e.desc.toLowerCase().includes(q)),
+              })).filter((g) => g.endpoints.length > 0)
+            : GROUPS;
+          if (q && groups.length === 0) {
+            return <Text style={styles.epEmpty}>No endpoints match “{epQuery.trim()}”.</Text>;
+          }
+          return groups.map((g) => {
+            const open = q ? true : openGroup === g.title;  // searching auto-expands matches
+            return (
+              <View key={g.title} style={styles.refGroup}>
+                <TouchableOpacity style={styles.refHeader} onPress={() => { if (!q) setOpenGroup(open ? null : g.title); }} activeOpacity={q ? 1 : 0.7}>
+                  <Ionicons name={g.icon} size={17} color={theme.primary} />
+                  <Text style={styles.refTitle}>{g.title}</Text>
+                  <Text style={styles.refCount}>{g.endpoints.length}</Text>
+                  {!q && <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={theme.textMuted} />}
+                </TouchableOpacity>
+                {open && g.endpoints.map((e, i) => (
+                  <View key={i} style={styles.epRow}>
+                    <View style={styles.epLine}>
+                      <Text style={[styles.method, { color: METHOD_COLOR[e.method], borderColor: METHOD_COLOR[e.method] + "66" }]}>{e.method}</Text>
+                      <Text style={styles.epPath} selectable>{e.path}</Text>
+                      {e.auth === false && <Text style={styles.publicTag}>public</Text>}
+                    </View>
+                    <Text style={styles.epDesc}>{e.desc}</Text>
+                    {!!e.body && <Text style={styles.epBody} selectable>body {e.body}</Text>}
                   </View>
-                  <Text style={styles.epDesc}>{e.desc}</Text>
-                  {!!e.body && <Text style={styles.epBody} selectable>body {e.body}</Text>}
-                </View>
-              ))}
-            </View>
-          );
-        })}
+                ))}
+              </View>
+            );
+          });
+        })()}
 
         <Text style={styles.footer}>
           Keep your API keys and signing secrets safe — treat them like passwords. Heavy automated traffic may be rate-limited (429).
@@ -1261,6 +1295,9 @@ const styles = StyleSheet.create({
   keyLabel: { color: theme.textPrimary, fontSize: 14, fontWeight: "700" },
   keyMeta: { color: theme.textMuted, fontSize: 12, marginTop: 1, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 
+  epSearch: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 12, paddingHorizontal: 12, height: 42, marginBottom: 12 },
+  epSearchInput: { flex: 1, color: theme.textPrimary, fontSize: 14, paddingVertical: 0 },
+  epEmpty: { color: theme.textMuted, fontSize: 13, paddingVertical: 18, textAlign: "center" },
   refGroup: { backgroundColor: theme.surface, borderWidth: 1, borderColor: theme.border, borderRadius: 14, marginBottom: 10, overflow: "hidden" },
   refHeader: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 14 },
   refTitle: { flex: 1, color: theme.textPrimary, fontSize: 15, fontWeight: "800" },
