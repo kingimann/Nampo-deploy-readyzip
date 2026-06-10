@@ -147,16 +147,21 @@ over REST + WebSockets to a **FastAPI** server (`backend/`) backed by
 - **Desktop chrome (≥ 900px)**: a three-column shell — a **left nav rail**, a **centred content column** flush against both rails, and a **right rail** with **search**, **trending hashtags** and **top members**. Below 900px it falls back to the full mobile UI with the floating tab bar.
 - **Vanity profile URLs**: every profile is shareable at `okayspace.ca/<username>` (the address bar rewrites `/user/<name>` → the handle once a profile loads); route groups are hidden so URLs stay clean (`/feed`, `/marketplace`, `/profile`).
 - **Installable PWA**: web manifest + branded launch splash, locked viewport with internal scrolling, and a **pull-to-refresh** gesture on touch devices. Native confirmations are used for key actions; simpler `Alert`s fall back to the browser dialog on web.
+- **Auto-updating (web-update kill switch)**: the server publishes a `web_build` token (the deploy's commit) in `/public/app-config`; open browsers re-check it on launch, every 2 minutes, and on tab-focus, and when it changes they unregister any stale service worker, clear caches, and hard-refresh **once** to the new bundle — so deploys reach every web client automatically (no manual cache-clear). Admins can also force it instantly from **Settings → Payments → Access → "Force web update"** (`POST /api/admin/web-build`).
 
 ### Developer API
 A first-class, paid Developer API (Settings → Developer API) for building on OkaySpace
 and embedding it anywhere — see [Developer API & embedding](#developer-api--embedding).
 Highlights: personal **API keys** (read/write scopes), paid **plans + usage
-quotas**, signed **webhooks** (20+ events, retries, delivery logs, test pings),
+quotas**, signed **webhooks** (21 event types, retries, delivery logs, test pings),
 **Login with OkaySpace** (OAuth2 provider), the **publisher ad network**, **custom
 forms**, **embeddable content + oEmbed**, **idempotency keys**, cursor
-pagination, open CORS, a versioned `/api/v1`, OpenAPI/Swagger docs, and SDK
-code-generation guidance (Dart/Flutter, Swift, Kotlin, Go, …).
+pagination, open CORS, a versioned `/api/v1`, and **tagged OpenAPI/Swagger docs**.
+The in-app reference documents the **full surface (~460 endpoints across ~37 groups,
+including the admin console)** with **tap-to-try** request snippets per endpoint,
+hand-written client kits for **cURL, JavaScript, Python, Dart/Flutter, Swift,
+Kotlin, Go, and Rust**, one-click **Postman/Insomnia import**, example response
+shapes, and machine-readable discovery + changelog (`/v1/info`, `/v1/changelog`).
 
 ---
 
@@ -262,7 +267,7 @@ OkaySpace/
 │   │   ├── money.py           # peer-to-peer send/request, wallet balance/top-up, currency, reversal, history
 │   │   ├── payouts.py         # scheduled creator payouts
 │   │   ├── integrations.py    # admin integrations/SDK status board + live health checks
-│   │   └── meta.py            # /version, machine-readable /v1/info, public /app-config
+│   │   └── meta.py            # /version, machine-readable /v1/info + /v1/changelog, public /app-config (web-update token)
 │   ├── services/
 │   │   ├── claude_ai.py       # Claude vision/text (photo moderation, doc verification, spam)
 │   │   ├── ollama.py          # optional self-hosted AI vision fallback
@@ -467,7 +472,7 @@ require an `Authorization: Bearer <session token | API key>` header.
 | **Stories** | `/stories`, `/stories/tray`, `/stories/{id}/view\|viewers\|reply` | 24h stories, tray, views, viewer lists, replies. |
 | **Messaging** | `/conversations`, `/conversations/groups`, `/conversations/{id}/messages`(+`/react`,`/read`,`/presence`), `/emojis` | DMs & group chats; text/place/media/voice/gif/file/contact/post; reactions, edits, receipts, presence, custom emoji. |
 | **Calls / Push** | `/calls/{id}/token\|ring`, `/push/register` | LiveKit room tokens + ring; device push-token registration. |
-| **Maps** | `/eta`(+`/update`,`/stop`), `/public/eta/{id}`, **WS** `/ws/eta/{id}`, `/foursquare/match`, `/transit/nearby` | Live ETA shares (REST + WS + public read), Foursquare business profiles, transit departures. |
+| **Maps** | `/eta`(+`/update`,`/stop`), `/public/eta/{id}`, **WS** `/ws/eta/{id}`, `/places`, `/recents`, `/foursquare/search\|match`, `/transit/nearby\|plan` | Saved places & recents, live ETA shares (REST + WS + public read), Foursquare place search + business profiles, and transit departures + route planning. |
 | **Marketplace** | `/listings?lat&lng&radius_km&sort`, `/listings/{id}`(+`/contact`,`/save`), `/marketplace/users/{id}` | Listings, location/radius browse, save, seller profiles & reviews, start a DM. |
 | **Communities / Groups** | `/communities`(+`/feed`,`/{name}` PATCH,`/{name}/join\|favorite\|posts\|members\|top\|mods/{id}\|members/{id}\|posts/{id}/remove\|pin`), `/groups`(+`/{id}/join\|posts\|pins\|requests\|members/*`) | Reddit-style forum (Hot/New/Top/Rising, flairs, rules, banner, wiki, auto-mod, favorites, karma+leaderboard, cross-community feed, moderators) and public/private chat groups. |
 | **Roadside** | `/roadside/requests`(+`/{id}/accept\|decline\|enroute\|arrived\|cancel`), `/roadside/admin/calls`, `/admin/roadside/*` | Request roadside help, helper accept/decline + en route/on location (GPS-gated), photo AI moderation, **daily call numbers**, **admin dispatch** (create/search/view calls), staff verification. |
@@ -478,14 +483,15 @@ require an `Authorization: Bearer <session token | API key>` header.
 | **Login with OkaySpace (OAuth2)** | `/oauth/apps`, `/oauth/authorize`, `/oauth/token`, `/oauth/userinfo`, `/oauth/connections` | OAuth2 authorization-code provider so other sites can "Sign in with OkaySpace". |
 | **Publisher / Ads** | `/promoted/next`, `/promoted/{id}/event`, `/promoted/reels*`, `/promoted/campaigns`, `/promoted/account*`, `/promoted/links*`, `/pub/sites*`, `/pub/embed.js`, `/pub/unit`, `/pub/ad` | Sponsored posts, reel video ads, prepaid ad accounts, link ads, and the publisher network (customizable embeddable ad units + earn). The serving/event paths use `/promoted/*` (not `/ads/*`) so ad blockers don't strip them. |
 | **Payments / Money** | `/payments/config\|pay-intent\|checkout\|payouts/*\|webhook\|api-plan*\|api-usage*`, `/money/*`, `/wallet/*`, `/currencies` | Inline card payments, in-app payout setup, instant cash-out, P2P send/request (security question, reversal), wallet top-up/cash-out, display currency, and Developer-API plans/usage. |
-| **Admin** | `/admin/users\|audit\|badges\|revenue\|ad-revenue\|fees\|test-payments\|mobile-only\|reset/*`, `/admin/users/{id}/wallet`, `/admin/integrations?live=1` | User moderation, audit log, badges, revenue/fees, simulated-payment toggle, set a wallet balance, and the integrations/SDK status board. |
-| **Meta** | `/version`, `/v1/info`, `/public/app-config` | API name/version, machine-readable capability overview, and public client config. |
+| **Admin** | `/admin/users\|audit\|badges\|revenue\|ad-revenue\|fees\|test-payments\|mobile-only\|web-build\|reset/*`, `/admin/users/{id}/wallet`, `/admin/render/*`, `/admin/integrations?live=1` | User moderation, audit log, badges, revenue/fees, simulated-payment toggle, **web-update kill switch**, set a wallet balance, Render infra controls, and the integrations/SDK status board. |
+| **Meta** | `/version`, `/v1/info`, `/v1/changelog`, `/public/app-config` | API name/version, machine-readable capability overview + changelog, and public client config (incl. the web-update token). |
 
 The full set of endpoints is the source of truth — see each module under
 `backend/routes/`. For a developer-facing reference see **`API.md`**, the in-app
-**Developer API** screen (which documents **330+ endpoints across ~25 groups**,
-each kept in sync with the live routes), the machine-readable
-**`GET /api/v1/info`**, and the interactive **Swagger docs at `/docs`**
+**Developer API** screen (which documents **~460 endpoints across ~37 tagged groups**
+— including the admin console — each kept in sync with the live routes, with a
+**tap-to-try** snippet per endpoint), the machine-readable **`GET /api/v1/info`**
+and **`GET /api/v1/changelog`**, and the interactive **Swagger docs at `/docs`**
 (`/openapi.json` for the schema).
 
 ---
@@ -497,13 +503,13 @@ OkaySpace and embedding it on any site or app.
 
 - **API keys** — generate labeled keys (shown once) with **read** or **read+write** scopes; list and revoke. Keys are long-lived bearer tokens.
 - **Plans, usage & quotas** — tiered plans (more keys, write access, webhooks, higher rate limits) with a usage meter and **pay-as-you-go** request packs (Stripe, with a test-mode fallback).
-- **Webhooks** — subscribe to **20+ signed event types** (follows, messages, tips, subscriptions, likes/replies/reposts, roadside, support, `form.submission`, …). Delivery is **HMAC-signed** (`X-OkaySpace-Signature`), **retried with backoff**, and recorded in a **delivery log** you can **re-send (redeliver)** from; a **test ping** verifies your endpoint. Choose specific events or receive all.
+- **Webhooks** — subscribe to **21 signed event types** (follows, messages, tips, subscriptions, likes/replies/reposts, roadside, support, `form.submission`, …). Delivery is **HMAC-signed** (`X-OkaySpace-Signature`), **retried with backoff**, and recorded in a **delivery log** you can **re-send (redeliver)** from; a **test ping** verifies your endpoint. Choose specific events or receive all.
 - **Login with OkaySpace (OAuth2)** — register an app for a client ID/secret and use the authorization-code flow (`/oauth/authorize` → `/oauth/token` → `/oauth/userinfo`) to add a "Sign in with OkaySpace" button.
 - **Custom forms** — build a form and embed it anywhere via a `<script>` snippet or iframe; theme it with `data-*` / query params (`theme`, `accent`, `bg`, `radius`, `hide_title`, `redirect`, prefill). Collect responses in-app, export **CSV**, and receive `form.submission` webhooks.
 - **Embeddable content + oEmbed** — public JSON and **themeable iframe cards** for posts, profiles, **marketplace listings**, **guides**, and **communities**; a drop-in `content-embed.js` loader (`data-post` / `data-profile` / `data-listing` / `data-guide` / `data-community`); a **cursor-paginated profile feed** for building a OkaySpace feed widget; and an **oEmbed** provider so pasted OkaySpace links auto-expand in WordPress/Discourse/Notion. Only public content is served (no subscriber-only posts, no sold/flagged listings, no banned users).
 - **Publisher ad network** — embed customizable OkaySpace ad units on your site and earn a revenue share.
-- **Conventions** — versioned base **`/api/v1`** (with `/api` legacy alias), open **CORS**, a consistent error envelope (`{"error":{"code","message"}}`), `?limit=`/`?offset=` plus **cursor** pagination where supported, **`Idempotency-Key`** on writes (retries replay the first response), and fair-use rate limits (429).
-- **SDKs** — it's plain JSON+HTTPS, so it works from any language. Generate a typed client from `/openapi.json` (e.g. `dart-dio` for Dart/Flutter, plus Swift, Kotlin, Go, `typescript-fetch`, …). A Flutter `WebView` can embed any of the `/pub/*` units directly.
+- **Conventions** — versioned base **`/api/v1`** (with `/api` legacy alias), open **CORS**, a consistent error envelope (`{"error":{"code","message"}}`), `?limit=`/`?offset=` plus **cursor** pagination where supported, **`Idempotency-Key`** on writes (retries replay the first response), and fair-use rate limits (429). Machine-readable **discovery (`/v1/info`)** and **changelog (`/v1/changelog`)** are public.
+- **SDKs & tooling** — it's plain JSON+HTTPS, so it works from any language. The in-app reference ships **copy-paste client kits** (cURL, JavaScript, Python, Dart/Flutter, Swift, Kotlin, Go, Rust) each handling the Bearer auth and error envelope, plus a **tap-to-try** snippet on every endpoint and **example response shapes**. For a fully-typed client, generate one from `/openapi.json` (`dart-dio`, `swift5`, `kotlin`, `go`, `typescript-fetch`, …) or **import the OpenAPI URL straight into Postman/Insomnia** to try every endpoint with no code. A Flutter `WebView` can embed any of the `/pub/*` units directly.
 
 ---
 
