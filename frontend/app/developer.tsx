@@ -15,7 +15,7 @@ import { theme } from "@/src/theme";
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "https://okayspace-v0vx.onrender.com";
 const API_BASE = `${BASE}/api/v1`;
 
-type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "WS";
 type Endpoint = { method: Method; path: string; desc: string; body?: string; auth?: boolean };
 type Group = { title: string; icon: keyof typeof import("@expo/vector-icons/build/Ionicons").default.glyphMap; endpoints: Endpoint[] };
 
@@ -344,13 +344,40 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: "Places & Directions", icon: "map",
+    title: "Maps & saved places", icon: "map",
     endpoints: [
-      { method: "GET", path: "/places", desc: "List your saved places.", auth: true },
-      { method: "POST", path: "/places", desc: "Save a place.", auth: true, body: `{"title","latitude","longitude","category"}` },
-      { method: "POST", path: "/eta", desc: "Create a shareable live-ETA link.", auth: true, body: `{"destination_name","eta_minutes"}` },
-      { method: "POST", path: "/eta/{id}/update", desc: "Push a live location update to an ETA share.", auth: true },
-      { method: "GET", path: "/public/eta/{share_id}", desc: "Public ETA status (no auth).", auth: false },
+      { method: "GET", path: "/places", desc: "List your saved places (pins), newest first.", auth: true },
+      { method: "POST", path: "/places", desc: "Save a place / drop a pin. category is a free label (home, work, food…).", auth: true, body: `{"title","latitude","longitude","category","address?","notes?"}` },
+      { method: "GET", path: "/places/{id}", desc: "Get one saved place by id.", auth: true },
+      { method: "DELETE", path: "/places/{id}", desc: "Delete a saved place (also removed from any guides).", auth: true },
+      { method: "GET", path: "/recents", desc: "Your 20 most recent map searches/destinations.", auth: true },
+      { method: "POST", path: "/recents", desc: "Record a recent destination (auto-dedupes nearby + keeps the latest 20).", auth: true, body: `{"name","latitude","longitude","full_address?"}` },
+      { method: "DELETE", path: "/recents/{id}", desc: "Remove a single recent.", auth: true },
+      { method: "DELETE", path: "/recents", desc: "Clear all recents.", auth: true },
+    ],
+  },
+  {
+    title: "Place search (Foursquare)", icon: "search",
+    endpoints: [
+      { method: "GET", path: "/foursquare/search?query=&lat=&lng=&radius=8000&limit=20", desc: "Search nearby businesses, nearest first. Returns name, address, category, lat/lng, distance, rating, price. radius 100–100000m, limit 1–50.", auth: true },
+      { method: "GET", path: "/foursquare/match?name=&lat=&lng=", desc: "Best-match a pin to a business profile (hours, phone, website, open_now, photo).", auth: true },
+    ],
+  },
+  {
+    title: "Live ETA sharing", icon: "navigate-circle",
+    endpoints: [
+      { method: "POST", path: "/eta", desc: "Create a shareable live-ETA link. ttl_minutes 5–1440 (default share-able link).", auth: true, body: `{"destination_name","destination_latitude","destination_longitude","eta_minutes","ttl_minutes?","name?","initial_latitude?","initial_longitude?"}` },
+      { method: "POST", path: "/eta/{share_id}/update", desc: "Push a live location update (broadcasts to WS subscribers).", auth: true, body: `{"current_latitude","current_longitude","eta_minutes?"}` },
+      { method: "POST", path: "/eta/{share_id}/stop", desc: "Stop sharing — marks the share inactive.", auth: true },
+      { method: "GET", path: "/public/eta/{share_id}", desc: "Public ETA status — anyone with the link, no auth. Auto-expires.", auth: false },
+      { method: "WS", path: "/ws/eta/{share_id}", desc: "WebSocket: live ETA stream. Emits {type:'eta',share} on connect + every update.", auth: false },
+    ],
+  },
+  {
+    title: "Transit & directions", icon: "git-compare",
+    endpoints: [
+      { method: "GET", path: "/transit/nearby?lat=&lon=&radius=800&dest_lat=&dest_lon=", desc: "Nearby stops + next real-time departures (TransitLand). radius 100–2000m. Pass dest_lat/dest_lon to keep only routes heading that way.", auth: true },
+      { method: "GET", path: "/transit/plan?route_id=&dest_lat=&dest_lon=&board_lat=&board_lon=", desc: "For a chosen route, find the best stop to get off near the destination + the walk from there.", auth: true },
     ],
   },
   {
@@ -536,15 +563,8 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: "Maps, transit & calls", icon: "navigate",
+    title: "Voice & video calls", icon: "call",
     endpoints: [
-      { method: "GET", path: "/places/{id}", desc: "Get a saved place.", auth: true },
-      { method: "DELETE", path: "/places/{id}", desc: "Delete a saved place.", auth: true },
-      { method: "POST", path: "/eta/{id}/stop", desc: "Stop sharing a live-ETA.", auth: true },
-      { method: "GET", path: "/transit/nearby", desc: "Nearby transit stops + next departures (?lat&lng).", auth: true },
-      { method: "GET", path: "/transit/plan", desc: "Plan a transit trip (?from&to).", auth: true },
-      { method: "GET", path: "/foursquare/search", desc: "Search places via Foursquare (?q&lat&lng).", auth: true },
-      { method: "GET", path: "/foursquare/match", desc: "Match a pin to a Foursquare business profile.", auth: true },
       { method: "POST", path: "/calls/{id}/token", desc: "LiveKit room token for a voice/video call.", auth: true },
       { method: "POST", path: "/calls/{id}/ring", desc: "Ring the other participant.", auth: true },
     ],
@@ -589,7 +609,7 @@ const SAMPLE: Record<Lang, (base: string) => string> = {
 const LANG_LABEL: Record<Lang, string> = { curl: "cURL", js: "JavaScript", python: "Python", dart: "Dart / Flutter" };
 
 const METHOD_COLOR: Record<Method, string> = {
-  GET: "#22C55E", POST: "#0EA5E9", PUT: "#8B5CF6", PATCH: "#EAB308", DELETE: "#F15C6D",
+  GET: "#22C55E", POST: "#0EA5E9", PUT: "#8B5CF6", PATCH: "#EAB308", DELETE: "#F15C6D", WS: "#14B8A6",
 };
 
 // Drop-in embed examples for the "Embed & SDKs" section. Customizable via
@@ -664,7 +684,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 // Live ETA stream (public). Messaging/calls use
 // wss://.../ws/conversations/<id>?token=<session_token>
 final ch = WebSocketChannel.connect(
-  Uri.parse('${BASE.replace(/^https/, "wss")}/ws/eta/\$shareId'),
+  Uri.parse('${BASE.replace(/^https/, "wss")}/api/v1/ws/eta/\$shareId'),
 );
 ch.stream.listen((raw) {
   final data = jsonDecode(raw);   // { lat, lng, eta_minutes, ... }
@@ -745,6 +765,45 @@ bool verifyWebhook(String rawBody, String sigHeader, String secret) {
   return diff == 0;
 }
 // Reject with 401 if it doesn't match. Use the RAW request body, not re-encoded JSON.`;
+
+const DART_MAPS = `// Maps end-to-end with the OkaySpace() client above.
+// 1) Search places near the user (Foursquare-backed):
+final res = await api.get(
+  '/foursquare/search?query=coffee&lat=43.6532&lng=-79.3832&radius=2000&limit=10');
+for (final p in res['results']) {
+  print('\${p['name']} · \${p['distance']}m · \${p['category']}');
+  // p['latitude'], p['longitude'] → drop a marker
+}
+
+// 2) Save a pin to the user's places:
+final pin = await api.post('/places', {
+  'title': res['results'].first['name'],
+  'latitude': res['results'].first['latitude'],
+  'longitude': res['results'].first['longitude'],
+  'category': 'food',
+});
+
+// 3) Share a live ETA to that pin, then stream your position:
+final share = await api.post('/eta', {
+  'destination_name': pin['title'],
+  'destination_latitude': pin['latitude'],
+  'destination_longitude': pin['longitude'],
+  'eta_minutes': 12,
+  'ttl_minutes': 60,
+});
+final shareId = share['share_id'];   // give https://okayspace.ca/eta/\$shareId to a friend
+await api.post('/eta/\$shareId/update',
+    {'current_latitude': 43.6500, 'current_longitude': -79.3800, 'eta_minutes': 9});
+// …call /update as you move; /eta/\$shareId/stop when you arrive.
+
+// 4) Real-time transit toward the destination:
+final transit = await api.get(
+  '/transit/nearby?lat=43.6532&lon=-79.3832&radius=800'
+  '&dest_lat=\${pin['latitude']}&dest_lon=\${pin['longitude']}');
+for (final d in transit['departures']) {
+  print('\${d['route']} → \${d['headsign']} in \${d['minutes']} min'
+        '\${d['realtime'] ? ' (live)' : ''}');
+}`;
 
 const CONTENT_SNIPPET = `<!-- Embed a OkaySpace post, profile, listing, guide, or community -->
 <!-- swap data-post for data-profile / data-listing / data-guide / data-community -->
@@ -1374,6 +1433,10 @@ export default function DeveloperScreen() {
         <Text style={[styles.body, { marginTop: 8 }]}>Verify incoming webhooks (HMAC-SHA256 of the raw body) in a Dart backend:</Text>
         <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_WEBHOOK, "Dart webhook verify")} activeOpacity={0.7}>
           <Text style={styles.codeBlockText} selectable>{DART_WEBHOOK}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>Maps end-to-end — place search → drop a pin → share a live ETA → real-time transit:</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_MAPS, "Dart maps")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_MAPS}</Text>
         </TouchableOpacity>
         <Text style={[styles.body, { marginTop: 8 }]}>
           Packages: <Text style={styles.codeInline}>http</Text> or <Text style={styles.codeInline}>dio</Text> (REST), <Text style={styles.codeInline}>web_socket_channel</Text> (realtime), <Text style={styles.codeInline}>flutter_secure_storage</Text> (keys), <Text style={styles.codeInline}>webview_flutter</Text> (embeds). For a fully-typed client, use the dart-dio codegen above.
