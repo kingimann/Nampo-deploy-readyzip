@@ -53,7 +53,6 @@ type Tab = "home" | "explore";
 const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 60, minimumViewTime: 600 };
 
 export default function FeedScreen() {
-  useLoopProbe("FeedScreen");
   const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ compose?: string }>();
@@ -93,6 +92,7 @@ export default function FeedScreen() {
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const [showStories, setShowStories] = useState(true);
   const viewedRef = useRef<Set<string>>(new Set());
+  const _probePrev = useRef<Record<string, unknown>>({});
 
   // Honor the "hide stories" preference (re-checked on focus so a change in
   // Settings takes effect when returning to the feed).
@@ -326,6 +326,15 @@ export default function FeedScreen() {
     }
     setReplyTo(null); setEditing(null);
   };
+
+  // DIAGNOSTIC: name which state/input drives the FeedScreen re-render loop.
+  const _snap: Record<string, unknown> = {
+    winW: _winW, tab, loading, refreshing, topHidden, topBarH, newCount,
+    composeOpen, showStories, unreadNotif, userId: user?.user_id ?? null, postsLen: posts.length,
+  };
+  const _chg = Object.keys(_snap).filter((k) => _probePrev.current[k] !== _snap[k]);
+  _probePrev.current = _snap;
+  useLoopProbe("FeedScreen", _chg.join(",") || "none");
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="feed-screen">
