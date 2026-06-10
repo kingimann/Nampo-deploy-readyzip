@@ -8,6 +8,7 @@ import { theme } from "@/src/theme";
 import { useAuth } from "@/src/context/AuthContext";
 import { useSidebar } from "@/src/context/SidebarContext";
 import { api, LeaderboardEntry } from "@/src/api/client";
+import { useLoopProbe } from "@/src/lib/loopProbe";
 
 // Below this width we keep the mobile layout untouched. At/above it (desktop
 // web only) we render website chrome: a left nav rail, a centred content column,
@@ -40,6 +41,7 @@ const FULL_BLEED = ["/", "/directions"];
 
 // Right rail — trending hashtags + top members. Same width as the left nav rail.
 function RightRail() {
+  useLoopProbe("RightRail");
   const router = useRouter();
   const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
   const [leaders, setLeaders] = useState<LeaderboardEntry[]>([]);
@@ -112,6 +114,7 @@ function RightRail() {
 }
 
 export default function DesktopShell({ children }: { children: React.ReactNode }) {
+  useLoopProbe("DesktopShell");
   const { width } = useWindowDimensions();
   const { user } = useAuth();
   const pathname = usePathname() || "/";
