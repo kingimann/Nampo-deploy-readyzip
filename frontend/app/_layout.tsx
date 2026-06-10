@@ -21,6 +21,7 @@ import DesktopShell from "@/src/components/DesktopShell";
 import WebPullToRefresh from "@/src/components/WebPullToRefresh";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import { installWebAlertShim } from "@/src/lib/webAlertShim";
+import { startWebUpdateWatcher } from "@/src/lib/webUpdate";
 import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
 import UsernameGate from "@/src/components/UsernameGate";
@@ -149,6 +150,10 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [loaded, error]);
+
+  // Web-update kill switch: hard-refresh to the latest deploy when the server's
+  // build token changes (no-op on native).
+  useEffect(() => startWebUpdateWatcher(), []);
 
   if (!loaded && !error) return null;
 

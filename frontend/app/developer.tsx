@@ -636,6 +636,8 @@ const GROUPS: Group[] = [
       { method: "POST", path: "/admin/test-payments", desc: "Toggle Stripe test-mode. Admin only.", auth: true, body: `{"enabled":true}` },
       { method: "GET", path: "/admin/mobile-only", desc: "Is the web app gated to mobile-only? Admin only.", auth: true },
       { method: "POST", path: "/admin/mobile-only", desc: "Toggle the mobile-only gate. Admin only.", auth: true, body: `{"enabled":true}` },
+      { method: "GET", path: "/admin/web-build", desc: "Current web-update kill-switch token. Admin only.", auth: true },
+      { method: "POST", path: "/admin/web-build", desc: "Bump the token to force every open web client to hard-refresh to the latest deploy. Admin only.", auth: true, body: `{"build":"optional — omit to auto-bump"}` },
       { method: "GET", path: "/admin/integrations", desc: "Which third-party services (Stripe, FSQ, TransitLand…) are configured. Admin only.", auth: true },
       { method: "GET", path: "/admin/support/tickets", desc: "Every support ticket across all users. Admin only.", auth: true },
       { method: "GET", path: "/admin/bot/posts", desc: "Sponsored posts available for bot-testing. Admin only.", auth: true },

@@ -6,7 +6,7 @@ import { storage } from "@/src/utils/storage";
 //   origin (no CORS needed).
 // - Web (production static build, e.g. Render Static Site): set it so the build
 //   calls the API cross-origin. The backend allows CORS, so this just works.
-const BASE_URL: string = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
+export const BASE_URL: string = (process.env.EXPO_PUBLIC_BACKEND_URL as string) || "";
 export const SESSION_TOKEN_KEY = "session_token";
 // The device's current Expo push token, persisted so logout can unregister it
 // with the backend while the session is still valid.
@@ -247,9 +247,11 @@ export const api = {
   adminResetMoney: () => request<{ ok: boolean }>("/admin/reset/money", { method: "POST" }),
   adminResetAnalytics: () => request<{ ok: boolean }>("/admin/reset/analytics", { method: "POST" }),
   adminGetRevenue: () => request<{ total: number; count: number; by_source: Record<string, number>; platform_fee_percent: number; transaction_fee_cents: number }>("/admin/revenue"),
-  getPublicAppConfig: () => request<{ mobile_only: boolean }>("/public/app-config"),
+  getPublicAppConfig: () => request<{ mobile_only: boolean; web_build?: string }>("/public/app-config"),
   adminGetMobileOnly: () => request<{ mobile_only: boolean }>("/admin/mobile-only"),
   adminSetMobileOnly: (enabled: boolean) => request<{ mobile_only: boolean }>("/admin/mobile-only", { method: "POST", body: JSON.stringify({ enabled }) }),
+  adminGetWebBuild: () => request<{ web_build: string; override: string | null }>("/admin/web-build"),
+  adminBumpWebBuild: (build?: string) => request<{ web_build: string; override: string }>("/admin/web-build", { method: "POST", body: JSON.stringify({ build: build ?? null }) }),
   adminGetFees: () => request<{ platform_fee_percent: number; creator_share_percent: number; transaction_fee_cents: number }>("/admin/fees"),
   adminSetFees: (body: { platform_fee_percent?: number; transaction_fee_cents?: number }) =>
     request<{ platform_fee_percent: number; creator_share_percent: number; transaction_fee_cents: number }>("/admin/fees", { method: "POST", body: JSON.stringify(body) }),

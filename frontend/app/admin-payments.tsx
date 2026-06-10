@@ -26,6 +26,8 @@ export default function AdminPaymentsScreen() {
   const [revenue, setRevenue] = useState<{ total: number; count: number; by_source: Record<string, number>; transfer_fees?: number; cashout_fees?: number; cashout_count?: number; total_paid_out?: number; cashout_fee?: number; transaction_fee_cents: number } | null>(null);
   const [mobileOnly, setMobileOnly] = useState(false);
   const [savingMobile, setSavingMobile] = useState(false);
+  const [webBuild, setWebBuild] = useState<string>("");
+  const [bumpingWeb, setBumpingWeb] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const toggleMobileOnly = async () => {
@@ -35,6 +37,14 @@ export default function AdminPaymentsScreen() {
     finally { setSavingMobile(false); }
   };
 
+  const forceWebUpdate = async () => {
+    if (!(await confirm({ title: "Force web update?", message: "Every open web browser will clear its cache and reload to the latest deploy within a few minutes (mobile apps are unaffected).", confirmLabel: "Update all" }))) return;
+    setBumpingWeb(true); setMsg(null);
+    try { const r = await api.adminBumpWebBuild(); setWebBuild(r.web_build); setMsg("Web clients will refresh to the latest version shortly."); }
+    catch (e: any) { Alert.alert("Couldn't bump", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setBumpingWeb(false); }
+  };
+
   const load = useCallback(async () => {
     try { const r = await api.adminGetTestPayments(); setTestPayments(r.test_payments); setStripeConfigured(r.stripe_configured); }
     catch {} finally { setLoading(false); }
@@ -42,6 +52,7 @@ export default function AdminPaymentsScreen() {
     catch {}
     try { setRevenue(await api.adminGetRevenue()); } catch {}
     try { setMobileOnly((await api.adminGetMobileOnly()).mobile_only); } catch {}
+    try { setWebBuild((await api.adminGetWebBuild()).web_build); } catch {}
     setRefreshing(false);
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -132,6 +143,16 @@ export default function AdminPaymentsScreen() {
                 <View style={[styles.switch, mobileOnly && styles.switchOn]}>
                   <View style={[styles.knob, mobileOnly && styles.knobOn]} />
                 </View>
+              )}
+            </TouchableOpacity>
+            <View style={styles.divider} />
+            <TouchableOpacity style={styles.toggleRow} onPress={forceWebUpdate} disabled={bumpingWeb} testID="ap-web-update">
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>Force web update</Text>
+                <Text style={styles.rowSub}>Make every open web browser clear its cache and reload to the latest deploy. Use after a release if anyone reports a stale page.{webBuild ? ` Current build: ${webBuild}.` : ""}</Text>
+              </View>
+              {bumpingWeb ? <ActivityIndicator color={theme.primary} size="small" /> : (
+                <Text style={styles.actionLink}>Update all</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -248,6 +269,8 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
   rowLabel: { color: theme.textPrimary, fontSize: 15, fontWeight: "700" },
   rowSub: { color: theme.textMuted, fontSize: 12.5, marginTop: 3, lineHeight: 17 },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.border, marginHorizontal: 16 },
+  actionLink: { color: theme.primary, fontSize: 14, fontWeight: "700" },
   switch: { width: 46, height: 28, borderRadius: 14, backgroundColor: theme.surfaceAlt, borderWidth: 1, borderColor: theme.border, padding: 2, justifyContent: "center" },
   switchOn: { backgroundColor: theme.primary, borderColor: theme.primary },
   knob: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#fff" },

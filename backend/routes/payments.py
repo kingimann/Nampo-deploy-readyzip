@@ -1460,6 +1460,34 @@ async def admin_set_mobile_only(body: ToggleBody, authorization: Optional[str] =
     return {"mobile_only": bool(body.enabled)}
 
 
+class WebBuildBody(BaseModel):
+    build: Optional[str] = None   # explicit token; blank → auto-bump to a timestamp
+
+
+@router.get("/admin/web-build")
+async def admin_get_web_build(authorization: Optional[str] = Header(None)):
+    """Current web-update kill-switch token (and any admin override)."""
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    from routes.meta import resolve_web_build
+    override = await _setting("web_build", None)
+    return {"web_build": resolve_web_build(override), "override": override}
+
+
+@router.post("/admin/web-build")
+async def admin_set_web_build(body: WebBuildBody, authorization: Optional[str] = Header(None)):
+    """Bump the kill-switch token so every open web client hard-refreshes to the
+    latest deploy. Pass a `build` string to set it explicitly, or omit it to
+    auto-bump to the current timestamp."""
+    me = await get_current_user(authorization)
+    _admin_only(me)
+    import time
+    val = (body.build or "").strip() or str(int(time.time()))
+    await _set_setting("web_build", val)
+    from routes.meta import resolve_web_build
+    return {"web_build": resolve_web_build(val), "override": val}
+
+
 class FeesBody(BaseModel):
     platform_fee_percent: Optional[float] = None   # platform's cut of subscriptions/tips
     transaction_fee_cents: Optional[int] = None    # flat per-payment fee
