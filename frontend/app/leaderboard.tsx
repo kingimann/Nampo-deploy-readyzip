@@ -33,7 +33,8 @@ export default function LeaderboardScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const openUser = (e: LeaderboardEntry) => {
-    if (e.username) router.push({ pathname: "/user/[name]", params: { name: e.username } });
+    if (e.username) router.push({ pathname: "/[username]", params: { username: e.username } });
+    else if (e.name) router.push({ pathname: "/user/[name]", params: { name: e.name } });
   };
 
   return (
