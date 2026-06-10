@@ -129,7 +129,7 @@ export default function DesktopShell({ children }: { children: React.ReactNode }
   };
   const _changed = Object.keys(_cur).filter((k) => _prev.current[k] !== _cur[k]);
   _prev.current = _cur;
-  useLoopProbe("DesktopShell", _changed.join(",") || "none");
+  useLoopProbe("DesktopShell", _changed);
 
   const desktop = atDesktop && !!user;
   if (!desktop) return <>{children}</>;

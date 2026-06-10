@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "expo-router";
 
 /**
@@ -55,7 +55,10 @@ export function NavHistoryProvider({ children }: { children: React.ReactNode }) 
     if (i < h.length - 1) router.push(h[i + 1] as any);
   }, [router]);
 
-  return <Ctx.Provider value={{ goBack, goForward, canForward }}>{children}</Ctx.Provider>;
+  // Memoize so consumers don't re-render on every provider render from a fresh
+  // value object — only when one of these actually changes.
+  const value = useMemo<NavHistory>(() => ({ goBack, goForward, canForward }), [goBack, goForward, canForward]);
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export const useNavHistory = () => useContext(Ctx);

@@ -333,10 +333,11 @@ export default function FeedScreen() {
   const _snap: Record<string, unknown> = {
     desktopWeb, tab, loading, refreshing, topHidden, topBarH, newCount,
     composeOpen, showStories, unreadNotif, userId: user?.user_id ?? null, postsLen: posts.length,
+    insetsTop: insets.top, insetsBottom: insets.bottom, compose: params.compose ?? null,
   };
   const _chg = Object.keys(_snap).filter((k) => _probePrev.current[k] !== _snap[k]);
   _probePrev.current = _snap;
-  useLoopProbe("FeedScreen", _chg.join(",") || "none");
+  useLoopProbe("FeedScreen", _chg);
 
   return (
     <SafeAreaView edges={["top"]} style={styles.root} testID="feed-screen">
