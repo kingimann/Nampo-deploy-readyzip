@@ -10,7 +10,8 @@ import { Platform } from "react-native";
  * cleared) and via console.error. Remove once the loop is fixed.
  */
 const hits: Record<string, number[]> = {};
-let reported = false;
+const reported = new Set<string>();
+const summary: string[] = [];
 
 export function loopTick(name: string, detail?: string): void {
   if (Platform.OS !== "web") return;
@@ -18,13 +19,15 @@ export function loopTick(name: string, detail?: string): void {
   const arr = hits[name] || (hits[name] = []);
   arr.push(now);
   while (arr.length && now - arr[0] > 1000) arr.shift();
-  if (arr.length >= 40 && !reported) {
-    reported = true;
-    const tail = detail ? ` — changing: ${detail}` : "";
-    try { document.title = `⚠ LOOP: ${name} [${detail || "?"}]`; } catch { /* ignore */ }
+  // Report each component once (so a child winning the race can't hide the
+  // real driver's detail), and accumulate them all into the title.
+  if (arr.length >= 40 && !reported.has(name)) {
+    reported.add(name);
+    summary.push(`${name}[${detail || "?"}]`);
+    try { document.title = `⚠ LOOP: ${summary.join(" | ")}`; } catch { /* ignore */ }
     try {
       // eslint-disable-next-line no-console
-      console.error(`[LOOP DETECTED] "${name}" re-rendered ${arr.length}× in the last second${tail}.`);
+      console.error(`[LOOP DETECTED] ${name} re-rendered ${arr.length}×/s — changing: ${detail || "?"}. All so far: ${summary.join(" | ")}`);
     } catch { /* ignore */ }
   }
 }
