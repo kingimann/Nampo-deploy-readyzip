@@ -98,6 +98,14 @@ export async function checkWebUpdate(): Promise<void> {
     return;
   }
   if (seen !== server) {
+    // Leave a breadcrumb so a "page keeps reloading" report can be confirmed or
+    // ruled out as the update kill switch at a glance (turn on "Preserve log").
+    try {
+      // eslint-disable-next-line no-console
+      console.info(`[okayspace] web build ${seen} → ${server}; refreshing once`);
+    } catch {
+      /* ignore */
+    }
     // Store the new token FIRST so a re-served stale shell can't loop.
     try {
       localStorage.setItem(STORAGE_KEY, server);
