@@ -3,7 +3,7 @@
 A complete reference to **what every screen does**, **where it lives**, **the exact API calls it makes**, and **how navigation is wired**. OkaySpace is one Expo / React Native codebase shipping to **iOS, Android, and the web** (web is now phone-first — PCs are gated, §16).
 
 - **Frontend:** `frontend/` — Expo Router (file-based routing). Routes in `frontend/app/`, reusable UI in `frontend/src/`.
-- **Backend:** `backend/` — FastAPI (Python) + MongoDB. Routes in `backend/routes/`.
+- **Backend:** `backend/` — FastAPI (Python). Storage is **PostgreSQL with a JSONB document wrapper** (`db.py`) that exposes a Mongo/Motor-compatible async API. Routes in `backend/routes/`. Entry point `backend/server.py`.
 - **API client:** `frontend/src/api/client.ts` — ~425 typed methods = the full feature surface.
 
 Each screen entry below is formatted: **Purpose · Sections/UI · API calls · Components · Navigates to.**
@@ -559,7 +559,58 @@ Bearer-token auth auto-injected when a session token is present; all endpoints u
 
 ## 23. Backend (`backend/`)
 
-> Being documented by a running agent — this section will be filled in (FastAPI app structure, every `backend/routes/*.py` file, key endpoints, websockets, and background services) momentarily.
+**Framework:** FastAPI (async). **Storage:** PostgreSQL with a JSONB document wrapper (`db.py`) presenting a Mongo/Motor-compatible API — each table has a single JSONB `doc` column + unique indexes. **API base:** `/api/v1` (stable) with `/api` legacy alias. **Auth:** `Authorization: Bearer <session_token | api_key>`. **Writes** accept an optional `Idempotency-Key` (replays the prior response on retry). **API keys** are read-only (blocked from non-GET). **CORS** open.
+
+**Top-level files:** `server.py` (app setup, middleware, router registration, websockets, startup/shutdown), `core.py` (DB proxy, `get_current_user`, badges/moderation, `award_points`, helpers), `db.py` (Postgres JSONB wrapper), `models.py` (Pydantic models).
+
+### Route files (`backend/routes/`)
+
+- **auth.py** (`/auth`) — register, login, 2FA (`/login/2fa`), phone login (`/login/phone/start|verify`), logout, forgot/reset password (email + SMS), username availability/change (30-day cooldown), change email/password/phone, email/phone verification codes, `/auth/me` GET+PATCH, accept-policies, **API keys** (create/list/revoke), **E2E keys** (`/auth/keys`, `/users/{id}/key`, `/auth/keys/backup`), `/users/by-username/{username}`.
+- **users.py** (`/admin`) — admin user management: patch (verified/role), list/search, ban/unban, suspend, restrictions (messaging/marketplace/posting), wallet balance get/adjust, transactions list/add, subscriptions, `/admin/audit`.
+- **posts.py** (`/posts`) — create/edit/delete, privacy patch, get-with-replies, `feed` + `feed/trending`, user posts, like/unlike, bookmark, repost/unrepost, viewers (record + list), search, `hashtag/{tag}`, report, hide, emoji react/unreact, `/media/resolve-video`.
+- **messaging.py** (`/conversations`) — get/create DM, create group, list, patch group (name/avatar/theme/receipts/disappearing), leave, add/remove members, soft-delete, messages (list/send/edit/delete), reactions, read receipts, typing (WS), custom emojis. Features: optional E2E, disappearing TTL, link previews, scheduled dispatch.
+- **notifications.py** (`/notifications`) — list, `activity` timeline, unread count, mark read / read-all. Types: like/repost/reply/message/group_invite/friend_*/poke/money/tip/subscribe/factcheck; important ones mirrored to SMS if opted in.
+- **eta.py** (`/eta`) — start/update/stop share, `/public/eta/{id}` (no auth), **WebSocket `/ws/eta/{id}`** live pub/sub.
+- **places.py** (`/places`, `/recents`) — saved places CRUD; recent searches (auto-prune 20).
+- **guides.py** (`/guides`) — guide CRUD, add/remove place, `/public/guides/{slug}`; publishing auto-posts a feed announcement.
+- **reviews.py** (`/reviews`) — place reviews upsert/list/delete (1–5★).
+- **circles.py** (`/circles`) — close-friends circles CRUD + members (≤50).
+- **drafts.py** (`/drafts`) — post drafts CRUD (cap 50, auto-prune).
+- **stories.py** (`/stories`) — create (image/video ≤15s), tray, by-user, view, viewers, reply (→DM), delete; earns points.
+- **marketplace.py** (`/listings`) — listings CRUD + search (category/radius/price/sort), save/unsave, comments, **trades** (propose/confirm via code), reviews (verified-trade only), business storefronts; min account age 14 days.
+- **groups.py** (`/groups`) — groups CRUD, members, join/leave + join-request approval, posts (+pin), events.
+- **communities.py** (`/communities`) — Reddit-style: CRUD, `feed`, join/leave, favorite, members, posts (newest/top/hot), pin/remove (mod), mods add/remove, member removal, `top`; banned-keyword auto-moderation.
+- **foursquare.py** (`/foursquare`) — place search + match (hours/phone/rating enrichment).
+- **transit.py** (`/transit`) — nearby stops + route plan (TransitLand).
+- **payments.py** (`/payments`) — Stripe config, Connect onboarding, payout status, cashout (7-day anti-fraud hold), debit-card update, checkout (destination charge), **webhook** (`session.completed` → credit wallet); admin test-mode.
+- **payouts.py** (`/payouts`) — earnings/balance/history/schedule; admin run loop.
+- **money.py** (`/money`) — P2P: security question get/set, send, transfers history + pending, accept/decline/cancel.
+- **ads.py** (`/promoted`, `/admin/ad-revenue`) — serve next ad, log events, hide/report, admin revenue breakdown.
+- **adnetwork.py** (`/pub/sites`, `/pub/ad`, `/pub/click`) — advertiser sites CRUD, ad creative fetch, click logging.
+- **calls.py** (`/calls`) — LiveKit room token + ring notification.
+- **push.py** (`/push`) — device register/unregister (ios/android/web).
+- **support.py** (`/support`) — tickets create/list/get, reply, unread count.
+- **forms.py** (`/forms`) — form builder CRUD, public submit, responses CSV export (webhooks triggered on submit).
+- **factchecks.py** (`/posts/{id}/factchecks`) — community notes: create (source required), list, rate, delete; consensus auto-show.
+- **hazards.py** (`/hazards`) — Waze-style report/list (radius), confirm/dismiss; consensus clustering.
+- **games.py** (`/games`) — upload/list/get/delete, score submit, leaderboard; SDK at `/pub/games/sdk.js`.
+- **embed.py** (`/pub`, no auth) — oEmbed cards for post/profile/listing/guide/community.
+- **oauth.py** (`/oauth`) — "Login with OkaySpace" provider: apps CRUD, authorize (code grant), token exchange, `/oauth/me`, revoke, connections list/disconnect.
+- **webhooks.py** (`/webhooks`) — event types, CRUD, test ping, delivery history; HMAC-SHA256 signed.
+- **integrations.py** (`/admin/integrations`) — admin integration status/config.
+- **roadside.py** (`/roadside`) — eligibility/photo check, quote, request (daily call number), verification, requests list, rate provider.
+- **render_admin.py** (`/admin/render`) — Render ops: services, deploys (list/trigger), restart, suspend.
+- **meta.py** (`/`, public) — `/public/app-config` (mobile-only gate + web-build token), `/version`, `/v1/info`, `/v1/changelog`.
+
+### Background services (startup)
+- **Keepalive loop** — pings `/health` every 10 min (prevents Render free-tier spindown).
+- **OkayBots** — seeds `@OkayAI` / `@OkayFacts`, runs an Ollama reply loop.
+- **Message scheduler** — dispatches scheduled messages.
+- **Payout loop** — hourly best-effort auto-payouts above threshold.
+- **Avatar backfill** — one-time default-avatar assignment.
+
+### Error envelope
+All non-2xx responses share: `{ "error": { "code", "message", "fields?" }, "detail": {...} }` with codes like `bad_request`, `unauthorized`, `payment_required`, `forbidden`, `not_found`, `conflict`, `validation_error`, `rate_limited`, `server_error`.
 
 ---
 
