@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, Pressable, ScrollView, Platform, useWindowDimensions, Image, TextInput,
+  View, Text, StyleSheet, Pressable, ScrollView, Platform, Image, TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
@@ -9,6 +9,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useSidebar } from "@/src/context/SidebarContext";
 import { api, LeaderboardEntry } from "@/src/api/client";
 import { useLoopProbe } from "@/src/lib/loopProbe";
+import { useIsDesktop } from "@/src/hooks/useIsDesktop";
 
 // Below this width we keep the mobile layout untouched. At/above it (desktop
 // web only) we render website chrome: a left nav rail, a centred content column,
@@ -114,22 +115,23 @@ function RightRail() {
 }
 
 export default function DesktopShell({ children }: { children: React.ReactNode }) {
-  const { width } = useWindowDimensions();
+  // Stable breakpoint boolean, not raw width — width jitter on web drove a loop.
+  const atDesktop = useIsDesktop(DESKTOP_BP);
   const { user } = useAuth();
   const pathname = usePathname() || "/";
   const router = useRouter();
   const sidebar = useSidebar();
   // DIAGNOSTIC: report which consumed input changed between renders, so a
-  // re-render loop names its own driver (width / pathname / user / sidebar).
+  // re-render loop names its own driver.
   const _prev = useRef<Record<string, unknown>>({});
   const _cur: Record<string, unknown> = {
-    width, pathname, userId: user?.user_id ?? null, hasUser: !!user, sidebar,
+    atDesktop, pathname, userId: user?.user_id ?? null, hasUser: !!user, sidebar,
   };
   const _changed = Object.keys(_cur).filter((k) => _prev.current[k] !== _cur[k]);
   _prev.current = _cur;
   useLoopProbe("DesktopShell", _changed.join(",") || "none");
 
-  const desktop = Platform.OS === "web" && width >= DESKTOP_BP && !!user;
+  const desktop = atDesktop && !!user;
   if (!desktop) return <>{children}</>;
 
   const fullBleed = FULL_BLEED.includes(pathname);

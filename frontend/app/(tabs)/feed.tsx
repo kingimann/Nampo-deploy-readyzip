@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal, Alert, Platform, Animated, Easing, useWindowDimensions,
+  ActivityIndicator, RefreshControl, Modal, Alert, Platform, Animated, Easing,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { SidebarMenuButton } from "@/src/components/LeftSidebar";
@@ -23,6 +23,7 @@ import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 import ConfirmModal from "@/src/components/ConfirmModal";
 import { storage } from "@/src/utils/storage";
 import { useLoopProbe } from "@/src/lib/loopProbe";
+import { useIsDesktop } from "@/src/hooks/useIsDesktop";
 
 export const HIDE_STORIES_KEY = "hide_stories";
 
@@ -59,8 +60,9 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   // On desktop web the left/right rails provide nav, search, compose &
   // notifications, so the in-column header drops those (X-style minimal header).
-  const { width: _winW } = useWindowDimensions();
-  const desktopWeb = Platform.OS === "web" && _winW >= 900;
+  // Use a stable breakpoint boolean, not raw width — raw width jitter on web
+  // drove an infinite re-render loop here.
+  const desktopWeb = useIsDesktop(900);
   const [tab, setTab] = useState<Tab>("explore");
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -329,7 +331,7 @@ export default function FeedScreen() {
 
   // DIAGNOSTIC: name which state/input drives the FeedScreen re-render loop.
   const _snap: Record<string, unknown> = {
-    winW: _winW, tab, loading, refreshing, topHidden, topBarH, newCount,
+    desktopWeb, tab, loading, refreshing, topHidden, topBarH, newCount,
     composeOpen, showStories, unreadNotif, userId: user?.user_id ?? null, postsLen: posts.length,
   };
   const _chg = Object.keys(_snap).filter((k) => _probePrev.current[k] !== _snap[k]);

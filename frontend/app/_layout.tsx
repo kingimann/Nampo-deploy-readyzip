@@ -2,7 +2,7 @@ import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
-import { Platform, View, useWindowDimensions } from "react-native";
+import { Platform, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -23,6 +23,7 @@ import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import { installWebAlertShim } from "@/src/lib/webAlertShim";
 import { startWebUpdateWatcher } from "@/src/lib/webUpdate";
 import { useLoopProbe } from "@/src/lib/loopProbe";
+import { useIsDesktop } from "@/src/hooks/useIsDesktop";
 import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
 import UsernameGate from "@/src/components/UsernameGate";
@@ -135,10 +136,10 @@ function shouldShowBar(pathname: string) {
 function GlobalTabBar() {
   const { user } = useAuth();
   const pathname = usePathname();
-  const { width } = useWindowDimensions();
+  const isDesktop = useIsDesktop();
   if (!user) return null;
   // On desktop web the left nav rail (DesktopShell) replaces the floating pill.
-  if (Platform.OS === "web" && width >= 900) return null;
+  if (isDesktop) return null;
   if (!shouldShowBar(pathname || "")) return null;
   return <LiquidTabBar />;
 }
