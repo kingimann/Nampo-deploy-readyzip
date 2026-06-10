@@ -91,7 +91,7 @@ function RightRail() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Top members</Text>
           {leaders.map((u) => (
-            <Pressable key={u.user_id} style={styles.personRow} onPress={() => router.push({ pathname: "/user/[name]", params: { name: u.username || u.name } })} testID={`top-${u.user_id}`}>
+            <Pressable key={u.user_id} style={styles.personRow} onPress={() => router.push(u.username ? { pathname: "/[username]", params: { username: u.username } } : { pathname: "/user/[name]", params: { name: u.name } })} testID={`top-${u.user_id}`}>
               <Image source={{ uri: u.picture || "https://api.dicebear.com/7.x/initials/png?seed=" + encodeURIComponent(u.name) }} style={styles.personAvatar} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={styles.personName} numberOfLines={1}>{u.name}</Text>
