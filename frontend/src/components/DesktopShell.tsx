@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Platform, useWindowDimensions, Image, TextInput,
 } from "react-native";
@@ -114,12 +114,20 @@ function RightRail() {
 }
 
 export default function DesktopShell({ children }: { children: React.ReactNode }) {
-  useLoopProbe("DesktopShell");
   const { width } = useWindowDimensions();
   const { user } = useAuth();
   const pathname = usePathname() || "/";
   const router = useRouter();
   const sidebar = useSidebar();
+  // DIAGNOSTIC: report which consumed input changed between renders, so a
+  // re-render loop names its own driver (width / pathname / user / sidebar).
+  const _prev = useRef<Record<string, unknown>>({});
+  const _cur: Record<string, unknown> = {
+    width, pathname, userId: user?.user_id ?? null, hasUser: !!user, sidebar,
+  };
+  const _changed = Object.keys(_cur).filter((k) => _prev.current[k] !== _cur[k]);
+  _prev.current = _cur;
+  useLoopProbe("DesktopShell", _changed.join(",") || "none");
 
   const desktop = Platform.OS === "web" && width >= DESKTOP_BP && !!user;
   if (!desktop) return <>{children}</>;

@@ -12,7 +12,7 @@ import { Platform } from "react-native";
 const hits: Record<string, number[]> = {};
 let reported = false;
 
-export function loopTick(name: string): void {
+export function loopTick(name: string, detail?: string): void {
   if (Platform.OS !== "web") return;
   const now = Date.now();
   const arr = hits[name] || (hits[name] = []);
@@ -20,15 +20,17 @@ export function loopTick(name: string): void {
   while (arr.length && now - arr[0] > 1000) arr.shift();
   if (arr.length >= 40 && !reported) {
     reported = true;
-    try { document.title = `⚠ LOOP: ${name} (${arr.length}/s)`; } catch { /* ignore */ }
+    const tail = detail ? ` — changing: ${detail}` : "";
+    try { document.title = `⚠ LOOP: ${name} [${detail || "?"}]`; } catch { /* ignore */ }
     try {
       // eslint-disable-next-line no-console
-      console.error(`[LOOP DETECTED] "${name}" re-rendered ${arr.length}× in the last second — this is the source of the "page keeps reloading" loop.`);
+      console.error(`[LOOP DETECTED] "${name}" re-rendered ${arr.length}× in the last second${tail}.`);
     } catch { /* ignore */ }
   }
 }
 
-/** Call at the top of a component's render to probe it. */
-export function useLoopProbe(name: string): void {
-  loopTick(name);
+/** Call at the top of a component's render to probe it. `detail` names the
+ *  input(s) that changed since the last render, to identify the loop driver. */
+export function useLoopProbe(name: string, detail?: string): void {
+  loopTick(name, detail);
 }
