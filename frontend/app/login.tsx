@@ -402,6 +402,9 @@ const styles = StyleSheet.create({
   tagline: { color: theme.textSecondary, fontSize: 14, textAlign: "center" },
   // Frosted-glass card — same surface as the feed cards / bottom pill.
   card: {
+    // Cap + centre the form so it doesn't stretch across the whole screen on
+    // desktop web. No-op on phones (narrower than maxWidth).
+    width: "100%", maxWidth: 420, alignSelf: "center",
     borderRadius: 20, padding: 18, gap: 10,
     ...GLASS,
   },
