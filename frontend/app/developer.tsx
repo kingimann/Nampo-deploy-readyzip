@@ -588,6 +588,7 @@ const GROUPS: Group[] = [
     endpoints: [
       { method: "GET", path: "/version", desc: "API name + version.", auth: false },
       { method: "GET", path: "/v1/info", desc: "Machine-readable API overview & capabilities.", auth: false },
+      { method: "GET", path: "/v1/changelog", desc: "Machine-readable API changelog (newest first).", auth: false },
       { method: "GET", path: "/public/app-config", desc: "Public client config (no auth).", auth: false },
       { method: "GET", path: "/currencies", desc: "Supported display currencies + rates.", auth: false },
       { method: "GET", path: "/badges", desc: "The catalog of profile badges.", auth: true },
@@ -710,6 +711,29 @@ const ERROR_CODES_REF: { status: string; code: string; desc: string }[] = [
   { status: "429", code: "rate_limited", desc: "Throttled — back off and retry" },
   { status: "500", code: "server_error", desc: "Something broke our end" },
   { status: "503", code: "unavailable", desc: "Temporarily down — retry" },
+];
+
+// Mirrors GET /v1/changelog — newest first. Keep in sync with backend meta.py.
+const CHANGELOG_REF: { date: string; title: string; changes: string[] }[] = [
+  {
+    date: "2026-06-10",
+    title: "Discovery, tags & multi-language kits",
+    changes: [
+      "OpenAPI groups endpoints into named tags; servers[] always advertised for codegen.",
+      "/v1/info lists every resource group; added GET /v1/changelog.",
+      "Documented the full admin surface; added Swift, Kotlin, Go & Rust client kits.",
+    ],
+  },
+  {
+    date: "2026-01-01",
+    title: "API v1 stable",
+    changes: [
+      "Stable versioned base /api/v1 (unversioned /api stays a permanent alias).",
+      "Consistent error envelope on every non-2xx; Idempotency-Key replays on retry.",
+      "OAuth2 “Login with OkaySpace” (profile/email); signed webhooks (21 events).",
+      "Read/write API-key scopes; open CORS for browser & mobile callers.",
+    ],
+  },
 ];
 
 type Lang = "curl" | "js" | "python" | "dart";
@@ -1754,6 +1778,12 @@ export default function DeveloperScreen() {
         <Text style={[styles.body, { marginTop: 8 }]}>
           Swap <Text style={styles.codeInline}>-g dart-dio</Text> for <Text style={styles.codeInline}>swift5</Text>, <Text style={styles.codeInline}>kotlin</Text>, <Text style={styles.codeInline}>go</Text>, <Text style={styles.codeInline}>typescript-fetch</Text>, etc. CORS is open, so browser and mobile apps can call the API directly.
         </Text>
+        <Text style={[styles.body, { marginTop: 8 }]}>
+          Or try every endpoint without writing code: import the OpenAPI URL straight into <Text style={styles.codeInline}>Postman</Text> (Import → Link) or <Text style={styles.codeInline}>Insomnia</Text> (Import From → URL). Add your key once as a Bearer token and hit “Send”.
+        </Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(`${BASE}/openapi.json`, "OpenAPI URL")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{`${BASE}/openapi.json`}</Text>
+        </TouchableOpacity>
 
         {/* Flutter & Dart */}
         <Text style={[styles.groupTitle, { marginTop: 22 }]}>Flutter & Dart</Text>
@@ -1874,6 +1904,22 @@ export default function DeveloperScreen() {
               <Text style={styles.convKey}>{e.status} </Text>
               <Text style={styles.codeInline}>{e.code}</Text>  {e.desc}
             </Text>
+          ))}
+        </View>
+
+        {/* Changelog */}
+        <Text style={styles.groupTitle}>API changelog</Text>
+        <Text style={styles.body}>What's changed, newest first. Also available as JSON at `GET /v1/changelog`.</Text>
+        <View style={[styles.convCard, { marginTop: 10 }]}>
+          {CHANGELOG_REF.map((c, ci) => (
+            <View key={c.date} style={ci > 0 ? { marginTop: 12 } : undefined}>
+              <Text style={styles.convItem}>
+                <Text style={styles.convKey}>{c.date} </Text>{c.title}
+              </Text>
+              {c.changes.map((ch, i) => (
+                <Text key={i} style={[styles.convItem, { opacity: 0.85, marginTop: 2 }]}>  • {ch}</Text>
+              ))}
+            </View>
           ))}
         </View>
 

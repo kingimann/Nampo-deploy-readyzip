@@ -73,6 +73,7 @@ async def info():
         "legacy_base_url": "/api",
         "docs_url": "/docs",
         "openapi_url": "/openapi.json",
+        "changelog_url": "/api/v1/changelog",
         "health_url": "/health",
         "group_count": len(CAPABILITIES),
         "auth": {
@@ -92,3 +93,38 @@ async def info():
         },
         "capabilities": CAPABILITIES,
     }
+
+
+# Public, machine-readable API changelog. Newest first. Entries describe
+# developer-facing API capabilities (not internal app changes), so integrators
+# can track what's available. `changelog_url` is exposed from /v1/info too.
+CHANGELOG = [
+    {
+        "date": "2026-06-10",
+        "title": "Discovery, tags & multi-language kits",
+        "changes": [
+            "OpenAPI spec groups endpoints into named, described tags; servers[] always advertised for codegen.",
+            "/v1/info capability catalog now lists every resource group.",
+            "Added GET /v1/changelog (this endpoint).",
+            "Documented the full admin surface and added Swift, Kotlin, Go & Rust client kits in the in-app Developer API reference.",
+        ],
+    },
+    {
+        "date": "2026-01-01",
+        "title": "API v1 stable",
+        "changes": [
+            "Stable versioned base /api/v1 (the unversioned /api remains a permanent alias).",
+            "Consistent error envelope on every non-2xx: {\"error\":{\"code\",\"message\"}} mirrored under \"detail\".",
+            "Idempotency-Key header on writes replays the first response on retry.",
+            "OAuth2 authorization-code provider (\"Login with OkaySpace\") with profile/email scopes.",
+            "Developer webhooks (signed, 21 event types) with test pings and delivery history.",
+            "Read/write API-key scopes; open CORS for browser & mobile callers.",
+        ],
+    },
+]
+
+
+@router.get("/v1/changelog")
+async def changelog():
+    """Public, machine-readable API changelog (newest first)."""
+    return {"api": "OkaySpace API", "version": API_VERSION, "entries": CHANGELOG}
