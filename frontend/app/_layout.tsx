@@ -22,6 +22,7 @@ import WebPullToRefresh from "@/src/components/WebPullToRefresh";
 import AppErrorBoundary from "@/src/components/AppErrorBoundary";
 import { installWebAlertShim } from "@/src/lib/webAlertShim";
 import { startWebUpdateWatcher } from "@/src/lib/webUpdate";
+import { useLoopProbe } from "@/src/lib/loopProbe";
 import LeftSidebar from "@/src/components/LeftSidebar";
 import LiquidTabBar from "@/src/components/LiquidTabBar";
 import UsernameGate from "@/src/components/UsernameGate";
@@ -143,6 +144,7 @@ function GlobalTabBar() {
 }
 
 export default function RootLayout() {
+  useLoopProbe("RootLayout");
   const [loaded, error] = useIconFonts();
 
   useEffect(() => {

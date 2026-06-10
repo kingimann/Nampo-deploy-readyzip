@@ -22,6 +22,7 @@ import CommentsSheet from "@/src/components/CommentsSheet";
 import PostPrivacySheet from "@/src/components/PostPrivacySheet";
 import ConfirmModal from "@/src/components/ConfirmModal";
 import { storage } from "@/src/utils/storage";
+import { useLoopProbe } from "@/src/lib/loopProbe";
 
 export const HIDE_STORIES_KEY = "hide_stories";
 
@@ -52,6 +53,7 @@ type Tab = "home" | "explore";
 const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 60, minimumViewTime: 600 };
 
 export default function FeedScreen() {
+  useLoopProbe("FeedScreen");
   const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ compose?: string }>();
