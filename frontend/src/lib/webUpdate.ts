@@ -10,7 +10,8 @@
  * client remembers the last token it saw. When the server's token changes (a new
  * deploy bumps RENDER_GIT_COMMIT, or an admin bumps it via /admin/web-build), the
  * client unregisters any service worker, clears all caches, and hard-reloads
- * ONCE to pick up the fresh bundle.
+ * ONCE to pick up the fresh bundle. It re-checks on launch, every 2 minutes, and
+ * whenever a backgrounded tab returns to the foreground.
  *
  * Loop safety: the new token is stored BEFORE reloading, so even if a stale shell
  * is somehow re-served after the reload, the token already counts as "seen" and
@@ -106,7 +107,7 @@ export async function checkWebUpdate(): Promise<void> {
 }
 
 /**
- * Start watching for new web builds: check on start, on a 5-minute interval, and
+ * Start watching for new web builds: check on start, on a 2-minute interval, and
  * whenever a backgrounded tab returns to the foreground. Returns a cleanup fn.
  */
 export function startWebUpdateWatcher(): () => void {
@@ -115,7 +116,7 @@ export function startWebUpdateWatcher(): () => void {
   const initial = setTimeout(() => {
     checkWebUpdate();
   }, 1500);
-  const id = setInterval(checkWebUpdate, 5 * 60 * 1000);
+  const id = setInterval(checkWebUpdate, 2 * 60 * 1000);
   const onVisible = () => {
     if (document.visibilityState === "visible") checkWebUpdate();
   };
