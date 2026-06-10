@@ -1,0 +1,5 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  language:
+    strict-casts: false   # the API is loosely typed (JSONB); models parse leniently
