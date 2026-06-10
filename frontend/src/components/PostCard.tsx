@@ -139,14 +139,19 @@ export default function PostCard({
   // would 404 for you).
   const openAuthorProfile = (e?: any) => {
     e?.stopPropagation?.();
-    if (viewerId && display.author?.user_id === viewerId) { router.push("/profile"); return; }
-    const name = display.author?.name;
-    if (name) router.push({ pathname: "/user/[name]", params: { name } });
+    const a = display.author;
+    if (viewerId && a?.user_id === viewerId) { router.push("/profile"); return; }
+    // Prefer the clean vanity URL (okayspace.ca/<username>) over /user/<name>.
+    if (a?.username) router.push({ pathname: "/[username]", params: { username: a.username } });
+    else if (a?.name) router.push({ pathname: "/user/[name]", params: { name: a.name } });
   };
 
   // Subscriber-only posts: engagement routes to the creator's subscribe sheet.
-  const goSubscribe = () =>
-    router.push({ pathname: "/user/[name]", params: { name: display.author.name, subscribe: "1" } });
+  const goSubscribe = () => {
+    const a = display.author;
+    if (a?.username) router.push({ pathname: "/[username]", params: { username: a.username, subscribe: "1" } });
+    else router.push({ pathname: "/user/[name]", params: { name: a.name, subscribe: "1" } });
+  };
 
   const onCommentPress = () => {
     if (display.locked) return goSubscribe();
@@ -308,7 +313,7 @@ export default function PostCard({
         <TouchableOpacity
           style={styles.paywall}
           activeOpacity={0.9}
-          onPress={(e) => { e.stopPropagation?.(); router.push({ pathname: "/user/[name]", params: { name: display.author.name, subscribe: "1" } }); }}
+          onPress={(e) => { e.stopPropagation?.(); goSubscribe(); }}
           testID={`paywall-${post.id}`}
         >
           <View style={styles.paywallIcon}><Ionicons name="lock-closed" size={22} color="#F5A623" /></View>
