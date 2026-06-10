@@ -611,6 +611,82 @@ final c = WebViewController()
     "&theme=dark&accent=7C3AED"));
 
 // in build(): WebViewWidget(controller: c)`;
+
+// ── Flutter & Dart kit ──────────────────────────────────────────────────────
+const DART_CLIENT = `// pubspec.yaml → http: ^1.0.0
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+class OkaySpace {
+  OkaySpace(this.apiKey, {this.base = '${API_BASE}'});
+  final String apiKey;
+  final String base;
+
+  Map<String, String> get _h => {
+        'Authorization': 'Bearer \$apiKey',
+        'Content-Type': 'application/json',
+      };
+
+  Future<dynamic> _check(http.Response r) {
+    final body = r.body.isEmpty ? null : jsonDecode(r.body);
+    if (r.statusCode >= 400) {
+      final e = (body?['error'] ?? {}) as Map;
+      throw OkaySpaceError(
+          e['code'] ?? '\${r.statusCode}', e['message'] ?? 'request failed');
+    }
+    return Future.value(body);
+  }
+
+  Future<dynamic> get(String path) async =>
+      _check(await http.get(Uri.parse('\$base\$path'), headers: _h));
+
+  Future<dynamic> post(String path, [Map<String, dynamic>? body]) async =>
+      _check(await http.post(Uri.parse('\$base\$path'),
+          headers: _h, body: jsonEncode(body ?? {})));
+}
+
+class OkaySpaceError implements Exception {
+  OkaySpaceError(this.code, this.message);
+  final String code, message;
+  @override
+  String toString() => 'OkaySpaceError(\$code): \$message';
+}
+
+// Usage
+final api = OkaySpace('YOUR_API_KEY');
+final feed = await api.get('/feed/home');
+await api.post('/posts', {'text': 'Hello from Flutter 👋'});`;
+
+const DART_WS = `// pubspec.yaml → web_socket_channel: ^2.4.0
+import 'dart:convert';
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+// Live ETA stream (public). Messaging/calls use
+// wss://.../ws/conversations/<id>?token=<session_token>
+final ch = WebSocketChannel.connect(
+  Uri.parse('${BASE.replace(/^https/, "wss")}/ws/eta/\$shareId'),
+);
+ch.stream.listen((raw) {
+  final data = jsonDecode(raw);   // { lat, lng, eta_minutes, ... }
+  // update your map marker…
+});
+// ch.sink.add(jsonEncode({...}));  // send
+// ch.sink.close();`;
+
+const DART_SECURE = `// pubspec.yaml → flutter_secure_storage: ^9.0.0
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+const storage = FlutterSecureStorage();
+// Never hard-code the key — store it in the platform keystore/keychain.
+await storage.write(key: 'okayspace_key', value: apiKey);
+final key = await storage.read(key: 'okayspace_key');`;
+
+const DART_CARD = `// Render any PUBLIC content card natively — no API key needed.
+final c = WebViewController()
+  ..loadRequest(Uri.parse(
+    '${BASE}/api/pub/post-card?post=POST_ID'
+    '&theme=dark&accent=00A884&radius=16'));
+// build(): SizedBox(height: 320, child: WebViewWidget(controller: c))`;
 const CONTENT_SNIPPET = `<!-- Embed a OkaySpace post, profile, listing, guide, or community -->
 <!-- swap data-post for data-profile / data-listing / data-guide / data-community -->
 <script async src="${BASE}/api/pub/content-embed.js"
@@ -1208,6 +1284,28 @@ export default function DeveloperScreen() {
         </TouchableOpacity>
         <Text style={[styles.body, { marginTop: 8 }]}>
           Swap <Text style={styles.codeInline}>-g dart-dio</Text> for <Text style={styles.codeInline}>swift5</Text>, <Text style={styles.codeInline}>kotlin</Text>, <Text style={styles.codeInline}>go</Text>, <Text style={styles.codeInline}>typescript-fetch</Text>, etc. CORS is open, so browser and mobile apps can call the API directly.
+        </Text>
+
+        {/* Flutter & Dart */}
+        <Text style={[styles.groupTitle, { marginTop: 22 }]}>Flutter & Dart</Text>
+        <Text style={styles.body}>A tiny client (just `http`) with the Bearer auth and the `{"{"}error{"}"}` envelope handled — paste it in and go. Tap any block to copy.</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_CLIENT, "Dart client")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_CLIENT}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>Realtime (live ETA, messaging presence, calls) over WebSockets:</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_WS, "Dart WebSocket")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_WS}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>Store your key in the platform keystore, never in source:</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_SECURE, "Dart secure storage")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_SECURE}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>Drop a OkaySpace post / profile / listing card into a Flutter screen (no key needed):</Text>
+        <TouchableOpacity style={styles.codeBlock} onPress={() => copy(DART_CARD, "Flutter card")} activeOpacity={0.7}>
+          <Text style={styles.codeBlockText} selectable>{DART_CARD}</Text>
+        </TouchableOpacity>
+        <Text style={[styles.body, { marginTop: 8 }]}>
+          Packages: <Text style={styles.codeInline}>http</Text> or <Text style={styles.codeInline}>dio</Text> (REST), <Text style={styles.codeInline}>web_socket_channel</Text> (realtime), <Text style={styles.codeInline}>flutter_secure_storage</Text> (keys), <Text style={styles.codeInline}>webview_flutter</Text> (embeds). For a fully-typed client, use the dart-dio codegen above.
         </Text>
 
         {/* Conventions */}
