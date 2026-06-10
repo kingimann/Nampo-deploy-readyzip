@@ -39,8 +39,8 @@ const GROUPS: Group[] = [
   {
     title: "Authentication", icon: "key",
     endpoints: [
-      { method: "POST", path: "/auth/register", desc: "Create an account. Returns a session_token + user.", body: `{"email","password","name","username"}` },
-      { method: "POST", path: "/auth/login", desc: "Log in with email or username. Returns session_token + user.", body: `{"identifier","password"}` },
+      { method: "POST", path: "/auth/register", desc: "Create an account. Returns a session_token + user.", auth: false, body: `{"email","password","name","username"}` },
+      { method: "POST", path: "/auth/login", desc: "Log in with email or username. Returns session_token + user.", auth: false, body: `{"identifier","password"}` },
       { method: "GET", path: "/auth/me", desc: "Get the current authenticated user.", auth: true },
       { method: "PATCH", path: "/auth/me", desc: "Update profile (name, bio, picture, home/work, sub_price).", auth: true, body: `{"name","bio",...}` },
       { method: "POST", path: "/auth/logout", desc: "Invalidate the current session token.", auth: true },
