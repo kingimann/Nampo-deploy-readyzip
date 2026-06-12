@@ -311,7 +311,7 @@ class TransferBody(BaseModel):
     note: Optional[str] = None
 
 
-@router.post("/stripe/transfer")
+@router.post("/stripe/transfer", response_model=StripeTransferOut)
 async def stripe_transfer(
     body: TransferBody,
     authorization: Optional[str] = Header(None),
