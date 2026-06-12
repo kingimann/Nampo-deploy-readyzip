@@ -24,18 +24,9 @@ export default function AdminPaymentsScreen() {
   const [feeCents, setFeeCents] = useState("");  // flat per-payment fee, in cents
   const [savingFees, setSavingFees] = useState(false);
   const [revenue, setRevenue] = useState<{ total: number; count: number; by_source: Record<string, number>; transfer_fees?: number; cashout_fees?: number; cashout_count?: number; total_paid_out?: number; cashout_fee?: number; transaction_fee_cents: number } | null>(null);
-  const [mobileOnly, setMobileOnly] = useState(false);
-  const [savingMobile, setSavingMobile] = useState(false);
   const [webBuild, setWebBuild] = useState<string>("");
   const [bumpingWeb, setBumpingWeb] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  const toggleMobileOnly = async () => {
-    const next = !mobileOnly; setMobileOnly(next); setSavingMobile(true);
-    try { await api.adminSetMobileOnly(next); }
-    catch (e: any) { setMobileOnly(!next); Alert.alert("Couldn't save", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
-    finally { setSavingMobile(false); }
-  };
 
   const forceWebUpdate = async () => {
     if (!(await confirm({ title: "Force web update?", message: "Every open web browser will clear its cache and reload to the latest deploy within a few minutes (mobile apps are unaffected).", confirmLabel: "Update all" }))) return;
@@ -51,7 +42,6 @@ export default function AdminPaymentsScreen() {
     try { const f = await api.adminGetFees(); setFeePct(String(f.platform_fee_percent)); setFeeCents(String(f.transaction_fee_cents)); }
     catch {}
     try { setRevenue(await api.adminGetRevenue()); } catch {}
-    try { setMobileOnly((await api.adminGetMobileOnly()).mobile_only); } catch {}
     try { setWebBuild((await api.adminGetWebBuild()).web_build); } catch {}
     setRefreshing(false);
   }, []);
@@ -134,18 +124,6 @@ export default function AdminPaymentsScreen() {
 
           <Text style={styles.section}>Access</Text>
           <View style={styles.card}>
-            <TouchableOpacity style={styles.toggleRow} onPress={toggleMobileOnly} disabled={savingMobile} testID="ap-mobile-only">
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowLabel}>Mobile only (web)</Text>
-                <Text style={styles.rowSub}>Deprecated — the web app now runs as a full website on desktop. Toggling this no longer blocks PC browsers.</Text>
-              </View>
-              {savingMobile ? <ActivityIndicator color={theme.primary} size="small" /> : (
-                <View style={[styles.switch, mobileOnly && styles.switchOn]}>
-                  <View style={[styles.knob, mobileOnly && styles.knobOn]} />
-                </View>
-              )}
-            </TouchableOpacity>
-            <View style={styles.divider} />
             <TouchableOpacity style={styles.toggleRow} onPress={forceWebUpdate} disabled={bumpingWeb} testID="ap-web-update">
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowLabel}>Force web update</Text>

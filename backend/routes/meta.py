@@ -25,21 +25,14 @@ def resolve_web_build(override: Optional[str]) -> str:
 
 @router.get("/public/app-config")
 async def public_app_config():
-    """Public client config read at app load (no auth) — the mobile-only gate and
-    the web-update kill-switch token."""
-    try:
-        doc = await db.app_settings.find_one({"key": "mobile_only"}, {"_id": 0, "value": 1})
-        # Phone-first: default ON (block desktop) when unset; an explicit admin
-        # setting (True/False) always wins.
-        mobile_only = bool(doc.get("value")) if doc else True
-    except Exception:
-        mobile_only = True
+    """Public client config read at app load (no auth) — the web-update
+    kill-switch token."""
     try:
         wb = await db.app_settings.find_one({"key": "web_build"}, {"_id": 0, "value": 1})
         web_build = resolve_web_build(wb.get("value") if wb else None)
     except Exception:
         web_build = resolve_web_build(None)
-    return {"mobile_only": mobile_only, "web_build": web_build}
+    return {"web_build": web_build}
 
 API_VERSION = "1.0.0"
 
