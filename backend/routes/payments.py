@@ -15,7 +15,7 @@ Flow:
 import os
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -173,7 +173,8 @@ def _account_supports_embedded_mgmt(acct_id: str) -> bool:
 
 
 class CheckoutCreate(BaseModel):
-    kind: str            # "tip" | "subscription" | "promote"
+    # Closed set, surfaced as an OpenAPI enum so SDKs/codegen know the valid kinds.
+    kind: Literal["tip", "subscription", "promote", "topup"]
     creator_id: Optional[str] = None
     amount: float = 0    # dollars
     post_id: Optional[str] = None          # promote
@@ -224,6 +225,32 @@ async def payments_config():
         "stripe_configured": configured,
         "test_mode": (not live),
         "test_override": test_override,
+    }
+
+
+@router.get("/capabilities")
+async def capabilities(authorization: Optional[str] = Header(None)):
+    """Runtime feature flags so a client/SDK can enable behaviour at runtime
+    instead of shipping hardcoded assumptions (old builds degrade gracefully when
+    the backend changes). Auth'd — reflects what this server can do right now."""
+    await get_current_user(authorization)
+    from services.sms import active_provider
+    configured = stripe_enabled()
+    live = configured and not await test_payments_on()
+    return {
+        "stripe_rails": configured,          # the /stripe/* Connect endpoints are usable
+        "payments_live": live,               # real charges (not simulated/test)
+        "test_mode": not live,
+        "instant_payouts": configured,       # /stripe/payout instant flag + ledger cashout
+        "checkout_kinds": ["tip", "subscription", "promote", "topup"],
+        "embedded_components": ["account_onboarding", "payouts", "account_management", "notification_banner"],
+        "idempotent_endpoints": ["/stripe/transfer", "/stripe/payout"],  # honor Idempotency-Key
+        "sms": bool(active_provider()),
+        "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
+        "platform_fee_percent": await platform_fee_percent(),
+        "transaction_fee_cents": await transaction_fee_cents(),
+        "cashout_min": MIN_CASHOUT,
+        "cashout_fee": CASHOUT_FEE,
     }
 
 

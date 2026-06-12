@@ -334,7 +334,7 @@ _INTEGRATIONS = [
 
 @router.get("/admin/integrations")
 async def admin_integrations(
-    live: int = Query(0, description="1 = run live health checks for everything (slower)"),
+    live: bool = Query(False, description="true = run live health checks for everything (slower). Accepts true/false or 1/0."),
     only: Optional[str] = Query(None, description="run the live check for just this integration key"),
     authorization: Optional[str] = Header(None),
 ):

@@ -25,6 +25,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from core import db, get_current_user
+from db import DuplicateKeyError
 from routes.payments import (
     stripe,
     stripe_enabled,
@@ -73,6 +74,54 @@ def _iso(ts) -> Optional[str]:
         return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
     except Exception:
         return None
+
+
+# --- Idempotency-Key support for money POSTs --------------------------------
+# Built on the existing unique index on payments_fulfilled.ref_id, so a client
+# that times out and retries a transfer/payout with the same Idempotency-Key
+# can't move money twice. Claim AFTER input validation and BEFORE moving money;
+# store the response on success; release the claim on failure so a genuine retry
+# isn't blocked forever.
+async def _idem_claim(scope: str, user_id: str, key: Optional[str]):
+    """Returns (ref_id, cached_response):
+      (None, None)   no key supplied — proceed without dedup
+      (ref_id, None) freshly claimed — proceed, then call _idem_store(ref_id, ...)
+      (ref_id, dict) a prior attempt's stored response — return it (replay)
+    Raises 409 if a matching attempt is still in flight (claimed, no response yet)."""
+    if not key:
+        return None, None
+    ref_id = f"idem:{scope}:{user_id}:{key}"
+    try:
+        await db.payments_fulfilled.insert_one({
+            "ref_id": ref_id, "scope": scope, "user_id": user_id,
+            "created_at": datetime.now(timezone.utc),
+        })
+        return ref_id, None
+    except DuplicateKeyError:
+        prior = await db.payments_fulfilled.find_one({"ref_id": ref_id}, {"_id": 0, "response": 1})
+        if prior and prior.get("response") is not None:
+            return ref_id, prior["response"]
+        raise HTTPException(status_code=409, detail={
+            "code": "in_progress",
+            "message": "A request with this Idempotency-Key is already being processed. Retry shortly.",
+        })
+
+
+async def _idem_store(ref_id: Optional[str], response: dict) -> dict:
+    if ref_id:
+        try:
+            await db.payments_fulfilled.update_one({"ref_id": ref_id}, {"$set": {"response": response}})
+        except Exception:
+            pass
+    return response
+
+
+async def _idem_release(ref_id: Optional[str]) -> None:
+    if ref_id:
+        try:
+            await db.payments_fulfilled.delete_one({"ref_id": ref_id})
+        except Exception:
+            pass
 
 
 def _account_public(acct: dict) -> dict:
@@ -194,7 +243,11 @@ class TransferBody(BaseModel):
 
 
 @router.post("/stripe/transfer")
-async def stripe_transfer(body: TransferBody, authorization: Optional[str] = Header(None)):
+async def stripe_transfer(
+    body: TransferBody,
+    authorization: Optional[str] = Header(None),
+    idempotency_key: Optional[str] = Header(None),
+):
     """Send money to another user. Stripe can't move funds connected→connected
     directly, so this is platform-mediated: the sender's in-app balance funds the
     move, then the platform creates a Stripe Transfer into the recipient's
@@ -222,50 +275,66 @@ async def stripe_transfer(body: TransferBody, authorization: Optional[str] = Hea
     if ((dest_acct.get("capabilities") or {}).get("transfers") != "active"):
         raise HTTPException(status_code=400, detail={"code": "recipient_not_ready", "message": "That user can't receive transfers yet — they need to finish payout setup."})
 
-    # Sender funds the move from their in-app balance. Atomic conditional debit so
-    # two concurrent sends can't both pass and overdraw (mirrors cashout).
-    debit = await db.users.update_one(
-        {"user_id": sender["user_id"], "wallet_balance": {"$gte": amount - 1e-9}},
-        {"$inc": {"wallet_balance": -amount}},
-    )
-    if getattr(debit, "matched_count", 0) != 1:
-        raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance. Top up first."})
-
-    transfer_id = str(uuid.uuid4())
+    # Claim the Idempotency-Key now that the request is valid but before any money
+    # moves — a replayed key returns the stored response instead of debiting again.
+    ref_id, cached = await _idem_claim("transfer", sender["user_id"], idempotency_key)
+    if cached is not None:
+        return cached
     try:
-        tr = stripe.Transfer.create(
-            amount=_to_minor(amount, "usd"),
-            currency="usd",
-            destination=dest,
-            metadata={"kind": "p2p_transfer", "from_user_id": sender["user_id"], "to_user_id": body.to_user_id, "ref": transfer_id},
-            idempotency_key=f"stripe-transfer-{transfer_id}",
+        # Sender funds the move from their in-app balance. Atomic conditional debit
+        # so two concurrent sends can't both pass and overdraw (mirrors cashout).
+        debit = await db.users.update_one(
+            {"user_id": sender["user_id"], "wallet_balance": {"$gte": amount - 1e-9}},
+            {"$inc": {"wallet_balance": -amount}},
         )
-    except Exception as e:
-        # Refund the sender on any failure so balances can't be lost.
-        await db.users.update_one({"user_id": sender["user_id"]}, {"$inc": {"wallet_balance": amount}})
-        raise HTTPException(status_code=400, detail={"code": "transfer_failed", "message": f"Transfer failed: {_stripe_error(e)}"})
+        if getattr(debit, "matched_count", 0) != 1:
+            raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance. Top up first."})
 
-    now = datetime.now(timezone.utc)
-    # Audit trail in a dedicated collection — deliberately NOT `earnings`, so the
-    # scheduled payout processor (which sums earnings) can't double-pay funds that
-    # already landed in the recipient's Stripe balance.
-    try:
-        await db.stripe_transfers.insert_one({
-            "id": transfer_id, "stripe_transfer_id": tr.get("id"),
-            "from_user_id": sender["user_id"], "to_user_id": body.to_user_id,
-            "amount": amount, "currency": "usd", "note": (body.note or "")[:280],
-            "created_at": now,
+        transfer_id = str(uuid.uuid4())
+        try:
+            tr = stripe.Transfer.create(
+                amount=_to_minor(amount, "usd"),
+                currency="usd",
+                destination=dest,
+                metadata={"kind": "p2p_transfer", "from_user_id": sender["user_id"], "to_user_id": body.to_user_id, "ref": transfer_id},
+                idempotency_key=idempotency_key or f"stripe-transfer-{transfer_id}",
+            )
+        except Exception as e:
+            # Refund the sender on any failure so balances can't be lost.
+            await db.users.update_one({"user_id": sender["user_id"]}, {"$inc": {"wallet_balance": amount}})
+            raise HTTPException(status_code=400, detail={"code": "transfer_failed", "message": f"Transfer failed: {_stripe_error(e)}"})
+
+        now = datetime.now(timezone.utc)
+        # Audit trail in a dedicated collection — deliberately NOT `earnings`, so the
+        # scheduled payout processor (which sums earnings) can't double-pay funds that
+        # already landed in the recipient's Stripe balance.
+        try:
+            await db.stripe_transfers.insert_one({
+                "id": transfer_id, "stripe_transfer_id": tr.get("id"),
+                "from_user_id": sender["user_id"], "to_user_id": body.to_user_id,
+                "amount": amount, "currency": "usd", "note": (body.note or "")[:280],
+                "created_at": now,
+            })
+        except Exception:
+            pass
+
+        # Defensive: never let a read failure after the money moved bubble up and
+        # trigger the claim release (which would let a retry re-debit the sender).
+        try:
+            fresh = await db.users.find_one({"user_id": sender["user_id"]}, {"_id": 0, "wallet_balance": 1})
+        except Exception:
+            fresh = None
+        return await _idem_store(ref_id, {
+            "ok": True,
+            "amount": amount,
+            "transfer_id": tr.get("id"),
+            "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2),
         })
-    except Exception:
-        pass
-
-    fresh = await db.users.find_one({"user_id": sender["user_id"]}, {"_id": 0, "wallet_balance": 1})
-    return {
-        "ok": True,
-        "amount": amount,
-        "transfer_id": tr.get("id"),
-        "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2),
-    }
+    except BaseException:
+        # The attempt failed (no money net-moved): drop the claim so a genuine
+        # retry with the same key can proceed instead of 409-ing forever.
+        await _idem_release(ref_id)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +346,11 @@ class PayoutBody(BaseModel):
 
 
 @router.post("/stripe/payout")
-async def stripe_payout(body: PayoutBody, authorization: Optional[str] = Header(None)):
+async def stripe_payout(
+    body: PayoutBody,
+    authorization: Optional[str] = Header(None),
+    idempotency_key: Optional[str] = Header(None),
+):
     """Pay the connected account's available Stripe balance out to the user's bank
     account (standard) or debit card (instant). Operates on the account's own
     balance — the Stripe-native counterpart of the ledger cash-out."""
@@ -308,38 +381,48 @@ async def stripe_payout(body: PayoutBody, authorization: Optional[str] = Header(
     if units > available:
         raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your available Stripe balance."})
 
-    payout_id = str(uuid.uuid4())
-    kwargs = {
-        "amount": units, "currency": ccy, "stripe_account": acct_id,
-        "metadata": {"kind": "stripe_payout", "user_id": user["user_id"], "ref": payout_id},
-        "idempotency_key": f"stripe-payout-{payout_id}",
-    }
-    if body.instant:
-        kwargs["method"] = "instant"
+    # Claim the Idempotency-Key before creating the payout; a replay returns the
+    # stored response. The key is also passed to Stripe so the Payout itself is
+    # deduped even if our claim is bypassed.
+    ref_id, cached = await _idem_claim("payout", user["user_id"], idempotency_key)
+    if cached is not None:
+        return cached
     try:
-        payout = stripe.Payout.create(**kwargs)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail={
-            "code": "payout_failed",
-            "message": f"Payout failed: {_stripe_error(e)}" + (" Instant payouts need an eligible debit card." if body.instant else ""),
-        })
+        payout_id = str(uuid.uuid4())
+        kwargs = {
+            "amount": units, "currency": ccy, "stripe_account": acct_id,
+            "metadata": {"kind": "stripe_payout", "user_id": user["user_id"], "ref": payout_id},
+            "idempotency_key": idempotency_key or f"stripe-payout-{payout_id}",
+        }
+        if body.instant:
+            kwargs["method"] = "instant"
+        try:
+            payout = stripe.Payout.create(**kwargs)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail={
+                "code": "payout_failed",
+                "message": f"Payout failed: {_stripe_error(e)}" + (" Instant payouts need an eligible debit card." if body.instant else ""),
+            })
 
-    amount = _from_minor(units, ccy)
-    try:
-        await db.payouts.insert_one({
-            "id": payout_id, "user_id": user["user_id"], "amount": amount, "gross": amount, "fee": 0,
-            "currency": ccy, "status": payout.get("status") or "pending",
-            "method": "instant_card" if body.instant else "standard",
-            "stripe_payout_id": payout.get("id"), "source": "stripe_balance",
-            "created_at": datetime.now(timezone.utc),
+        amount = _from_minor(units, ccy)
+        try:
+            await db.payouts.insert_one({
+                "id": payout_id, "user_id": user["user_id"], "amount": amount, "gross": amount, "fee": 0,
+                "currency": ccy, "status": payout.get("status") or "pending",
+                "method": "instant_card" if body.instant else "standard",
+                "stripe_payout_id": payout.get("id"), "source": "stripe_balance",
+                "created_at": datetime.now(timezone.utc),
+            })
+        except Exception:
+            pass
+        return await _idem_store(ref_id, {
+            "ok": True, "amount": amount, "currency": ccy.upper(),
+            "payout_id": payout.get("id"), "status": payout.get("status"),
+            "arrival_date": _iso(payout.get("arrival_date")),
         })
-    except Exception:
-        pass
-    return {
-        "ok": True, "amount": amount, "currency": ccy.upper(),
-        "payout_id": payout.get("id"), "status": payout.get("status"),
-        "arrival_date": _iso(payout.get("arrival_date")),
-    }
+    except BaseException:
+        await _idem_release(ref_id)
+        raise
 
 
 # ---------------------------------------------------------------------------
