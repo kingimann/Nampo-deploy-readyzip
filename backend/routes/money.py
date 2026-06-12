@@ -12,7 +12,7 @@ from typing import Optional
 import asyncpg
 import bcrypt
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
 from db import _to_json, DuplicateKeyError
@@ -653,7 +653,83 @@ class WalletPay(BaseModel):
     conversation_id: Optional[str] = None
 
 
-@router.post("/payments/pay-wallet")
+# --- §1 response models for the wallet surface. extra="allow" documents the
+# shape without dropping any field; union/test-mode returns keep fields optional.
+class _W(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class WalletBalanceOut(_W):
+    currency: Optional[str] = None
+    symbol: Optional[str] = None
+    name: Optional[str] = None
+    rate: Optional[float] = None
+    balance: float = 0          # canonical USD
+    display: float = 0          # in the chosen currency
+    currencies: Optional[dict] = None  # supported currencies + rates (balance endpoint)
+
+
+class TopupOut(_W):
+    # Union: hosted/embedded Stripe Checkout (live) OR an instant credit (test).
+    url: Optional[str] = None
+    id: Optional[str] = None
+    client_secret: Optional[str] = None
+    embedded: Optional[bool] = None
+    ok: Optional[bool] = None
+    simulated: Optional[bool] = None
+    balance: Optional[float] = None
+    display: Optional[float] = None
+    currency: Optional[str] = None
+    symbol: Optional[str] = None
+
+
+class TopupIntentOut(_W):
+    client_secret: str
+    publishable_key: str
+    intent_id: str
+
+
+class TopupConfirmOut(_W):
+    ok: bool = False
+    paid: bool = False
+    credited: bool = False
+    status: Optional[str] = None
+    balance: float = 0
+    display: float = 0
+    currency: Optional[str] = None
+    symbol: Optional[str] = None
+
+
+class TopupSyncOut(_W):
+    credited: float = 0
+    count: int = 0
+    balance: float = 0
+    display: float = 0
+    currency: Optional[str] = None
+    symbol: Optional[str] = None
+
+
+class TopupCancelOut(_W):
+    ok: bool
+    status: str
+    credited: Optional[bool] = None
+
+
+class PayWalletOut(_W):
+    ok: bool
+    amount: float
+    balance: float
+
+
+class ActivityOut(_W):
+    activity: list = []
+
+
+class TopupsOut(_W):
+    topups: list = []
+
+
+@router.post("/payments/pay-wallet", response_model=PayWalletOut)
 async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header(None)):
     """Pay a tip or a (first) subscription charge from the in-app wallet balance.
     Tips carry the flat transaction fee (admins exempt); subscriptions take the
@@ -751,7 +827,7 @@ async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header
     return {"ok": True, "amount": amount, "balance": await _wallet_balance(me["user_id"])}
 
 
-@router.get("/wallet/balance")
+@router.get("/wallet/balance", response_model=WalletBalanceOut)
 async def wallet_balance(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     usd = await _wallet_balance(me["user_id"])
@@ -764,7 +840,7 @@ class SetCurrency(BaseModel):
     currency: str
 
 
-@router.post("/wallet/currency")
+@router.post("/wallet/currency", response_model=WalletBalanceOut)
 async def set_currency(body: SetCurrency, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     code = normalize_currency(body.currency)
@@ -778,7 +854,7 @@ class WalletTopup(BaseModel):
     embedded: Optional[bool] = False
 
 
-@router.post("/wallet/topup")
+@router.post("/wallet/topup", response_model=TopupOut)
 async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(None)):
     """Add funds to the wallet. Uses Stripe Checkout when real payments are
     live (credited by the webhook); otherwise credits immediately (test mode)."""
@@ -822,7 +898,7 @@ async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(
     return out
 
 
-@router.post("/wallet/topup/sync")
+@router.post("/wallet/topup/sync", response_model=TopupSyncOut)
 async def wallet_topup_sync(authorization: Optional[str] = Header(None)):
     """Safety net: scan the user's recent Stripe Checkout sessions and credit any
     paid wallet top-up that wasn't recorded (e.g. a missed/late webhook).
@@ -857,7 +933,7 @@ class TopupIntent(BaseModel):
     amount: float
 
 
-@router.post("/wallet/topup/intent")
+@router.post("/wallet/topup/intent", response_model=TopupIntentOut)
 async def wallet_topup_intent(body: TopupIntent, authorization: Optional[str] = Header(None)):
     """Create a PaymentIntent for an inline (Stripe Elements) card top-up."""
     me = await get_current_user(authorization)
@@ -886,7 +962,7 @@ class IntentConfirm(BaseModel):
     intent_id: str
 
 
-@router.post("/wallet/topup/confirm-intent")
+@router.post("/wallet/topup/confirm-intent", response_model=TopupConfirmOut)
 async def wallet_topup_confirm_intent(body: IntentConfirm, authorization: Optional[str] = Header(None)):
     """Credit a top-up after the inline card payment succeeds (idempotent)."""
     me = await get_current_user(authorization)
@@ -914,7 +990,7 @@ class TopupConfirm(BaseModel):
     session_id: str
 
 
-@router.post("/wallet/topup/confirm")
+@router.post("/wallet/topup/confirm", response_model=TopupConfirmOut)
 async def wallet_topup_confirm(body: TopupConfirm, authorization: Optional[str] = Header(None)):
     """Confirm a wallet top-up right after the user returns from Stripe Checkout,
     so the balance updates even if the webhook is delayed or misconfigured.
@@ -955,7 +1031,7 @@ def _topup_view(t: dict) -> dict:
     }
 
 
-@router.post("/wallet/topup/{tid}/cancel")
+@router.post("/wallet/topup/{tid}/cancel", response_model=TopupCancelOut)
 async def cancel_topup(tid: str, authorization: Optional[str] = Header(None)):
     """Cancel a top-up that's still processing (e.g. the user left the Stripe
     page). If the payment actually went through, it's credited instead."""
@@ -987,7 +1063,7 @@ async def cancel_topup(tid: str, authorization: Optional[str] = Header(None)):
     return {"ok": True, "status": "cancelled"}
 
 
-@router.get("/wallet/activity")
+@router.get("/wallet/activity", response_model=ActivityOut)
 async def wallet_activity(authorization: Optional[str] = Header(None)):
     """One chronological feed of everything money: top-ups, cash-outs, tips and
     subscriptions (sent & received), and money transfers (incl. pending/reversed)."""
@@ -1072,7 +1148,7 @@ async def wallet_activity(authorization: Optional[str] = Header(None)):
     return {"activity": items[:120]}
 
 
-@router.get("/wallet/topups")
+@router.get("/wallet/topups", response_model=TopupsOut)
 async def list_topups(authorization: Optional[str] = Header(None)):
     """The user's wallet top-up history with status (processing/completed/failed)."""
     me = await get_current_user(authorization)
