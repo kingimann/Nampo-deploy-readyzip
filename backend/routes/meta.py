@@ -81,6 +81,67 @@ async def version():
     return {"api": "OkaySpace API", "version": API_VERSION}
 
 
+# Canonical error contract (§2). Every non-2xx reply uses the envelope below;
+# SDKs should switch on `error.code`, never on the human message. Codes never
+# change meaning once published — new behaviour gets a new code.
+_ERROR_ENVELOPE = {
+    "error": {
+        "code": "string — stable, machine-readable (switch on this)",
+        "message": "string — human-readable, may change",
+        "fields": "optional [{field, message}] — present on validation_error",
+    },
+    "detail": "deprecated mirror of `error`, kept for backwards compatibility",
+}
+
+# Default code per HTTP status (mirrors the server's error handler).
+_STATUS_CODES = {
+    400: "bad_request", 401: "unauthorized", 402: "payment_required",
+    403: "forbidden", 404: "not_found", 405: "method_not_allowed",
+    409: "conflict", 413: "payload_too_large", 415: "unsupported_media_type",
+    422: "validation_error", 429: "rate_limited", 500: "server_error",
+    502: "bad_gateway", 503: "unavailable",
+}
+
+# Domain-specific codes raised by the app, with the HTTP status each maps to.
+_ERROR_CODES = [
+    {"code": "validation_error", "http_status": 422, "domain": "request", "description": "Request body/params failed validation; see error.fields."},
+    {"code": "unauthorized", "http_status": 401, "domain": "auth", "description": "Missing or invalid credentials."},
+    {"code": "forbidden", "http_status": 403, "domain": "auth", "description": "Authenticated but not allowed."},
+    {"code": "write_not_allowed", "http_status": 403, "domain": "auth", "description": "Read-only API key used for a write; create a key with the 'write' scope."},
+    {"code": "not_found", "http_status": 404, "domain": "request", "description": "Resource does not exist."},
+    {"code": "conflict", "http_status": 409, "domain": "request", "description": "State conflict."},
+    {"code": "in_progress", "http_status": 409, "domain": "idempotency", "description": "A request with the same Idempotency-Key is still being processed; retry shortly."},
+    {"code": "rate_limited", "http_status": 429, "domain": "limits", "description": "Throttled; honor Retry-After / X-RateLimit-* headers."},
+    {"code": "quota_exceeded", "http_status": 429, "domain": "limits", "description": "API-key monthly request quota reached; buy a pack or wait for reset."},
+    {"code": "insufficient_balance", "http_status": 400, "domain": "wallet", "description": "Wallet balance doesn't cover the amount; top up first."},
+    {"code": "test_mode", "http_status": 400, "domain": "payments", "description": "Operation unavailable while test/simulated payments are on."},
+    {"code": "recipient_no_account", "http_status": 400, "domain": "payments", "description": "Transfer recipient hasn't set up payments."},
+    {"code": "recipient_not_ready", "http_status": 400, "domain": "payments", "description": "Transfer recipient can't receive yet (incomplete payout setup)."},
+    {"code": "no_account", "http_status": 400, "domain": "payments", "description": "Caller has no Stripe account; create one first."},
+    {"code": "payouts_not_ready", "http_status": 400, "domain": "payments", "description": "Finish payout onboarding before cashing out."},
+    {"code": "nothing_to_pay_out", "http_status": 400, "domain": "payments", "description": "No available balance to pay out."},
+    {"code": "transfer_failed", "http_status": 400, "domain": "payments", "description": "Stripe rejected the transfer; message has detail."},
+    {"code": "payout_failed", "http_status": 400, "domain": "payments", "description": "Stripe rejected the payout; message has detail."},
+    {"code": "stripe_account_failed", "http_status": 400, "domain": "payments", "description": "Couldn't create/fetch the Stripe Connect account."},
+]
+
+
+@router.get("/errors")
+async def error_registry():
+    """The error contract (§2): the canonical envelope and the registry of every
+    `error.code` with the HTTP status it maps to. SDKs switch on `code`."""
+    return {
+        "envelope": _ERROR_ENVELOPE,
+        "by_status": {str(k): v for k, v in _STATUS_CODES.items()},
+        "codes": _ERROR_CODES,
+        "notes": [
+            "Switch on error.code, not the human message.",
+            "Codes never change meaning once published; new behaviour gets a new code.",
+            "`detail` mirrors `error` and is deprecated.",
+        ],
+    }
+
+
 @router.get("/v1/info")
 async def info():
     """Machine-readable API overview: version, auth, conventions, capabilities."""
