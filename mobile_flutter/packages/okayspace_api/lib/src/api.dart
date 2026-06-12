@@ -215,6 +215,19 @@ class OkaySpaceApi {
       CheckoutSession.fromJson(await raw.postJson('/payments/checkout',
           body: {'kind': 'topup', 'amount': amount, 'embedded': embedded}));
 
+  /// Create a PaymentIntent for a native PaymentSheet (or inline-card) top-up.
+  /// Present [TopupIntent.clientSecret] with flutter_stripe's PaymentSheet, then
+  /// call [confirmTopupIntent] on success — that credits the wallet immediately
+  /// instead of waiting on the webhook.
+  Future<TopupIntent> createTopupIntent(double amount) async =>
+      TopupIntent.fromJson(await raw.postJson('/wallet/topup/intent', body: {'amount': amount}));
+
+  /// Credit a top-up right after the PaymentSheet succeeds (idempotent). Returns
+  /// the fresh balance and whether it was credited.
+  Future<TopupConfirm> confirmTopupIntent(String intentId) async =>
+      TopupConfirm.fromJson(
+          await raw.postJson('/wallet/topup/confirm-intent', body: {'intent_id': intentId}));
+
   /// Safety net: credit any paid top-up the webhook hasn't recorded yet. Call on
   /// wallet open / when returning from checkout. Returns how much was credited.
   Future<double> syncTopups() async {

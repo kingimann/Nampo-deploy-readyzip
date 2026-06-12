@@ -478,6 +478,47 @@ class CheckoutSession {
   final bool embedded;
 }
 
+/// A PaymentIntent for a native PaymentSheet top-up (`POST /wallet/topup/intent`).
+class TopupIntent {
+  TopupIntent.fromJson(Map<String, dynamic> j)
+      : raw = j,
+        clientSecret = str(j['client_secret']),
+        publishableKey = str(j['publishable_key']),
+        intentId = str(j['intent_id']);
+
+  final Map<String, dynamic> raw;
+  final String clientSecret;
+  final String publishableKey;
+  final String intentId;
+}
+
+/// Result of crediting a PaymentSheet top-up (`POST /wallet/topup/confirm-intent`).
+class TopupConfirm {
+  TopupConfirm.fromJson(Map<String, dynamic> j)
+      : raw = j,
+        ok = asBool(j['ok']),
+        paid = asBool(j['paid']),
+        credited = asBool(j['credited']),
+        status = asStr(j['status']),
+        balance = asDouble(j['balance']),
+        display = asDouble(j['display']),
+        symbol = asStr(j['symbol']),
+        currency = asStr(j['currency']);
+
+  final Map<String, dynamic> raw;
+  final bool ok;
+  final bool paid;
+
+  /// True when this call is the one that actually credited the wallet (the
+  /// confirm is idempotent, so a retry returns paid=true but credited=false).
+  final bool credited;
+  final String? status; // Stripe PaymentIntent status, e.g. "succeeded"
+  final double balance; // canonical USD balance
+  final double display; // balance in the user's chosen currency
+  final String? symbol;
+  final String? currency;
+}
+
 /// Onboarding/status of the caller's Stripe Connect account (`POST /stripe/account`).
 class StripeAccountStatus {
   StripeAccountStatus.fromJson(Map<String, dynamic> j)
