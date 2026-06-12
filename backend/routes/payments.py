@@ -18,7 +18,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import (
     db, get_current_user, API_PLANS, API_PLANS_BY_ID, _active_plan,
@@ -201,7 +201,38 @@ def _checkout_response(session, embedded: bool) -> dict:
     return {"url": session["url"], "id": session["id"]}
 
 
-@router.get("/payments/config")
+class PaymentsConfigOut(BaseModel):
+    # extra="allow" keeps the response forward-compatible (no field is dropped).
+    model_config = ConfigDict(extra="allow")
+    enabled: bool
+    platform_fee_percent: float
+    transaction_fee_cents: int
+    cashout_min: float
+    cashout_fee: float
+    publishable_key: str
+    stripe_configured: bool
+    test_mode: bool
+    test_override: bool
+
+
+class CapabilitiesOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    stripe_rails: bool
+    payments_live: bool
+    test_mode: bool
+    instant_payouts: bool
+    checkout_kinds: list[str]
+    embedded_components: list[str]
+    idempotent_endpoints: list[str]
+    sms: bool
+    publishable_key: str
+    platform_fee_percent: float
+    transaction_fee_cents: int
+    cashout_min: float
+    cashout_fee: float
+
+
+@router.get("/payments/config", response_model=PaymentsConfigOut)
 async def payments_config():
     """Tell the client whether real payments are available.
 
@@ -228,7 +259,7 @@ async def payments_config():
     }
 
 
-@router.get("/capabilities")
+@router.get("/capabilities", response_model=CapabilitiesOut)
 async def capabilities(authorization: Optional[str] = Header(None)):
     """Runtime feature flags so a client/SDK can enable behaviour at runtime
     instead of shipping hardcoded assumptions (old builds degrade gracefully when

@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user
 from db import DuplicateKeyError
@@ -152,10 +152,79 @@ async def _cache_account_state(user_id: str, acct: dict) -> None:
         pass
 
 
+# --- Response models (§1: declared shapes so the OpenAPI spec is complete and
+# SDK codegen produces typed clients). extra="allow" means a field is never
+# dropped from the response, so adding keys later stays backward-compatible. ---
+class _Out(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class StripeAccountOut(_Out):
+    account_id: Optional[str] = None
+    charges_enabled: bool = False
+    payouts_enabled: bool = False
+    details_submitted: bool = False
+    default_currency: Optional[str] = None
+    country: Optional[str] = None
+    onboarding_url: Optional[str] = None  # present until onboarding is complete
+
+
+class CurrencyBalanceOut(_Out):
+    currency: str
+    available: float
+    pending: float
+
+
+class StripeBalanceOut(_Out):
+    connected: bool
+    currency: str = "usd"
+    available: float = 0
+    pending: float = 0
+    by_currency: list[CurrencyBalanceOut] = []
+
+
+class StripeTransferOut(_Out):
+    ok: bool
+    amount: float
+    transfer_id: Optional[str] = None
+    balance: float  # sender's remaining in-app balance
+
+
+class StripePayoutOut(_Out):
+    ok: bool
+    amount: float
+    currency: str
+    payout_id: Optional[str] = None
+    status: Optional[str] = None
+    arrival_date: Optional[str] = None  # ISO-8601
+
+
+class BalanceTxnOut(_Out):
+    id: Optional[str] = None
+    type: Optional[str] = None         # charge | payout | transfer | payment | …
+    amount: float
+    net: float
+    fee: float
+    currency: str
+    status: Optional[str] = None       # available | pending
+    description: Optional[str] = None
+    created: Optional[str] = None       # ISO-8601
+
+
+class StripeTransactionsOut(_Out):
+    connected: bool
+    transactions: list[BalanceTxnOut] = []
+    has_more: bool = False
+
+
+class WebhookAck(_Out):
+    received: bool
+
+
 # ---------------------------------------------------------------------------
 # 1. POST /stripe/account — create/fetch the Express account + onboarding link
 # ---------------------------------------------------------------------------
-@router.post("/stripe/account")
+@router.post("/stripe/account", response_model=StripeAccountOut)
 async def stripe_account(authorization: Optional[str] = Header(None)):
     """Create (or reuse) the caller's Stripe Connect account and return its
     status plus a hosted onboarding link to finish (or update) setup."""
@@ -194,7 +263,7 @@ def _web() -> str:
 # ---------------------------------------------------------------------------
 # 2. GET /stripe/balance — the connected account's balance (replaces the ledger)
 # ---------------------------------------------------------------------------
-@router.get("/stripe/balance")
+@router.get("/stripe/balance", response_model=StripeBalanceOut)
 async def stripe_balance(authorization: Optional[str] = Header(None)):
     """The caller's spendable + pending Stripe balance. Returns `connected: false`
     (zeros) when they haven't started onboarding yet."""
@@ -345,7 +414,7 @@ class PayoutBody(BaseModel):
     instant: bool = False            # instant payout to an eligible debit card (else standard)
 
 
-@router.post("/stripe/payout")
+@router.post("/stripe/payout", response_model=StripePayoutOut)
 async def stripe_payout(
     body: PayoutBody,
     authorization: Optional[str] = Header(None),
@@ -428,7 +497,7 @@ async def stripe_payout(
 # ---------------------------------------------------------------------------
 # 5. GET /stripe/transactions — the account's balance-transaction history
 # ---------------------------------------------------------------------------
-@router.get("/stripe/transactions")
+@router.get("/stripe/transactions", response_model=StripeTransactionsOut)
 async def stripe_transactions(
     limit: int = 25,
     starting_after: Optional[str] = None,
@@ -476,7 +545,7 @@ async def _user_for_account(acct_id: Optional[str], meta_user_id: Optional[str])
     return None
 
 
-@router.post("/stripe/webhook")
+@router.post("/stripe/webhook", response_model=WebhookAck)
 async def stripe_connect_webhook(request: Request):
     """Connect webhook: keep cached onboarding flags and payout records in sync.
 
