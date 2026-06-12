@@ -202,6 +202,45 @@ class OkaySpaceApi {
   Future<WalletBalance> getWalletBalance() async =>
       WalletBalance.fromJson(await raw.getJson('/wallet/balance'));
 
+  // ---------------------------------------------------------------------------
+  // Stripe-native wallet (Stripe Connect) — POST /stripe/* + GET /stripe/*.
+  // The connected-account balance is the wallet; balances and history are read
+  // live from Stripe. All require Stripe to be configured server-side (else 503).
+  // ---------------------------------------------------------------------------
+
+  /// Create (or fetch) the caller's Stripe Connect account. Returns its status
+  /// and, until onboarding is complete, an `onboardingUrl` to open.
+  Future<StripeAccountStatus> stripeAccount() async =>
+      StripeAccountStatus.fromJson(await raw.postJson('/stripe/account'));
+
+  /// The connected account's available + pending Stripe balance.
+  Future<StripeBalance> stripeBalance() async =>
+      StripeBalance.fromJson(await raw.getJson('/stripe/balance'));
+
+  /// Send money to another user (platform-mediated: funded from the sender's
+  /// in-app balance, paid into the recipient's Stripe account).
+  Future<StripeTransferResult> stripeTransfer({
+    required String toUserId,
+    required double amount,
+    String? note,
+  }) async =>
+      StripeTransferResult.fromJson(await raw.postJson('/stripe/transfer',
+          body: {'to_user_id': toUserId, 'amount': amount, if (note != null) 'note': note}));
+
+  /// Cash the Stripe balance out to the user's bank (standard) or debit card
+  /// (`instant: true`). Omit [amount] to pay out the full available balance.
+  Future<StripePayoutResult> stripePayout({double? amount, bool instant = false}) async =>
+      StripePayoutResult.fromJson(await raw.postJson('/stripe/payout',
+          body: {if (amount != null) 'amount': amount, 'instant': instant}));
+
+  /// The account's Stripe balance-transaction history. Page with [startingAfter]
+  /// (pass the last txn id from the previous page while [StripeTxnPage.hasMore]).
+  Future<StripeTxnPage> stripeTransactions({int limit = 25, String? startingAfter}) async {
+    final q = StringBuffer('/stripe/transactions?limit=$limit');
+    if (startingAfter != null) q.write('&starting_after=${Uri.encodeComponent(startingAfter)}');
+    return StripeTxnPage.fromJson(await raw.getJson(q.toString()));
+  }
+
   Future<List<LeaderboardEntry>> pointsLeaderboard() async {
     final r = await raw.getJson('/points/leaderboard');
     return (r['leaders'] as List)

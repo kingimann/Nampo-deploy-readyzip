@@ -456,6 +456,139 @@ class WalletBalance {
   final String? currency;
 }
 
+/// Onboarding/status of the caller's Stripe Connect account (`POST /stripe/account`).
+class StripeAccountStatus {
+  StripeAccountStatus.fromJson(Map<String, dynamic> j)
+      : raw = j,
+        accountId = asStr(j['account_id']),
+        chargesEnabled = asBool(j['charges_enabled']),
+        payoutsEnabled = asBool(j['payouts_enabled']),
+        detailsSubmitted = asBool(j['details_submitted']),
+        defaultCurrency = asStr(j['default_currency']),
+        country = asStr(j['country']),
+        onboardingUrl = asStr(j['onboarding_url']);
+
+  final Map<String, dynamic> raw;
+  final String? accountId;
+  final bool chargesEnabled;
+  final bool payoutsEnabled;
+  final bool detailsSubmitted;
+  final String? defaultCurrency;
+  final String? country;
+
+  /// Hosted onboarding link to finish (or update) setup. Null once the account
+  /// is fully onboarded (payouts enabled + details submitted).
+  final String? onboardingUrl;
+
+  /// Ready to send/receive and cash out.
+  bool get ready => payoutsEnabled && detailsSubmitted;
+}
+
+/// A per-currency available/pending pair from `GET /stripe/balance`.
+class StripeCurrencyBalance {
+  StripeCurrencyBalance.fromJson(Map<String, dynamic> j)
+      : currency = str(j['currency']),
+        available = asDouble(j['available']),
+        pending = asDouble(j['pending']);
+
+  final String currency;
+  final double available;
+  final double pending;
+}
+
+/// The connected account's Stripe balance (`GET /stripe/balance`) — the
+/// Stripe-native wallet balance.
+class StripeBalance {
+  StripeBalance.fromJson(Map<String, dynamic> j)
+      : raw = j,
+        connected = asBool(j['connected']),
+        currency = str(j['currency'], 'usd'),
+        available = asDouble(j['available']),
+        pending = asDouble(j['pending']),
+        byCurrency = asList(j['by_currency'], (e) => StripeCurrencyBalance.fromJson(asMap(e)));
+
+  final Map<String, dynamic> raw;
+
+  /// False when the user hasn't started Stripe onboarding (all amounts are 0).
+  final bool connected;
+  final String currency;
+  final double available;
+  final double pending;
+  final List<StripeCurrencyBalance> byCurrency;
+}
+
+/// One Stripe balance transaction from `GET /stripe/transactions`.
+class StripeTxn {
+  StripeTxn.fromJson(Map<String, dynamic> j)
+      : raw = j,
+        id = str(j['id']),
+        type = str(j['type']),
+        amount = asDouble(j['amount']),
+        net = asDouble(j['net']),
+        fee = asDouble(j['fee']),
+        currency = str(j['currency'], 'usd'),
+        status = asStr(j['status']),
+        description = asStr(j['description']),
+        created = asStr(j['created']);
+
+  final Map<String, dynamic> raw;
+  final String id;
+
+  /// charge | payout | transfer | payment | … (Stripe balance-transaction type).
+  final String type;
+  final double amount;
+  final double net;
+  final double fee;
+  final String currency;
+  final String? status; // available | pending
+  final String? description;
+  final String? created; // ISO-8601
+}
+
+/// A page of Stripe transactions plus the cursor flag for `starting_after`.
+class StripeTxnPage {
+  StripeTxnPage.fromJson(Map<String, dynamic> j)
+      : connected = asBool(j['connected']),
+        transactions = asList(j['transactions'], (e) => StripeTxn.fromJson(asMap(e))),
+        hasMore = asBool(j['has_more']);
+
+  final bool connected;
+  final List<StripeTxn> transactions;
+  final bool hasMore;
+}
+
+/// Result of `POST /stripe/transfer` (platform-mediated user→user send).
+class StripeTransferResult {
+  StripeTransferResult.fromJson(Map<String, dynamic> j)
+      : ok = asBool(j['ok']),
+        amount = asDouble(j['amount']),
+        transferId = asStr(j['transfer_id']),
+        balance = asDouble(j['balance']); // sender's remaining in-app balance
+
+  final bool ok;
+  final double amount;
+  final String? transferId;
+  final double balance;
+}
+
+/// Result of `POST /stripe/payout` (cash the Stripe balance out).
+class StripePayoutResult {
+  StripePayoutResult.fromJson(Map<String, dynamic> j)
+      : ok = asBool(j['ok']),
+        amount = asDouble(j['amount']),
+        currency = str(j['currency'], 'USD'),
+        payoutId = asStr(j['payout_id']),
+        status = asStr(j['status']),
+        arrivalDate = asStr(j['arrival_date']);
+
+  final bool ok;
+  final double amount;
+  final String currency;
+  final String? payoutId;
+  final String? status;
+  final String? arrivalDate; // ISO-8601
+}
+
 class LeaderboardEntry {
   LeaderboardEntry.fromJson(Map<String, dynamic> j)
       : raw = j,

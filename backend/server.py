@@ -33,6 +33,7 @@ from routes import (
     oauth as oauth_routes,
     payments as payments_routes,
     payouts as payouts_routes,
+    stripe_connect as stripe_connect_routes,
     places as places_routes,
     posts as posts_routes,
     circles as circles_routes,
@@ -281,6 +282,7 @@ def _register(parent: APIRouter):
     parent.include_router(fsq_routes.router, tags=["Foursquare"])
     parent.include_router(stories_routes.router, tags=["Stories"])
     parent.include_router(payments_routes.router, tags=["Payments"])
+    parent.include_router(stripe_connect_routes.router, tags=["Stripe"])
     parent.include_router(webhooks_routes.router, tags=["Webhooks"])
     parent.include_router(ads_routes.router, tags=["Ads"])
     parent.include_router(adnetwork_routes.router, tags=["Ad Network"])
