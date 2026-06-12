@@ -121,6 +121,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Cache CORS preflights for a day so the web app doesn't pay an OPTIONS
+    # round-trip before every Authorization'd request (was the 10-minute default).
+    max_age=86400,
 )
 
 logging.basicConfig(
@@ -220,6 +223,24 @@ async def idempotency(request: _Req, call_next):
         _IDEMP[ck] = {"status": resp.status_code, "body": body, "headers": headers, "ts": now}
         return _Resp(content=body, status_code=resp.status_code, headers=headers,
                      background=getattr(resp, "background", None))
+    return resp
+
+
+# ── Legacy /api deprecation signalling ───────────────────────────────────────
+# `/api/v1` is the stable base; the unversioned `/api` alias is deprecated. Tell
+# clients so on every legacy response (RFC 8594 Deprecation/Sunset + a Link to
+# the successor). The sunset date is overridable via env before it's enforced.
+LEGACY_API_SUNSET = os.environ.get("LEGACY_API_SUNSET", "Wed, 31 Dec 2026 23:59:59 GMT")
+
+
+@app.middleware("http")
+async def legacy_api_deprecation(request: _Req, call_next):
+    resp = await call_next(request)
+    path = request.url.path
+    if path.startswith("/api/") and not path.startswith("/api/v1"):
+        resp.headers["Deprecation"] = "true"
+        resp.headers["Sunset"] = LEGACY_API_SUNSET
+        resp.headers["Link"] = '</api/v1>; rel="successor-version"'
     return resp
 
 
