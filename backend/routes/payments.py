@@ -1445,21 +1445,6 @@ class ToggleBody(BaseModel):
     enabled: bool
 
 
-@router.get("/admin/mobile-only")
-async def admin_get_mobile_only(authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
-    _admin_only(me)
-    return {"mobile_only": bool(await _setting("mobile_only", True))}
-
-
-@router.post("/admin/mobile-only")
-async def admin_set_mobile_only(body: ToggleBody, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
-    _admin_only(me)
-    await _set_setting("mobile_only", bool(body.enabled))
-    return {"mobile_only": bool(body.enabled)}
-
-
 class WebBuildBody(BaseModel):
     build: Optional[str] = None   # explicit token; blank → auto-bump to a timestamp
 
