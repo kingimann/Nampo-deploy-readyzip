@@ -216,14 +216,19 @@ async def transit_nearby(
         stops_raw = (resp.json() or {}).get("stops") or []
         # Nearest first (TransitLand returns a distance when lat/lon given).
         stops_raw.sort(key=lambda s: s.get("distance", 1e9) if isinstance(s.get("distance"), (int, float)) else 1e9)
-        stop_list = [
-            {
+        stop_list = []
+        for s in stops_raw:
+            if not s.get("onestop_id"):
+                continue
+            lon, lat = _stop_coords(s)
+            stop_list.append({
                 "name": s.get("stop_name") or s.get("name") or "Stop",
                 "onestop_id": s.get("onestop_id"),
                 "distance": s.get("distance"),
-            }
-            for s in stops_raw if s.get("onestop_id")
-        ]
+                # Coordinates so the client can actually place the stop pin.
+                "lat": lat,
+                "lon": lon,
+            })
 
         # Fetch departures for the closest few stops concurrently.
         near_stops = stop_list[:6]
