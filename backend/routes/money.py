@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from core import (
     db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt,
     MONEY_MAX_TOPUP, MONEY_MAX_SEND, SEND_MAX_PER_HOUR, SEND_MAX_PER_DAY, TOPUP_MAX_PENDING,
+    NEW_ACCOUNT_DAYS, NEW_ACCOUNT_SEND_PER_HOUR, NEW_ACCOUNT_SEND_PER_DAY,
 )
 from db import _to_json, DuplicateKeyError
 
@@ -158,15 +159,27 @@ def _money_amount(amount, cap: Optional[float] = None) -> float:
 # ── Velocity limits (per user) — server-enforced anti-abuse ─────────────────
 async def enforce_send_velocity(uid: str, amount: float):
     """Cap how fast/much a user can send: SEND_MAX_PER_HOUR sends/hour and
-    SEND_MAX_PER_DAY total per 24h, across ledger + Stripe transfers. 429 on hit."""
+    SEND_MAX_PER_DAY total per 24h, across ledger + Stripe transfers. Brand-new,
+    un-verified accounts get tighter limits for their first NEW_ACCOUNT_DAYS days.
+    429 on hit."""
     now = datetime.now(timezone.utc)
     hr, day = now - timedelta(hours=1), now - timedelta(days=1)
+    # Tighter limits for a new, un-verified account (slows down throwaway-account abuse).
+    per_hour, per_day = SEND_MAX_PER_HOUR, SEND_MAX_PER_DAY
+    u = await db.users.find_one({"user_id": uid}, {"_id": 0, "created_at": 1, "id_verified": 1})
+    if u and not u.get("id_verified"):
+        try:
+            age_days = (now - _norm_dt(u.get("created_at"))).days
+        except Exception:
+            age_days = NEW_ACCOUNT_DAYS
+        if age_days < NEW_ACCOUNT_DAYS:
+            per_hour, per_day = NEW_ACCOUNT_SEND_PER_HOUR, NEW_ACCOUNT_SEND_PER_DAY
     n = await db.money_transfers.count_documents({"from_user_id": uid, "created_at": {"$gte": hr}})
     try:
         n += await db.stripe_transfers.count_documents({"from_user_id": uid, "created_at": {"$gte": hr}})
     except Exception:
         pass
-    if n >= SEND_MAX_PER_HOUR:
+    if n >= per_hour:
         raise HTTPException(status_code=429, detail={"code": "rate_limited", "message": "Too many transfers in the last hour. Try again later."}, headers={"Retry-After": "3600"})
     rows = await db.money_transfers.find({"from_user_id": uid, "created_at": {"$gte": day}}, {"_id": 0, "amount": 1}).to_list(2000)
     try:
@@ -174,8 +187,8 @@ async def enforce_send_velocity(uid: str, amount: float):
     except Exception:
         pass
     spent = sum(float(r.get("amount", 0) or 0) for r in rows)
-    if spent + amount > SEND_MAX_PER_DAY + 1e-9:
-        raise HTTPException(status_code=429, detail={"code": "daily_limit", "message": f"You've reached the ${SEND_MAX_PER_DAY:,.0f} daily transfer limit."}, headers={"Retry-After": "86400"})
+    if spent + amount > per_day + 1e-9:
+        raise HTTPException(status_code=429, detail={"code": "daily_limit", "message": f"You've reached your ${per_day:,.0f} daily transfer limit."}, headers={"Retry-After": "86400"})
 
 
 async def enforce_topup_pending(uid: str):

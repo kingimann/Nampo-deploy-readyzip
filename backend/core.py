@@ -259,6 +259,11 @@ SEND_MAX_PER_HOUR = int(os.environ.get("SEND_MAX_PER_HOUR", "10") or 10)
 SEND_MAX_PER_DAY = float(os.environ.get("SEND_MAX_PER_DAY", "2000") or 2000)   # $/24h across sends
 CASHOUT_MAX_PER_DAY = int(os.environ.get("CASHOUT_MAX_PER_DAY", "2") or 2)
 TOPUP_MAX_PENDING = int(os.environ.get("TOPUP_MAX_PENDING", "5") or 5)
+
+# New, un-verified accounts get tighter send limits for their first few days.
+NEW_ACCOUNT_DAYS = int(os.environ.get("NEW_ACCOUNT_DAYS", "7") or 7)
+NEW_ACCOUNT_SEND_PER_HOUR = int(os.environ.get("NEW_ACCOUNT_SEND_PER_HOUR", "3") or 3)
+NEW_ACCOUNT_SEND_PER_DAY = float(os.environ.get("NEW_ACCOUNT_SEND_PER_DAY", "200") or 200)
 MIN_ACCOUNT_AGE_DAYS = MARKETPLACE_MIN_AGE_DAYS  # back-compat default
 
 
