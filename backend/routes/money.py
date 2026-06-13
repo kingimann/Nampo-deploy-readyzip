@@ -101,6 +101,7 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
             await _credit_wallet(uid, amount)
             await record_money_event("topup", uid, amount, ref_id=session_id,
                                      status="completed", meta={"source": source})
+            await _notify_topup(uid, amount)
             return True
         # Nothing flipped: either it was already 'completed' (a concurrent caller
         # won — skip) or there's no record for this session yet (credit fresh).
@@ -124,11 +125,13 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
         await _credit_wallet(uid, amount)
         await record_money_event("topup", uid, amount, ref_id=session_id,
                                  status="completed", meta={"source": source})
+        await _notify_topup(uid, amount)
         return True
     await _credit_wallet(uid, amount)
     await db.wallet_topups.insert_one(record)
     await record_money_event("topup", uid, amount, ref_id=record["id"],
                              status="completed", meta={"source": source})
+    await _notify_topup(uid, amount)
     return True
 
 
@@ -233,30 +236,105 @@ async def enforce_topup_pending(uid: str):
         raise HTTPException(status_code=429, detail={"code": "too_many_pending", "message": "You have too many pending top-ups. Finish or cancel one before starting another."})
 
 
+async def record_money_alert(kind: str, *, user_id: Optional[str] = None,
+                             dedupe: bool = True, **fields) -> bool:
+    """Append a money-integrity alert to db.money_alerts so it surfaces on the
+    admin /admin/money-alerts dashboard. With `dedupe` (the default for scanned
+    anomalies), an existing UNRESOLVED alert of the same (kind, user_id) is not
+    re-inserted, so a recurring condition shows as one open alert rather than a
+    flood. Discrete events (e.g. an admin money action) pass dedupe=False so each
+    occurrence is recorded. Best-effort — alerting must never break the money
+    path, so it never raises. Returns True if a new alert was written."""
+    try:
+        if dedupe:
+            q: dict = {"kind": kind, "resolved": {"$ne": True}}
+            if user_id is not None:
+                q["user_id"] = user_id
+            if await db.money_alerts.find_one(q, {"_id": 0, "id": 1}):
+                return False
+        await db.money_alerts.insert_one({
+            "id": str(uuid.uuid4()), "kind": kind, "user_id": user_id,
+            "created_at": datetime.now(timezone.utc), "resolved": False,
+            **fields,
+        })
+        return True
+    except Exception:
+        return False
+
+
 async def scan_money_anomalies() -> dict:
-    """Money-integrity tripwire (run hourly): flag any NEGATIVE wallet balance.
-    The atomic conditional debits should make that impossible, so a hit means a
-    bug or abuse — record it to db.money_alerts (deduped while unresolved) so it
-    surfaces on the admin alerts endpoint. Best-effort; never raises."""
+    """Money-integrity tripwire (run hourly). Flags three anomaly classes to
+    db.money_alerts (deduped while unresolved) so they surface on the admin
+    alerts endpoint. Best-effort; never raises.
+
+      negative_balance  — any wallet below zero. The atomic conditional debits
+                          should make this impossible, so a hit means a bug or
+                          a bypass of the server-side guards.
+      velocity_spike    — a user whose sends in the last hour exceed the hourly
+                          cap. Enforcement rejects at the cap, so exceeding it
+                          means the velocity guard was bypassed.
+      unbacked_credit   — a completed wallet top-up that carries no Stripe
+                          session id and wasn't a manual admin credit, i.e. a
+                          balance credit with no matching Stripe event to
+                          reconcile against."""
+    now = datetime.now(timezone.utc)
     flagged = 0
+
+    # 1) Negative balances.
     try:
         rows = await db.users.find({"wallet_balance": {"$lt": -0.001}}, {"_id": 0, "user_id": 1, "wallet_balance": 1}).to_list(1000)
     except Exception:
-        return {"flagged": 0}
+        rows = []
     for u in rows:
-        uid = u.get("user_id")
-        try:
-            dup = await db.money_alerts.find_one({"kind": "negative_balance", "user_id": uid, "resolved": {"$ne": True}}, {"_id": 0, "id": 1})
-            if dup:
-                continue
-            await db.money_alerts.insert_one({
-                "id": str(uuid.uuid4()), "kind": "negative_balance", "user_id": uid,
-                "balance": round(float(u.get("wallet_balance", 0) or 0), 2),
-                "created_at": datetime.now(timezone.utc), "resolved": False,
-            })
+        if await record_money_alert("negative_balance", user_id=u.get("user_id"),
+                                    balance=round(float(u.get("wallet_balance", 0) or 0), 2)):
             flagged += 1
+
+    # 2) Velocity spikes: more sends in the last hour than the hourly cap allows.
+    hr = now - timedelta(hours=1)
+    counts: dict = {}
+    for coll in ("money_transfers", "stripe_transfers"):
+        try:
+            sent = await getattr(db, coll).find({"created_at": {"$gte": hr}}, {"_id": 0, "from_user_id": 1}).to_list(5000)
         except Exception:
+            sent = []
+        for r in sent:
+            fid = r.get("from_user_id")
+            if fid:
+                counts[fid] = counts.get(fid, 0) + 1
+    for uid, n in counts.items():
+        if n > SEND_MAX_PER_HOUR:
+            if await record_money_alert("velocity_spike", user_id=uid, count=n,
+                                        window="1h", limit=SEND_MAX_PER_HOUR):
+                flagged += 1
+
+    # 3) Credits with no matching Stripe event: a completed top-up with no Stripe
+    # session id that isn't a manual admin credit (admin top-ups are audited
+    # separately and are expected to have a null session_id).
+    try:
+        topups = await db.wallet_topups.find(
+            {"status": "completed", "session_id": None},
+            {"_id": 0, "id": 1, "user_id": 1, "amount": 1, "source": 1},
+        ).to_list(2000)
+    except Exception:
+        topups = []
+    for t in topups:
+        if (t.get("source") or "") == "admin":
             continue
+        # Dedupe per top-up id so each unbacked credit is flagged once.
+        try:
+            dup = await db.money_alerts.find_one(
+                {"kind": "unbacked_credit", "ref_id": t.get("id"), "resolved": {"$ne": True}},
+                {"_id": 0, "id": 1})
+        except Exception:
+            dup = None
+        if dup:
+            continue
+        if await record_money_alert("unbacked_credit", user_id=t.get("user_id"), dedupe=False,
+                                    ref_id=t.get("id"), amount=round(float(t.get("amount", 0) or 0), 2),
+                                    source=t.get("source")):
+            flagged += 1
+
     return {"flagged": flagged}
 
 
@@ -389,6 +467,13 @@ async def _notify_money(to_id: str, actor_id: str, ntype: str, message: str):
         await emit_notification(user_id=to_id, actor_id=actor_id, ntype=ntype, message=message)
     except Exception:
         pass
+
+
+async def _notify_topup(uid: str, amount: float):
+    """Tell the user their wallet top-up credited (in-app + push, and a
+    `wallet_topup` developer webhook via emit_notification's fan-out). Best-effort
+    — a notification failure must never undo or block the credit."""
+    await _notify_money(uid, None, "wallet_topup", f"${round(float(amount or 0), 2):.2f} added to your wallet")
 
 
 # ── Security question (sender's secret) ──────────────────────────────────────
@@ -1474,8 +1559,10 @@ async def list_topups(me: dict = Depends(get_current_user)):
 
 @router.get("/admin/money-alerts", response_model=MoneyAlertsOut)
 async def admin_money_alerts(me: dict = Depends(get_current_user)):
-    """Money-integrity anomalies (admin only) — e.g. negative balances flagged by
-    the hourly scan. `open` counts unresolved alerts."""
+    """Money-integrity anomalies (admin only): negative balances, velocity spikes
+    and unbacked credits flagged by the hourly scan, plus admin money actions
+    (direct wallet edits / injected transactions). `open` counts unresolved
+    alerts."""
     if not is_admin(me):
         raise HTTPException(status_code=403, detail="Admins only")
     rows = await db.money_alerts.find({}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
