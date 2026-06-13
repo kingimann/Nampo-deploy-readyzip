@@ -255,6 +255,9 @@ class PayoutStatusOut(_MoneyOut):
     details_submitted: bool = False
     charges_enabled: bool = False
     id_verified: bool = False
+    wallet_balance: float = 0          # in-app ledger balance (USD)
+    stripe_available: float = 0        # connected-account available balance
+    stripe_pending: float = 0          # connected-account pending balance
     hold_until: Optional[str] = None          # ISO-8601, or null
     has_external_account: bool = False
     has_debit_card: bool = False
@@ -299,6 +302,7 @@ class CashoutOut(_MoneyOut):
     fee: float
     currency: str
     local_amount: float                         # amount in the account's settlement currency
+    arrival_date: Optional[int] = None          # unix; when the cash-out should land
     balance: float                              # remaining wallet balance
 
 
@@ -434,10 +438,26 @@ async def payouts_status(_auth_user: dict = Depends(get_current_user)):
         except Exception:
             platform = None
 
+    # Balance snapshot so the Cash out screen has everything in one round-trip
+    # (the in-app ledger balance + the connected-account Stripe balance).
+    wallet_balance = round(float(user.get("wallet_balance", 0) or 0), 2)
+    stripe_available = 0.0
+    stripe_pending = 0.0
+    try:
+        _ccy = (acct.get("default_currency") or "usd").lower()
+        _bal = stripe.Balance.retrieve(stripe_account=acct_id)
+        stripe_available = round(sum(int(r.get("amount") or 0) for r in (_bal.get("available") or []) if (r.get("currency") or "").lower() == _ccy) / 100.0, 2)
+        stripe_pending = round(sum(int(r.get("amount") or 0) for r in (_bal.get("pending") or []) if (r.get("currency") or "").lower() == _ccy) / 100.0, 2)
+    except Exception:
+        pass
+
     return {
         "enabled": True,
         "connected": True,
         "payouts_enabled": payouts_enabled,
+        "wallet_balance": wallet_balance,
+        "stripe_available": stripe_available,
+        "stripe_pending": stripe_pending,
         "id_verified": id_verified,
         "hold_until": (lambda h: h.isoformat() if h else None)(payout_hold_until(user)),
         "charges_enabled": bool(acct.get("charges_enabled")),
@@ -589,6 +609,7 @@ async def cashout_to_card(body: CashoutBody, _auth_user: dict = Depends(get_curr
     return {
         "ok": True, "amount": net, "gross": amount, "fee": CASHOUT_FEE,
         "currency": acct_ccy.upper(), "local_amount": local_amount,
+        "arrival_date": (payout or {}).get("arrival_date"),  # unix; app shows "Arrives by …"
         "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2),
     }
 
