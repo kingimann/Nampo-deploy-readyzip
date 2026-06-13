@@ -15,6 +15,7 @@ import { ConfirmProvider } from "@/src/context/ConfirmContext";
 import { NavHistoryProvider } from "@/src/context/NavHistoryContext";
 import EdgeSwipe from "@/src/components/EdgeSwipe";
 import WebNavGuard from "@/src/components/WebNavGuard";
+import MobileWebGate from "@/src/components/MobileWebGate";
 import MobileFrame from "@/src/components/MobileFrame";
 import DesktopShell from "@/src/components/DesktopShell";
 import WebPullToRefresh from "@/src/components/WebPullToRefresh";
@@ -167,6 +168,7 @@ export default function RootLayout() {
                 <ConfirmProvider>
                   <NavHistoryProvider>
                     <WebNavGuard />
+                    <MobileWebGate>
                     <StatusBar style="light" />
                       <WebPullToRefresh />
                       <MobileFrame>
@@ -187,6 +189,7 @@ export default function RootLayout() {
                       </MobileFrame>
                       <PushManager />
                       <AuthRedirect />
+                    </MobileWebGate>
                   </NavHistoryProvider>
                 </ConfirmProvider>
               </SidebarMenuProvider>
