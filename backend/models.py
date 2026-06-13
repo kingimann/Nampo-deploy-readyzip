@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class User(BaseModel):
@@ -141,6 +141,21 @@ class AdminUserPatch(BaseModel):
 class AuthResponse(BaseModel):
     session_token: str
     user: User
+
+
+class LoginResultOut(BaseModel):
+    """`/auth/login` returns one of two shapes, so the spec documents both (and
+    extra="allow" keeps any extra field rather than dropping it):
+      • success     → session_token + user
+      • 2FA needed  → twofa_required + identifier + masked_phone + sent
+    Declaring session_token here means the app stops key-probing the token."""
+    model_config = ConfigDict(extra="allow")
+    session_token: Optional[str] = None
+    user: Optional[User] = None
+    twofa_required: Optional[bool] = None
+    identifier: Optional[str] = None
+    masked_phone: Optional[str] = None
+    sent: Optional[bool] = None
 
 
 class ProfilePatch(BaseModel):

@@ -353,6 +353,10 @@ class MobileGateOut(_MoneyOut):
     mobile_web_gate: bool = False
 
 
+class MobileOnlyOut(_MoneyOut):
+    mobile_only: bool = False
+
+
 class TestPaymentsOut(_MoneyOut):
     test_payments: bool = False
 
@@ -1937,6 +1941,22 @@ async def admin_set_mobile_web_gate(body: ToggleBody, _auth_user: dict = Depends
     _admin_only(_auth_user)
     await _set_setting("mobile_web_gate", bool(body.enabled))
     return {"mobile_web_gate": bool(body.enabled)}
+
+
+@router.get("/admin/mobile-only", response_model=MobileOnlyOut)
+async def admin_get_mobile_only(_auth_user: dict = Depends(get_current_user)):
+    """Whether the app is mobile-only (desktop/PC access is gated). Distinct from
+    the mobile-web gate: this blocks PC use entirely. Default off."""
+    _admin_only(_auth_user)
+    return {"mobile_only": bool(await _setting("mobile_only", False))}
+
+
+@router.post("/admin/mobile-only", response_model=MobileOnlyOut)
+async def admin_set_mobile_only(body: ToggleBody, _auth_user: dict = Depends(get_current_user)):
+    """Turn the PC gate on/off without a redeploy."""
+    _admin_only(_auth_user)
+    await _set_setting("mobile_only", bool(body.enabled))
+    return {"mobile_only": bool(body.enabled)}
 
 
 class WebBuildBody(BaseModel):

@@ -14,6 +14,7 @@ class AppConfigOut(BaseModel):
     model_config = ConfigDict(extra="allow")
     web_build: str = ""
     mobile_web_gate: bool = True
+    mobile_only: bool = False
     registration_mode: str = "open"
 
 
@@ -73,12 +74,19 @@ async def public_app_config():
     except Exception:
         mobile_web_gate = True
     try:
+        modoc = await db.app_settings.find_one({"key": "mobile_only"}, {"_id": 0, "value": 1})
+        # Default OFF: desktop/PC access stays open unless an admin enables the gate.
+        mobile_only = bool(modoc.get("value")) if modoc and modoc.get("value") is not None else False
+    except Exception:
+        mobile_only = False
+    try:
         rdoc = await db.app_settings.find_one({"key": "registration_mode"}, {"_id": 0, "value": 1})
         rmode = (rdoc or {}).get("value")
         registration_mode = rmode if rmode in ("open", "invite", "closed") else "open"
     except Exception:
         registration_mode = "open"
-    return {"web_build": web_build, "mobile_web_gate": mobile_web_gate, "registration_mode": registration_mode}
+    return {"web_build": web_build, "mobile_web_gate": mobile_web_gate,
+            "mobile_only": mobile_only, "registration_mode": registration_mode}
 
 API_VERSION = "1.0.0"
 
