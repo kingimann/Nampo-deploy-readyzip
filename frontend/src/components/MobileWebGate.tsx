@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable, Linking, Platform } from "react-native";
 import { theme } from "@/src/theme";
+import { api } from "@/src/api/client";
 
 /**
  * Mobile-web gate: phone browsers get an "open the app" wall, while desktop web
@@ -58,10 +59,14 @@ function MobileWebBlockedScreen() {
 }
 
 export default function MobileWebGate({ children }: { children: React.ReactNode }) {
-  const [blocked, setBlocked] = React.useState<boolean>(isMobileWeb);
+  const [onPhone, setOnPhone] = React.useState<boolean>(isMobileWeb);
+  // Admin kill-switch (default ON). Read from public app-config so the gate can be
+  // turned off without a redeploy; until it loads we assume ON so the default holds.
+  const [gateEnabled, setGateEnabled] = React.useState<boolean>(true);
+
   React.useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined") return;
-    const recompute = () => setBlocked((prev) => {
+    const recompute = () => setOnPhone((prev) => {
       const next = isMobileWeb();
       return prev === next ? prev : next; // only re-render when it actually flips
     });
@@ -74,7 +79,16 @@ export default function MobileWebGate({ children }: { children: React.ReactNode 
     };
   }, []);
 
-  if (blocked) return <MobileWebBlockedScreen />;
+  React.useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let alive = true;
+    api.getPublicAppConfig()
+      .then((c) => { if (alive && c && c.mobile_web_gate === false) setGateEnabled(false); })
+      .catch(() => { /* keep default ON on failure */ });
+    return () => { alive = false; };
+  }, []);
+
+  if (onPhone && gateEnabled) return <MobileWebBlockedScreen />;
   return <>{children}</>;
 }
 

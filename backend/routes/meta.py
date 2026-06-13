@@ -26,13 +26,20 @@ def resolve_web_build(override: Optional[str]) -> str:
 @router.get("/public/app-config")
 async def public_app_config():
     """Public client config read at app load (no auth) — the web-update
-    kill-switch token."""
+    kill-switch token and the mobile-web gate flag."""
     try:
         wb = await db.app_settings.find_one({"key": "web_build"}, {"_id": 0, "value": 1})
         web_build = resolve_web_build(wb.get("value") if wb else None)
     except Exception:
         web_build = resolve_web_build(None)
-    return {"web_build": web_build}
+    try:
+        doc = await db.app_settings.find_one({"key": "mobile_web_gate"}, {"_id": 0, "value": 1})
+        # Default ON: phone browsers are pushed to the native app unless an admin
+        # turns the gate off here (an explicit True/False always wins).
+        mobile_web_gate = bool(doc.get("value")) if doc and doc.get("value") is not None else True
+    except Exception:
+        mobile_web_gate = True
+    return {"web_build": web_build, "mobile_web_gate": mobile_web_gate}
 
 API_VERSION = "1.0.0"
 

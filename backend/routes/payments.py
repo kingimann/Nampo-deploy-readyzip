@@ -1700,6 +1700,21 @@ class ToggleBody(BaseModel):
     enabled: bool
 
 
+@router.get("/admin/mobile-web-gate")
+async def admin_get_mobile_web_gate(_auth_user: dict = Depends(get_current_user)):
+    """Whether phone browsers are pushed to the native app (default on)."""
+    _admin_only(_auth_user)
+    return {"mobile_web_gate": bool(await _setting("mobile_web_gate", True))}
+
+
+@router.post("/admin/mobile-web-gate")
+async def admin_set_mobile_web_gate(body: ToggleBody, _auth_user: dict = Depends(get_current_user)):
+    """Turn the mobile-web gate on/off without a redeploy."""
+    _admin_only(_auth_user)
+    await _set_setting("mobile_web_gate", bool(body.enabled))
+    return {"mobile_web_gate": bool(body.enabled)}
+
+
 class WebBuildBody(BaseModel):
     build: Optional[str] = None   # explicit token; blank → auto-bump to a timestamp
 

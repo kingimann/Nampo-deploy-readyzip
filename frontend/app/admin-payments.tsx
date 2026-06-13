@@ -26,7 +26,16 @@ export default function AdminPaymentsScreen() {
   const [revenue, setRevenue] = useState<{ total: number; count: number; by_source: Record<string, number>; transfer_fees?: number; cashout_fees?: number; cashout_count?: number; total_paid_out?: number; cashout_fee?: number; transaction_fee_cents: number } | null>(null);
   const [webBuild, setWebBuild] = useState<string>("");
   const [bumpingWeb, setBumpingWeb] = useState(false);
+  const [mobileGate, setMobileGate] = useState(true);
+  const [savingGate, setSavingGate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  const toggleMobileGate = async () => {
+    const next = !mobileGate; setMobileGate(next); setSavingGate(true);
+    try { await api.adminSetMobileWebGate(next); }
+    catch (e: any) { setMobileGate(!next); Alert.alert("Couldn't save", String(e?.message || e).replace(/^\d{3}:\s*/, "")); }
+    finally { setSavingGate(false); }
+  };
 
   const forceWebUpdate = async () => {
     if (!(await confirm({ title: "Force web update?", message: "Every open web browser will clear its cache and reload to the latest deploy within a few minutes (mobile apps are unaffected).", confirmLabel: "Update all" }))) return;
@@ -43,6 +52,7 @@ export default function AdminPaymentsScreen() {
     catch {}
     try { setRevenue(await api.adminGetRevenue()); } catch {}
     try { setWebBuild((await api.adminGetWebBuild()).web_build); } catch {}
+    try { setMobileGate((await api.adminGetMobileWebGate()).mobile_web_gate); } catch {}
     setRefreshing(false);
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -124,6 +134,18 @@ export default function AdminPaymentsScreen() {
 
           <Text style={styles.section}>Access</Text>
           <View style={styles.card}>
+            <TouchableOpacity style={styles.toggleRow} onPress={toggleMobileGate} disabled={savingGate} testID="ap-mobile-gate">
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabel}>Mobile web → app</Text>
+                <Text style={styles.rowSub}>Phone browsers see an “open the app” screen instead of the mobile website. Desktop web and the native apps are unaffected. Turn off to allow the mobile website.</Text>
+              </View>
+              {savingGate ? <ActivityIndicator color={theme.primary} size="small" /> : (
+                <View style={[styles.switch, mobileGate && styles.switchOn]}>
+                  <View style={[styles.knob, mobileGate && styles.knobOn]} />
+                </View>
+              )}
+            </TouchableOpacity>
+            <View style={styles.divider} />
             <TouchableOpacity style={styles.toggleRow} onPress={forceWebUpdate} disabled={bumpingWeb} testID="ap-web-update">
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowLabel}>Force web update</Text>
