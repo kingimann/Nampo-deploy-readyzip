@@ -1818,3 +1818,73 @@ async def user_posts_with_reposts(
     docs = await cursor.to_list(100)
     docs.sort(key=lambda d: not d.get("pinned", False))  # pinned posts first
     return await _hydrate_many(docs, me["user_id"])
+
+
+# ── Playlists (group videos into pages) ──────────────────────────────────────
+class PlaylistCreate(BaseModel):
+    name: str
+
+
+class PlaylistVideoAdd(BaseModel):
+    post_id: str
+
+
+class PlaylistsListOut(_PostOut):
+    data: list = []   # [{id, name, count}]
+
+
+class PlaylistCreatedOut(_PostOut):
+    id: str = ""
+    name: str = ""
+
+
+class PlaylistDetailOut(_PostOut):
+    id: str = ""
+    name: str = ""
+    videos: list = []   # list[Post]
+
+
+@router.get("/playlists", response_model=PlaylistsListOut)
+async def list_playlists(authorization: Optional[str] = Header(None)):
+    """The caller's video playlists."""
+    user = await get_current_user(authorization)
+    rows = await db.playlists.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    return {"data": [{"id": r.get("id"), "name": r.get("name", ""), "count": len(r.get("post_ids") or [])} for r in rows]}
+
+
+@router.post("/playlists", response_model=PlaylistCreatedOut)
+async def create_playlist(body: PlaylistCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    name = (body.name or "").strip()[:80]
+    if not name:
+        raise HTTPException(status_code=400, detail="Playlist name required")
+    pid = str(uuid.uuid4())
+    await db.playlists.insert_one({
+        "id": pid, "user_id": user["user_id"], "name": name,
+        "post_ids": [], "created_at": datetime.now(timezone.utc),
+    })
+    return {"id": pid, "name": name}
+
+
+@router.post("/playlists/{playlist_id}/videos", response_model=OkOut)
+async def add_to_playlist(playlist_id: str, body: PlaylistVideoAdd, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    pl = await db.playlists.find_one({"id": playlist_id, "user_id": user["user_id"]}, {"_id": 0, "id": 1})
+    if not pl:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    await db.playlists.update_one({"id": playlist_id}, {"$addToSet": {"post_ids": body.post_id}})
+    return {"ok": True}
+
+
+@router.get("/playlists/{playlist_id}", response_model=PlaylistDetailOut)
+async def get_playlist(playlist_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    pl = await db.playlists.find_one({"id": playlist_id}, {"_id": 0})
+    if not pl:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    videos = []
+    for pid in (pl.get("post_ids") or [])[:100]:
+        d = await db.posts.find_one({"id": pid}, {"_id": 0})
+        if d:
+            videos.append(await _hydrate_post(d, user["user_id"]))
+    return {"id": pl.get("id"), "name": pl.get("name", ""), "videos": videos}

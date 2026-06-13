@@ -696,6 +696,7 @@ class PostMedia(BaseModel):
     thumbnail: Optional[str] = None  # for videos
     width: Optional[int] = None
     height: Optional[int] = None
+    duration: Optional[float] = None  # video length in seconds (drives a duration badge)
 
 
 class LinkPreview(BaseModel):
