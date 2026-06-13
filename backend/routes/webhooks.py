@@ -18,11 +18,44 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user, _active_plan
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class EventsOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    events: list = []
+
+
+class WebhooksListOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    webhooks: list = []
+
+
+class WebhookOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str = ""
+    url: str = ""
+
+
+class DeletedOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    deleted: bool = False
+
+
+class TestResultOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = False
+    status: int = 0
+
+
+class DeliveriesOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    deliveries: list = []
+
 
 
 def _webhook_url_ok(url: str) -> bool:
@@ -106,7 +139,7 @@ def _public(doc: dict, secret: Optional[str] = None) -> dict:
     return out
 
 
-@router.get("/webhooks/events")
+@router.get("/webhooks/events", response_model=EventsOut)
 async def list_events():
     # `events` stays a flat list for back-compat; `event_info` adds descriptions.
     return {
@@ -115,14 +148,14 @@ async def list_events():
     }
 
 
-@router.get("/webhooks")
+@router.get("/webhooks", response_model=WebhooksListOut)
 async def list_webhooks(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     rows = await db.dev_webhooks.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
     return {"webhooks": [_public(r) for r in rows]}
 
 
-@router.post("/webhooks")
+@router.post("/webhooks", response_model=WebhookOut)
 async def create_webhook(body: WebhookCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     plan = _active_plan(user)
@@ -150,14 +183,14 @@ async def create_webhook(body: WebhookCreate, authorization: Optional[str] = Hea
     return _public(doc, secret=secret)
 
 
-@router.delete("/webhooks/{webhook_id}")
+@router.delete("/webhooks/{webhook_id}", response_model=DeletedOut)
 async def delete_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     await db.dev_webhooks.delete_one({"id": webhook_id, "user_id": user["user_id"]})
     return {"deleted": True}
 
 
-@router.post("/webhooks/{webhook_id}/test")
+@router.post("/webhooks/{webhook_id}/test", response_model=TestResultOut)
 async def test_webhook(webhook_id: str, authorization: Optional[str] = Header(None)):
     """Send a signed sample `ping` event to the endpoint so developers can verify
     connectivity and signature checking. Returns the endpoint's HTTP status."""
@@ -186,7 +219,7 @@ async def test_webhook(webhook_id: str, authorization: Optional[str] = Header(No
         return {"ok": False, "status": 0, "error": str(e)[:200]}
 
 
-@router.get("/webhooks/{webhook_id}/deliveries")
+@router.get("/webhooks/{webhook_id}/deliveries", response_model=DeliveriesOut)
 async def list_deliveries(webhook_id: str, limit: int = 25, authorization: Optional[str] = Header(None)):
     """Recent delivery attempts for a webhook — status, attempts, errors."""
     user = await get_current_user(authorization)
@@ -200,7 +233,7 @@ async def list_deliveries(webhook_id: str, limit: int = 25, authorization: Optio
     return {"deliveries": rows}
 
 
-@router.post("/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver")
+@router.post("/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver", response_model=TestResultOut)
 async def redeliver(webhook_id: str, delivery_id: str, authorization: Optional[str] = Header(None)):
     """Re-send a past delivery's original payload (e.g. after fixing your endpoint).
     Logs a fresh delivery attempt and returns its result."""
