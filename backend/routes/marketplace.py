@@ -429,6 +429,17 @@ async def listings_by_user(user_id: str, authorization: Optional[str] = Header(N
     return [await _hydrate_listing(d, saved_ids=saved_ids) for d in docs]
 
 
+@router.get("/marketplace/purchases", response_model=List[Listing])
+async def my_purchases(authorization: Optional[str] = Header(None)):
+    """Listings the current user bought (verified sold to them), newest first."""
+    me = await get_current_user(authorization)
+    docs = await db.listings.find(
+        {"sold_to": me["user_id"], "status": "sold"}, {"_id": 0}
+    ).sort("sold_at", -1).limit(100).to_list(100)
+    saved_ids = await _saved_ids_for(me["user_id"])
+    return [await _hydrate_listing(d, saved_ids=saved_ids) for d in docs]
+
+
 @router.get("/listings/{listing_id}", response_model=Listing)
 async def get_listing(listing_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
