@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user, account_age_days, _norm_dt, is_mod, is_admin
 from routes.notifications import emit_notification
@@ -436,7 +436,44 @@ async def _settle(doc: dict) -> None:
 
 
 # ───────────────────────────── endpoints ────────────────────────────────────
-@router.get("/roadside/quote")
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _RsOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_RsOut):
+    ok: bool = True
+
+
+class DeletedOut(_RsOut):
+    deleted: int = 0
+
+
+class QuoteOut(_RsOut):
+    base: float = 0
+    tax: float = 0
+    total: float = 0
+    tax_rate: float = 0
+    wallet_balance: float = 0
+
+
+class EligibilityOut(_RsOut):
+    eligible: bool = False
+    missing: list = []
+
+
+class VerificationStatusOut(_RsOut):
+    status: str = ""          # none | pending | approved | rejected
+    verified: bool = False
+    reason: Optional[str] = None
+
+
+class DecisionOut(_RsOut):
+    ok: bool = True
+    status: str = ""
+
+
+@router.get("/roadside/quote", response_model=QuoteOut)
 async def quote(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     base, tax, total = _pricing()
@@ -462,7 +499,7 @@ async def check_photo(body: RoadsidePhotoCheck, authorization: Optional[str] = H
     return await verify_vehicle_photo(body.photo or "")
 
 
-@router.get("/roadside/eligibility")
+@router.get("/roadside/eligibility", response_model=EligibilityOut)
 async def helper_eligibility(authorization: Optional[str] = Header(None)):
     """Whether the current member meets the trust bar to help others."""
     user = await get_current_user(authorization)
@@ -473,7 +510,7 @@ async def helper_eligibility(authorization: Optional[str] = Header(None)):
 MAX_DOC_CHARS = 7_000_000  # cap each base64 doc (~5MB image)
 
 
-@router.get("/roadside/verification")
+@router.get("/roadside/verification", response_model=VerificationStatusOut)
 async def my_verification(authorization: Optional[str] = Header(None)):
     """Whether the current member may REQUEST help: same identity bar as helpers,
     plus an admin-approved insurance + ownership check."""
@@ -492,7 +529,7 @@ async def my_verification(authorization: Optional[str] = Header(None)):
     }
 
 
-@router.post("/roadside/verification")
+@router.post("/roadside/verification", response_model=VerificationStatusOut)
 async def submit_verification(body: RoadsideVerifySubmit, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     if user.get("roadside_verified"):
@@ -593,7 +630,7 @@ async def admin_list_verifications(
     return out
 
 
-@router.post("/admin/roadside/verifications/{vid}/decision")
+@router.post("/admin/roadside/verifications/{vid}/decision", response_model=DecisionOut)
 async def admin_decide_verification(vid: str, body: RoadsideDecision, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     if not is_mod(user):
@@ -1400,7 +1437,7 @@ async def admin_list_calls(
     return [await _hydrate(d, user["user_id"], force_reveal=True) for d in docs]
 
 
-@router.delete("/roadside/admin/calls/{rid}")
+@router.delete("/roadside/admin/calls/{rid}", response_model=OkOut)
 async def admin_delete_call(rid: str, authorization: Optional[str] = Header(None)):
     """Permanently erase one call."""
     user = await get_current_user(authorization)
@@ -1413,7 +1450,7 @@ async def admin_delete_call(rid: str, authorization: Optional[str] = Header(None
     return {"ok": True}
 
 
-@router.delete("/roadside/admin/calls")
+@router.delete("/roadside/admin/calls", response_model=DeletedOut)
 async def admin_erase_calls(
     date: Optional[str] = Query(None, description="YYYY-MM-DD; the day to erase"),
     all_: bool = Query(False, alias="all", description="erase every call across all days"),
