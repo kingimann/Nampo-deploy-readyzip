@@ -4,7 +4,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from db import DuplicateKeyError
 
 from core import db, get_current_user
@@ -114,7 +114,38 @@ async def get_group(group_id: str, authorization: Optional[str] = Header(None)):
     return await _hydrate_group(doc, user["user_id"])
 
 
-@router.delete("/groups/{group_id}")
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _GOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_GOut):
+    ok: bool = True
+
+
+class RsvpOut(_GOut):
+    going: bool = False
+    going_count: int = 0
+
+
+class GroupRequestItem(_GOut):
+    user_id: str = ""
+    name: str = ""
+    username: Optional[str] = None
+    picture: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class GroupMemberItem(_GOut):
+    user_id: str = ""
+    name: str = ""
+    username: Optional[str] = None
+    picture: Optional[str] = None
+    role: str = "member"
+    joined_at: Optional[datetime] = None
+
+
+@router.delete("/groups/{group_id}", response_model=OkOut)
 async def delete_group(group_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.groups.find_one({"id": group_id}, {"_id": 0})
@@ -383,7 +414,7 @@ async def kick_member(
 
 # ───────── Join requests (private groups) ─────────
 
-@router.get("/groups/{group_id}/requests")
+@router.get("/groups/{group_id}/requests", response_model=List[GroupRequestItem])
 async def list_join_requests(
     group_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -498,7 +529,7 @@ async def create_group_post(
     return post
 
 
-@router.get("/groups/{group_id}/members")
+@router.get("/groups/{group_id}/members", response_model=List[GroupMemberItem])
 async def list_group_members(group_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     member = await db.group_members.find_one(
@@ -602,7 +633,7 @@ async def create_group_event(
     return await _hydrate_event(doc, user["user_id"], mem.get("role", "member"))
 
 
-@router.post("/groups/{group_id}/events/{event_id}/rsvp")
+@router.post("/groups/{group_id}/events/{event_id}/rsvp", response_model=RsvpOut)
 async def rsvp_group_event(
     group_id: str, event_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -630,7 +661,7 @@ async def rsvp_group_event(
     return {"going": going, "going_count": count}
 
 
-@router.delete("/groups/{group_id}/events/{event_id}")
+@router.delete("/groups/{group_id}/events/{event_id}", response_model=OkOut)
 async def delete_group_event(
     group_id: str, event_id: str, authorization: Optional[str] = Header(None)
 ):
