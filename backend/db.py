@@ -181,6 +181,39 @@ def _apply_update(doc: dict, update: dict, filter_dict: Optional[dict] = None) -
     return doc
 
 
+def _eq_fields_from_filter(filter_dict: dict) -> dict:
+    """The plain equality conditions of a query — the fields MongoDB copies into
+    a document it inserts on upsert. Skips logical/operator clauses ($or, $and)
+    and operator values ({"$gte": …}, {"$ne": …}, {"$in": […]}) which aren't
+    literal values, and _id (Postgres has no such column here)."""
+    out: dict = {}
+    for k, v in (filter_dict or {}).items():
+        if not isinstance(k, str) or k.startswith("$") or k == "_id":
+            continue
+        if isinstance(v, dict) and any(isinstance(op, str) and op.startswith("$") for op in v):
+            continue   # a query operator, not an equality match
+        out[k] = v
+    return out
+
+
+def _build_upsert_doc(filter_dict: dict, update: dict) -> dict:
+    """The document inserted when an upsert matches no row. MongoDB seeds it from
+    the query's equality fields, then applies $setOnInsert and $set. Seeding the
+    equality fields is essential: without them a row inserted by e.g.
+    update_one({"key": "x"}, {"$set": {"value": v}}, upsert=True) would have no
+    `key`, so the matching find_one({"key": "x"}) would never see it again."""
+    new_doc: dict = {}
+    for path, val in _eq_fields_from_filter(filter_dict or {}).items():
+        _set_nested(new_doc, path, val)
+    if "$setOnInsert" in update:
+        for path, val in update["$setOnInsert"].items():
+            _set_nested(new_doc, path, val)
+    if "$set" in update:
+        for path, val in update["$set"].items():
+            _set_nested(new_doc, path, val)
+    return new_doc
+
+
 # ──────────────────────────────────────────────
 # Result types
 # ──────────────────────────────────────────────
@@ -551,14 +584,9 @@ class Collection:
                             return UpdateResult(1, 1)
                         if not upsert:
                             return UpdateResult(0, 0)
-                        # No matching row — insert one from $setOnInsert + $set.
-                        new_doc: dict = {}
-                        if "$setOnInsert" in update:
-                            for path, val in update["$setOnInsert"].items():
-                                _set_nested(new_doc, path, val)
-                        if "$set" in update:
-                            for path, val in update["$set"].items():
-                                _set_nested(new_doc, path, val)
+                        # No matching row — insert from the query's equality fields
+                        # (MongoDB upsert semantics) plus $setOnInsert + $set.
+                        new_doc = _build_upsert_doc(filter_dict or {}, update)
                         await conn.execute(
                             f"INSERT INTO {self.name}(doc) VALUES($1::jsonb)",
                             _to_json(new_doc),
