@@ -6,7 +6,7 @@ publicly "shown" and is denormalized onto the post (`post.factcheck`) so feeds
 render it for free. Falls back to pending until then.
 """
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
@@ -26,9 +26,24 @@ class OkOut(BaseModel):
     ok: bool = True
 
 
+class FactcheckOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    post_id: str
+    author_id: str
+    author_name: str = "Someone"
+    text: str = ""
+    source_url: str = ""
+    helpful_count: int = 0
+    not_helpful_count: int = 0
+    status: str = "pending"
+    my_rating: Optional[bool] = None   # True / False / None
+    created_at: Optional[datetime] = None
+
+
 class FactchecksOut(BaseModel):
     model_config = ConfigDict(extra="allow")
-    factchecks: list = []
+    factchecks: List[FactcheckOut] = []
     threshold: float = 0
 
 
@@ -85,7 +100,7 @@ async def _refresh_post_factcheck(post_id: str) -> None:
     }}})
 
 
-@router.post("/posts/{post_id}/factchecks")
+@router.post("/posts/{post_id}/factchecks", response_model=FactcheckOut)
 async def add_factcheck(post_id: str, body: FactcheckCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})

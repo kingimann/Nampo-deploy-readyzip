@@ -10,7 +10,7 @@ Play surface: the app loads `/api/pub/game/{id}` in a WebView (native) / iframe
 (web); for inline-HTML games we inject the SDK automatically.
 """
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, List, Optional
 from xml.sax.saxutils import quoteattr
 import uuid
 
@@ -39,11 +39,6 @@ class LeaderboardOut(BaseModel):
     leaderboard: list = []
 
 
-class GamesListOut(BaseModel):
-    model_config = ConfigDict(extra="allow")
-    games: list = []
-
-
 class GameOut(BaseModel):
     model_config = ConfigDict(extra="allow")
     id: str
@@ -52,9 +47,14 @@ class GameOut(BaseModel):
     thumbnail: Optional[str] = None
     owner_id: Optional[str] = None
     owner_name: Optional[str] = None
-    kind: str = "url"            # url | html
+    kind: str = "url"            # "url" | "html"
     plays: int = 0
     created_at: Optional[Any] = None
+
+
+class GamesListOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    games: List[GameOut] = []
 
 
 HTML_MAX = 3_000_000      # ~3MB inline game cap (bigger games should use a URL)

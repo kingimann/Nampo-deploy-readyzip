@@ -1,9 +1,9 @@
 """Shared pytest config for backend tests.
 
-The mocked-Emergent tests in `test_auth_session_mocked.py` import the
-`server` module in-process. Motor's AsyncIOMotorClient binds to the first
-event loop it sees, so we force pytest-asyncio to reuse a single
-session-scoped loop for all async tests in this dir.
+These tests import the `server` module and exercise it in-process. We force
+pytest-asyncio to reuse a single session-scoped event loop for every async
+test in this dir so loop-bound resources (DB pool, etc.) stay consistent
+across tests.
 """
 import pytest
 

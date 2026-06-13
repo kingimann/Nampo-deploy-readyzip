@@ -65,7 +65,8 @@ class TicketCreate(BaseModel):
 
 
 class TicketReply(BaseModel):
-    text: str
+    text: Optional[str] = None
+    message: Optional[str] = None   # accepted as an alias for `text`
 
 
 class TicketStatus(BaseModel):
@@ -208,7 +209,7 @@ async def reply_ticket(ticket_id: str, body: TicketReply, authorization: Optiona
     staff = _staff(user)
     if t["user_id"] != user["user_id"] and not staff:
         raise HTTPException(status_code=403, detail="Not your ticket")
-    text = (body.text or "").strip()[:4000]
+    text = (body.text or body.message or "").strip()[:4000]
     if not text:
         raise HTTPException(status_code=400, detail="Message can't be empty.")
     now = datetime.now(timezone.utc)

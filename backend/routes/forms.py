@@ -236,8 +236,22 @@ class OkResultOut(_FOut):
     ok: bool = True
 
 
+class FormOut(_FOut):
+    id: str
+    owner_id: Optional[str] = None
+    form_key: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    submit_label: str = "Submit"
+    notify_email: Optional[str] = None
+    ai_validate: bool = False
+    fields: list = []
+    submissions: int = 0
+    created_at: Optional[datetime] = None
+
+
 class FormsListOut(_FOut):
-    forms: list = []
+    forms: List[FormOut] = []
 
 
 class SubmissionsOut(_FOut):

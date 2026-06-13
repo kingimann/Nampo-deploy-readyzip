@@ -473,6 +473,30 @@ class DecisionOut(_RsOut):
     status: str = ""
 
 
+class FormCheckOut(_RsOut):
+    ok: bool = True
+    issues: list = []         # [{field, message}]
+    block: bool = False
+    source: str = "rules"     # "rules" | "ai"
+
+
+class PhotoCheckOut(_RsOut):
+    ok: bool = True
+    reason: str = ""
+
+
+class RoadsideVerificationAdminOut(_RsOut):
+    id: str
+    user_id: str
+    user: dict = {}                       # {name, picture, email}
+    status: str = "pending"
+    vehicle: Optional[str] = None
+    note: Optional[str] = None
+    insurance_photo: Optional[str] = None  # decrypted only for the reviewing admin
+    ownership_photo: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
 @router.get("/roadside/quote", response_model=QuoteOut)
 async def quote(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -481,7 +505,7 @@ async def quote(authorization: Optional[str] = Header(None)):
     return {"base": base, "tax": tax, "total": total, "tax_rate": ROADSIDE_TAX_RATE, "wallet_balance": bal}
 
 
-@router.post("/roadside/check")
+@router.post("/roadside/check", response_model=FormCheckOut)
 async def check_form(body: RoadsideCheck, authorization: Optional[str] = Header(None)):
     """AI (+ rule) review of a draft request: is it filled out correctly, and
     what should be fixed? Returns {ok, issues:[{field, message}]}."""
@@ -490,7 +514,7 @@ async def check_form(body: RoadsideCheck, authorization: Optional[str] = Header(
     return await review_form(body.model_dump())
 
 
-@router.post("/roadside/check-photo")
+@router.post("/roadside/check-photo", response_model=PhotoCheckOut)
 async def check_photo(body: RoadsidePhotoCheck, authorization: Optional[str] = Header(None)):
     """Verify a freshly-taken roadside photo shows the vehicle / the problem and
     isn't blank or random. Called right after capture. Returns {ok, reason}."""
@@ -603,7 +627,7 @@ async def submit_verification(body: RoadsideVerifySubmit, authorization: Optiona
     return {"status": "pending", "verified": False}
 
 
-@router.get("/admin/roadside/verifications")
+@router.get("/admin/roadside/verifications", response_model=List[RoadsideVerificationAdminOut])
 async def admin_list_verifications(
     status: str = Query("pending"), authorization: Optional[str] = Header(None),
 ):
@@ -919,7 +943,7 @@ async def edit_request(rid: str, body: RoadsideCreate, authorization: Optional[s
     return await _hydrate(doc, user["user_id"])
 
 
-@router.get("/roadside/active")
+@router.get("/roadside/active", response_model=Optional[RoadsideRequest])
 async def my_active(authorization: Optional[str] = Header(None)):
     """The viewer's current open/accepted request, or null."""
     user = await get_current_user(authorization)
@@ -931,7 +955,7 @@ async def my_active(authorization: Optional[str] = Header(None)):
     return await _hydrate(doc, user["user_id"])
 
 
-@router.get("/roadside/helping")
+@router.get("/roadside/helping", response_model=Optional[RoadsideRequest])
 async def my_helping(authorization: Optional[str] = Header(None)):
     """A request the viewer accepted and is on the way to, or null."""
     user = await get_current_user(authorization)

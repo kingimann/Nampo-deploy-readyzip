@@ -1036,7 +1036,13 @@ class ScamCheckBody(BaseModel):
     text: Optional[str] = None
 
 
-@router.post("/conversations/{conv_id}/messages/{msg_id}/scam-check")
+class ScamCheckOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    risk: str = "low"        # "low" | "medium" | "high"
+    reason: str = ""
+
+
+@router.post("/conversations/{conv_id}/messages/{msg_id}/scam-check", response_model=ScamCheckOut)
 async def scam_check(conv_id: str, msg_id: str, body: ScamCheckBody, authorization: Optional[str] = Header(None)):
     """Ask the AI whether a message looks like spam/scam/phishing. Returns
     {risk, reason}. The plaintext is used only for this call and never stored."""

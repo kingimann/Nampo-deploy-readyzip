@@ -35,7 +35,6 @@ class CircleOut(BaseModel):
     created_at: Optional[Any] = None
 
 
-
 class CircleCreate(BaseModel):
     name: str
     member_ids: Optional[List[str]] = None

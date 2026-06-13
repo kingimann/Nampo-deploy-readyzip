@@ -18,9 +18,23 @@ from core import db, get_current_user
 router = APIRouter()
 
 # --- §1 response models (extra="allow") ---
+class HazardOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    type: str
+    longitude: float
+    latitude: float
+    confirmations: int = 0
+    dismissals: int = 0
+    status: str = "pending"
+    mine: bool = False
+    created_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+
+
 class HazardsOut(BaseModel):
     model_config = ConfigDict(extra="allow")
-    hazards: list = []
+    hazards: List[HazardOut] = []
     threshold: float = 0
 
 
@@ -82,7 +96,7 @@ def _recompute(doc: dict) -> dict:
     return doc
 
 
-@router.post("/hazards")
+@router.post("/hazards", response_model=HazardOut)
 async def report_hazard(body: HazardCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     htype = (body.type or "").strip().lower()
@@ -137,7 +151,7 @@ async def list_hazards(
     return {"hazards": out, "threshold": CONFIRM_THRESHOLD}
 
 
-@router.post("/hazards/{hid}/confirm")
+@router.post("/hazards/{hid}/confirm", response_model=HazardOut)
 async def confirm_hazard(hid: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     h = await db.hazards.find_one({"id": hid}, {"_id": 0})
@@ -154,7 +168,7 @@ async def confirm_hazard(hid: str, authorization: Optional[str] = Header(None)):
     return _view(h, user["user_id"])
 
 
-@router.post("/hazards/{hid}/dismiss")
+@router.post("/hazards/{hid}/dismiss", response_model=HazardOut)
 async def dismiss_hazard(hid: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     h = await db.hazards.find_one({"id": hid}, {"_id": 0})
