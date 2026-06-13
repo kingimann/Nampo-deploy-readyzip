@@ -375,6 +375,47 @@ def _custom_openapi():
         {"url": f"{base}/api/v1", "description": "Production · v1 (stable)"},
         {"url": f"{base}/api", "description": "Production · unversioned (legacy alias)"},
     ]
+
+    # ── Documented error envelope (API hygiene §2b) ──────────────────────────
+    # Every non-2xx response uses one structured shape (see `_err_body`): the
+    # `error` and `detail` keys carry identical {code, message, …} objects
+    # (`detail` is duplicated only for backwards compatibility). Declare it once
+    # and attach it as the `default` (i.e. error) response on every operation,
+    # so generated SDKs get a typed error and can branch on the stable `code`.
+    schemas = comps.setdefault("schemas", {})
+    schemas["ErrorBody"] = {
+        "type": "object",
+        "properties": {
+            "code": {"type": "string", "example": "rate_limited",
+                     "description": "Stable, machine-readable error code."},
+            "message": {"type": "string", "description": "Human-readable explanation."},
+        },
+        "required": ["code", "message"],
+        # Some errors add fields, e.g. validation `fields`, eligibility `missing`.
+        "additionalProperties": True,
+        "description": "Common codes: " + ", ".join(sorted(set(_ERR_CODES.values()))) + ". "
+                       "Routes may also return their own domain codes.",
+    }
+    schemas["ErrorEnvelope"] = {
+        "type": "object",
+        "properties": {
+            "error": {"$ref": "#/components/schemas/ErrorBody"},
+            "detail": {"allOf": [{"$ref": "#/components/schemas/ErrorBody"}],
+                       "description": "Identical to `error`; kept for backwards compatibility."},
+        },
+        "required": ["error", "detail"],
+        "description": "Standard envelope returned by every non-2xx response.",
+    }
+    _err_response = {
+        "description": "Error — structured envelope with a machine-readable `code`.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}},
+    }
+    for _ops in (schema.get("paths") or {}).values():
+        for _method, _op in _ops.items():
+            if _method.lower() not in ("get", "post", "put", "patch", "delete", "head", "options"):
+                continue
+            _op.setdefault("responses", {}).setdefault("default", _err_response)
+
     app.openapi_schema = schema
     return schema
 
