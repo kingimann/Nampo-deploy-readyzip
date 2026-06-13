@@ -148,6 +148,57 @@ async def init_pool() -> None:
                 await conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} ON {table} {cols}")
             except Exception as e:
                 logger.warning("dedup index %s on %s skipped: %s", idx, table, e)
+
+        # Non-unique lookup indexes on the hot query fields. Every collection is
+        # a (doc jsonb) table, so filtering on doc->>'field' is a sequential scan
+        # without these — most painfully the per-post author lookup (users is
+        # only uniquely indexed on email/username, never user_id) and fetch-by-id
+        # on posts/listings. CREATE INDEX IF NOT EXISTS is idempotent, so this is
+        # a one-time build on first deploy and a no-op afterwards.
+        _LOOKUP_INDEXES = [
+            ("users", "idx_users_user_id", "user_id"),
+            ("posts", "idx_posts_id", "id"),
+            ("posts", "idx_posts_user_id", "user_id"),
+            ("posts", "idx_posts_parent_id", "parent_id"),
+            ("posts", "idx_posts_repost_of", "repost_of"),
+            ("posts", "idx_posts_community_id", "community_id"),
+            ("posts", "idx_posts_group_id", "group_id"),
+            ("subscriptions", "idx_subscriptions_subscriber", "subscriber_id"),
+            ("subscriptions", "idx_subscriptions_creator", "creator_id"),
+            ("listings", "idx_listings_id", "id"),
+            ("listings", "idx_listings_user_id", "user_id"),
+            ("listings", "idx_listings_status", "status"),
+            ("listing_comments", "idx_listing_comments_listing", "listing_id"),
+            ("listing_saves", "idx_listing_saves_user", "user_id"),
+            ("listing_saves", "idx_listing_saves_listing", "listing_id"),
+            ("marketplace_offers", "idx_offers_listing", "listing_id"),
+            ("marketplace_offers", "idx_offers_buyer", "buyer_id"),
+            ("marketplace_offers", "idx_offers_seller", "seller_id"),
+            ("marketplace_saved_searches", "idx_saved_searches_user", "user_id"),
+            ("messages", "idx_messages_conv", "conversation_id"),
+            ("notifications", "idx_notifications_user", "user_id"),
+            ("earnings", "idx_earnings_user", "user_id"),
+            ("money_transfers", "idx_mt_from", "from_user_id"),
+            ("money_transfers", "idx_mt_to", "to_user_id"),
+            ("stories", "idx_stories_user", "user_id"),
+            ("guides", "idx_guides_user", "user_id"),
+            ("places", "idx_places_user", "user_id"),
+            ("drafts", "idx_drafts_user", "user_id"),
+            ("friend_requests", "idx_fr_to", "to_id"),
+            ("friend_requests", "idx_fr_from", "from_id"),
+            ("friendships", "idx_friendships_a", "a"),
+            ("friendships", "idx_friendships_b", "b"),
+            ("factchecks", "idx_factchecks_post", "post_id"),
+        ]
+        for table, idx, field in _LOOKUP_INDEXES:
+            try:
+                await conn.execute(f"CREATE TABLE IF NOT EXISTS {table} (doc jsonb NOT NULL)")
+                await conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ((doc ->> '{field}'))"
+                )
+            except Exception as e:
+                logger.warning("lookup index %s on %s skipped: %s", idx, table, e)
+
         # Email-based admin now requires a verified email. Promote the account(s)
         # that currently hold an admin email to a stored role=admin so the
         # legitimate owner keeps access even if their email isn't verified yet.
