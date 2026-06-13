@@ -21,7 +21,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from db import DuplicateKeyError
 from core import _conv_key, _public_user, db, get_current_user, is_admin, _norm_dt
@@ -306,7 +306,42 @@ async def patch_group_chat(
     return await _hydrate_conv(updated, user["user_id"])
 
 
-@router.post("/conversations/{conv_id}/leave")
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _MOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_MOut):
+    ok: bool = True
+
+
+class PresenceOut(_MOut):
+    typing: bool = False
+    active: bool = False
+    typing_ids: list = []
+    active_ids: list = []
+
+
+class ReceiptsOut(_MOut):
+    ok: bool = True
+    receipts_enabled: bool = False
+
+
+class SummaryOut(_MOut):
+    summary: str = ""
+
+
+class TranscribeOut(_MOut):
+    text: str = ""
+    cached: bool = False
+
+
+class ClearOut(_MOut):
+    ok: bool = True
+    cleared_at: Optional[datetime] = None
+
+
+@router.post("/conversations/{conv_id}/leave", response_model=OkOut)
 async def leave_group_chat(conv_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
@@ -484,7 +519,7 @@ class PresenceUpdate(BaseModel):
     typing: bool = False
 
 
-@router.post("/conversations/{conv_id}/presence")
+@router.post("/conversations/{conv_id}/presence", response_model=OkOut)
 async def update_presence(conv_id: str, body: PresenceUpdate, authorization: Optional[str] = Header(None)):
     """Heartbeat: I'm viewing this chat (and maybe typing). Drives the
     'active in chat' + 'writing…' indicators."""
@@ -502,7 +537,7 @@ async def update_presence(conv_id: str, body: PresenceUpdate, authorization: Opt
     return {"ok": True}
 
 
-@router.get("/conversations/{conv_id}/presence")
+@router.get("/conversations/{conv_id}/presence", response_model=PresenceOut)
 async def get_presence(conv_id: str, authorization: Optional[str] = Header(None)):
     """Other participants' live state: who's active in the chat and who's typing."""
     user = await get_current_user(authorization)
@@ -773,7 +808,7 @@ async def _create_message(conv_id: str, conv: dict, user: dict, body: MessageCre
     return _decrypt_msg(msg)
 
 
-@router.post("/conversations/{conv_id}/read")
+@router.post("/conversations/{conv_id}/read", response_model=OkOut)
 async def mark_read(conv_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     conv = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
@@ -790,7 +825,7 @@ class ReceiptsBody(BaseModel):
     enabled: bool
 
 
-@router.post("/conversations/{conv_id}/receipts")
+@router.post("/conversations/{conv_id}/receipts", response_model=ReceiptsOut)
 async def set_read_receipts(conv_id: str, body: ReceiptsBody, authorization: Optional[str] = Header(None)):
     """Turn read receipts on/off for just this conversation. When off you don't
     send your read receipts here and you don't see the other side's either."""
@@ -902,7 +937,7 @@ class SummarizeBody(BaseModel):
     transcript: str
 
 
-@router.post("/conversations/{conv_id}/summarize")
+@router.post("/conversations/{conv_id}/summarize", response_model=SummaryOut)
 async def summarize_conversation_route(
     conv_id: str, body: SummarizeBody, authorization: Optional[str] = Header(None)
 ):
@@ -960,7 +995,7 @@ class TranscribeBody(BaseModel):
     audio_base64: Optional[str] = None
 
 
-@router.post("/conversations/{conv_id}/messages/{msg_id}/transcribe")
+@router.post("/conversations/{conv_id}/messages/{msg_id}/transcribe", response_model=TranscribeOut)
 async def transcribe_voice(conv_id: str, msg_id: str, body: TranscribeBody, authorization: Optional[str] = Header(None)):
     """Transcribe a voice note to text. Returns {text, cached}. For E2E notes the
     client must supply the decrypted `audio_base64`; the plaintext audio is used
@@ -1113,7 +1148,7 @@ async def list_scheduled(conv_id: str, authorization: Optional[str] = Header(Non
     return out
 
 
-@router.delete("/conversations/{conv_id}/scheduled/{sid}")
+@router.delete("/conversations/{conv_id}/scheduled/{sid}", response_model=OkOut)
 async def cancel_scheduled(conv_id: str, sid: str, authorization: Optional[str] = Header(None)):
     """Cancel a pending scheduled message you created."""
     user = await get_current_user(authorization)
@@ -1185,7 +1220,7 @@ async def list_pinned(conv_id: str, authorization: Optional[str] = Header(None))
     return [Message(**_decrypt_msg(m)) for m in rows]
 
 
-@router.delete("/conversations/{conv_id}/messages/{msg_id}")
+@router.delete("/conversations/{conv_id}/messages/{msg_id}", response_model=OkOut)
 async def delete_message(
     conv_id: str, msg_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -1214,7 +1249,7 @@ async def delete_message(
 
 
 # ---------- Soft delete a chat (per user) ----------
-@router.post("/conversations/{conv_id}/clear")
+@router.post("/conversations/{conv_id}/clear", response_model=ClearOut)
 async def clear_conversation(
     conv_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -1232,7 +1267,7 @@ async def clear_conversation(
     return {"ok": True, "cleared_at": now}
 
 
-@router.delete("/conversations/{conv_id}")
+@router.delete("/conversations/{conv_id}", response_model=OkOut)
 async def delete_conversation_for_me(
     conv_id: str, authorization: Optional[str] = Header(None)
 ):
@@ -1293,7 +1328,7 @@ async def create_emoji(body: CustomEmojiCreate, authorization: Optional[str] = H
     return CustomEmoji(**doc)
 
 
-@router.delete("/emojis/{emoji_id}")
+@router.delete("/emojis/{emoji_id}", response_model=OkOut)
 async def delete_emoji(emoji_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.custom_emojis.find_one({"id": emoji_id}, {"_id": 0})
