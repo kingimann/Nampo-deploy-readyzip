@@ -213,7 +213,8 @@ class BalanceTxnOut(_Out):
 
 class StripeTransactionsOut(_Out):
     connected: bool
-    transactions: list[BalanceTxnOut] = []
+    transactions: list[BalanceTxnOut] = []   # legacy key (kept for back-compat)
+    data: list[BalanceTxnOut] = []           # §6 canonical list accessor
     has_more: bool = False
 
 
@@ -524,7 +525,8 @@ async def stripe_transactions(
         "description": t.get("description"),
         "created": _iso(t.get("created")),
     } for t in (res.get("data") or [])]
-    return {"connected": True, "transactions": txns, "has_more": bool(res.get("has_more"))}
+    # §6: canonical `data` alongside the legacy `transactions` key.
+    return {"connected": True, "transactions": txns, "data": txns, "has_more": bool(res.get("has_more"))}
 
 
 # ---------------------------------------------------------------------------

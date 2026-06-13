@@ -709,11 +709,15 @@ class PayWalletOut(_W):
 
 
 class ActivityOut(_W):
-    activity: list = []
+    activity: list = []   # legacy key (kept for back-compat)
+    data: list = []       # §6 canonical list accessor
+    total: int = 0
 
 
 class TopupsOut(_W):
-    topups: list = []
+    topups: list = []     # legacy key (kept for back-compat)
+    data: list = []       # §6 canonical list accessor
+    total: int = 0
 
 
 @router.post("/payments/pay-wallet", response_model=PayWalletOut)
@@ -1146,7 +1150,9 @@ async def wallet_activity(me: dict = Depends(get_current_user)):
     for i in items:
         i["status"] = _canonical_status(i.get("status"))
     items.sort(key=lambda x: x["created_at"], reverse=True)
-    return {"activity": items[:120]}
+    items = items[:120]
+    # §6: canonical `data` + `total` alongside the legacy `activity` key.
+    return {"activity": items, "data": items, "total": len(items)}
 
 
 @router.get("/wallet/topups", response_model=TopupsOut)
@@ -1155,4 +1161,6 @@ async def list_topups(me: dict = Depends(get_current_user)):
     rows = await db.wallet_topups.find(
         {"user_id": me["user_id"]}, {"_id": 0}
     ).sort("created_at", -1).limit(50).to_list(50)
-    return {"topups": [_topup_view(t) for t in rows]}
+    topups = [_topup_view(t) for t in rows]
+    # §6: canonical `data` + `total` alongside the legacy `topups` key.
+    return {"topups": topups, "data": topups, "total": len(topups)}
