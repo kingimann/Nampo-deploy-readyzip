@@ -889,7 +889,7 @@ async def my_campaigns(authorization: Optional[str] = Header(None)):
         clk = int(r.get("ad_clicks", 0) or 0)
         budget = float(r.get("ad_budget", 0) or 0)
         spent = float(r.get("ad_spent", 0) or 0)
-        until = r.get("ad" if False else "promoted_until")
+        until = r.get("promoted_until")
         active = False
         try:
             from core import _norm_dt
