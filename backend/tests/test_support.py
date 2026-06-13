@@ -108,6 +108,26 @@ async def test_user_cannot_set_arbitrary_status(env):
 
 
 @pytest.mark.asyncio
+async def test_reply_accepts_message_as_alias_for_text(env):
+    # Older app builds send {"message": ...}; the backend treats it as `text`.
+    db, _ = env
+    db.support_tickets.docs = [{"id": "t1", "user_id": "me", "subject": "x", "status": "awaiting_staff"}]
+    await support.reply_ticket("t1", support.TicketReply(message="via alias"))
+    assert await db.support_messages.count_documents({"ticket_id": "t1"}) == 1
+    msg = (await db.support_messages.find_one({"ticket_id": "t1"}))
+    assert msg["text"] == "via alias"
+
+
+@pytest.mark.asyncio
+async def test_reply_empty_text_still_rejected(env):
+    db, _ = env
+    db.support_tickets.docs = [{"id": "t1", "user_id": "me", "subject": "x"}]
+    with pytest.raises(HTTPException) as ei:
+        await support.reply_ticket("t1", support.TicketReply())   # neither text nor message
+    assert ei.value.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_user_can_close_own_ticket(env):
     db, _ = env
     db.support_tickets.docs = [{"id": "t1", "user_id": "me", "subject": "x", "status": "awaiting_staff"}]
