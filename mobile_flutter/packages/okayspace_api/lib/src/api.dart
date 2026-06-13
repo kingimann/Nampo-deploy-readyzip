@@ -311,6 +311,60 @@ class OkaySpaceApi {
     return StripeTxnPage.fromJson(await raw.getJson(q.toString()));
   }
 
+  // ---------------------------------------------------------------------------
+  // Peer-to-peer money (in-app wallet rail) — /money/*.
+  // Sends are held in escrow and credited when the recipient accepts (Cash
+  // App-style), with an optional Interac-style security question.
+  // ---------------------------------------------------------------------------
+
+  /// Send money to another user from your in-app wallet balance. The funds are
+  /// held until the recipient accepts (unless they auto-deposit). Set
+  /// [securityQuestion]/[securityAnswer] to require an Interac-style challenge
+  /// the recipient must answer to claim it.
+  Future<SendMoneyResult> sendMoney({
+    required String toUserId,
+    required double amount,
+    String? note,
+    String? securityQuestion,
+    String? securityAnswer,
+  }) async =>
+      SendMoneyResult.fromJson(await raw.postJson('/money/send', body: {
+        'to_user_id': toUserId,
+        'amount': amount,
+        if (note != null) 'note': note,
+        if (securityQuestion != null) 'security_question': securityQuestion,
+        if (securityAnswer != null) 'security_answer': securityAnswer,
+      }));
+
+  /// Pending incoming transfers (awaiting your accept) and your outgoing
+  /// transfers. Check [MoneyTransfer.protected]/[MoneyTransfer.securityQuestion]
+  /// to know whether the accept dialog must collect an answer.
+  Future<TransfersList> listTransfers() async =>
+      TransfersList.fromJson(await raw.getJson('/money/transfers'));
+
+  /// Full transfer history involving you (both directions, every status).
+  Future<List<MoneyTransfer>> transfersHistory() async {
+    final r = await raw.getJson('/money/transfers/history');
+    return (r['transfers'] as List? ?? const [])
+        .map((e) => MoneyTransfer.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  /// Accept an incoming transfer. When the transfer is [MoneyTransfer.protected],
+  /// pass [answer] — a wrong answer throws (403), too many misses locks it (429).
+  Future<AcceptTransferResult> acceptTransfer(String transferId, {String? answer}) async =>
+      AcceptTransferResult.fromJson(await raw.postJson(
+          '/money/transfers/$transferId/accept',
+          body: {if (answer != null) 'answer': answer}));
+
+  /// Decline an incoming transfer (refunds the sender).
+  Future<void> declineTransfer(String transferId) async =>
+      raw.postJson('/money/transfers/$transferId/decline');
+
+  /// Reverse a transfer you sent while it's still pending (refunds you).
+  Future<void> reverseTransfer(String transferId) async =>
+      raw.postJson('/money/transfers/$transferId/reverse');
+
   Future<List<LeaderboardEntry>> pointsLeaderboard() async {
     final r = await raw.getJson('/points/leaderboard');
     return (r['leaders'] as List)

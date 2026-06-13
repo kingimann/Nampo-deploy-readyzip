@@ -15,7 +15,7 @@ Flow:
 import os
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
@@ -310,8 +310,20 @@ class OkOut(_MoneyOut):
     ok: bool = True
 
 
+class PayoutMethodOut(_MoneyOut):
+    id: Optional[str] = None
+    type: Optional[str] = None              # card | bank_account
+    last4: Optional[str] = None
+    default: bool = False
+    brand: Optional[str] = None             # card only
+    exp_month: Optional[int] = None         # card only
+    exp_year: Optional[int] = None          # card only
+    bank_name: Optional[str] = None         # bank only
+    instant_eligible: bool = False          # drives the "Instant eligible" chip
+
+
 class MethodsOut(_MoneyOut):
-    data: list = []
+    data: List[PayoutMethodOut] = []
 
 
 class IdentityStatusOut(_MoneyOut):
