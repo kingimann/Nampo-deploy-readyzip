@@ -10,10 +10,22 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from routes import eta
 from models import EtaShareCreate, EtaUpdate
 from tests._fakedb import FakeDB
+
+
+def test_eta_models_reject_out_of_range_coordinates():
+    with pytest.raises(ValidationError):
+        EtaShareCreate(destination_longitude=181.0, destination_latitude=2.0,
+                       initial_longitude=0.0, initial_latitude=0.0)
+    with pytest.raises(ValidationError):
+        EtaShareCreate(destination_longitude=1.0, destination_latitude=2.0,
+                       initial_longitude=0.0, initial_latitude=91.0)
+    with pytest.raises(ValidationError):
+        EtaUpdate(current_longitude=-200.0, current_latitude=0.0)
 
 
 @pytest.fixture
