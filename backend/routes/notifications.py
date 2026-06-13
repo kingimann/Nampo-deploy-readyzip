@@ -136,21 +136,15 @@ async def _maybe_sms_notify(
     await send_sms(user["phone"], body)
 
 
-async def _hydrate(doc: dict) -> Notification:
-    actor_name = None
-    actor_picture = None
-    if doc.get("actor_id"):
-        a = await db.users.find_one({"user_id": doc["actor_id"]}, {"_id": 0})
-        if a:
-            actor_name = a.get("name")
-            actor_picture = a.get("picture")
+def _hydrate(doc: dict, actors: dict) -> Notification:
+    a = actors.get(doc.get("actor_id")) or {}
     return Notification(
         id=doc["id"],
         user_id=doc["user_id"],
         type=doc["type"],
         actor_id=doc.get("actor_id"),
-        actor_name=actor_name,
-        actor_picture=actor_picture,
+        actor_name=a.get("name"),
+        actor_picture=a.get("picture"),
         post_id=doc.get("post_id"),
         conversation_id=doc.get("conversation_id"),
         group_id=doc.get("group_id"),
@@ -169,7 +163,17 @@ async def list_notifications(authorization: Optional[str] = Header(None)):
         .limit(100)
     )
     docs = await cursor.to_list(100)
-    return [await _hydrate(d) for d in docs]
+    # Batch every actor lookup into one query instead of one find_one per
+    # notification (was up to 100 sequential user reads per load).
+    actor_ids = list({d["actor_id"] for d in docs if d.get("actor_id")})
+    actors: dict = {}
+    if actor_ids:
+        rows = await db.users.find(
+            {"user_id": {"$in": actor_ids}},
+            {"_id": 0, "user_id": 1, "name": 1, "picture": 1},
+        ).to_list(len(actor_ids))
+        actors = {r["user_id"]: r for r in rows}
+    return [_hydrate(d, actors) for d in docs]
 
 
 # ── "Activity" tab: recent actions by people in your network ─────────────────

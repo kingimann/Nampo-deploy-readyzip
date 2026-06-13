@@ -66,6 +66,32 @@ async def test_mark_all_read(env):
 
 
 @pytest.mark.asyncio
+async def test_list_hydrates_actors_from_one_batch(env):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    env.seed(
+        users=[
+            {"user_id": "a1", "name": "Ada", "picture": "p1"},
+            {"user_id": "a2", "name": "Bo", "picture": "p2"},
+        ],
+        notifications=[
+            {"id": "n1", "user_id": "me", "type": "like", "actor_id": "a1",
+             "read": False, "created_at": now},
+            {"id": "n2", "user_id": "me", "type": "reply", "actor_id": "a2",
+             "read": False, "created_at": now},
+            {"id": "n3", "user_id": "me", "type": "system", "actor_id": None,
+             "read": True, "created_at": now},
+        ],
+    )
+    out = await notif.list_notifications()
+    by_id = {n.id: n for n in out}
+    assert by_id["n1"].actor_name == "Ada" and by_id["n1"].actor_picture == "p1"
+    assert by_id["n2"].actor_name == "Bo"
+    assert by_id["n3"].actor_name is None  # no actor → no lookup
+    assert len(out) == 3
+
+
+@pytest.mark.asyncio
 async def test_delete_notification(env):
     _seed(env)
     await notif.delete_notification("n1")
