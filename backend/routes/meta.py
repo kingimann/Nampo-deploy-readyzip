@@ -39,7 +39,13 @@ async def public_app_config():
         mobile_web_gate = bool(doc.get("value")) if doc and doc.get("value") is not None else True
     except Exception:
         mobile_web_gate = True
-    return {"web_build": web_build, "mobile_web_gate": mobile_web_gate}
+    try:
+        rdoc = await db.app_settings.find_one({"key": "registration_mode"}, {"_id": 0, "value": 1})
+        rmode = (rdoc or {}).get("value")
+        registration_mode = rmode if rmode in ("open", "invite", "closed") else "open"
+    except Exception:
+        registration_mode = "open"
+    return {"web_build": web_build, "mobile_web_gate": mobile_web_gate, "registration_mode": registration_mode}
 
 API_VERSION = "1.0.0"
 
