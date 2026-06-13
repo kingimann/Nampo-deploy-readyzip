@@ -9,7 +9,7 @@ import uuid
 import bcrypt
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from db import DuplicateKeyError
 
 from core import (
@@ -43,6 +43,56 @@ class RegisterRequest(BaseModel):
     password: str
     name: str
     username: str
+    invite_code: Optional[str] = None   # required when registration_mode == "invite"
+
+
+class RegistrationModeBody(BaseModel):
+    mode: str   # open | invite | closed
+
+
+class InvitesBody(BaseModel):
+    count: int = 1
+
+
+class RegistrationModeOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    mode: str = "open"
+
+
+class InvitesListOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    data: list = []
+
+
+class InvitesCreatedOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    codes: list = []
+
+
+class AdminOkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
+
+_INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O/1/I
+
+
+def _gen_invite_code() -> str:
+    return "".join(secrets.choice(_INVITE_ALPHABET) for _ in range(8))
+
+
+async def _registration_mode() -> str:
+    try:
+        doc = await db.app_settings.find_one({"key": "registration_mode"}, {"_id": 0, "value": 1})
+        m = (doc or {}).get("value")
+        return m if m in ("open", "invite", "closed") else "open"
+    except Exception:
+        return "open"
+
+
+def _admin_or_403(user: dict):
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admins only")
 
 
 class LoginRequest(BaseModel):
@@ -372,6 +422,25 @@ async def register(body: RegisterRequest):
     if await db.users.find_one({"username": username}, {"_id": 0, "user_id": 1}):
         raise HTTPException(status_code=400, detail="Username taken")
 
+    # Registration mode (admin-controlled): open | invite | closed.
+    mode = await _registration_mode()
+    if mode == "closed":
+        raise HTTPException(status_code=403, detail={"code": "registration_closed", "message": "Sign-ups are currently closed."})
+    _invite_code: Optional[str] = None
+    if mode == "invite":
+        code = (body.invite_code or "").strip().upper()
+        if not code:
+            raise HTTPException(status_code=403, detail={"code": "invite_required", "message": "An invite code is required to sign up."})
+        # Consume atomically so a code can't be used twice (released below if the
+        # user insert then fails).
+        claim = await db.invite_codes.update_one(
+            {"code": code, "used": {"$ne": True}},
+            {"$set": {"used": True, "used_at": datetime.now(timezone.utc)}},
+        )
+        if getattr(claim, "matched_count", 0) != 1:
+            raise HTTPException(status_code=403, detail={"code": "invalid_invite", "message": "That invite code is invalid or already used."})
+        _invite_code = code
+
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     try:
         now = datetime.now(timezone.utc)
@@ -388,10 +457,67 @@ async def register(body: RegisterRequest):
             "created_at": now,
         })
     except DuplicateKeyError:
+        # Release the invite we consumed so it isn't burned on a lost race.
+        if _invite_code:
+            await db.invite_codes.update_one({"code": _invite_code}, {"$set": {"used": False, "used_at": None}})
         raise HTTPException(status_code=400, detail="Email or username taken")
+    if _invite_code:
+        await db.invite_codes.update_one({"code": _invite_code}, {"$set": {"used_by": user_id}})
     token = await _mint_session(user_id)
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return AuthResponse(session_token=token, user=User(**_user_doc_to_model(user_doc)))
+
+
+# ── Registration mode + invite codes (admin) ─────────────────────────────────
+@router.get("/admin/registration", response_model=RegistrationModeOut)
+async def admin_get_registration(authorization: Optional[str] = Header(None)):
+    _admin_or_403(await get_current_user(authorization))
+    return {"mode": await _registration_mode()}
+
+
+@router.post("/admin/registration", response_model=RegistrationModeOut)
+async def admin_set_registration(body: RegistrationModeBody, authorization: Optional[str] = Header(None)):
+    _admin_or_403(await get_current_user(authorization))
+    mode = (body.mode or "").strip().lower()
+    if mode not in ("open", "invite", "closed"):
+        raise HTTPException(status_code=400, detail="mode must be open, invite, or closed")
+    await db.app_settings.update_one({"key": "registration_mode"}, {"$set": {"value": mode}}, upsert=True)
+    return {"mode": mode}
+
+
+@router.get("/admin/invites", response_model=InvitesListOut)
+async def admin_list_invites(authorization: Optional[str] = Header(None)):
+    _admin_or_403(await get_current_user(authorization))
+    rows = await db.invite_codes.find({}, {"_id": 0}).sort("created_at", -1).limit(500).to_list(500)
+    return {"data": [{
+        "code": r.get("code"), "used": bool(r.get("used")),
+        "used_by": r.get("used_by"), "created_at": r.get("created_at"),
+    } for r in rows]}
+
+
+@router.post("/admin/invites", response_model=InvitesCreatedOut)
+async def admin_create_invites(body: InvitesBody, authorization: Optional[str] = Header(None)):
+    _admin_or_403(await get_current_user(authorization))
+    n = max(1, min(int(body.count or 1), 200))
+    now = datetime.now(timezone.utc)
+    codes: list = []
+    for _ in range(n):
+        for _try in range(5):
+            code = _gen_invite_code()
+            try:
+                await db.invite_codes.insert_one({"code": code, "used": False, "used_by": None, "created_at": now})
+                codes.append(code)
+                break
+            except DuplicateKeyError:
+                continue
+    return {"codes": codes}
+
+
+@router.delete("/admin/invites/{code}", response_model=AdminOkOut)
+async def admin_delete_invite(code: str, authorization: Optional[str] = Header(None)):
+    _admin_or_403(await get_current_user(authorization))
+    await db.invite_codes.delete_one({"code": (code or "").strip().upper()})
+    return {"ok": True}
 
 
 @router.post("/auth/login")
