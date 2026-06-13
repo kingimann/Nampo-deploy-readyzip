@@ -802,6 +802,49 @@ async def delete_post(post_id: str, authorization: Optional[str] = Header(None))
     return {"ok": True}
 
 
+class OrphanCleanupOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    removed: int = 0
+    scanned: int = 0
+
+
+@router.post("/admin/cleanup/orphaned-posts", response_model=OrphanCleanupOut)
+async def cleanup_orphaned_posts(authorization: Optional[str] = Header(None)):
+    """Remove posts whose author no longer exists (deleted-user posts). Admin
+    only. Deletes the orphan posts + their engagement rows, and fixes the reply
+    count on any surviving parent post. Account deletion already cascades posts;
+    this cleans up orphans left by older deletions or other paths."""
+    user = await get_current_user(authorization)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admins only")
+    user_rows = await db.users.find({}, {"_id": 0, "user_id": 1}).limit(1_000_000).to_list(1_000_000)
+    existing = {u.get("user_id") for u in user_rows}
+    posts = await db.posts.find(
+        {}, {"_id": 0, "id": 1, "user_id": 1, "parent_id": 1}
+    ).limit(1_000_000).to_list(1_000_000)
+    orphans = [p for p in posts if p.get("user_id") not in existing]
+    orphan_ids = [p["id"] for p in orphans if p.get("id")]
+    if not orphan_ids:
+        return {"removed": 0, "scanned": len(posts)}
+    orphan_set = set(orphan_ids)
+    # Fix reply counts on parents that survive (their orphan reply is going away).
+    for p in orphans:
+        parent = p.get("parent_id")
+        if parent and parent not in orphan_set:
+            try:
+                await db.posts.update_one({"id": parent}, {"$inc": {"replies_count": -1}})
+            except Exception:
+                pass
+    # Delete the orphans + their engagement, chunked so each query stays bounded.
+    for i in range(0, len(orphan_ids), 500):
+        chunk = orphan_ids[i:i + 500]
+        await db.posts.delete_many({"id": {"$in": chunk}})
+        for coll in (db.post_likes, db.post_dislikes, db.post_bookmarks,
+                     db.post_reactions, db.post_views, db.poll_votes):
+            await coll.delete_many({"post_id": {"$in": chunk}})
+    return {"removed": len(orphan_ids), "scanned": len(posts)}
+
+
 class BulkDeletePostsBody(BaseModel):
     post_ids: Optional[List[str]] = None   # omit/empty = delete ALL your posts
 
