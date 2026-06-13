@@ -533,6 +533,21 @@ async def cashout_to_card(body: CashoutBody, _auth_user: dict = Depends(get_curr
     if not acct.get("payouts_enabled"):
         raise HTTPException(status_code=400, detail={"code": "payouts_not_ready", "message": "Finish payout setup before cashing out."})
 
+    # KYC gate: outflows require a verified identity. payouts_enabled already means
+    # Stripe verified the person; persist that so other gates can rely on the flag,
+    # and reject anyone who somehow reaches here unverified.
+    if not (user.get("id_verified") or acct.get("payouts_enabled")):
+        raise HTTPException(status_code=403, detail={"code": "kyc_required", "message": "Verify your identity before cashing out."})
+    if not user.get("id_verified"):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"id_verified": True}})
+
+    # Velocity: cap instant cash-outs per day (CASHOUT_MAX_PER_DAY).
+    from core import CASHOUT_MAX_PER_DAY
+    _since = datetime.now(timezone.utc) - timedelta(days=1)
+    _today = await db.payouts.count_documents({"user_id": user["user_id"], "method": "instant_card", "created_at": {"$gte": _since}})
+    if _today >= CASHOUT_MAX_PER_DAY:
+        raise HTTPException(status_code=429, detail={"code": "rate_limited", "message": f"You can cash out at most {CASHOUT_MAX_PER_DAY}× per day. Try again tomorrow."}, headers={"Retry-After": "86400"})
+
     # Instant cash-out needs an eligible debit card on file — block early with a
     # clear message instead of attempting a payout that Stripe would reject.
     ext_data = (acct.get("external_accounts", {}) or {}).get("data") or []
@@ -1110,6 +1125,8 @@ async def create_checkout(body: CheckoutCreate, _auth_user: dict = Depends(get_c
             raise HTTPException(status_code=400, detail="Amount must be greater than 0")
         if amt > MONEY_MAX_TOPUP:
             raise HTTPException(status_code=400, detail=f"Maximum top-up is ${MONEY_MAX_TOPUP:,.0f}")
+        from routes.money import enforce_topup_pending
+        await enforce_topup_pending(me["user_id"])
         session = stripe.checkout.Session.create(
             mode="payment",
             line_items=[{

@@ -253,6 +253,12 @@ MONETIZE_MIN_AGE_DAYS = int(os.environ.get("MONETIZE_MIN_AGE_DAYS", "60") or 60)
 # limits, so the server enforces these on every money-moving request.
 MONEY_MAX_TOPUP = float(os.environ.get("MONEY_MAX_TOPUP", "1000") or 1000)   # wallet top-up
 MONEY_MAX_SEND = float(os.environ.get("MONEY_MAX_SEND", "2000") or 2000)     # send / transfer / pay
+
+# Velocity limits (per user) — enforced server-side, returned as 429.
+SEND_MAX_PER_HOUR = int(os.environ.get("SEND_MAX_PER_HOUR", "10") or 10)
+SEND_MAX_PER_DAY = float(os.environ.get("SEND_MAX_PER_DAY", "2000") or 2000)   # $/24h across sends
+CASHOUT_MAX_PER_DAY = int(os.environ.get("CASHOUT_MAX_PER_DAY", "2") or 2)
+TOPUP_MAX_PENDING = int(os.environ.get("TOPUP_MAX_PENDING", "5") or 5)
 MIN_ACCOUNT_AGE_DAYS = MARKETPLACE_MIN_AGE_DAYS  # back-compat default
 
 

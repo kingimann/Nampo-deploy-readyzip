@@ -330,6 +330,8 @@ async def stripe_transfer(
         raise HTTPException(status_code=400, detail={"code": "amount_too_large", "message": f"That's over the ${MONEY_MAX_SEND:,.0f} limit for a single transfer."})
     if body.to_user_id == sender["user_id"]:
         raise HTTPException(status_code=400, detail="You can't send money to yourself")
+    from routes.money import enforce_send_velocity
+    await enforce_send_velocity(sender["user_id"], amount)
 
     recipient = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "stripe_account_id": 1, "name": 1})
     if not recipient:

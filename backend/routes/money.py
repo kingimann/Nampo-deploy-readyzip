@@ -14,7 +14,10 @@ import bcrypt
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt, MONEY_MAX_TOPUP, MONEY_MAX_SEND
+from core import (
+    db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt,
+    MONEY_MAX_TOPUP, MONEY_MAX_SEND, SEND_MAX_PER_HOUR, SEND_MAX_PER_DAY, TOPUP_MAX_PENDING,
+)
 from db import _to_json, DuplicateKeyError
 
 # How long the sender can reverse a money transfer before the recipient can claim it.
@@ -150,6 +153,39 @@ def _money_amount(amount, cap: Optional[float] = None) -> float:
             "code": "amount_too_large", "message": f"That's over the ${cap:,.0f} limit for a single transaction.",
         })
     return a
+
+
+# ── Velocity limits (per user) — server-enforced anti-abuse ─────────────────
+async def enforce_send_velocity(uid: str, amount: float):
+    """Cap how fast/much a user can send: SEND_MAX_PER_HOUR sends/hour and
+    SEND_MAX_PER_DAY total per 24h, across ledger + Stripe transfers. 429 on hit."""
+    now = datetime.now(timezone.utc)
+    hr, day = now - timedelta(hours=1), now - timedelta(days=1)
+    n = await db.money_transfers.count_documents({"from_user_id": uid, "created_at": {"$gte": hr}})
+    try:
+        n += await db.stripe_transfers.count_documents({"from_user_id": uid, "created_at": {"$gte": hr}})
+    except Exception:
+        pass
+    if n >= SEND_MAX_PER_HOUR:
+        raise HTTPException(status_code=429, detail={"code": "rate_limited", "message": "Too many transfers in the last hour. Try again later."}, headers={"Retry-After": "3600"})
+    rows = await db.money_transfers.find({"from_user_id": uid, "created_at": {"$gte": day}}, {"_id": 0, "amount": 1}).to_list(2000)
+    try:
+        rows += await db.stripe_transfers.find({"from_user_id": uid, "created_at": {"$gte": day}}, {"_id": 0, "amount": 1}).to_list(2000)
+    except Exception:
+        pass
+    spent = sum(float(r.get("amount", 0) or 0) for r in rows)
+    if spent + amount > SEND_MAX_PER_DAY + 1e-9:
+        raise HTTPException(status_code=429, detail={"code": "daily_limit", "message": f"You've reached the ${SEND_MAX_PER_DAY:,.0f} daily transfer limit."}, headers={"Retry-After": "86400"})
+
+
+async def enforce_topup_pending(uid: str):
+    """Block a new top-up when too many are still pending (TOPUP_MAX_PENDING)."""
+    try:
+        pending = await db.wallet_topups.count_documents({"user_id": uid, "status": "processing"})
+    except Exception:
+        pending = 0
+    if pending >= TOPUP_MAX_PENDING:
+        raise HTTPException(status_code=429, detail={"code": "too_many_pending", "message": "You have too many pending top-ups. Finish or cancel one before starting another."})
 
 
 # Brute-force protection for the transfer security answer.
@@ -326,6 +362,7 @@ async def send_money(body: SendMoney, me: dict = Depends(get_current_user)):
     if not to:
         raise HTTPException(status_code=404, detail="Recipient not found")
     amount = _money_amount(body.amount, cap=MONEY_MAX_SEND)
+    await enforce_send_velocity(me["user_id"], amount)
     # Anti-fraud: block outgoing transfers during the post-direct-deposit-change hold.
     from routes.payments import payout_hold_until, DD_HOLD_BUSINESS_DAYS
     hold = payout_hold_until(me)
@@ -877,6 +914,7 @@ async def wallet_topup(body: WalletTopup, me: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     if amount > MONEY_MAX_TOPUP:
         raise HTTPException(status_code=400, detail=f"Maximum top-up is ${MONEY_MAX_TOPUP:,.0f}")
+    await enforce_topup_pending(me["user_id"])
 
     from routes.payments import payments_live
     if await payments_live():
@@ -953,6 +991,7 @@ async def wallet_topup_intent(body: TopupIntent, me: dict = Depends(get_current_
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
     if amount > MONEY_MAX_TOPUP:
         raise HTTPException(status_code=400, detail=f"Maximum top-up is ${MONEY_MAX_TOPUP:,.0f}")
+    await enforce_topup_pending(me["user_id"])
     from routes.payments import payments_live, stripe, STRIPE_PUBLISHABLE_KEY
     if not await payments_live():
         raise HTTPException(status_code=400, detail={"code": "not_live", "message": "Card payments aren't enabled right now."})
