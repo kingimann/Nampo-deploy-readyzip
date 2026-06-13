@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from db import DuplicateKeyError
 
 from core import (
@@ -626,7 +626,36 @@ async def set_user_badge(user_id: str, body: UserBadgeBody, authorization: Optio
     return {"ok": True}
 
 
-@router.post("/presence/ping")
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _UOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_UOut):
+    ok: bool = True
+
+
+class FollowOut(_UOut):
+    following: bool
+
+
+class FriendStatusOut(_UOut):
+    status: str = ""   # none | request_sent | friends | rejected | …
+
+
+class SubscribeOut(_UOut):
+    subscribed: bool
+
+
+class TiersOut(_UOut):
+    tiers: list = []
+
+
+class LeaderboardOut(_UOut):
+    leaders: list = []
+
+
+@router.post("/presence/ping", response_model=OkOut)
 async def presence_ping(authorization: Optional[str] = Header(None)):
     """Heartbeat: mark the caller active now (drives online/offline status).
 
@@ -638,7 +667,7 @@ async def presence_ping(authorization: Optional[str] = Header(None)):
     return {"ok": True, "awarded": 0}
 
 
-@router.get("/points/leaderboard")
+@router.get("/points/leaderboard", response_model=LeaderboardOut)
 async def points_leaderboard(authorization: Optional[str] = Header(None)):
     """Top users by activity points (Snapscore leaderboard)."""
     me = await get_current_user(authorization)
@@ -707,7 +736,7 @@ async def get_public_user(user_id: str, authorization: Optional[str] = Header(No
     return await _public_user(user_id, me_user["user_id"])
 
 
-@router.post("/users/{user_id}/follow")
+@router.post("/users/{user_id}/follow", response_model=FollowOut)
 async def toggle_follow(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     if user_id == me["user_id"]:
@@ -744,7 +773,7 @@ async def toggle_follow(user_id: str, authorization: Optional[str] = Header(None
     return {"following": True}
 
 
-@router.post("/users/{user_id}/poke")
+@router.post("/users/{user_id}/poke", response_model=OkOut)
 async def poke_user(user_id: str, authorization: Optional[str] = Header(None)):
     """Facebook-style poke. One active outgoing poke per person until they
     respond; poking someone who poked you counts as poking back."""
@@ -820,7 +849,7 @@ class BulkUnfollowBody(BaseModel):
     user_ids: Optional[List[str]] = None   # omit/empty = unfollow EVERYONE you follow
 
 
-@router.post("/users/me/unfollow-bulk")
+@router.post("/users/me/unfollow-bulk", response_model=OkOut)
 async def unfollow_bulk(body: BulkUnfollowBody, authorization: Optional[str] = Header(None)):
     """Mass-unfollow. With user_ids: unfollow just those. Without: purge your
     entire following list at once."""
@@ -834,7 +863,7 @@ async def unfollow_bulk(body: BulkUnfollowBody, authorization: Optional[str] = H
 
 # ───────── Friends (Facebook-style, symmetric with request/accept) ─────────
 
-@router.post("/friends/request/{user_id}")
+@router.post("/friends/request/{user_id}", response_model=FriendStatusOut)
 async def send_friend_request(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     if user_id == me["user_id"]:
@@ -882,7 +911,7 @@ async def send_friend_request(user_id: str, authorization: Optional[str] = Heade
     return {"status": "request_sent"}
 
 
-@router.post("/friends/accept/{user_id}")
+@router.post("/friends/accept/{user_id}", response_model=FriendStatusOut)
 async def accept_friend_request(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     req = await db.friend_requests.find_one(
@@ -908,7 +937,7 @@ async def accept_friend_request(user_id: str, authorization: Optional[str] = Hea
     return {"status": "friends"}
 
 
-@router.post("/friends/reject/{user_id}")
+@router.post("/friends/reject/{user_id}", response_model=FriendStatusOut)
 async def reject_friend_request(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     r = await db.friend_requests.update_one(
@@ -920,7 +949,7 @@ async def reject_friend_request(user_id: str, authorization: Optional[str] = Hea
     return {"status": "rejected"}
 
 
-@router.delete("/friends/{user_id}")
+@router.delete("/friends/{user_id}", response_model=FriendStatusOut)
 async def unfriend(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     a, b = sorted([me["user_id"], user_id])
@@ -935,7 +964,7 @@ async def unfriend(user_id: str, authorization: Optional[str] = Header(None)):
     return {"removed": bool(res.deleted_count)}
 
 
-@router.delete("/friends/request/{user_id}")
+@router.delete("/friends/request/{user_id}", response_model=FriendStatusOut)
 async def cancel_friend_request(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     await db.friend_requests.delete_one(
@@ -1038,7 +1067,7 @@ async def tip_user(user_id: str, body: TipCreate, authorization: Optional[str] =
     return Tip(**tip)
 
 
-@router.get("/subscription-tiers")
+@router.get("/subscription-tiers", response_model=TiersOut)
 async def subscription_tiers():
     return {"tiers": SUBSCRIPTION_TIERS}
 
@@ -1047,7 +1076,7 @@ class SubscribeBody(BaseModel):
     tier: str = "plus"
 
 
-@router.post("/users/{user_id}/subscribe")
+@router.post("/users/{user_id}/subscribe", response_model=SubscribeOut)
 async def subscribe_user(user_id: str, body: SubscribeBody = SubscribeBody(), authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     from routes.payments import payments_live
@@ -1111,7 +1140,7 @@ async def subscribe_user(user_id: str, body: SubscribeBody = SubscribeBody(), au
     return {"subscribed": True}
 
 
-@router.delete("/users/{user_id}/subscribe")
+@router.delete("/users/{user_id}/subscribe", response_model=SubscribeOut)
 async def unsubscribe_user(user_id: str, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     await db.subscriptions.update_many(
