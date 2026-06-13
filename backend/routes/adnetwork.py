@@ -12,7 +12,7 @@ import random
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -29,9 +29,22 @@ class OkOut(BaseModel):
     ok: bool = True
 
 
+class SiteOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    name: Optional[str] = None
+    domain: Optional[str] = None
+    site_key: Optional[str] = None
+    impressions: int = 0
+    clicks: int = 0
+    ctr: float = 0
+    earned: float = 0
+    created_at: Optional[datetime] = None
+
+
 class SitesOut(BaseModel):
     model_config = ConfigDict(extra="allow")
-    sites: list = []
+    sites: List[SiteOut] = []
 
 
 class AdServeOut(BaseModel):
@@ -90,7 +103,7 @@ class SiteCreate(BaseModel):
     domain: Optional[str] = ""
 
 
-@router.post("/pub/sites")
+@router.post("/pub/sites", response_model=SiteOut)
 async def create_site(body: SiteCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     require_account_age(me, "monetize a site", MONETIZE_MIN_AGE_DAYS)

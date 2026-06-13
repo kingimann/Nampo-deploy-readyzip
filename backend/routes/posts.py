@@ -190,7 +190,14 @@ class ResolveVideo(BaseModel):
     url: str
 
 
-@router.post("/media/resolve-video")
+class ResolveVideoOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    url: Optional[str] = None       # direct, playable video URL
+    embed: Optional[str] = None     # "youtube" | "vimeo" | "tiktok" when it's an embed
+    thumbnail: Optional[str] = None
+
+
+@router.post("/media/resolve-video", response_model=ResolveVideoOut)
 async def resolve_video(body: ResolveVideo, authorization: Optional[str] = Header(None)):
     """Resolve an imgur/streamable/page link to a direct, playable video URL."""
     await get_current_user(authorization)

@@ -243,6 +243,70 @@ class AdTopupOut(_AdOut):
     id: Optional[str] = None
 
 
+class AdRevenueOut(_AdOut):
+    total_ad_spend: float = 0
+    paid_to_hosts: float = 0
+    platform_cut: float = 0
+    total_impressions: int = 0
+    total_clicks: int = 0
+    ctr: float = 0
+    active_campaigns: int = 0
+    top_earners: list = []        # [{name, amount}]
+    top_advertisers: list = []    # [{name, amount}]
+
+
+class LinkAdOut(_AdOut):
+    id: str
+    url: Optional[str] = None
+    headline: Optional[str] = None
+    description: Optional[str] = None
+    image: Optional[str] = None
+    ad_cpc: float = 0
+    promoted_until: Optional[datetime] = None
+
+
+class ReelAdOut(_AdOut):
+    id: str
+    owner_id: Optional[str] = None
+    owner_name: Optional[str] = None
+    video_url: Optional[str] = None
+    thumbnail: Optional[str] = None
+    headline: Optional[str] = None
+    description: Optional[str] = None
+    url: Optional[str] = None
+    cta: str = "Learn more"
+    duration: int = 15
+    skippable_after: int = 0
+    budget: Optional[float] = None
+    cpc: float = 0
+    impressions: int = 0
+    clicks: int = 0
+    ctr: float = 0
+    spent: float = 0
+    promoted_until: Optional[datetime] = None
+    active: bool = False
+
+
+class BotRunOut(_AdOut):
+    ok: bool = True
+    earned: float = 0
+    earner_id: Optional[str] = None
+    spend: float = 0
+    debited_from_advertiser: float = 0
+    totals: dict = {}
+
+
+class AdAccountOut(_AdOut):
+    balance: float = 0
+    funded: bool = False
+    paused: bool = False
+    active_campaigns: int = 0
+    lifetime_spend: float = 0
+    stripe_enabled: bool = False
+    rates: dict = {}              # {view, click, comment}
+    recent_topups: list = []      # [{amount, source, created_at}]
+
+
 @router.get("/promoted/next", response_model=AdServeOut)
 async def next_ad(
     placement: str = Query("feed"),
@@ -380,7 +444,7 @@ async def report_ad(post_id: str, authorization: Optional[str] = Header(None)):
     return {"reported": True}
 
 
-@router.get("/admin/ad-revenue")
+@router.get("/admin/ad-revenue", response_model=AdRevenueOut)
 async def admin_ad_revenue(authorization: Optional[str] = Header(None)):
     """Platform-wide ad revenue dashboard (admin only)."""
     me = await get_current_user(authorization)
@@ -514,7 +578,7 @@ async def bill_link_ad(ad: dict, actor_id: Optional[str], kind: str, host_user_i
     return credited
 
 
-@router.post("/promoted/links")
+@router.post("/promoted/links", response_model=LinkAdOut)
 async def create_link_ad(body: LinkAdCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     require_account_age(me, "advertise a link", MONETIZE_MIN_AGE_DAYS)
@@ -648,7 +712,7 @@ def _reel_ad_view(d: dict) -> dict:
     }
 
 
-@router.post("/promoted/reels")
+@router.post("/promoted/reels", response_model=ReelAdOut)
 async def create_reel_ad(body: ReelAdCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     require_account_age(me, "advertise a reel", MONETIZE_MIN_AGE_DAYS)
@@ -736,7 +800,7 @@ async def reel_ad_event(ad_id: str, body: AdEvent, authorization: Optional[str] 
     return {"ok": True, "charged": charge}
 
 
-@router.post("/admin/bot/run")
+@router.post("/admin/bot/run", response_model=BotRunOut)
 async def bot_run(body: BotRun, authorization: Optional[str] = Header(None)):
     """Simulate views/clicks/likes/comments on a sponsored post to test wallet
     and analytics. Counters only — no real like/comment records are created.
@@ -847,7 +911,7 @@ class AdTopup(BaseModel):
     amount: float
 
 
-@router.get("/promoted/account")
+@router.get("/promoted/account", response_model=AdAccountOut)
 async def ad_account(authorization: Optional[str] = Header(None)):
     """Advertiser's prepaid ad-account: current balance, spend and rates."""
     me = await get_current_user(authorization)

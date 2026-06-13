@@ -473,6 +473,18 @@ class DecisionOut(_RsOut):
     status: str = ""
 
 
+class RoadsideVerificationAdminOut(_RsOut):
+    id: str
+    user_id: str
+    user: dict = {}                       # {name, picture, email}
+    status: str = "pending"
+    vehicle: Optional[str] = None
+    note: Optional[str] = None
+    insurance_photo: Optional[str] = None  # decrypted only for the reviewing admin
+    ownership_photo: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
 @router.get("/roadside/quote", response_model=QuoteOut)
 async def quote(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -603,7 +615,7 @@ async def submit_verification(body: RoadsideVerifySubmit, authorization: Optiona
     return {"status": "pending", "verified": False}
 
 
-@router.get("/admin/roadside/verifications")
+@router.get("/admin/roadside/verifications", response_model=List[RoadsideVerificationAdminOut])
 async def admin_list_verifications(
     status: str = Query("pending"), authorization: Optional[str] = Header(None),
 ):
@@ -919,7 +931,7 @@ async def edit_request(rid: str, body: RoadsideCreate, authorization: Optional[s
     return await _hydrate(doc, user["user_id"])
 
 
-@router.get("/roadside/active")
+@router.get("/roadside/active", response_model=Optional[RoadsideRequest])
 async def my_active(authorization: Optional[str] = Header(None)):
     """The viewer's current open/accepted request, or null."""
     user = await get_current_user(authorization)
@@ -931,7 +943,7 @@ async def my_active(authorization: Optional[str] = Header(None)):
     return await _hydrate(doc, user["user_id"])
 
 
-@router.get("/roadside/helping")
+@router.get("/roadside/helping", response_model=Optional[RoadsideRequest])
 async def my_helping(authorization: Optional[str] = Header(None)):
     """A request the viewer accepted and is on the way to, or null."""
     user = await get_current_user(authorization)
