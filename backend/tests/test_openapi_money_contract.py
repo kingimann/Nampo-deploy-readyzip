@@ -24,6 +24,7 @@ MONEY_ROUTES = [
     ("/capabilities", "get"),
     ("/payments/payouts/setup", "post"),
     ("/payments/payouts/status", "get"),
+    ("/payments/identity/start", "post"),
     ("/payments/checkout", "post"),
     ("/payments/pay-intent", "post"),
     ("/payments/pay-intent/confirm", "post"),

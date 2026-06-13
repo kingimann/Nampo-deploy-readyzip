@@ -241,6 +241,13 @@ class SetupUrlOut(_MoneyOut):
     url: str
 
 
+class IdentityStartOut(_MoneyOut):
+    url: Optional[str] = None              # Stripe-hosted fallback page
+    client_secret: Optional[str] = None    # for the in-app Identity modal
+    id: Optional[str] = None
+    already_verified: bool = False
+
+
 class PayoutStatusOut(_MoneyOut):
     enabled: bool = False
     connected: bool = False
@@ -726,7 +733,7 @@ async def set_default_payout_method(method_id: str, _auth_user: dict = Depends(g
 
 
 # ── Standalone ID verification via Stripe Identity (not tied to payouts) ──────
-@router.post("/payments/identity/start")
+@router.post("/payments/identity/start", response_model=IdentityStartOut)
 async def start_identity(_auth_user: dict = Depends(get_current_user)):
     """Begin Stripe Identity verification: the user uploads a government ID +
     selfie on a Stripe-hosted page. On success a webhook (and the status

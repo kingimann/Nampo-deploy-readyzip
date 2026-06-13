@@ -710,9 +710,21 @@ class PayWalletOut(_W):
     balance: float
 
 
+class ActivityItem(_W):
+    id: str = ""
+    kind: str = ""              # topup|cashout|received|sent|subscription_paid|transfer
+    direction: str = ""          # in | out
+    amount: float = 0
+    status: str = "completed"    # pending|completed|canceled|failed|reversed
+    title: str = ""
+    subtitle: Optional[str] = None
+    message: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
 class ActivityOut(_W):
-    activity: list = []   # legacy key (kept for back-compat)
-    data: list = []       # §6 canonical list accessor
+    activity: list[ActivityItem] = []   # legacy key (kept for back-compat)
+    data: list[ActivityItem] = []       # §6 canonical list accessor
     total: int = 0
 
 
