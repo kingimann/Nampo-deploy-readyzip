@@ -10,7 +10,7 @@ Play surface: the app loads `/api/pub/game/{id}` in a WebView (native) / iframe
 (web); for inline-HTML games we inject the SDK automatically.
 """
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 from xml.sax.saxutils import quoteattr
 import uuid
 
@@ -37,6 +37,24 @@ class ScoreOut(BaseModel):
 class LeaderboardOut(BaseModel):
     model_config = ConfigDict(extra="allow")
     leaderboard: list = []
+
+
+class GamesListOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    games: list = []
+
+
+class GameOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    title: str = "Untitled"
+    description: str = ""
+    thumbnail: Optional[str] = None
+    owner_id: Optional[str] = None
+    owner_name: Optional[str] = None
+    kind: str = "url"            # url | html
+    plays: int = 0
+    created_at: Optional[Any] = None
 
 
 HTML_MAX = 3_000_000      # ~3MB inline game cap (bigger games should use a URL)
@@ -77,7 +95,7 @@ def _public_base(request: Request) -> str:
 
 
 # ── Creator CRUD ─────────────────────────────────────────────────────────────
-@router.post("/games")
+@router.post("/games", response_model=GameOut)
 async def create_game(body: GameCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     title = (body.title or "").strip()[:TITLE_MAX]
@@ -109,7 +127,7 @@ async def create_game(body: GameCreate, authorization: Optional[str] = Header(No
     return _card(doc)
 
 
-@router.get("/games")
+@router.get("/games", response_model=GamesListOut)
 async def list_games(mine: Optional[bool] = False, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     q = {"owner_id": user["user_id"]} if mine else {}
@@ -117,7 +135,7 @@ async def list_games(mine: Optional[bool] = False, authorization: Optional[str] 
     return {"games": [_card(r) for r in rows]}
 
 
-@router.get("/games/{game_id}")
+@router.get("/games/{game_id}", response_model=GameOut)
 async def get_game(game_id: str, authorization: Optional[str] = Header(None)):
     await get_current_user(authorization)
     doc = await db.games.find_one({"id": game_id}, {"_id": 0})
