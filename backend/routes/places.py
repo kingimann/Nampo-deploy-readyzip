@@ -4,11 +4,18 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user
 from models import Place, PlaceCreate, Recent, RecentCreate
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class OkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
 
 
 @router.get("/places", response_model=List[Place])
@@ -46,7 +53,7 @@ async def get_place(place_id: str, authorization: Optional[str] = Header(None)):
     return Place(**doc)
 
 
-@router.delete("/places/{place_id}")
+@router.delete("/places/{place_id}", response_model=OkOut)
 async def delete_place(place_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     result = await db.places.delete_one({"id": place_id, "user_id": user["user_id"]})
@@ -100,7 +107,7 @@ async def create_recent(body: RecentCreate, authorization: Optional[str] = Heade
     return Recent(**doc)
 
 
-@router.delete("/recents/{recent_id}")
+@router.delete("/recents/{recent_id}", response_model=OkOut)
 async def delete_recent(recent_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     res = await db.recents.delete_one({"id": recent_id, "user_id": user["user_id"]})
@@ -109,7 +116,7 @@ async def delete_recent(recent_id: str, authorization: Optional[str] = Header(No
     return {"ok": True}
 
 
-@router.delete("/recents")
+@router.delete("/recents", response_model=OkOut)
 async def clear_recents(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     await db.recents.delete_many({"user_id": user["user_id"]})

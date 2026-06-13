@@ -4,6 +4,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user
 from models import (
@@ -15,6 +16,17 @@ except Exception:  # pragma: no cover
     emit_notification = None  # type: ignore
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class OkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
+
+class ViewedOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    viewed: bool = False
+
 
 STORY_TTL_HOURS = 24
 MAX_BASE64 = 12 * 1024 * 1024  # ~12MB (≈9MB raw video / image)
@@ -136,7 +148,7 @@ async def list_user_stories(user_id: str, authorization: Optional[str] = Header(
     return [await _hydrate_story(d, user["user_id"]) for d in docs]
 
 
-@router.post("/stories/{story_id}/view")
+@router.post("/stories/{story_id}/view", response_model=ViewedOut)
 async def view_story(story_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     now = datetime.now(timezone.utc)
@@ -186,7 +198,7 @@ async def list_story_viewers(story_id: str, authorization: Optional[str] = Heade
     return out
 
 
-@router.delete("/stories/{story_id}")
+@router.delete("/stories/{story_id}", response_model=OkOut)
 async def delete_story(story_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     s = await db.stories.find_one({"id": story_id}, {"_id": 0})
@@ -199,7 +211,7 @@ async def delete_story(story_id: str, authorization: Optional[str] = Header(None
     return {"ok": True}
 
 
-@router.post("/stories/{story_id}/reply")
+@router.post("/stories/{story_id}/reply", response_model=OkOut)
 async def reply_to_story(
     story_id: str, body: StoryReply, authorization: Optional[str] = Header(None)
 ):

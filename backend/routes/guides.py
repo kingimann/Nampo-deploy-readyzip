@@ -4,6 +4,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, ConfigDict
 
 from core import (
     _public_user,
@@ -15,6 +16,12 @@ from core import (
 from models import Guide, GuideCreate, GuidePatch, Place, PublicGuide
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class OkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
 
 
 @router.get("/guides", response_model=List[Guide])
@@ -95,7 +102,7 @@ async def patch_guide(
     return Guide(**updated)
 
 
-@router.delete("/guides/{guide_id}")
+@router.delete("/guides/{guide_id}", response_model=OkOut)
 async def delete_guide(guide_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     res = await db.guides.delete_one({"id": guide_id, "user_id": user["user_id"]})

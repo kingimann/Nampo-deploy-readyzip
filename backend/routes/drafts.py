@@ -9,11 +9,17 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class OkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
 
 MAX_DRAFT_BYTES = 16 * 1024 * 1024  # ~16MB serialized (covers base64 media)
 MAX_DRAFTS = 50
@@ -94,7 +100,7 @@ async def update_draft(draft_id: str, body: DraftBody, authorization: Optional[s
     return _to_model(d)
 
 
-@router.delete("/drafts/{draft_id}")
+@router.delete("/drafts/{draft_id}", response_model=OkOut)
 async def delete_draft(draft_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     d = await db.drafts.find_one({"id": draft_id}, {"_id": 0})
