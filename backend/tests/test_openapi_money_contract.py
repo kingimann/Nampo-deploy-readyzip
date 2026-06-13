@@ -63,13 +63,22 @@ def test_money_endpoint_declares_200_schema(spec, path, method):
 # §3: auth resolves before body validation, so an unauthenticated call to a
 # protected money POST returns 401 (not a 422 that leaks the body schema). These
 # hit the no-token branch of get_current_user, which raises before any DB access.
-AUTH_BEFORE_VALIDATION_POSTS = ["/stripe/transfer", "/stripe/payout"]
+AUTH_BEFORE_VALIDATION_POSTS = [
+    "/stripe/transfer",
+    "/stripe/payout",
+    "/wallet/topup",
+    "/wallet/topup/intent",
+    "/wallet/currency",
+    "/payments/pay-wallet",
+    "/money/send",
+]
 
 
 @pytest.fixture(scope="module")
 def client():
     app = FastAPI()
-    app.include_router(stripe_connect.router)
+    for r in (stripe_connect.router, money.router, payments.router):
+        app.include_router(r)
     return TestClient(app)
 
 

@@ -11,7 +11,7 @@ from typing import Optional
 
 import asyncpg
 import bcrypt
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user, _public_user, CURRENCIES, normalize_currency, _norm_dt
@@ -281,14 +281,12 @@ class SecuritySet(BaseModel):
 
 
 @router.get("/money/security")
-async def get_security(authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def get_security(me: dict = Depends(get_current_user)):
     return {"is_set": bool(me.get("transfer_answer_hash")), "question": me.get("transfer_question")}
 
 
 @router.post("/money/security")
-async def set_security(body: SecuritySet, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def set_security(body: SecuritySet, me: dict = Depends(get_current_user)):
     question = (body.question or "").strip()[:200]
     answer = (body.answer or "").strip()
     if not question or not answer:
@@ -311,8 +309,7 @@ class SendMoney(BaseModel):
 
 
 @router.post("/money/send")
-async def send_money(body: SendMoney, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def send_money(body: SendMoney, me: dict = Depends(get_current_user)):
     if body.to_user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't send money to yourself")
     to = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "name": 1})
@@ -374,9 +371,8 @@ async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
 
 
 @router.get("/money/transfers/history")
-async def transfers_history(authorization: Optional[str] = Header(None)):
+async def transfers_history(me: dict = Depends(get_current_user)):
     """All money transfers involving me (both directions, every status)."""
-    me = await get_current_user(authorization)
     uid = me["user_id"]
     rows = await db.money_transfers.find(
         {"$or": [{"from_user_id": uid}, {"to_user_id": uid}]}, {"_id": 0}
@@ -385,8 +381,7 @@ async def transfers_history(authorization: Optional[str] = Header(None)):
 
 
 @router.get("/money/transfers")
-async def list_transfers(authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def list_transfers(me: dict = Depends(get_current_user)):
     uid = me["user_id"]
     incoming = await db.money_transfers.find(
         {"to_user_id": uid, "status": "pending"}, {"_id": 0}
@@ -401,8 +396,7 @@ async def list_transfers(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/money/transfers/{tid}/accept")
-async def accept_transfer(tid: str, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def accept_transfer(tid: str, me: dict = Depends(get_current_user)):
     t = await db.money_transfers.find_one(
         {"id": tid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
@@ -442,8 +436,7 @@ async def accept_transfer(tid: str, authorization: Optional[str] = Header(None))
 
 
 @router.post("/money/transfers/{tid}/decline")
-async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def decline_transfer(tid: str, me: dict = Depends(get_current_user)):
     t = await db.money_transfers.find_one(
         {"id": tid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
@@ -465,10 +458,9 @@ async def decline_transfer(tid: str, authorization: Optional[str] = Header(None)
 
 
 @router.post("/money/transfers/{tid}/reverse")
-async def reverse_transfer(tid: str, authorization: Optional[str] = Header(None)):
+async def reverse_transfer(tid: str, me: dict = Depends(get_current_user)):
     """The sender reverses a transfer they sent (e.g. a mistake) while it's still
     pending — they get refunded and the recipient is notified."""
-    me = await get_current_user(authorization)
     t = await db.money_transfers.find_one(
         {"id": tid, "from_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
@@ -521,8 +513,7 @@ async def _hydrate_request(r: dict, viewer_id: str) -> dict:
 
 
 @router.post("/money/request")
-async def request_money(body: RequestMoney, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def request_money(body: RequestMoney, me: dict = Depends(get_current_user)):
     if body.to_user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't request money from yourself")
     payer = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "name": 1})
@@ -544,8 +535,7 @@ async def request_money(body: RequestMoney, authorization: Optional[str] = Heade
 
 
 @router.get("/money/requests")
-async def list_requests(authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def list_requests(me: dict = Depends(get_current_user)):
     uid = me["user_id"]
     incoming = await db.money_requests.find(
         {"to_user_id": uid, "status": "pending"}, {"_id": 0}
@@ -560,8 +550,7 @@ async def list_requests(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/money/requests/{rid}/pay")
-async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def pay_request(rid: str, body: PayRequest, me: dict = Depends(get_current_user)):
     req = await db.money_requests.find_one(
         {"id": rid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
@@ -594,8 +583,7 @@ async def pay_request(rid: str, body: PayRequest, authorization: Optional[str] =
 
 
 @router.post("/money/requests/{rid}/decline")
-async def decline_request(rid: str, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def decline_request(rid: str, me: dict = Depends(get_current_user)):
     req = await db.money_requests.find_one(
         {"id": rid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
@@ -610,8 +598,7 @@ async def decline_request(rid: str, authorization: Optional[str] = Header(None))
 
 
 @router.post("/money/requests/{rid}/cancel")
-async def cancel_request(rid: str, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def cancel_request(rid: str, me: dict = Depends(get_current_user)):
     req = await db.money_requests.find_one(
         {"id": rid, "from_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
@@ -730,12 +717,11 @@ class TopupsOut(_W):
 
 
 @router.post("/payments/pay-wallet", response_model=PayWalletOut)
-async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header(None)):
+async def pay_from_wallet(body: WalletPay, me: dict = Depends(get_current_user)):
     """Pay a tip or a (first) subscription charge from the in-app wallet balance.
     Tips carry the flat transaction fee (admins exempt); subscriptions take the
     platform percentage cut. Returns 400 insufficient_balance with the shortfall
     so the client can offer to top up the difference or pay the rest by card."""
-    me = await get_current_user(authorization)
     if body.creator_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't pay yourself")
     creator = await db.users.find_one({"user_id": body.creator_id}, {"_id": 0, "user_id": 1, "name": 1, "email": 1})
@@ -828,8 +814,7 @@ async def pay_from_wallet(body: WalletPay, authorization: Optional[str] = Header
 
 
 @router.get("/wallet/balance", response_model=WalletBalanceOut)
-async def wallet_balance(authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def wallet_balance(me: dict = Depends(get_current_user)):
     usd = await _wallet_balance(me["user_id"])
     out = _currency_view(me.get("currency"), usd)
     out["currencies"] = CURRENCIES
@@ -841,8 +826,7 @@ class SetCurrency(BaseModel):
 
 
 @router.post("/wallet/currency", response_model=WalletBalanceOut)
-async def set_currency(body: SetCurrency, authorization: Optional[str] = Header(None)):
-    me = await get_current_user(authorization)
+async def set_currency(body: SetCurrency, me: dict = Depends(get_current_user)):
     code = normalize_currency(body.currency)
     await db.users.update_one({"user_id": me["user_id"]}, {"$set": {"currency": code}})
     usd = await _wallet_balance(me["user_id"])
@@ -855,10 +839,9 @@ class WalletTopup(BaseModel):
 
 
 @router.post("/wallet/topup", response_model=TopupOut)
-async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(None)):
+async def wallet_topup(body: WalletTopup, me: dict = Depends(get_current_user)):
     """Add funds to the wallet. Uses Stripe Checkout when real payments are
     live (credited by the webhook); otherwise credits immediately (test mode)."""
-    me = await get_current_user(authorization)
     amount = round(float(body.amount or 0), 2)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
@@ -899,11 +882,10 @@ async def wallet_topup(body: WalletTopup, authorization: Optional[str] = Header(
 
 
 @router.post("/wallet/topup/sync", response_model=TopupSyncOut)
-async def wallet_topup_sync(authorization: Optional[str] = Header(None)):
+async def wallet_topup_sync(me: dict = Depends(get_current_user)):
     """Safety net: scan the user's recent Stripe Checkout sessions and credit any
     paid wallet top-up that wasn't recorded (e.g. a missed/late webhook).
     Idempotent via the session id."""
-    me = await get_current_user(authorization)
     from routes.payments import stripe, stripe_enabled
     credited_total, count = 0.0, 0
     if stripe_enabled():
@@ -934,9 +916,8 @@ class TopupIntent(BaseModel):
 
 
 @router.post("/wallet/topup/intent", response_model=TopupIntentOut)
-async def wallet_topup_intent(body: TopupIntent, authorization: Optional[str] = Header(None)):
+async def wallet_topup_intent(body: TopupIntent, me: dict = Depends(get_current_user)):
     """Create a PaymentIntent for an inline (Stripe Elements) card top-up."""
-    me = await get_current_user(authorization)
     amount = round(float(body.amount or 0), 2)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
@@ -967,9 +948,8 @@ class IntentConfirm(BaseModel):
 
 
 @router.post("/wallet/topup/confirm-intent", response_model=TopupConfirmOut)
-async def wallet_topup_confirm_intent(body: IntentConfirm, authorization: Optional[str] = Header(None)):
+async def wallet_topup_confirm_intent(body: IntentConfirm, me: dict = Depends(get_current_user)):
     """Credit a top-up after the inline card payment succeeds (idempotent)."""
-    me = await get_current_user(authorization)
     from routes.payments import stripe, stripe_enabled
     if not stripe_enabled() or not body.intent_id:
         raise HTTPException(status_code=400, detail="Nothing to confirm")
@@ -995,11 +975,10 @@ class TopupConfirm(BaseModel):
 
 
 @router.post("/wallet/topup/confirm", response_model=TopupConfirmOut)
-async def wallet_topup_confirm(body: TopupConfirm, authorization: Optional[str] = Header(None)):
+async def wallet_topup_confirm(body: TopupConfirm, me: dict = Depends(get_current_user)):
     """Confirm a wallet top-up right after the user returns from Stripe Checkout,
     so the balance updates even if the webhook is delayed or misconfigured.
     Idempotent: crediting is keyed on the Stripe session id."""
-    me = await get_current_user(authorization)
     from routes.payments import stripe, stripe_enabled
     if not stripe_enabled() or not body.session_id:
         raise HTTPException(status_code=400, detail="No payment to confirm")
@@ -1036,10 +1015,9 @@ def _topup_view(t: dict) -> dict:
 
 
 @router.post("/wallet/topup/{tid}/cancel", response_model=TopupCancelOut)
-async def cancel_topup(tid: str, authorization: Optional[str] = Header(None)):
+async def cancel_topup(tid: str, me: dict = Depends(get_current_user)):
     """Cancel a top-up that's still processing (e.g. the user left the Stripe
     page). If the payment actually went through, it's credited instead."""
-    me = await get_current_user(authorization)
     t = await db.wallet_topups.find_one({"id": tid, "user_id": me["user_id"]}, {"_id": 0})
     if not t:
         raise HTTPException(status_code=404, detail="Top-up not found")
@@ -1084,10 +1062,9 @@ def _canonical_status(s) -> str:
 
 
 @router.get("/wallet/activity", response_model=ActivityOut)
-async def wallet_activity(authorization: Optional[str] = Header(None)):
+async def wallet_activity(me: dict = Depends(get_current_user)):
     """One chronological feed of everything money: top-ups, cash-outs, tips and
     subscriptions (sent & received), and money transfers (incl. pending/reversed)."""
-    me = await get_current_user(authorization)
     uid = me["user_id"]
     items: list = []
 
@@ -1173,9 +1150,8 @@ async def wallet_activity(authorization: Optional[str] = Header(None)):
 
 
 @router.get("/wallet/topups", response_model=TopupsOut)
-async def list_topups(authorization: Optional[str] = Header(None)):
+async def list_topups(me: dict = Depends(get_current_user)):
     """The user's wallet top-up history with status (processing/completed/failed)."""
-    me = await get_current_user(authorization)
     rows = await db.wallet_topups.find(
         {"user_id": me["user_id"]}, {"_id": 0}
     ).sort("created_at", -1).limit(50).to_list(50)
