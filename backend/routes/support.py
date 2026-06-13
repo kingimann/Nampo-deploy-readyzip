@@ -2,7 +2,7 @@
 back and forth with staff; admins triage and resolve them."""
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
@@ -16,6 +16,32 @@ router = APIRouter()
 class CountOut(BaseModel):
     model_config = ConfigDict(extra="allow")
     count: int = 0
+
+
+class TicketMessageOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    sender_id: Optional[str] = None
+    is_staff: bool = False
+    text: str = ""
+    created_at: Optional[object] = None
+
+
+class TicketOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    user_id: str
+    category: str = "other"
+    subject: str = ""
+    status: str = "open"
+    related_type: Optional[str] = None
+    related_id: Optional[str] = None
+    created_at: Optional[object] = None
+    updated_at: Optional[object] = None
+    last_message_at: Optional[object] = None
+    unread_for_user: bool = False
+    user: Optional[dict] = None
+    messages: Optional[List[TicketMessageOut]] = None   # present on detail views
 
 
 CATEGORIES = {"dispute", "payment", "account", "content", "bug", "safety", "other"}
@@ -71,7 +97,7 @@ async def _hydrate_ticket(t: dict, with_messages: bool = False) -> dict:
     return out
 
 
-@router.post("/support/tickets")
+@router.post("/support/tickets", response_model=TicketOut)
 async def create_ticket(body: TicketCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     category = (body.category or "other").strip().lower()
@@ -141,7 +167,7 @@ async def unread_count(authorization: Optional[str] = Header(None)):
     return {"count": n}
 
 
-@router.get("/support/tickets")
+@router.get("/support/tickets", response_model=List[TicketOut])
 async def my_tickets(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     rows = await db.support_tickets.find(
@@ -150,7 +176,7 @@ async def my_tickets(authorization: Optional[str] = Header(None)):
     return [await _hydrate_ticket(t) for t in rows]
 
 
-@router.get("/support/tickets/{ticket_id}")
+@router.get("/support/tickets/{ticket_id}", response_model=TicketOut)
 async def get_ticket(ticket_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     t = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
@@ -165,7 +191,7 @@ async def get_ticket(ticket_id: str, authorization: Optional[str] = Header(None)
     return await _hydrate_ticket(t, with_messages=True)
 
 
-@router.post("/support/tickets/{ticket_id}/messages")
+@router.post("/support/tickets/{ticket_id}/messages", response_model=TicketOut)
 async def reply_ticket(ticket_id: str, body: TicketReply, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     t = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
@@ -205,7 +231,7 @@ async def reply_ticket(ticket_id: str, body: TicketReply, authorization: Optiona
     return await _hydrate_ticket(doc, with_messages=True)
 
 
-@router.post("/support/tickets/{ticket_id}/status")
+@router.post("/support/tickets/{ticket_id}/status", response_model=TicketOut)
 async def set_status(ticket_id: str, body: TicketStatus, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     t = await db.support_tickets.find_one({"id": ticket_id}, {"_id": 0})
@@ -226,7 +252,7 @@ async def set_status(ticket_id: str, body: TicketStatus, authorization: Optional
     return await _hydrate_ticket(doc, with_messages=True)
 
 
-@router.get("/admin/support/tickets")
+@router.get("/admin/support/tickets", response_model=List[TicketOut])
 async def admin_tickets(
     status: Optional[str] = Query(None),
     authorization: Optional[str] = Header(None),

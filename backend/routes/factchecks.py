@@ -26,6 +26,21 @@ class OkOut(BaseModel):
     ok: bool = True
 
 
+class FactcheckOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    post_id: str
+    author_id: str
+    author_name: str = "Someone"
+    text: str = ""
+    source_url: str = ""
+    helpful_count: int = 0
+    not_helpful_count: int = 0
+    status: str = "pending"
+    my_rating: Optional[bool] = None
+    created_at: Optional[object] = None
+
+
 class FactchecksOut(BaseModel):
     model_config = ConfigDict(extra="allow")
     factchecks: list = []
@@ -85,7 +100,7 @@ async def _refresh_post_factcheck(post_id: str) -> None:
     }}})
 
 
-@router.post("/posts/{post_id}/factchecks")
+@router.post("/posts/{post_id}/factchecks", response_model=FactcheckOut)
 async def add_factcheck(post_id: str, body: FactcheckCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     post = await db.posts.find_one({"id": post_id}, {"_id": 0, "id": 1})
@@ -130,7 +145,7 @@ async def list_factchecks(post_id: str, authorization: Optional[str] = Header(No
     return {"factchecks": out, "threshold": HELPFUL_THRESHOLD}
 
 
-@router.post("/factchecks/{fc_id}/rate", response_model=OkOut)
+@router.post("/factchecks/{fc_id}/rate", response_model=FactcheckOut)
 async def rate_factcheck(fc_id: str, body: FactcheckRate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     fc = await db.factchecks.find_one({"id": fc_id}, {"_id": 0})

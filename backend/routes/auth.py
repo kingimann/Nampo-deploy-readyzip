@@ -83,6 +83,18 @@ class OkOut(_AOut):
     ok: bool = True
 
 
+class LoginOut(_AOut):
+    # One of two shapes: a completed login ({session_token, user}) or a 2FA
+    # challenge ({twofa_required, identifier, masked_phone, sent}). extra="allow"
+    # keeps every field of whichever branch is returned.
+    session_token: Optional[str] = None
+    user: Optional[object] = None
+    twofa_required: bool = False
+    identifier: Optional[str] = None
+    masked_phone: Optional[str] = None
+    sent: Optional[bool] = None
+
+
 class MessageOut(_AOut):
     message: str = ""
 
@@ -592,7 +604,7 @@ async def admin_delete_invite(code: str, authorization: Optional[str] = Header(N
     return {"ok": True}
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", response_model=LoginOut)
 async def login(body: LoginRequest):
     ident = (body.identifier or "").strip().lower()
     if not ident:

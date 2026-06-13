@@ -398,12 +398,24 @@ class SecuritySet(BaseModel):
     current_answer: Optional[str] = None   # required when changing an existing one
 
 
-@router.get("/money/security")
+class SecurityStatusOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    is_set: bool = False
+    question: Optional[str] = None
+
+
+class SecuritySetOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+    question: Optional[str] = None
+
+
+@router.get("/money/security", response_model=SecurityStatusOut)
 async def get_security(me: dict = Depends(get_current_user)):
     return {"is_set": bool(me.get("transfer_answer_hash")), "question": me.get("transfer_question")}
 
 
-@router.post("/money/security")
+@router.post("/money/security", response_model=SecuritySetOut)
 async def set_security(body: SecuritySet, me: dict = Depends(get_current_user)):
     question = (body.question or "").strip()[:200]
     answer = (body.answer or "").strip()
@@ -761,6 +773,37 @@ class PayRequest(BaseModel):
     answer: str
 
 
+# ── Money-request response models (extra="allow") ─────────────────────────────
+class MoneyRequestItemOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    from_user_id: str
+    to_user_id: str
+    amount: float = 0
+    note: str = ""
+    status: str = "pending"
+    direction: str = "incoming"
+    other_user: Optional[_TransferUserOut] = None
+    created_at: Optional[Any] = None
+
+
+class RequestsListOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    incoming: List[MoneyRequestItemOut] = []
+    outgoing: List[MoneyRequestItemOut] = []
+
+
+class RequestPaidOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+    amount: float = 0
+
+
+class CurrenciesOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    currencies: dict = {}
+
+
 async def _hydrate_request(r: dict, viewer_id: str) -> dict:
     other_id = r["to_user_id"] if r["from_user_id"] == viewer_id else r["from_user_id"]
     other = await _public_user(other_id, viewer_id)
@@ -781,7 +824,7 @@ async def _hydrate_request(r: dict, viewer_id: str) -> dict:
     }
 
 
-@router.post("/money/request")
+@router.post("/money/request", response_model=MoneyRequestItemOut)
 async def request_money(body: RequestMoney, me: dict = Depends(get_current_user)):
     if body.to_user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't request money from yourself")
@@ -803,7 +846,7 @@ async def request_money(body: RequestMoney, me: dict = Depends(get_current_user)
     return await _hydrate_request(doc, me["user_id"])
 
 
-@router.get("/money/requests")
+@router.get("/money/requests", response_model=RequestsListOut)
 async def list_requests(me: dict = Depends(get_current_user)):
     uid = me["user_id"]
     incoming = await db.money_requests.find(
@@ -818,7 +861,7 @@ async def list_requests(me: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/money/requests/{rid}/pay")
+@router.post("/money/requests/{rid}/pay", response_model=RequestPaidOut)
 async def pay_request(rid: str, body: PayRequest, me: dict = Depends(get_current_user)):
     req = await db.money_requests.find_one(
         {"id": rid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
@@ -851,7 +894,7 @@ async def pay_request(rid: str, body: PayRequest, me: dict = Depends(get_current
     return {"ok": True, "amount": amount}
 
 
-@router.post("/money/requests/{rid}/decline")
+@router.post("/money/requests/{rid}/decline", response_model=TransferOkOut)
 async def decline_request(rid: str, me: dict = Depends(get_current_user)):
     req = await db.money_requests.find_one(
         {"id": rid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
@@ -866,7 +909,7 @@ async def decline_request(rid: str, me: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.post("/money/requests/{rid}/cancel")
+@router.post("/money/requests/{rid}/cancel", response_model=TransferOkOut)
 async def cancel_request(rid: str, me: dict = Depends(get_current_user)):
     req = await db.money_requests.find_one(
         {"id": rid, "from_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
@@ -893,7 +936,7 @@ def _currency_view(code: str, usd: float) -> dict:
     }
 
 
-@router.get("/currencies")
+@router.get("/currencies", response_model=CurrenciesOut)
 async def list_currencies():
     """All supported display currencies and their fixed USD conversion rates."""
     return {"currencies": CURRENCIES}

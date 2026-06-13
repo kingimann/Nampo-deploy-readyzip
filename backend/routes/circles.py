@@ -27,6 +27,15 @@ class OkOut(BaseModel):
 
 
 
+class CircleOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    name: str = ""
+    member_count: int = 0
+    member_ids: List[str] = []
+    created_at: Optional[object] = None
+
+
 class CircleCreate(BaseModel):
     name: str
     member_ids: Optional[List[str]] = None
@@ -57,7 +66,7 @@ def _clean_ids(ids, exclude: str) -> list:
     return out[:2000]
 
 
-@router.post("/circles")
+@router.post("/circles", response_model=CircleOut)
 async def create_circle(body: CircleCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     name = (body.name or "").strip()[:60]
@@ -76,7 +85,7 @@ async def create_circle(body: CircleCreate, authorization: Optional[str] = Heade
     return _view(doc)
 
 
-@router.get("/circles")
+@router.get("/circles", response_model=List[CircleOut])
 async def list_circles(authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     rows = await db.circles.find({"owner_id": me["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
@@ -92,7 +101,7 @@ async def circle_members(circle_id: str, authorization: Optional[str] = Header(N
     return [await _public_user(uid, me["user_id"]) for uid in (c.get("member_ids") or [])[:500]]
 
 
-@router.patch("/circles/{circle_id}")
+@router.patch("/circles/{circle_id}", response_model=CircleOut)
 async def update_circle(circle_id: str, body: CirclePatch, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
     c = await db.circles.find_one({"id": circle_id, "owner_id": me["user_id"]}, {"_id": 0})

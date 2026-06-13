@@ -254,7 +254,29 @@ class CheckoutUrlOut(_FOut):
     url: Optional[str] = None
 
 
-@router.post("/forms")
+class FormOut(_FOut):
+    id: str
+    owner_id: Optional[str] = None
+    form_key: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    submit_label: str = "Submit"
+    notify_email: Optional[str] = None
+    ai_validate: bool = False
+    fields: list = []
+    submissions: int = 0
+    created_at: Optional[object] = None
+
+
+class PublicFormOut(_FOut):
+    id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    submit_label: str = "Submit"
+    fields: list = []
+
+
+@router.post("/forms", response_model=FormOut)
 async def create_form(body: FormCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     title = (body.title or "").strip()[:MAX_TITLE]
@@ -284,7 +306,7 @@ async def list_forms(authorization: Optional[str] = Header(None)):
     return {"forms": [_form_view(r) for r in rows]}
 
 
-@router.get("/forms/{form_id}")
+@router.get("/forms/{form_id}", response_model=FormOut)
 async def get_form(form_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.forms.find_one({"id": form_id, "owner_id": user["user_id"]}, {"_id": 0})
@@ -293,7 +315,7 @@ async def get_form(form_id: str, authorization: Optional[str] = Header(None)):
     return _form_view(doc)
 
 
-@router.post("/forms/{form_id}")
+@router.post("/forms/{form_id}", response_model=FormOut)
 async def update_form(form_id: str, body: FormCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.forms.find_one({"id": form_id, "owner_id": user["user_id"]}, {"_id": 0})
@@ -361,7 +383,7 @@ async def export_submissions_csv(form_id: str, authorization: Optional[str] = He
 
 
 # ── Public render + submit (no auth — form_key identifies the form) ───────────
-@router.get("/pub/form")
+@router.get("/pub/form", response_model=PublicFormOut)
 async def public_form(form: str = Query(...)):
     doc = await db.forms.find_one({"form_key": form}, {"_id": 0})
     if not doc:
