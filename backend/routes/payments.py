@@ -322,8 +322,8 @@ async def payments_config():
         "enabled": live,
         "platform_fee_percent": await platform_fee_percent(),
         "transaction_fee_cents": await transaction_fee_cents(),
-        "cashout_min": MIN_CASHOUT,
-        "cashout_fee": CASHOUT_FEE,
+        "cashout_min": await cashout_min(),
+        "cashout_fee": await cashout_fee(),
         "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
         # Why payments may be simulated, so the admin can tell the difference
         # between "Stripe isn't configured/down" and "an admin forced test mode".
@@ -353,8 +353,8 @@ async def capabilities(_auth_user: dict = Depends(get_current_user)):
         "publishable_key": STRIPE_PUBLISHABLE_KEY if live else "",
         "platform_fee_percent": await platform_fee_percent(),
         "transaction_fee_cents": await transaction_fee_cents(),
-        "cashout_min": MIN_CASHOUT,
-        "cashout_fee": CASHOUT_FEE,
+        "cashout_min": await cashout_min(),
+        "cashout_fee": await cashout_fee(),
     }
 
 
@@ -479,9 +479,29 @@ async def payouts_status(_auth_user: dict = Depends(get_current_user)):
     }
 
 
-# Instant cash-out: floor and flat fee (USD) — DoorDash Fast Pay-style.
-MIN_CASHOUT = 5.0
-CASHOUT_FEE = 1.99
+# Instant cash-out: floor and flat fee (USD) — DoorDash Fast Pay-style. These are
+# the defaults; admins can override them at runtime (cashout_min_cents /
+# cashout_fee_cents) without a deploy — read via cashout_min()/cashout_fee().
+MIN_CASHOUT = 20.0
+CASHOUT_FEE = 2.00
+
+
+async def cashout_min() -> float:
+    """Minimum instant cash-out (USD). Admin-settable; falls back to MIN_CASHOUT."""
+    try:
+        c = await _setting("cashout_min_cents", None)
+        return round(float(c) / 100.0, 2) if c is not None else MIN_CASHOUT
+    except Exception:
+        return MIN_CASHOUT
+
+
+async def cashout_fee() -> float:
+    """Flat instant cash-out fee (USD). Admin-settable; falls back to CASHOUT_FEE."""
+    try:
+        c = await _setting("cashout_fee_cents", None)
+        return round(float(c) / 100.0, 2) if c is not None else CASHOUT_FEE
+    except Exception:
+        return CASHOUT_FEE
 
 
 class CashoutBody(BaseModel):
@@ -522,20 +542,22 @@ async def cashout_to_card(body: CashoutBody, _auth_user: dict = Depends(get_curr
             "message": "Add a debit card in Manage payouts first — instant cash-out needs an eligible debit card.",
         })
 
+    c_min = await cashout_min()
+    c_fee = await cashout_fee()
     bal = round(float(user.get("wallet_balance", 0) or 0), 2)
     amount = round(float(body.amount if body.amount is not None else bal), 2)
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Enter an amount to cash out")
-    if amount < MIN_CASHOUT - 1e-9:
+    if amount < c_min - 1e-9:
         raise HTTPException(status_code=400, detail={
             "code": "below_minimum",
-            "message": f"The minimum cash-out is ${MIN_CASHOUT:.0f}. A ${CASHOUT_FEE:.0f} flat fee applies to each instant cash-out.",
+            "message": f"The minimum cash-out is ${c_min:.2f}. A ${c_fee:.2f} flat fee applies to each instant cash-out.",
         })
     if amount > bal + 1e-9:
         raise HTTPException(status_code=400, detail={"code": "insufficient_balance", "message": "That's more than your wallet balance."})
 
     # A flat fee is kept by the platform; the user receives the remainder on their card.
-    net = round(amount - CASHOUT_FEE, 2)
+    net = round(amount - c_fee, 2)
 
     # Wallet amounts are USD, but a payout has to be in the connected account's
     # settlement currency (e.g. a Canadian account pays out in CAD). Convert and
@@ -592,7 +614,7 @@ async def cashout_to_card(body: CashoutBody, _auth_user: dict = Depends(get_curr
 
     now = datetime.now(timezone.utc)
     await db.payouts.insert_one({
-        "id": cashout_id, "user_id": user["user_id"], "amount": net, "gross": amount, "fee": CASHOUT_FEE,
+        "id": cashout_id, "user_id": user["user_id"], "amount": net, "gross": amount, "fee": c_fee,
         "currency": acct_ccy, "local_amount": local_amount,
         "status": "instant", "method": "instant_card",
         "stripe_payout_id": (payout or {}).get("id"), "created_at": now,
@@ -600,14 +622,14 @@ async def cashout_to_card(body: CashoutBody, _auth_user: dict = Depends(get_curr
     # Book the cash-out fee as platform revenue.
     try:
         await db.platform_revenue.insert_one({
-            "id": str(uuid.uuid4()), "amount": CASHOUT_FEE, "source": "cashout_fee",
+            "id": str(uuid.uuid4()), "amount": c_fee, "source": "cashout_fee",
             "from_user_id": user["user_id"], "ref_id": (payout or {}).get("id"), "created_at": now,
         })
     except Exception:
         pass
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "wallet_balance": 1})
     return {
-        "ok": True, "amount": net, "gross": amount, "fee": CASHOUT_FEE,
+        "ok": True, "amount": net, "gross": amount, "fee": c_fee,
         "currency": acct_ccy.upper(), "local_amount": local_amount,
         "arrival_date": (payout or {}).get("arrival_date"),  # unix; app shows "Arrives by …"
         "balance": round(float((fresh or {}).get("wallet_balance", 0) or 0), 2),
@@ -1867,6 +1889,8 @@ async def admin_set_web_build(body: WebBuildBody, _auth_user: dict = Depends(get
 class FeesBody(BaseModel):
     platform_fee_percent: Optional[float] = None   # platform's cut of subscriptions/tips
     transaction_fee_cents: Optional[int] = None    # flat per-payment fee
+    cashout_fee_cents: Optional[int] = None        # flat instant cash-out fee
+    cashout_min_cents: Optional[int] = None        # minimum instant cash-out
 
 
 @router.get("/admin/fees")
@@ -1878,6 +1902,8 @@ async def admin_get_fees(_auth_user: dict = Depends(get_current_user)):
         "platform_fee_percent": pct,
         "creator_share_percent": round(100 - pct, 2),
         "transaction_fee_cents": await transaction_fee_cents(),
+        "cashout_fee": await cashout_fee(),
+        "cashout_min": await cashout_min(),
     }
 
 
@@ -1889,11 +1915,17 @@ async def admin_set_fees(body: FeesBody, _auth_user: dict = Depends(get_current_
         await _set_setting("platform_fee_percent", max(0.0, min(100.0, float(body.platform_fee_percent))))
     if body.transaction_fee_cents is not None:
         await _set_setting("transaction_fee_cents", max(0, int(round(float(body.transaction_fee_cents)))))
+    if body.cashout_fee_cents is not None:
+        await _set_setting("cashout_fee_cents", max(0, int(round(float(body.cashout_fee_cents)))))
+    if body.cashout_min_cents is not None:
+        await _set_setting("cashout_min_cents", max(0, int(round(float(body.cashout_min_cents)))))
     pct = await platform_fee_percent()
     return {
         "platform_fee_percent": pct,
         "creator_share_percent": round(100 - pct, 2),
         "transaction_fee_cents": await transaction_fee_cents(),
+        "cashout_fee": await cashout_fee(),
+        "cashout_min": await cashout_min(),
     }
 
 
@@ -1925,8 +1957,8 @@ async def admin_revenue(_auth_user: dict = Depends(get_current_user)):
         "total_paid_out": total_paid_out,
         "platform_fee_percent": await platform_fee_percent(),
         "transaction_fee_cents": await transaction_fee_cents(),
-        "cashout_fee": CASHOUT_FEE,
-        "cashout_min": MIN_CASHOUT,
+        "cashout_fee": await cashout_fee(),
+        "cashout_min": await cashout_min(),
     }
 
 
