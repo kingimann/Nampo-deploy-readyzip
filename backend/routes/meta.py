@@ -3,10 +3,43 @@ import os
 from typing import Optional
 
 from fastapi import APIRouter
+from pydantic import BaseModel, ConfigDict
 
 from core import db
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class AppConfigOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    web_build: str = ""
+    mobile_web_gate: bool = True
+    registration_mode: str = "open"
+
+
+class VersionOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    api: str = ""
+    version: str = ""
+
+
+class ErrorsOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    codes: list = []
+
+
+class InfoOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    api: str = ""
+    version: str = ""
+
+
+class ChangelogOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    api: str = ""
+    version: str = ""
+    entries: list = []
+
 
 
 def resolve_web_build(override: Optional[str]) -> str:
@@ -23,7 +56,7 @@ def resolve_web_build(override: Optional[str]) -> str:
     )
 
 
-@router.get("/public/app-config")
+@router.get("/public/app-config", response_model=AppConfigOut)
 async def public_app_config():
     """Public client config read at app load (no auth) — the web-update
     kill-switch token and the mobile-web gate flag."""
@@ -89,7 +122,7 @@ CAPABILITIES = [
 ]
 
 
-@router.get("/version")
+@router.get("/version", response_model=VersionOut)
 async def version():
     return {"api": "OkaySpace API", "version": API_VERSION}
 
@@ -139,7 +172,7 @@ _ERROR_CODES = [
 ]
 
 
-@router.get("/errors")
+@router.get("/errors", response_model=ErrorsOut)
 async def error_registry():
     """The error contract (§2): the canonical envelope and the registry of every
     `error.code` with the HTTP status it maps to. SDKs switch on `code`."""
@@ -155,7 +188,7 @@ async def error_registry():
     }
 
 
-@router.get("/v1/info")
+@router.get("/v1/info", response_model=InfoOut)
 async def info():
     """Machine-readable API overview: version, auth, conventions, capabilities."""
     return {
@@ -216,7 +249,7 @@ CHANGELOG = [
 ]
 
 
-@router.get("/v1/changelog")
+@router.get("/v1/changelog", response_model=ChangelogOut)
 async def changelog():
     """Public, machine-readable API changelog (newest first)."""
     return {"api": "OkaySpace API", "version": API_VERSION, "entries": CHANGELOG}

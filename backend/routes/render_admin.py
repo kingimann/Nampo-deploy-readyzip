@@ -14,11 +14,33 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import get_current_user, is_admin
 
 router = APIRouter()
+
+# --- §1 response models (extra="allow") ---
+class OkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
+
+class ServicesOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    configured: bool = False
+    services: list = []
+
+
+class DeploysOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    deploys: list = []
+
+
+class EnvVarsOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    env_vars: list = []
+
 
 RENDER_API = "https://api.render.com/v1"
 
@@ -76,7 +98,7 @@ def _svc_view(s: dict) -> dict:
 
 
 # ── Services ──────────────────────────────────────────────────────────────────
-@router.get("/admin/render/services")
+@router.get("/admin/render/services", response_model=ServicesOut)
 async def render_services(authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     self_id = os.environ.get("RENDER_SERVICE_ID")
@@ -87,7 +109,7 @@ async def render_services(authorization: Optional[str] = Header(None)):
     return {"configured": True, "services": services, "self_id": self_id}
 
 
-@router.get("/admin/render/services/{sid}/deploys")
+@router.get("/admin/render/services/{sid}/deploys", response_model=DeploysOut)
 async def render_deploys(sid: str, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     r = await _render("GET", f"/services/{sid}/deploys", params={"limit": 10})
@@ -108,7 +130,7 @@ class RenderDeploy(BaseModel):
     clear_cache: bool = False
 
 
-@router.post("/admin/render/services/{sid}/deploys")
+@router.post("/admin/render/services/{sid}/deploys", response_model=OkOut)
 async def render_trigger_deploy(sid: str, body: RenderDeploy = RenderDeploy(), authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     r = await _render("POST", f"/services/{sid}/deploys",
@@ -117,21 +139,21 @@ async def render_trigger_deploy(sid: str, body: RenderDeploy = RenderDeploy(), a
     return {"ok": True, "deploy_id": d.get("id"), "status": d.get("status")}
 
 
-@router.post("/admin/render/services/{sid}/restart")
+@router.post("/admin/render/services/{sid}/restart", response_model=OkOut)
 async def render_restart(sid: str, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     await _render("POST", f"/services/{sid}/restart")
     return {"ok": True}
 
 
-@router.post("/admin/render/services/{sid}/suspend")
+@router.post("/admin/render/services/{sid}/suspend", response_model=OkOut)
 async def render_suspend(sid: str, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     await _render("POST", f"/services/{sid}/suspend")
     return {"ok": True}
 
 
-@router.post("/admin/render/services/{sid}/resume")
+@router.post("/admin/render/services/{sid}/resume", response_model=OkOut)
 async def render_resume(sid: str, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     await _render("POST", f"/services/{sid}/resume")
@@ -139,7 +161,7 @@ async def render_resume(sid: str, authorization: Optional[str] = Header(None)):
 
 
 # ── Environment variables ─────────────────────────────────────────────────────
-@router.get("/admin/render/services/{sid}/env-vars")
+@router.get("/admin/render/services/{sid}/env-vars", response_model=EnvVarsOut)
 async def render_env_list(sid: str, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     r = await _render("GET", f"/services/{sid}/env-vars", params={"limit": 100})
@@ -155,7 +177,7 @@ class RenderEnvSet(BaseModel):
     value: str
 
 
-@router.put("/admin/render/services/{sid}/env-vars/{key}")
+@router.put("/admin/render/services/{sid}/env-vars/{key}", response_model=OkOut)
 async def render_env_set(sid: str, key: str, body: RenderEnvSet, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     r = await _render("PUT", f"/services/{sid}/env-vars/{key}", json={"value": body.value})
@@ -164,7 +186,7 @@ async def render_env_set(sid: str, key: str, body: RenderEnvSet, authorization: 
     return {"ok": True, "key": e.get("key", key)}
 
 
-@router.delete("/admin/render/services/{sid}/env-vars/{key}")
+@router.delete("/admin/render/services/{sid}/env-vars/{key}", response_model=OkOut)
 async def render_env_delete(sid: str, key: str, authorization: Optional[str] = Header(None)):
     await _require_admin(authorization)
     await _render("DELETE", f"/services/{sid}/env-vars/{key}")
