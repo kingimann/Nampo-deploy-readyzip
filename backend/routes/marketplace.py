@@ -340,7 +340,7 @@ async def list_listings(
     condition: Optional[str] = Query(None),
     min_price: Optional[float] = Query(None),
     max_price: Optional[float] = Query(None),
-    sort: Optional[str] = Query("recent"),  # recent | price_low | price_high | nearby
+    sort: Optional[str] = Query("recent"),  # recent | price_low | price_high | popular | nearby
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
     radius_km: Optional[float] = Query(None),
@@ -372,6 +372,8 @@ async def list_listings(
         sort_field, sort_dir = "price", 1
     elif sort == "price_high":
         sort_field, sort_dir = "price", -1
+    elif sort == "popular":
+        sort_field, sort_dir = "views_count", -1
     # Pull a wider candidate set when filtering by distance, since many get
     # dropped for being out of range or having no coordinates.
     viewer_coords: Optional[Tuple[float, float]] = (
@@ -523,6 +525,8 @@ async def patch_listing(
         patch["photo_base64"] = body.photo_base64
         patch["photos"] = [body.photo_base64] if body.photo_base64 else []
     if body.status is not None:
+        # status is constrained to {"active","sold"} by the model; "flagged" is
+        # moderation's call (see the re-moderation below), never client-set.
         patch["status"] = body.status
     if body.locality is not None:
         patch["locality"] = body.locality[:120]
@@ -556,10 +560,14 @@ async def patch_listing(
                 })
             patch["business_id"] = body.business_id
     # Re-moderate when the content (title/description/photos) changed — fixing a
-    # flagged listing republishes it; editing one into spam re-flags it. Skip if
-    # the caller is explicitly setting a status (e.g. marking sold).
+    # flagged listing republishes it; editing one into spam re-flags it. Also
+    # re-moderate when the owner tries to (re)activate, so a flagged listing
+    # can't be silently un-flagged by sending {status:"active"}. Marking SOLD
+    # never needs moderation, so it's the only status that skips this.
     content_changed = any(k in patch for k in ("title", "description", "photos"))
-    if content_changed and body.status is None and doc.get("status") in ("active", "flagged", None):
+    reactivating_flagged = body.status == "active" and doc.get("status") == "flagged"
+    if (content_changed or reactivating_flagged) and body.status != "sold" \
+            and doc.get("status") in ("active", "flagged", None):
         title = patch.get("title", doc.get("title", ""))
         desc = patch.get("description", doc.get("description", ""))
         photos = patch.get("photos", doc.get("photos") or [])
@@ -1288,3 +1296,258 @@ async def delete_listing_comment(listing_id: str, comment_id: str, authorization
     await db.listing_comment_likes.delete_many({"comment_id": {"$in": ids}})
     await db.listings.update_one({"id": listing_id}, {"$inc": {"comments_count": -len(ids)}})
     return {"ok": True}
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Offers — price negotiation on a listing (the listing's `negotiable` flag hints
+# this is welcome). A buyer makes an offer; the seller accepts, declines, or
+# counters; the buyer can accept a counter or withdraw. Accepting an offer
+# declines the listing's other open offers. No money moves here — the agreed
+# price is settled in person via the trade code (POST /trades/confirm).
+# ────────────────────────────────────────────────────────────────────────────
+_OPEN_OFFER = ("pending", "countered")
+
+
+class OfferBody(BaseModel):
+    amount: float
+    message: Optional[str] = None
+
+
+class CounterBody(BaseModel):
+    amount: float
+
+
+class OfferOut(_MkOut):
+    id: str
+    listing_id: str
+    listing_title: Optional[str] = None
+    seller_id: str
+    buyer_id: str
+    buyer_name: Optional[str] = None
+    amount: float
+    counter_amount: Optional[float] = None      # set when the seller counters
+    message: Optional[str] = None
+    status: str = "pending"                      # pending|countered|accepted|declined|withdrawn
+    role: Optional[str] = None                   # "buyer"|"seller" relative to the viewer
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class OffersForListingOut(_MkOut):
+    offers: list = []
+
+
+class MyOffersOut(_MkOut):
+    made: list = []        # offers the viewer made (as a buyer)
+    received: list = []    # offers on the viewer's listings (as a seller)
+
+
+def _offer_amount(amount) -> float:
+    try:
+        amt = round(float(amount), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Enter a valid amount")
+    if not math.isfinite(amt) or amt <= 0:
+        raise HTTPException(status_code=400, detail="Your offer must be greater than 0")
+    if amt > 1_000_000:
+        raise HTTPException(status_code=400, detail="That offer is too large")
+    return amt
+
+
+def _offer_view(o: dict, viewer_id: Optional[str] = None) -> dict:
+    role = None
+    if viewer_id == o.get("buyer_id"):
+        role = "buyer"
+    elif viewer_id == o.get("seller_id"):
+        role = "seller"
+    ca = o.get("counter_amount")
+    return {
+        "id": o["id"], "listing_id": o.get("listing_id"), "listing_title": o.get("listing_title"),
+        "seller_id": o.get("seller_id"), "buyer_id": o.get("buyer_id"), "buyer_name": o.get("buyer_name"),
+        "amount": round(float(o.get("amount", 0) or 0), 2),
+        "counter_amount": (round(float(ca), 2) if ca is not None else None),
+        "message": o.get("message"), "status": o.get("status", "pending"), "role": role,
+        "created_at": o.get("created_at"), "updated_at": o.get("updated_at"),
+    }
+
+
+async def _notify_offer(user_id: str, actor_id: str, message: str):
+    try:
+        from routes.notifications import emit_notification
+        await emit_notification(user_id=user_id, actor_id=actor_id, ntype="marketplace", message=message)
+    except Exception:
+        pass
+
+
+@router.post("/listings/{listing_id}/offers", response_model=OfferOut)
+async def make_offer(listing_id: str, body: OfferBody, authorization: Optional[str] = Header(None)):
+    """A buyer offers a price on a listing. Re-offering updates the existing
+    open offer rather than stacking duplicates."""
+    me = await get_current_user(authorization)
+    listing = await db.listings.find_one({"id": listing_id}, {"_id": 0})
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.get("status") == "sold":
+        raise HTTPException(status_code=400, detail={"code": "already_sold", "message": "This listing has already sold."})
+    if listing["user_id"] == me["user_id"]:
+        raise HTTPException(status_code=400, detail="You can't make an offer on your own listing")
+    amount = _offer_amount(body.amount)
+    msg = (body.message or "").strip()[:500] or None
+    now = datetime.now(timezone.utc)
+    existing = await db.marketplace_offers.find_one(
+        {"listing_id": listing_id, "buyer_id": me["user_id"], "status": {"$in": list(_OPEN_OFFER)}}, {"_id": 0}
+    )
+    if existing:
+        await db.marketplace_offers.update_one(
+            {"id": existing["id"]},
+            {"$set": {"amount": amount, "message": msg, "status": "pending",
+                      "counter_amount": None, "updated_at": now}},
+        )
+        doc = await db.marketplace_offers.find_one({"id": existing["id"]}, {"_id": 0})
+    else:
+        doc = {
+            "id": str(uuid.uuid4()), "listing_id": listing_id, "listing_title": listing.get("title"),
+            "seller_id": listing["user_id"], "buyer_id": me["user_id"], "buyer_name": me.get("name", "A buyer"),
+            "amount": amount, "counter_amount": None, "message": msg, "status": "pending",
+            "created_at": now, "updated_at": now,
+        }
+        await db.marketplace_offers.insert_one(doc.copy())
+    await _notify_offer(listing["user_id"], me["user_id"],
+                        f"offered ${amount:.2f} for “{(listing.get('title') or 'your listing')[:48]}”")
+    return _offer_view(doc, me["user_id"])
+
+
+@router.get("/listings/{listing_id}/offers", response_model=OffersForListingOut)
+async def listing_offers(listing_id: str, authorization: Optional[str] = Header(None)):
+    """The listing owner sees every offer; anyone else sees only their own."""
+    me = await get_current_user(authorization)
+    listing = await db.listings.find_one({"id": listing_id}, {"_id": 0, "user_id": 1})
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    q = {"listing_id": listing_id}
+    if listing["user_id"] != me["user_id"]:
+        q["buyer_id"] = me["user_id"]
+    rows = await db.marketplace_offers.find(q, {"_id": 0}).sort("updated_at", -1).limit(200).to_list(200)
+    return {"offers": [_offer_view(o, me["user_id"]) for o in rows]}
+
+
+@router.get("/offers", response_model=MyOffersOut)
+async def my_offers(authorization: Optional[str] = Header(None)):
+    """The viewer's offers: those they made (buyer) and those on their listings (seller)."""
+    me = await get_current_user(authorization)
+    made = await db.marketplace_offers.find({"buyer_id": me["user_id"]}, {"_id": 0}).sort("updated_at", -1).limit(100).to_list(100)
+    received = await db.marketplace_offers.find({"seller_id": me["user_id"]}, {"_id": 0}).sort("updated_at", -1).limit(100).to_list(100)
+    return {"made": [_offer_view(o, me["user_id"]) for o in made],
+            "received": [_offer_view(o, me["user_id"]) for o in received]}
+
+
+async def _seller_offer(offer_id: str, me: dict) -> dict:
+    o = await db.marketplace_offers.find_one({"id": offer_id}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    if o.get("seller_id") != me["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the seller can do that")
+    return o
+
+
+async def _buyer_offer(offer_id: str, me: dict) -> dict:
+    o = await db.marketplace_offers.find_one({"id": offer_id}, {"_id": 0})
+    if not o:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    if o.get("buyer_id") != me["user_id"]:
+        raise HTTPException(status_code=403, detail="Only the buyer can do that")
+    return o
+
+
+@router.post("/offers/{offer_id}/accept", response_model=OfferOut)
+async def accept_offer(offer_id: str, authorization: Optional[str] = Header(None)):
+    """Seller accepts a buyer's offer. Single-winner claim; the listing's other
+    open offers are declined."""
+    me = await get_current_user(authorization)
+    o = await _seller_offer(offer_id, me)
+    now = datetime.now(timezone.utc)
+    claim = await db.marketplace_offers.update_one(
+        {"id": offer_id, "status": {"$in": list(_OPEN_OFFER)}},
+        {"$set": {"status": "accepted", "updated_at": now}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="This offer was already handled")
+    # Decline the listing's other still-open offers.
+    await db.marketplace_offers.update_many(
+        {"listing_id": o["listing_id"], "status": {"$in": list(_OPEN_OFFER)}, "id": {"$ne": offer_id}},
+        {"$set": {"status": "declined", "updated_at": now}},
+    )
+    await _notify_offer(o["buyer_id"], me["user_id"],
+                        f"accepted your ${round(float(o.get('amount', 0) or 0), 2):.2f} offer — arrange the trade")
+    o.update({"status": "accepted", "updated_at": now})
+    return _offer_view(o, me["user_id"])
+
+
+@router.post("/offers/{offer_id}/decline", response_model=OfferOut)
+async def decline_offer(offer_id: str, authorization: Optional[str] = Header(None)):
+    """Seller declines an offer."""
+    me = await get_current_user(authorization)
+    o = await _seller_offer(offer_id, me)
+    now = datetime.now(timezone.utc)
+    claim = await db.marketplace_offers.update_one(
+        {"id": offer_id, "status": {"$in": list(_OPEN_OFFER)}},
+        {"$set": {"status": "declined", "updated_at": now}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="This offer was already handled")
+    await _notify_offer(o["buyer_id"], me["user_id"], "declined your offer")
+    o.update({"status": "declined", "updated_at": now})
+    return _offer_view(o, me["user_id"])
+
+
+@router.post("/offers/{offer_id}/counter", response_model=OfferOut)
+async def counter_offer(offer_id: str, body: CounterBody, authorization: Optional[str] = Header(None)):
+    """Seller counters with a price; the buyer can accept it or re-offer."""
+    me = await get_current_user(authorization)
+    o = await _seller_offer(offer_id, me)
+    if o.get("status") not in _OPEN_OFFER:
+        raise HTTPException(status_code=409, detail="This offer was already handled")
+    amount = _offer_amount(body.amount)
+    now = datetime.now(timezone.utc)
+    await db.marketplace_offers.update_one(
+        {"id": offer_id}, {"$set": {"status": "countered", "counter_amount": amount, "updated_at": now}})
+    await _notify_offer(o["buyer_id"], me["user_id"], f"countered with ${amount:.2f}")
+    o.update({"status": "countered", "counter_amount": amount, "updated_at": now})
+    return _offer_view(o, me["user_id"])
+
+
+@router.post("/offers/{offer_id}/accept-counter", response_model=OfferOut)
+async def accept_counter(offer_id: str, authorization: Optional[str] = Header(None)):
+    """Buyer accepts the seller's counter price."""
+    me = await get_current_user(authorization)
+    o = await _buyer_offer(offer_id, me)
+    if o.get("status") != "countered" or o.get("counter_amount") is None:
+        raise HTTPException(status_code=409, detail="There's no counter to accept")
+    now = datetime.now(timezone.utc)
+    ca = round(float(o["counter_amount"]), 2)
+    claim = await db.marketplace_offers.update_one(
+        {"id": offer_id, "status": "countered"},
+        {"$set": {"status": "accepted", "amount": ca, "updated_at": now}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="This offer was already handled")
+    await _notify_offer(o["seller_id"], me["user_id"], f"accepted your ${ca:.2f} counter — arrange the trade")
+    o.update({"status": "accepted", "amount": ca, "updated_at": now})
+    return _offer_view(o, me["user_id"])
+
+
+@router.post("/offers/{offer_id}/withdraw", response_model=OfferOut)
+async def withdraw_offer(offer_id: str, authorization: Optional[str] = Header(None)):
+    """Buyer withdraws their open offer."""
+    me = await get_current_user(authorization)
+    o = await _buyer_offer(offer_id, me)
+    now = datetime.now(timezone.utc)
+    claim = await db.marketplace_offers.update_one(
+        {"id": offer_id, "status": {"$in": list(_OPEN_OFFER)}},
+        {"$set": {"status": "withdrawn", "updated_at": now}},
+    )
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="This offer was already handled")
+    await _notify_offer(o["seller_id"], me["user_id"], "withdrew their offer")
+    o.update({"status": "withdrawn", "updated_at": now})
+    return _offer_view(o, me["user_id"])
