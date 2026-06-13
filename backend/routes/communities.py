@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
 
 import math
 
@@ -227,7 +228,36 @@ async def edit_community(name: str, body: CommunityPatch, authorization: Optiona
     return await _hydrate_community(fresh, user["user_id"])
 
 
-@router.post("/communities/{name}/mods/{user_id}")
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _CmOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_CmOut):
+    ok: bool = True
+
+
+class MembersOut(_CmOut):
+    members: list = []
+
+
+class LeadersOut(_CmOut):
+    leaders: list = []
+
+
+class PinOut(_CmOut):
+    pinned: bool = False
+
+
+class JoinOut(_CmOut):
+    joined: bool = False
+
+
+class FavOut(_CmOut):
+    favorite: bool = False
+
+
+@router.post("/communities/{name}/mods/{user_id}", response_model=OkOut)
 async def add_moderator(name: str, user_id: str, authorization: Optional[str] = Header(None)):
     """Owner promotes a member to moderator."""
     user = await get_current_user(authorization)
@@ -250,7 +280,7 @@ async def add_moderator(name: str, user_id: str, authorization: Optional[str] = 
     return {"ok": True}
 
 
-@router.delete("/communities/{name}/mods/{user_id}")
+@router.delete("/communities/{name}/mods/{user_id}", response_model=OkOut)
 async def remove_moderator(name: str, user_id: str, authorization: Optional[str] = Header(None)):
     """Owner demotes a moderator back to a regular member."""
     user = await get_current_user(authorization)
@@ -265,7 +295,7 @@ async def remove_moderator(name: str, user_id: str, authorization: Optional[str]
     return {"ok": True}
 
 
-@router.get("/communities/{name}/members")
+@router.get("/communities/{name}/members", response_model=MembersOut)
 async def list_members(name: str, authorization: Optional[str] = Header(None)):
     """List a community's members with their roles (owner/mod/member)."""
     await get_current_user(authorization)
@@ -301,7 +331,7 @@ async def list_members(name: str, authorization: Optional[str] = Header(None)):
     return {"members": out}
 
 
-@router.get("/communities/{name}/top")
+@router.get("/communities/{name}/top", response_model=LeadersOut)
 async def community_top(name: str, authorization: Optional[str] = Header(None)):
     """Top members of a community by karma (upvotes received on their posts)."""
     await get_current_user(authorization)
@@ -337,7 +367,7 @@ async def community_top(name: str, authorization: Optional[str] = Header(None)):
     return {"leaders": leaders}
 
 
-@router.delete("/communities/{name}/members/{user_id}")
+@router.delete("/communities/{name}/members/{user_id}", response_model=OkOut)
 async def remove_member(name: str, user_id: str, authorization: Optional[str] = Header(None)):
     """Moderator removes a member from the community."""
     user = await get_current_user(authorization)
@@ -354,7 +384,7 @@ async def remove_member(name: str, user_id: str, authorization: Optional[str] = 
     return {"ok": True}
 
 
-@router.post("/communities/{name}/posts/{post_id}/remove")
+@router.post("/communities/{name}/posts/{post_id}/remove", response_model=OkOut)
 async def remove_community_post(name: str, post_id: str, authorization: Optional[str] = Header(None)):
     """Moderator removes a post from the community."""
     user = await get_current_user(authorization)
@@ -375,7 +405,7 @@ async def remove_community_post(name: str, post_id: str, authorization: Optional
     return {"ok": True}
 
 
-@router.post("/communities/{name}/posts/{post_id}/pin")
+@router.post("/communities/{name}/posts/{post_id}/pin", response_model=PinOut)
 async def pin_community_post(name: str, post_id: str, authorization: Optional[str] = Header(None)):
     """Moderator pins/unpins a post to the top of the community."""
     user = await get_current_user(authorization)
@@ -395,7 +425,7 @@ async def pin_community_post(name: str, post_id: str, authorization: Optional[st
     return {"pinned": new_val}
 
 
-@router.post("/communities/{name}/join")
+@router.post("/communities/{name}/join", response_model=JoinOut)
 async def join_community(name: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.communities.find_one({"name": name.lower()}, {"_id": 0, "id": 1})
@@ -412,7 +442,7 @@ async def join_community(name: str, authorization: Optional[str] = Header(None))
     return {"joined": True}
 
 
-@router.delete("/communities/{name}/join")
+@router.delete("/communities/{name}/join", response_model=JoinOut)
 async def leave_community(name: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.communities.find_one({"name": name.lower()}, {"_id": 0, "id": 1})
@@ -422,7 +452,7 @@ async def leave_community(name: str, authorization: Optional[str] = Header(None)
     return {"joined": False}
 
 
-@router.post("/communities/{name}/favorite")
+@router.post("/communities/{name}/favorite", response_model=FavOut)
 async def favorite_community(name: str, authorization: Optional[str] = Header(None)):
     """Pin a community to your favorites (sorted first in Discover)."""
     user = await get_current_user(authorization)
@@ -439,7 +469,7 @@ async def favorite_community(name: str, authorization: Optional[str] = Header(No
     return {"favorite": True}
 
 
-@router.delete("/communities/{name}/favorite")
+@router.delete("/communities/{name}/favorite", response_model=FavOut)
 async def unfavorite_community(name: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.communities.find_one({"name": name.lower()}, {"_id": 0, "id": 1})
