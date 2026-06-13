@@ -23,7 +23,7 @@ from core import (
     TOS_VERSION,
     PRIVACY_VERSION,
 )
-from models import AuthResponse, ProfilePatch, User
+from models import AuthResponse, LoginResultOut, ProfilePatch, User
 
 router = APIRouter()
 
@@ -595,7 +595,7 @@ async def admin_delete_invite(code: str, _admin: dict = Depends(_require_admin))
     return {"ok": True}
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", response_model=LoginResultOut)
 async def login(body: LoginRequest):
     ident = (body.identifier or "").strip().lower()
     if not ident:

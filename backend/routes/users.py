@@ -642,6 +642,17 @@ async def list_badges(authorization: Optional[str] = Header(None)):
     return [Badge(id=r["id"], label=r.get("label", ""), icon=r.get("icon", ""), color=r.get("color", "#3B82F6")) for r in rows]
 
 
+@router.get("/admin/badges", response_model=List[Badge])
+async def admin_list_badges(authorization: Optional[str] = Header(None)):
+    """Badge definitions for the admin badge manager. Same list as GET /badges,
+    under /admin so the admin screen's call resolves (it was a 405 before)."""
+    me = await get_current_user(authorization)
+    if not is_admin(me):
+        raise HTTPException(status_code=403, detail="Admins only")
+    rows = await db.badge_defs.find({}, {"_id": 0}).sort("created_at", -1).limit(200).to_list(200)
+    return [Badge(id=r["id"], label=r.get("label", ""), icon=r.get("icon", ""), color=r.get("color", "#3B82F6")) for r in rows]
+
+
 @router.post("/admin/badges", response_model=Badge)
 async def create_badge(body: BadgeCreate, authorization: Optional[str] = Header(None)):
     me = await get_current_user(authorization)
