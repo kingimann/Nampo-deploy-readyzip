@@ -29,6 +29,8 @@ MONEY_ROUTES = [
     ("/payments/pay-intent", "post"),
     ("/payments/pay-intent/confirm", "post"),
     ("/payments/payouts/cashout", "post"),
+    ("/payments/payouts/schedule", "get"),
+    ("/payments/payouts/schedule", "post"),
     ("/wallet/balance", "get"),
     ("/wallet/currency", "post"),
     ("/wallet/topup", "post"),

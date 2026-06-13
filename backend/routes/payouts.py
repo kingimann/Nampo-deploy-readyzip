@@ -254,6 +254,12 @@ def start_scheduler():
                 await process_payouts(only_due=True)
             except Exception:
                 pass
+            try:
+                # Emulated bi-weekly Stripe-balance payouts ("Get paid automatically").
+                from routes.payments import process_biweekly_payouts
+                await process_biweekly_payouts()
+            except Exception:
+                pass
     try:
         asyncio.create_task(_loop())
     except Exception:

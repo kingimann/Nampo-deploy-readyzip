@@ -753,6 +753,127 @@ async def set_default_payout_method(method_id: str, _auth_user: dict = Depends(g
     return {"ok": True, "id": method_id, "default": True}
 
 
+# ── Automatic payout schedule ("Get paid automatically") ─────────────────────
+# Stripe's native intervals are manual / daily / weekly / monthly — there is no
+# bi-weekly. We emulate bi-weekly by setting Stripe to *manual* and paying the
+# connected-account balance out ourselves every 14 days (process_biweekly_payouts,
+# driven by the payouts.py hourly scheduler).
+_SCHEDULE_INTERVALS = ("manual", "weekly", "biweekly", "monthly")
+
+
+class PayoutScheduleBody(BaseModel):
+    interval: str                          # manual | weekly | biweekly | monthly
+    weekly_anchor: Optional[str] = None    # monday..sunday (weekly only)
+    monthly_anchor: Optional[int] = None   # 1..31 (monthly only)
+
+
+class PayoutScheduleOut(_MoneyOut):
+    ok: bool = True
+    interval: str = "manual"               # what the user picked
+    stripe_interval: Optional[str] = None  # what Stripe is actually set to
+
+
+@router.get("/payments/payouts/schedule", response_model=PayoutScheduleOut)
+async def get_payout_schedule(_auth_user: dict = Depends(get_current_user)):
+    """The caller's current automatic-payout schedule."""
+    _require_stripe()
+    user = _auth_user
+    interval = user.get("stripe_payout_schedule")
+    if interval in _SCHEDULE_INTERVALS:
+        return {"ok": True, "interval": interval}
+    # Not set by us yet — report whatever Stripe currently has.
+    acct_id = user.get("stripe_account_id")
+    si = "manual"
+    if acct_id:
+        try:
+            acct = stripe.Account.retrieve(acct_id)
+            si = (((acct.get("settings") or {}).get("payouts") or {}).get("schedule") or {}).get("interval", "manual")
+        except Exception:
+            pass
+    return {"ok": True, "interval": si, "stripe_interval": si}
+
+
+@router.post("/payments/payouts/schedule", response_model=PayoutScheduleOut)
+async def set_payout_schedule(body: PayoutScheduleBody, _auth_user: dict = Depends(get_current_user)):
+    """Set how the user gets paid automatically: manual (cash out yourself),
+    weekly, every 2 weeks, or monthly. Bi-weekly is emulated (see above)."""
+    _require_stripe()
+    user = _auth_user
+    interval = (body.interval or "").strip().lower()
+    if interval not in _SCHEDULE_INTERVALS:
+        raise HTTPException(status_code=400, detail={"code": "bad_interval", "message": "Choose manual, weekly, biweekly, or monthly."})
+    acct_id = user.get("stripe_account_id")
+    if not acct_id:
+        raise HTTPException(status_code=400, detail={"code": "no_account", "message": "Set up payouts first."})
+
+    # Bi-weekly isn't a Stripe interval → run it ourselves on a manual schedule.
+    stripe_interval = "manual" if interval == "biweekly" else interval
+    sched: dict = {"interval": stripe_interval}
+    if stripe_interval == "weekly" and body.weekly_anchor:
+        sched["weekly_anchor"] = body.weekly_anchor.strip().lower()
+    if stripe_interval == "monthly" and body.monthly_anchor:
+        sched["monthly_anchor"] = max(1, min(31, int(body.monthly_anchor)))
+    try:
+        stripe.Account.modify(acct_id, settings={"payouts": {"schedule": sched}})
+    except Exception as e:
+        msg = getattr(e, "user_message", None) or getattr(e, "_message", None) or str(e)
+        raise HTTPException(status_code=400, detail={"code": "schedule_failed", "message": f"Couldn't set the payout schedule: {msg}"})
+
+    patch: dict = {"stripe_payout_schedule": interval}
+    # Anchor the next emulated bi-weekly payout 14 days out.
+    if interval == "biweekly":
+        patch["stripe_payout_anchor"] = datetime.now(timezone.utc)
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": patch})
+    return {"ok": True, "interval": interval, "stripe_interval": stripe_interval}
+
+
+async def process_biweekly_payouts() -> dict:
+    """Emulated bi-weekly schedule: for users on it, pay the connected-account
+    available balance out every 14 days (Stripe itself is set to manual).
+    Best-effort; driven hourly by the payouts.py scheduler."""
+    if not stripe_enabled():
+        return {"paid": 0}
+    now = datetime.now(timezone.utc)
+    paid = 0
+    try:
+        rows = await db.users.find(
+            {"stripe_payout_schedule": "biweekly"},
+            {"_id": 0, "user_id": 1, "stripe_account_id": 1, "stripe_payout_anchor": 1},
+        ).to_list(1000)
+    except Exception:
+        return {"paid": 0}
+    for u in rows:
+        acct_id = u.get("stripe_account_id")
+        if not acct_id:
+            continue
+        anchor = u.get("stripe_payout_anchor")
+        try:
+            if anchor and (now - _norm_dt(anchor)).days < 14:
+                continue
+        except Exception:
+            pass
+        try:
+            acct = stripe.Account.retrieve(acct_id)
+            if not acct.get("payouts_enabled"):
+                continue
+            ccy = (acct.get("default_currency") or "usd").lower()
+            bal = stripe.Balance.retrieve(stripe_account=acct_id)
+            avail = next((int(r.get("amount") or 0) for r in (bal.get("available") or []) if (r.get("currency") or "").lower() == ccy), 0)
+            # Advance the anchor either way so we don't re-check hourly for 14 days.
+            await db.users.update_one({"user_id": u["user_id"]}, {"$set": {"stripe_payout_anchor": now}})
+            if avail <= 0:
+                continue
+            stripe.Payout.create(
+                amount=avail, currency=ccy, stripe_account=acct_id,
+                metadata={"kind": "biweekly_auto", "user_id": u["user_id"]},
+                idempotency_key=f"biweekly-{u['user_id']}-{now.strftime('%Y%m%d')}",
+            )
+            paid += 1
+        except Exception:
+            continue
+    return {"paid": paid}
+
+
 # ── Standalone ID verification via Stripe Identity (not tied to payouts) ──────
 @router.post("/payments/identity/start", response_model=IdentityStartOut)
 async def start_identity(_auth_user: dict = Depends(get_current_user)):
