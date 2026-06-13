@@ -74,6 +74,78 @@ class AdminOkOut(BaseModel):
     ok: bool = True
 
 
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _AOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_AOut):
+    ok: bool = True
+
+
+class MessageOut(_AOut):
+    message: str = ""
+
+
+class OkMessageOut(_AOut):
+    ok: bool = True
+    message: Optional[str] = None
+
+
+class SentOut(_AOut):
+    ok: bool = True
+    sent: bool = False
+    email_configured: bool = False
+
+
+class AvailableOut(_AOut):
+    available: bool = False
+    reason: Optional[str] = None
+
+
+class SendCodeOut(_AOut):
+    ok: Optional[bool] = None
+    sent: Optional[bool] = None
+
+
+class PoliciesOut(_AOut):
+    tos_version: str = ""
+    privacy_version: str = ""
+    effective_date: str = ""
+
+
+class ApiKeyCreateOut(_AOut):
+    id: str = ""
+    label: str = ""
+    scopes: list = []
+    token: str = ""
+    created_at: Optional[datetime] = None
+
+
+class ApiKeysListOut(_AOut):
+    keys: list = []
+
+
+class RevokedOut(_AOut):
+    revoked: bool = False
+
+
+class PublicKeyOut(_AOut):
+    public_key: Optional[str] = None
+
+
+class KeyBackupOut(_AOut):
+    has_backup: bool = False
+    blob: Optional[str] = None
+
+
+class UserLookupOut(_AOut):
+    exists: Optional[bool] = None
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+    username: Optional[str] = None
+
+
 _INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O/1/I
 
 
@@ -158,14 +230,14 @@ async def _mint_session(user_id: str) -> str:
     return token
 
 
-@router.get("/")
+@router.get("/", response_model=MessageOut)
 async def root():
     return {"message": "Map App API"}
 
 
 
 
-@router.get("/policies")
+@router.get("/policies", response_model=PoliciesOut)
 async def get_policies():
     """Current legal policy versions (public)."""
     return {
@@ -392,7 +464,7 @@ async def update_me(body: ProfilePatch, authorization: Optional[str] = Header(No
     return User(**_user_doc_to_model(updated))
 
 
-@router.post("/auth/logout")
+@router.post("/auth/logout", response_model=OkOut)
 async def logout(authorization: Optional[str] = Header(None)):
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -567,7 +639,7 @@ class RecoverPassword(BaseModel):
     new_password: str
 
 
-@router.post("/auth/recover-password")
+@router.post("/auth/recover-password", response_model=OkMessageOut)
 async def recover_password(body: RecoverPassword):
     """Break-glass reset: anyone holding RECOVERY_SECRET (set on the server by the
     owner) can reset an account's password. Use this to regain access without
@@ -592,7 +664,7 @@ class ForgotPassword(BaseModel):
     email: str
 
 
-@router.post("/auth/forgot-password")
+@router.post("/auth/forgot-password", response_model=SentOut)
 async def forgot_password(body: ForgotPassword):
     """Email a one-time reset code. Always returns ok (never reveals whether an
     account exists). `email_configured` tells the UI whether a code was sent."""
@@ -626,7 +698,7 @@ class ResetPassword(BaseModel):
     new_password: str
 
 
-@router.post("/auth/reset-password")
+@router.post("/auth/reset-password", response_model=OkMessageOut)
 async def reset_password(body: ResetPassword):
     """Set a new password using the emailed code."""
     email = (body.email or "").strip().lower()
@@ -660,7 +732,7 @@ async def reset_password(body: ResetPassword):
     return {"ok": True, "message": "Password updated — you can log in now."}
 
 
-@router.get("/auth/username-available")
+@router.get("/auth/username-available", response_model=AvailableOut)
 async def username_available(u: str):
     try:
         username = _validate_username(u)
@@ -742,7 +814,7 @@ async def change_email(body: EmailUpdate, authorization: Optional[str] = Header(
     return User(**_user_doc_to_model(updated))
 
 
-@router.patch("/auth/me/password")
+@router.patch("/auth/me/password", response_model=OkMessageOut)
 async def change_password(body: PasswordUpdate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     if not _verify_password(body.current_password or "", user.get("hashed_password", "")):
@@ -792,7 +864,7 @@ class PhoneVerify(BaseModel):
     code: str
 
 
-@router.post("/auth/phone/send-code")
+@router.post("/auth/phone/send-code", response_model=SendCodeOut)
 async def phone_send_code(body: PhoneSend, authorization: Optional[str] = Header(None)):
     """Start phone verification: text a 6-digit code to the number. If no SMS
     provider is configured, the code is returned in `dev_code` so it can still be
@@ -869,7 +941,7 @@ class EmailVerify(BaseModel):
     code: str
 
 
-@router.post("/auth/email/send-code")
+@router.post("/auth/email/send-code", response_model=SendCodeOut)
 async def email_send_code(authorization: Optional[str] = Header(None)):
     """Email a 6-digit code to the account's email address to verify it."""
     user = await get_current_user(authorization)
@@ -1085,7 +1157,7 @@ class PhoneLoginStart(BaseModel):
     phone: str
 
 
-@router.post("/auth/login/phone/start")
+@router.post("/auth/login/phone/start", response_model=SendCodeOut)
 async def login_phone_start(body: PhoneLoginStart):
     """Text a one-time login code to a known, verified phone. Returns exists:false
     (without sending) when no verified-phone account matches."""
@@ -1153,7 +1225,7 @@ class ForgotSms(BaseModel):
     identifier: str  # email, username, or phone
 
 
-@router.post("/auth/forgot-password/sms")
+@router.post("/auth/forgot-password/sms", response_model=SendCodeOut)
 async def forgot_password_sms(body: ForgotSms):
     """Text a reset code to the account's verified phone. Always returns ok
     (never reveals whether an account/phone exists)."""
@@ -1190,7 +1262,7 @@ class ResetWithCode(BaseModel):
     new_password: str
 
 
-@router.post("/auth/reset-password/code")
+@router.post("/auth/reset-password/code", response_model=OkMessageOut)
 async def reset_password_code(body: ResetWithCode):
     """Set a new password using a code sent by SMS (or email). Accepts the
     account's email, username, or phone as the identifier."""
@@ -1231,7 +1303,7 @@ async def reset_password_code(body: ResetWithCode):
 # collection as login sessions (so get_current_user authenticates it for free),
 # tagged with kind="api_key" + a label. Listing shows only a masked prefix.
 
-@router.post("/auth/api-keys")
+@router.post("/auth/api-keys", response_model=ApiKeyCreateOut)
 async def create_api_key(body: ApiKeyCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     # Paywall: the Developer API is a paid add-on with tiered plans.
@@ -1272,7 +1344,7 @@ async def create_api_key(body: ApiKeyCreate, authorization: Optional[str] = Head
     return {"id": key_id, "label": label, "scopes": scopes, "token": token, "created_at": now}
 
 
-@router.get("/auth/api-keys")
+@router.get("/auth/api-keys", response_model=ApiKeysListOut)
 async def list_api_keys(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     rows = await db.user_sessions.find(
@@ -1293,7 +1365,7 @@ async def list_api_keys(authorization: Optional[str] = Header(None)):
     }
 
 
-@router.delete("/auth/api-keys/{key_id}")
+@router.delete("/auth/api-keys/{key_id}", response_model=RevokedOut)
 async def revoke_api_key(key_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     await db.user_sessions.delete_one(
@@ -1302,7 +1374,7 @@ async def revoke_api_key(key_id: str, authorization: Optional[str] = Header(None
     return {"revoked": True}
 
 
-@router.get("/users/by-username/{username}")
+@router.get("/users/by-username/{username}", response_model=UserLookupOut)
 async def get_user_by_username(username: str, authorization: Optional[str] = Header(None)):
     await get_current_user(authorization)
     u = username.strip().lower().lstrip("@")
@@ -1316,7 +1388,7 @@ class KeyUpload(BaseModel):
     public_key: str  # base64-encoded 32-byte X25519 public key
 
 
-@router.post("/auth/keys")
+@router.post("/auth/keys", response_model=OkOut)
 async def upload_public_key(body: KeyUpload, authorization: Optional[str] = Header(None)):
     """Register the user's E2E public key (X25519). Idempotent."""
     user = await get_current_user(authorization)
@@ -1329,7 +1401,7 @@ async def upload_public_key(body: KeyUpload, authorization: Optional[str] = Head
     return {"ok": True}
 
 
-@router.get("/users/{user_id}/key")
+@router.get("/users/{user_id}/key", response_model=PublicKeyOut)
 async def get_user_public_key(user_id: str, authorization: Optional[str] = Header(None)):
     await get_current_user(authorization)
     doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "e2e_public_key": 1})
@@ -1342,7 +1414,7 @@ class KeyBackup(BaseModel):
     blob: str
 
 
-@router.post("/auth/keys/backup")
+@router.post("/auth/keys/backup", response_model=OkOut)
 async def upload_key_backup(body: KeyBackup, authorization: Optional[str] = Header(None)):
     """Store the user's passphrase-encrypted private-key backup (opaque blob)."""
     user = await get_current_user(authorization)
@@ -1353,7 +1425,7 @@ async def upload_key_backup(body: KeyBackup, authorization: Optional[str] = Head
     return {"ok": True}
 
 
-@router.get("/auth/keys/backup")
+@router.get("/auth/keys/backup", response_model=KeyBackupOut)
 async def get_key_backup(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "e2e_key_backup": 1})
@@ -1361,7 +1433,7 @@ async def get_key_backup(authorization: Optional[str] = Header(None)):
     return {"has_backup": bool(blob), "blob": blob}
 
 
-@router.delete("/auth/keys/backup")
+@router.delete("/auth/keys/backup", response_model=OkOut)
 async def delete_key_backup(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"e2e_key_backup": None}})
