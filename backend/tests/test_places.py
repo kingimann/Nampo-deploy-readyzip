@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from routes import places
 from models import PlaceCreate
@@ -23,6 +24,13 @@ def env(monkeypatch):
     monkeypatch.setattr(places, "db", db)
     monkeypatch.setattr(places, "get_current_user", fake_user)
     return db
+
+
+def test_create_rejects_out_of_range_coordinates():
+    with pytest.raises(ValidationError):
+        PlaceCreate(title="x", longitude=181.0, latitude=2.0)
+    with pytest.raises(ValidationError):
+        PlaceCreate(title="x", longitude=2.0, latitude=-91.0)
 
 
 @pytest.mark.asyncio
