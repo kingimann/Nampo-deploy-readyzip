@@ -49,6 +49,13 @@ async def update_eta(
     if share["user_id"] != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not your share")
     now = datetime.now(timezone.utc)
+    # A stopped or expired share is done — don't accept zombie position updates
+    # (and lazily flag the expiry so the public link reflects it too).
+    if not share.get("active", True):
+        raise HTTPException(status_code=410, detail="Share ended")
+    if _norm_dt(share["expires_at"]) < now:
+        await db.eta_shares.update_one({"share_id": share_id}, {"$set": {"active": False}})
+        raise HTTPException(status_code=410, detail="Share expired")
     patch = {
         "current_longitude": body.current_longitude,
         "current_latitude": body.current_latitude,

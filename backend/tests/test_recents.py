@@ -43,7 +43,7 @@ async def test_create_caps_at_twenty(env):
          "created_at": now - timedelta(minutes=100 - i)}
         for i in range(20)
     ]
-    await places.create_recent(RecentCreate(name="newest", longitude=999.0, latitude=0.0))
+    await places.create_recent(RecentCreate(name="newest", longitude=99.0, latitude=0.0))
     assert await env.recents.count_documents({"user_id": "me"}) == 20
     # The oldest (r0) was evicted; the newest is present.
     assert await env.recents.count_documents({"name": "n0"}) == 0

@@ -2,9 +2,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+# Reusable coordinate fields — reject out-of-range values at the edge instead of
+# silently storing garbage (e.g. a swapped lat/lng or a bad GPS fix).
+def _Lng(default=...):
+    return Field(default, ge=-180, le=180)
+
+
+def _Lat(default=...):
+    return Field(default, ge=-90, le=90)
 
 
 class User(BaseModel):
@@ -254,8 +263,8 @@ class WalletSummary(BaseModel):
 class PlaceCreate(BaseModel):
     title: str
     notes: Optional[str] = ""
-    longitude: float
-    latitude: float
+    longitude: float = _Lng()
+    latitude: float = _Lat()
     address: Optional[str] = ""
     category: str = "marker"
 
@@ -275,8 +284,8 @@ class Place(BaseModel):
 class RecentCreate(BaseModel):
     name: str
     full_address: Optional[str] = ""
-    longitude: float
-    latitude: float
+    longitude: float = _Lng()
+    latitude: float = _Lat()
 
 
 class Recent(BaseModel):
@@ -327,9 +336,9 @@ class PublicGuide(BaseModel):
 class ReviewCreate(BaseModel):
     place_key: str
     place_name: str
-    longitude: float
-    latitude: float
-    rating: int  # 1..5
+    longitude: float = _Lng()
+    latitude: float = _Lat()
+    rating: int = Field(..., ge=1, le=5)
     text: Optional[str] = ""
 
 
@@ -345,6 +354,23 @@ class Review(BaseModel):
     rating: int
     text: Optional[str] = ""
     created_at: datetime
+
+
+class ReviewSummary(BaseModel):
+    place_key: str
+    count: int
+    average: float  # mean rating, 0.0 when there are no reviews
+    distribution: Dict[str, int]  # {"1": n, ..., "5": n}
+
+
+class NearbyRatedPlace(BaseModel):
+    place_key: str
+    place_name: str
+    longitude: float
+    latitude: float
+    count: int
+    average: float
+    distance_km: float
 
 
 class MessageCreate(BaseModel):
@@ -482,10 +508,10 @@ class ConversationView(BaseModel):
 class EtaShareCreate(BaseModel):
     name: Optional[str] = None
     destination_name: Optional[str] = None
-    destination_longitude: float
-    destination_latitude: float
-    initial_longitude: float
-    initial_latitude: float
+    destination_longitude: float = _Lng()
+    destination_latitude: float = _Lat()
+    initial_longitude: float = _Lng()
+    initial_latitude: float = _Lat()
     eta_minutes: Optional[int] = None
     ttl_minutes: int = 120
 
@@ -508,8 +534,8 @@ class EtaShare(BaseModel):
 
 
 class EtaUpdate(BaseModel):
-    current_longitude: float
-    current_latitude: float
+    current_longitude: float = _Lng()
+    current_latitude: float = _Lat()
     eta_minutes: Optional[int] = None
 
 

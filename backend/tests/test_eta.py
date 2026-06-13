@@ -82,6 +82,24 @@ async def test_update_missing_404(env):
 
 
 @pytest.mark.asyncio
+async def test_update_rejected_after_stop(env):
+    _seed_share(env, active=False)
+    with pytest.raises(HTTPException) as ei:
+        await eta.update_eta("s1", EtaUpdate(current_longitude=5.0, current_latitude=6.0))
+    assert ei.value.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_update_rejected_when_expired(env):
+    _seed_share(env, expires_in_min=-1)   # already expired
+    with pytest.raises(HTTPException) as ei:
+        await eta.update_eta("s1", EtaUpdate(current_longitude=5.0, current_latitude=6.0))
+    assert ei.value.status_code == 410
+    # And the share is now flagged inactive.
+    assert (await env.eta_shares.find_one({"share_id": "s1"}))["active"] is False
+
+
+@pytest.mark.asyncio
 async def test_stop_deactivates(env):
     _seed_share(env)
     out = await eta.stop_eta("s1")

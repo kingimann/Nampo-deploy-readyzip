@@ -183,6 +183,17 @@ async def init_pool() -> None:
             ("stories", "idx_stories_user", "user_id"),
             ("guides", "idx_guides_user", "user_id"),
             ("places", "idx_places_user", "user_id"),
+            ("recents", "idx_recents_user", "user_id"),
+            # Reviews are fetched/aggregated by place_key (the composite unique
+            # index leads with user_id, so it can't serve a place_key lookup).
+            ("reviews", "idx_reviews_place_key", "place_key"),
+            # ETA shares are looked up by their public short id on every
+            # update / poll / websocket connect.
+            ("eta_shares", "idx_eta_share_id", "share_id"),
+            # Roadside: nearby filters open requests; mine lists by requester/helper.
+            ("roadside_requests", "idx_roadside_status", "status"),
+            ("roadside_requests", "idx_roadside_requester", "requester_id"),
+            ("roadside_requests", "idx_roadside_helper", "helper_id"),
             ("drafts", "idx_drafts_user", "user_id"),
             ("friend_requests", "idx_fr_to", "to_id"),
             ("friend_requests", "idx_fr_from", "from_id"),
