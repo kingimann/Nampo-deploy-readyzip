@@ -1733,3 +1733,23 @@ async def delete_saved_search(search_id: str, authorization: Optional[str] = Hea
     if getattr(res, "deleted_count", 0) != 1:
         raise HTTPException(status_code=404, detail="Saved search not found")
     return {"ok": True}
+
+
+class OffersCountOut(_MkOut):
+    count: int = 0
+    received_pending: int = 0
+    countered_to_me: int = 0
+
+
+@router.get("/offers/unread-count", response_model=OffersCountOut)
+async def offers_unread_count(authorization: Optional[str] = Header(None)):
+    """Offers needing the current user's action — for a tab badge. As a seller:
+    pending offers on your listings. As a buyer: offers the seller countered
+    (waiting on you)."""
+    me = await get_current_user(authorization)
+    received = await db.marketplace_offers.count_documents(
+        {"seller_id": me["user_id"], "status": "pending"})
+    countered = await db.marketplace_offers.count_documents(
+        {"buyer_id": me["user_id"], "status": "countered"})
+    return {"count": received + countered,
+            "received_pending": received, "countered_to_me": countered}

@@ -138,3 +138,19 @@ async def test_my_offers_split_made_received(env):
     _as(mp, "seller")
     theirs = await marketplace.my_offers()
     assert len(theirs["received"]) == 1 and len(theirs["made"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_unread_count_sums_received_pending_and_my_counters(env):
+    db, mp = env
+    _as(mp, "seller")
+    db.marketplace_offers.docs = [
+        {"id": "o1", "seller_id": "seller", "buyer_id": "b1", "status": "pending"},
+        {"id": "o2", "seller_id": "seller", "buyer_id": "b2", "status": "pending"},
+        {"id": "o3", "seller_id": "seller", "buyer_id": "b3", "status": "accepted"},
+        {"id": "o4", "seller_id": "x", "buyer_id": "seller", "status": "countered"},
+    ]
+    out = await marketplace.offers_unread_count()
+    assert out["received_pending"] == 2
+    assert out["countered_to_me"] == 1
+    assert out["count"] == 3
