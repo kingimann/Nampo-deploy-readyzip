@@ -1041,7 +1041,12 @@ def _topup_view(t: dict) -> dict:
 async def cancel_topup(tid: str, me: dict = Depends(get_current_user)):
     """Cancel a top-up that's still processing (e.g. the user left the Stripe
     page). If the payment actually went through, it's credited instead."""
-    t = await db.wallet_topups.find_one({"id": tid, "user_id": me["user_id"]}, {"_id": 0})
+    # The activity feed ids a top-up as "topup:<id>"; accept that, the raw id, or
+    # the Stripe session/intent id so cancel works no matter which the app sends.
+    key = tid[len("topup:"):] if tid.startswith("topup:") else tid
+    t = await db.wallet_topups.find_one(
+        {"user_id": me["user_id"], "$or": [{"id": key}, {"session_id": key}]}, {"_id": 0}
+    )
     if not t:
         raise HTTPException(status_code=404, detail="Top-up not found")
     if t.get("status") != "processing":
@@ -1063,7 +1068,7 @@ async def cancel_topup(tid: str, me: dict = Depends(get_current_user)):
         except Exception:
             pass
     await db.wallet_topups.update_one(
-        {"id": tid}, {"$set": {"status": "cancelled", "completed_at": datetime.now(timezone.utc)}},
+        {"id": t["id"]}, {"$set": {"status": "cancelled", "completed_at": datetime.now(timezone.utc)}},
     )
     return {"ok": True, "status": "cancelled"}
 
