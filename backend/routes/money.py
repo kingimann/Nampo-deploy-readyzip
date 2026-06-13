@@ -101,6 +101,7 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
             await _credit_wallet(uid, amount)
             await record_money_event("topup", uid, amount, ref_id=session_id,
                                      status="completed", meta={"source": source})
+            await _notify_topup(uid, amount)
             return True
         # Nothing flipped: either it was already 'completed' (a concurrent caller
         # won — skip) or there's no record for this session yet (credit fresh).
@@ -124,11 +125,13 @@ async def _apply_wallet_topup(uid: str, amount: float, source: str, session_id: 
         await _credit_wallet(uid, amount)
         await record_money_event("topup", uid, amount, ref_id=session_id,
                                  status="completed", meta={"source": source})
+        await _notify_topup(uid, amount)
         return True
     await _credit_wallet(uid, amount)
     await db.wallet_topups.insert_one(record)
     await record_money_event("topup", uid, amount, ref_id=record["id"],
                              status="completed", meta={"source": source})
+    await _notify_topup(uid, amount)
     return True
 
 
@@ -464,6 +467,13 @@ async def _notify_money(to_id: str, actor_id: str, ntype: str, message: str):
         await emit_notification(user_id=to_id, actor_id=actor_id, ntype=ntype, message=message)
     except Exception:
         pass
+
+
+async def _notify_topup(uid: str, amount: float):
+    """Tell the user their wallet top-up credited (in-app + push, and a
+    `wallet_topup` developer webhook via emit_notification's fan-out). Best-effort
+    — a notification failure must never undo or block the credit."""
+    await _notify_money(uid, None, "wallet_topup", f"${round(float(amount or 0), 2):.2f} added to your wallet")
 
 
 # ── Security question (sender's secret) ──────────────────────────────────────
