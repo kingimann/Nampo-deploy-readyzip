@@ -719,6 +719,8 @@ class ActivityItem(_W):
     title: str = ""
     subtitle: Optional[str] = None
     message: Optional[str] = None
+    counterparty_name: Optional[str] = None   # the other party on a transfer
+    client_secret: Optional[str] = None        # present on a pending top-up (resume payment)
     created_at: Optional[datetime] = None
 
 
@@ -956,6 +958,9 @@ async def wallet_topup_intent(body: TopupIntent, me: dict = Depends(get_current_
     await db.wallet_topups.insert_one({
         "id": str(uuid.uuid4()), "user_id": me["user_id"], "amount": amount,
         "source": "stripe", "session_id": pi["id"], "status": "processing",
+        # Stored so a pending top-up can be RESUMED: the activity feed hands this
+        # back and the app reopens the in-app card form against the same intent.
+        "client_secret": pi["client_secret"],
         "created_at": datetime.now(timezone.utc),
     })
     return {"client_secret": pi["client_secret"], "publishable_key": STRIPE_PUBLISHABLE_KEY, "intent_id": pi["id"]}
@@ -1093,6 +1098,8 @@ async def wallet_activity(me: dict = Depends(get_current_user)):
             "amount": round(float(t.get("amount", 0) or 0), 2), "status": t.get("status", "completed"),
             "title": "Wallet top-up",
             "subtitle": "Card · Stripe" if t.get("source") == "stripe" else ("Added by admin" if t.get("source") == "admin" else "Test mode"),
+            # Let the app "Resume payment" on a still-pending top-up.
+            **({"client_secret": t["client_secret"]} if t.get("status") == "processing" and t.get("client_secret") else {}),
             "created_at": t.get("created_at"),
         })
 
@@ -1155,6 +1162,7 @@ async def wallet_activity(me: dict = Depends(get_current_user)):
             "id": f"transfer:{mt.get('id')}", "kind": "transfer", "direction": "out" if out else "in",
             "amount": round(float(mt.get("amount", 0) or 0), 2), "status": mt.get("status", "pending"),
             "title": f"Money {'sent to' if out else 'received from'} {other}", "subtitle": "Money transfer",
+            "counterparty_name": other,
             "message": mt.get("note", ""), "created_at": mt.get("created_at"),
         })
 
