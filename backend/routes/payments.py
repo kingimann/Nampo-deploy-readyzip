@@ -1609,6 +1609,13 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
+    # Dedupe by Stripe event id: Stripe delivers at-least-once, so a replayed
+    # event must not be processed (and credited) twice. The per-session/intent
+    # guards below are a second line of defence.
+    _evt_id = event.get("id")
+    if _evt_id and await _already_fulfilled(f"evt:{_evt_id}"):
+        return {"ok": True}
+
     # An abandoned/expired Checkout — mark a pending wallet top-up as failed.
     # Inline (Elements) card top-up succeeded — credit it (idempotent backup to
     # the client-side confirm-intent call).

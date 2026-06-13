@@ -570,6 +570,14 @@ async def stripe_connect_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
+    # Dedupe by Stripe event id (at-least-once delivery → process each event once).
+    _evt_id = event.get("id")
+    if _evt_id:
+        try:
+            await db.payments_fulfilled.insert_one({"ref_id": f"cevt:{_evt_id}", "created_at": datetime.now(timezone.utc)})
+        except DuplicateKeyError:
+            return {"received": True}
+
     etype = event.get("type")
     obj = (event.get("data") or {}).get("object") or {}
     acct_id = event.get("account") or obj.get("account")
