@@ -386,19 +386,55 @@ async def set_security(body: SecuritySet, me: dict = Depends(get_current_user)):
     return {"ok": True, "question": question}
 
 
+class AutoDepositBody(BaseModel):
+    enabled: bool
+
+
+class AutoDepositOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    enabled: bool = False
+
+
+class TransferOkOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+
+
+@router.get("/money/auto-deposit", response_model=AutoDepositOut)
+async def get_auto_deposit(me: dict = Depends(get_current_user)):
+    """Whether incoming protected transfers are auto-deposited (no accept step)."""
+    return {"enabled": bool(me.get("auto_deposit"))}
+
+
+@router.post("/money/auto-deposit", response_model=TransferOkOut)
+async def set_auto_deposit(body: AutoDepositBody, me: dict = Depends(get_current_user)):
+    """Turn Interac-style auto-deposit on/off. When on, money sent to you credits
+    immediately — no pending/accept and no security question."""
+    await db.users.update_one({"user_id": me["user_id"]}, {"$set": {"auto_deposit": bool(body.enabled)}})
+    return {"ok": True, "enabled": bool(body.enabled)}
+
+
 # ── Send money ───────────────────────────────────────────────────────────────
 class SendMoney(BaseModel):
     to_user_id: str
     amount: float
     note: Optional[str] = ""
     answer: str
+    # Interac-style per-transfer challenge: the recipient must answer to accept
+    # (unless they have auto-deposit on). The answer is stored hashed.
+    security_question: Optional[str] = None
+    security_answer: Optional[str] = None
+
+
+class AcceptBody(BaseModel):
+    answer: Optional[str] = None   # required when the transfer has a security question
 
 
 @router.post("/money/send")
 async def send_money(body: SendMoney, me: dict = Depends(get_current_user)):
     if body.to_user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't send money to yourself")
-    to = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "name": 1})
+    to = await db.users.find_one({"user_id": body.to_user_id}, {"_id": 0, "user_id": 1, "name": 1, "auto_deposit": 1})
     if not to:
         raise HTTPException(status_code=404, detail="Recipient not found")
     amount = _money_amount(body.amount, cap=MONEY_MAX_SEND)
@@ -422,20 +458,36 @@ async def send_money(body: SendMoney, me: dict = Depends(get_current_user)):
     # for the first few minutes the sender can still reverse it (in case of a
     # mistake) — the recipient can't claim it until claimable_at.
     now = datetime.now(timezone.utc)
-    doc = {
+    # Optional Interac-style challenge — ignored when the recipient auto-deposits.
+    sec_q = (body.security_question or "").strip()[:160] or None
+    sec_hash = _hash(_norm(body.security_answer)) if (sec_q and body.security_answer and not to.get("auto_deposit")) else None
+    base = {
         "id": str(uuid.uuid4()),
         "from_user_id": me["user_id"], "from_name": me.get("name", "Someone"),
         "to_user_id": body.to_user_id, "amount": amount, "fee": fee, "note": (body.note or "")[:200],
-        "status": "pending", "created_at": now,
-        "claimable_at": now + timedelta(minutes=REVERSAL_WINDOW_MIN),
+        "created_at": now,
     }
+    if sec_hash:
+        base["security_question"] = sec_q
+        base["security_answer_hash"] = sec_hash
+
+    if to.get("auto_deposit"):
+        # Auto-deposit: credit immediately — no pending/accept, no challenge.
+        await _do_transfer(me, body.to_user_id, amount, body.note or "")
+        doc = {**base, "status": "accepted", "auto_deposited": True, "resolved_at": now}
+        await db.money_transfers.insert_one(doc.copy())
+        await _record_platform_fee(fee, "transfer_fee", me["user_id"], doc["id"])
+        await _notify_money(body.to_user_id, me["user_id"], "money_received", f"sent you ${amount:.2f}")
+        return {"ok": True, "amount": amount, "fee": fee, "status": "completed", "auto_deposited": True}
+
+    doc = {**base, "status": "pending", "claimable_at": now + timedelta(minutes=REVERSAL_WINDOW_MIN)}
     await db.money_transfers.insert_one(doc.copy())
     # Book the flat fee as platform revenue now (shows immediately); it's removed
     # again if the transfer is reversed or declined.
     await _record_platform_fee(fee, "transfer_fee", me["user_id"], doc["id"])
     await _notify_money(body.to_user_id, me["user_id"], "money_received",
-                        f"sent you ${amount:.2f} — accept it")
-    return {"ok": True, "amount": amount, "fee": fee, "status": "pending",
+                        ("sent you money — accept it" if sec_hash else f"sent you ${amount:.2f} — accept it"))
+    return {"ok": True, "amount": amount, "fee": fee, "status": "pending", "protected": bool(sec_hash),
             "claimable_at": doc["claimable_at"], "reversal_window_min": REVERSAL_WINDOW_MIN}
 
 
@@ -454,6 +506,9 @@ async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
         "created_at": t.get("created_at"),
         "claimable_at": t.get("claimable_at"),
         "resolved_at": t.get("resolved_at"),
+        # Drives the recipient's Accept dialog. Never expose the answer/hash.
+        "security_question": t.get("security_question"),
+        "protected": bool(t.get("security_answer_hash")),
     }
 
 
@@ -485,12 +540,34 @@ async def list_transfers(me: dict = Depends(get_current_user)):
 
 
 @router.post("/money/transfers/{tid}/accept")
-async def accept_transfer(tid: str, me: dict = Depends(get_current_user)):
+async def accept_transfer(tid: str, body: Optional[AcceptBody] = None, me: dict = Depends(get_current_user)):
     t = await db.money_transfers.find_one(
         {"id": tid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
     )
     if not t:
         raise HTTPException(status_code=404, detail="Transfer not found")
+    # Interac-style challenge: if the transfer has a security question, the
+    # recipient must answer it (case-insensitive). Locks after repeated misses.
+    if t.get("security_answer_hash"):
+        now0 = datetime.now(timezone.utc)
+        locked = t.get("answer_locked_until")
+        if locked:
+            try:
+                if _norm_dt(locked) > now0:
+                    raise HTTPException(status_code=429, detail={"code": "answer_locked", "message": "Too many wrong answers. Try again later."})
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+        ans = (body.answer if body else None) or ""
+        if not _verify(_norm(ans), t["security_answer_hash"]):
+            fails = int(t.get("answer_fails", 0) or 0) + 1
+            patch = {"answer_fails": fails}
+            if fails >= _ANSWER_MAX_FAILS:
+                patch["answer_locked_until"] = now0 + timedelta(minutes=_ANSWER_LOCK_MINUTES)
+                patch["answer_fails"] = 0
+            await db.money_transfers.update_one({"id": tid}, {"$set": patch})
+            raise HTTPException(status_code=403, detail={"code": "wrong_answer", "message": "Incorrect answer to the security question."})
     # Honour the sender's reversal window — can't be claimed until claimable_at.
     claimable = t.get("claimable_at")
     if claimable:
