@@ -7,7 +7,7 @@ appear in the Wallet's Sent/Received lists automatically.
 import math
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Any, List, Optional
 
 import asyncpg
 import bcrypt
@@ -430,7 +430,66 @@ class AcceptBody(BaseModel):
     answer: Optional[str] = None   # required when the transfer has a security question
 
 
-@router.post("/money/send")
+# ── Transfer response models (extra="allow": document the shape, never drop) ───
+class _TransferUserOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+    username: Optional[str] = None
+    picture: Optional[str] = None
+    verified: bool = False
+
+
+class TransferItemOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    from_user_id: str
+    to_user_id: str
+    amount: float = 0
+    note: str = ""
+    status: str = "pending"
+    direction: str = "incoming"          # incoming | outgoing (relative to viewer)
+    other_user: Optional[_TransferUserOut] = None
+    created_at: Optional[Any] = None
+    claimable_at: Optional[Any] = None
+    resolved_at: Optional[Any] = None
+    # Drives the recipient's Accept dialog. The answer/hash are never exposed.
+    security_question: Optional[str] = None   # the Interac-style challenge, when set
+    protected: bool = False                   # true when an answer is required to accept
+
+
+class TransfersListOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    incoming: List[TransferItemOut] = []
+    outgoing: List[TransferItemOut] = []
+
+
+class TransfersHistoryOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    transfers: List[TransferItemOut] = []
+    data: List[TransferItemOut] = []
+    total: int = 0
+
+
+class SendMoneyOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+    amount: float = 0
+    fee: float = 0
+    status: str = "pending"                # pending | completed
+    protected: bool = False
+    auto_deposited: bool = False
+    claimable_at: Optional[Any] = None
+    reversal_window_min: Optional[int] = None
+
+
+class AcceptTransferOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    ok: bool = True
+    amount: float = 0
+
+
+@router.post("/money/send", response_model=SendMoneyOut)
 async def send_money(body: SendMoney, me: dict = Depends(get_current_user)):
     if body.to_user_id == me["user_id"]:
         raise HTTPException(status_code=400, detail="You can't send money to yourself")
@@ -512,7 +571,7 @@ async def _hydrate_transfer(t: dict, viewer_id: str) -> dict:
     }
 
 
-@router.get("/money/transfers/history")
+@router.get("/money/transfers/history", response_model=TransfersHistoryOut)
 async def transfers_history(me: dict = Depends(get_current_user)):
     """All money transfers involving me (both directions, every status)."""
     uid = me["user_id"]
@@ -524,7 +583,7 @@ async def transfers_history(me: dict = Depends(get_current_user)):
     return {"transfers": transfers, "data": transfers, "total": len(transfers)}
 
 
-@router.get("/money/transfers")
+@router.get("/money/transfers", response_model=TransfersListOut)
 async def list_transfers(me: dict = Depends(get_current_user)):
     uid = me["user_id"]
     incoming = await db.money_transfers.find(
@@ -539,7 +598,7 @@ async def list_transfers(me: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/money/transfers/{tid}/accept")
+@router.post("/money/transfers/{tid}/accept", response_model=AcceptTransferOut)
 async def accept_transfer(tid: str, body: Optional[AcceptBody] = None, me: dict = Depends(get_current_user)):
     t = await db.money_transfers.find_one(
         {"id": tid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
@@ -601,7 +660,7 @@ async def accept_transfer(tid: str, body: Optional[AcceptBody] = None, me: dict 
     return {"ok": True, "amount": amount}
 
 
-@router.post("/money/transfers/{tid}/decline")
+@router.post("/money/transfers/{tid}/decline", response_model=TransferOkOut)
 async def decline_transfer(tid: str, me: dict = Depends(get_current_user)):
     t = await db.money_transfers.find_one(
         {"id": tid, "to_user_id": me["user_id"], "status": "pending"}, {"_id": 0}
@@ -623,7 +682,7 @@ async def decline_transfer(tid: str, me: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.post("/money/transfers/{tid}/reverse")
+@router.post("/money/transfers/{tid}/reverse", response_model=TransferOkOut)
 async def reverse_transfer(tid: str, me: dict = Depends(get_current_user)):
     """The sender reverses a transfer they sent (e.g. a mistake) while it's still
     pending — they get refunded and the recipient is notified."""

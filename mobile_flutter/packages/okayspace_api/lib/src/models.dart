@@ -652,6 +652,87 @@ class StripePayoutResult {
   final String? arrivalDate; // ISO-8601
 }
 
+/// A peer-to-peer money transfer (in-app wallet rail). Returned by
+/// `GET /money/transfers`, `/money/transfers/history`.
+class MoneyTransfer {
+  MoneyTransfer.fromJson(Map<String, dynamic> j)
+      : raw = j,
+        id = str(j['id']),
+        fromUserId = str(j['from_user_id']),
+        toUserId = str(j['to_user_id']),
+        amount = asDouble(j['amount']),
+        note = str(j['note']),
+        status = str(j['status'], 'pending'),
+        direction = str(j['direction'], 'incoming'), // incoming | outgoing
+        otherUser = j['other_user'] == null
+            ? null
+            : PublicUser.fromJson(asMap(j['other_user'])),
+        createdAt = asStr(j['created_at']),
+        claimableAt = asStr(j['claimable_at']),
+        resolvedAt = asStr(j['resolved_at']),
+        securityQuestion = asStr(j['security_question']),
+        protected = asBool(j['protected']);
+
+  final Map<String, dynamic> raw;
+  final String id;
+  final String fromUserId;
+  final String toUserId;
+  final double amount;
+  final String note;
+  final String status; // pending | accepted | declined | reversed
+  final String direction;
+  final PublicUser? otherUser;
+  final String? createdAt;
+  final String? claimableAt; // sender can reverse until then
+  final String? resolvedAt;
+  /// The Interac-style challenge to show in the accept dialog (when set).
+  final String? securityQuestion;
+  /// True when an [securityQuestion] answer is required to accept.
+  final bool protected;
+}
+
+/// Result of `GET /money/transfers` — pending incoming + your outgoing transfers.
+class TransfersList {
+  TransfersList.fromJson(Map<String, dynamic> j)
+      : incoming = asList(j['incoming'], (e) => MoneyTransfer.fromJson(asMap(e))),
+        outgoing = asList(j['outgoing'], (e) => MoneyTransfer.fromJson(asMap(e)));
+
+  final List<MoneyTransfer> incoming;
+  final List<MoneyTransfer> outgoing;
+}
+
+/// Result of `POST /money/send`.
+class SendMoneyResult {
+  SendMoneyResult.fromJson(Map<String, dynamic> j)
+      : ok = asBool(j['ok']),
+        amount = asDouble(j['amount']),
+        fee = asDouble(j['fee']),
+        status = str(j['status'], 'pending'), // pending | completed
+        protected = asBool(j['protected']),
+        autoDeposited = asBool(j['auto_deposited']),
+        claimableAt = asStr(j['claimable_at']),
+        reversalWindowMin = j['reversal_window_min'] == null ? null : asInt(j['reversal_window_min']);
+
+  final bool ok;
+  final double amount;
+  final double fee;
+  final String status;
+  final bool protected;
+  final bool autoDeposited;
+  final String? claimableAt;
+  final int? reversalWindowMin;
+}
+
+/// Result of `POST /money/transfers/{id}/accept`.
+class AcceptTransferResult {
+  AcceptTransferResult.fromJson(Map<String, dynamic> j)
+      : ok = asBool(j['ok']),
+        amount = asDouble(j['amount']);
+
+  final bool ok;
+  final double amount;
+}
+
 class LeaderboardEntry {
   LeaderboardEntry.fromJson(Map<String, dynamic> j)
       : raw = j,
