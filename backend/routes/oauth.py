@@ -16,7 +16,7 @@ from typing import List, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core import db, get_current_user, _norm_dt
 
@@ -54,7 +54,61 @@ def _clean_scopes(scope: Optional[str]) -> str:
 
 
 # ── App management (developer, session-authed) ──────────────────────────────
-@router.post("/oauth/apps")
+# --- §1 response models (extra="allow" so no field is ever dropped) ----------
+class _OaOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
+class OkOut(_OaOut):
+    ok: bool = True
+
+
+class DeletedOut(_OaOut):
+    deleted: bool = False
+
+
+class RevokedOut(_OaOut):
+    revoked: bool = False
+
+
+class AppCreateOut(_OaOut):
+    client_id: str = ""
+    client_secret: str = ""
+    name: str = ""
+    redirect_uris: list = []
+
+
+class AppInfoOut(_OaOut):
+    client_id: str = ""
+    name: Optional[str] = None
+    redirect_uris: list = []
+
+
+class AppsListOut(_OaOut):
+    apps: list = []
+
+
+class RedirectUrlOut(_OaOut):
+    redirect_url: str = ""
+
+
+class TokenOut(_OaOut):
+    access_token: str = ""
+    token_type: str = "Bearer"
+    expires_in: int = 0
+    scope: str = ""
+
+
+class ConnectionsOut(_OaOut):
+    connections: list = []
+
+
+class UserInfoOut(_OaOut):
+    sub: str = ""
+    name: Optional[str] = None
+
+
+@router.post("/oauth/apps", response_model=AppCreateOut)
 async def create_app(body: AppCreate, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     name = (body.name or "").strip()[:80]
@@ -71,7 +125,7 @@ async def create_app(body: AppCreate, authorization: Optional[str] = Header(None
     return {"client_id": client_id, "client_secret": client_secret, "name": name, "redirect_uris": uris[:5]}
 
 
-@router.get("/oauth/apps")
+@router.get("/oauth/apps", response_model=AppsListOut)
 async def list_apps(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     rows = await db.oauth_apps.find({"owner_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
@@ -81,14 +135,14 @@ async def list_apps(authorization: Optional[str] = Header(None)):
     ]}
 
 
-@router.delete("/oauth/apps/{client_id}")
+@router.delete("/oauth/apps/{client_id}", response_model=DeletedOut)
 async def delete_app(client_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     await db.oauth_apps.delete_one({"client_id": client_id, "owner_id": user["user_id"]})
     return {"deleted": True}
 
 
-@router.get("/oauth/app/{client_id}")
+@router.get("/oauth/app/{client_id}", response_model=AppInfoOut)
 async def app_info(client_id: str):
     """Public app metadata for the consent screen."""
     app = await db.oauth_apps.find_one({"client_id": client_id}, {"_id": 0})
@@ -98,7 +152,7 @@ async def app_info(client_id: str):
 
 
 # ── Authorization-code flow ─────────────────────────────────────────────────
-@router.post("/oauth/authorize")
+@router.post("/oauth/authorize", response_model=RedirectUrlOut)
 async def authorize(body: AuthorizeBody, authorization: Optional[str] = Header(None)):
     """Called by our consent screen once the logged-in user approves. Returns a
     redirect URL back to the third-party site with the code (or an error)."""
@@ -125,7 +179,7 @@ async def authorize(body: AuthorizeBody, authorization: Optional[str] = Header(N
     return {"redirect_url": f"{body.redirect_uri}?{urlencode(q)}"}
 
 
-@router.post("/oauth/token")
+@router.post("/oauth/token", response_model=TokenOut)
 async def token(body: TokenBody):
     """Server-side code→token exchange (authenticated by client_secret)."""
     if body.grant_type != "authorization_code":
@@ -156,7 +210,7 @@ class RevokeBody(BaseModel):
     token: str
 
 
-@router.get("/oauth/connections")
+@router.get("/oauth/connections", response_model=ConnectionsOut)
 async def my_connections(authorization: Optional[str] = Header(None)):
     """Third-party apps the current user has signed into (for a Connected Apps UI)."""
     user = await get_current_user(authorization)
@@ -176,7 +230,7 @@ async def my_connections(authorization: Optional[str] = Header(None)):
     return {"connections": list(by_client.values())}
 
 
-@router.delete("/oauth/connections/{client_id}")
+@router.delete("/oauth/connections/{client_id}", response_model=RevokedOut)
 async def revoke_connection(client_id: str, authorization: Optional[str] = Header(None)):
     """Revoke a third-party app's access for the current user (all its tokens)."""
     user = await get_current_user(authorization)
@@ -185,7 +239,7 @@ async def revoke_connection(client_id: str, authorization: Optional[str] = Heade
     return {"revoked": True}
 
 
-@router.post("/oauth/revoke")
+@router.post("/oauth/revoke", response_model=OkOut)
 async def revoke_token(body: RevokeBody):
     """RFC 7009-style token revocation — always returns ok."""
     if body.token:
@@ -193,7 +247,7 @@ async def revoke_token(body: RevokeBody):
     return {"ok": True}
 
 
-@router.get("/oauth/userinfo")
+@router.get("/oauth/userinfo", response_model=UserInfoOut)
 async def userinfo(authorization: Optional[str] = Header(None)):
     """Third-party reads the signed-in user's profile with the access token."""
     if not authorization or not authorization.startswith("Bearer "):
