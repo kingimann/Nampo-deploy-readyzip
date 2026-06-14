@@ -15,7 +15,8 @@ from fastapi import APIRouter, Header, HTTPException
 from core import db, get_current_user
 from models import (
     BlackjackView, CheckersMoveBody, CheckersView, ChessMoveBody, ChessView,
-    GameCreate, GameMove, GameView, Message, PokerDrawBody, PokerView,
+    GameCreate, GameMove, GameStats, GameView, Message, PokerDrawBody,
+    PokerView,
 )
 from routes.messaging import _decrypt_msg
 from routes.notifications import emit_notification
@@ -68,6 +69,59 @@ async def _conv_or_404(conv_id: str, user: dict) -> dict:
     if not conv or user["user_id"] not in conv.get("participant_ids", []):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv
+
+
+_ACTIVE_STATES = {"active", "revealing", None}
+
+
+def _outcomes(game: dict) -> list:
+    """(user_id, 'win'|'loss'|'tie') for each HUMAN player of a finished game."""
+    gt = game["game_type"]
+    status = game.get("status")
+    if gt in ("tictactoe",):
+        if status == "draw":
+            return [(game["x_player"], "tie"), (game["o_player"], "tie")]
+        w = game.get("winner")
+        loser = game["o_player"] if w == game["x_player"] else game["x_player"]
+        return [(w, "win"), (loser, "loss")]
+    if gt == "chess":
+        if status in ("stalemate", "draw"):
+            return [(game["white_player"], "tie"), (game["black_player"], "tie")]
+        w = game.get("winner")
+        loser = (game["black_player"] if w == game["white_player"]
+                 else game["white_player"])
+        return [(w, "win"), (loser, "loss")]
+    if gt == "checkers":
+        if status == "white_won":
+            return [(game["white_player"], "win"), (game["black_player"], "loss")]
+        return [(game["black_player"], "win"), (game["white_player"], "loss")]
+    if gt in ("blackjack", "poker"):
+        p = game["player_id"]
+        if status in ("blackjack", "win"):
+            return [(p, "win")]
+        if status == "push":
+            return [(p, "tie")]
+        return [(p, "loss")]
+    return []
+
+
+async def _record_result(game: dict) -> None:
+    """When a game first reaches a terminal state, tally win/loss/tie for each
+    human player. Idempotent via an atomic claim on `stats_recorded`."""
+    if game.get("status") in _ACTIVE_STATES or game.get("stats_recorded"):
+        return
+    claim = await db.chat_games.update_one(
+        {"game_id": game["game_id"], "stats_recorded": False},
+        {"$set": {"stats_recorded": True}})
+    if getattr(claim, "matched_count", 0) != 1:
+        return                                     # someone else recorded it
+    field = {"win": "wins", "loss": "losses", "tie": "ties"}
+    for uid, outcome in _outcomes(game):
+        if uid == _CPU or not uid:
+            continue
+        await db.game_stats.update_one(
+            {"user_id": uid},
+            {"$inc": {field[outcome]: 1, "games": 1}}, upsert=True)
 
 
 # ----- Blackjack (player vs dealer/house) -----
@@ -233,6 +287,7 @@ async def create_chat_game(
         "conversation_id": conv_id,
         "game_type": body.game_type,
         "status": "active",
+        "stats_recorded": False,
         "created_at": now,
         "updated_at": now,
     }
@@ -357,6 +412,7 @@ async def play_move(
     if getattr(claim, "matched_count", 0) != 1:
         raise HTTPException(status_code=409, detail="Move no longer valid")
     updated = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    await _record_result(updated)
     # The CPU's reply is NOT played here — the client calls /cpu-move after a
     # short "thinking" pause so the computer doesn't respond instantly.
     return _view(updated)
@@ -375,6 +431,7 @@ async def cpu_move(game_id: str, authorization: Optional[str] = Header(None)):
     if game.get("vs_cpu") and game.get("status") == "active" \
             and game.get("turn") == _CPU:
         game = await _play_cpu(game)
+    await _record_result(game)
     return _view(game)
 
 
@@ -445,6 +502,7 @@ async def blackjack_hit(
         {"$set": {"deck": game["deck"], "player": game["player"],
                   "dealer": game["dealer"], "status": game["status"],
                   "updated_at": game["updated_at"]}})
+    await _record_result(game)
     return _blackjack_view(game)
 
 
@@ -462,6 +520,7 @@ async def blackjack_stand(
         {"game_id": game_id},
         {"$set": {"deck": game["deck"], "dealer": game["dealer"],
                   "status": game["status"], "updated_at": game["updated_at"]}})
+    await _record_result(game)
     return _blackjack_view(game)
 
 
@@ -514,6 +573,7 @@ async def chess_move(
     if getattr(claim, "matched_count", 0) != 1:
         raise HTTPException(status_code=409, detail="Move no longer valid")
     updated = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    await _record_result(updated)
     return _chess_view(updated)
 
 
@@ -563,6 +623,7 @@ async def checkers_move(
     if getattr(claim, "matched_count", 0) != 1:
         raise HTTPException(status_code=409, detail="Move no longer valid")
     updated = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    await _record_result(updated)
     return _checkers_view(updated)
 
 
@@ -625,6 +686,7 @@ async def poker_reveal(
         {"game_id": game_id},
         {"$set": {"deck": game["deck"], "cpu": game["cpu"],
                   "status": game["status"], "updated_at": game["updated_at"]}})
+    await _record_result(game)
     return _poker_view(game)
 
 
@@ -635,3 +697,19 @@ async def get_poker(
     user = await get_current_user(authorization)
     game = await _load_poker(game_id, user)
     return _poker_view(game)
+
+
+@router.get("/game-stats/{user_id}", response_model=GameStats)
+async def get_game_stats(
+    user_id: str, authorization: Optional[str] = Header(None)
+):
+    """A player's all-games win/loss/tie record."""
+    await get_current_user(authorization)
+    row = await db.game_stats.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    return GameStats(
+        user_id=user_id,
+        wins=row.get("wins", 0),
+        losses=row.get("losses", 0),
+        ties=row.get("ties", 0),
+        games=row.get("games", 0),
+    )

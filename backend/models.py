@@ -655,6 +655,14 @@ class PokerView(BaseModel):
     updated_at: datetime
 
 
+class GameStats(BaseModel):
+    user_id: str
+    wins: int = 0
+    losses: int = 0
+    ties: int = 0
+    games: int = 0
+
+
 # ---------- Marketplace ----------
 class ListingCreate(BaseModel):
     title: str

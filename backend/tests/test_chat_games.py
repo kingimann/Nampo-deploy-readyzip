@@ -146,6 +146,37 @@ async def test_cpu_blocks_a_winning_line(env):
 
 
 @pytest.mark.asyncio
+async def test_win_loss_tie_are_recorded(env):
+    db, mp = env
+    gid = await _new_game(db, mp)   # alice (X) vs bob (O)
+    # Play X to a top-row win: X 0,1,2 ; O 3,4.
+    for uid, cell in [("alice", 0), ("bob", 3), ("alice", 1), ("bob", 4),
+                      ("alice", 2)]:
+        _as(mp, uid)
+        await games.play_move(gid, GameMove(cell=cell))
+    a = await games.get_game_stats("alice")
+    b = await games.get_game_stats("bob")
+    assert (a.wins, a.losses, a.ties) == (1, 0, 0)
+    assert (b.wins, b.losses, b.ties) == (0, 1, 0)
+    assert a.games == 1 and b.games == 1
+
+
+@pytest.mark.asyncio
+async def test_stats_recorded_once(env):
+    db, mp = env
+    gid = await _new_game(db, mp)
+    for uid, cell in [("alice", 0), ("bob", 3), ("alice", 1), ("bob", 4),
+                      ("alice", 2)]:
+        _as(mp, uid)
+        await games.play_move(gid, GameMove(cell=cell))
+    # The game is over; the stats row is flagged so re-reads don't double-count.
+    g = await db.chat_games.find_one({"game_id": gid})
+    assert g["stats_recorded"] is True
+    a = await games.get_game_stats("alice")
+    assert a.wins == 1   # still 1, not incremented again
+
+
+@pytest.mark.asyncio
 async def test_non_participant_cannot_move_or_read(env):
     db, mp = env
     gid = await _new_game(db, mp)
