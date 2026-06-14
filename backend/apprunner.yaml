@@ -15,5 +15,12 @@ run:
   env:
     - name: PORT
       value: "8080"
-  # NOTE: secrets (MONGO_URL etc.) are NOT set here. Configure them in the
-  # App Runner console under "Environment variables" or via Secrets Manager.
+  # NOTE: secrets are NOT set here. Configure them in the App Runner console
+  # under "Environment variables" or via Secrets Manager. At minimum set:
+  #   DATABASE_URL      — your Postgres DSN
+  #   MESSAGE_ENC_KEY   — any strong, STABLE random string. This turns on
+  #                       at-rest encryption of message content (text, voice
+  #                       notes, files, transcripts, place/contact, polls).
+  #                       Keep it constant and backed up — if it changes, older
+  #                       encrypted messages can't be decrypted. (On Render this
+  #                       is auto-generated via render.yaml's generateValue.)
