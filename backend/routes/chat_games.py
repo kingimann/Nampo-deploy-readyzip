@@ -15,8 +15,8 @@ from fastapi import APIRouter, Header, HTTPException
 from core import db, get_current_user
 from models import (
     BlackjackView, CheckersMoveBody, CheckersView, ChessMoveBody, ChessView,
-    GameCreate, GameMove, GameStats, GameView, Message, PokerDrawBody,
-    PokerView,
+    GameCreate, GameMove, GameResultBody, GameStats, GameView, Message,
+    PokerDrawBody, PokerView,
 )
 from routes.messaging import _decrypt_msg
 from routes.notifications import emit_notification
@@ -26,7 +26,11 @@ from services import poker_engine as pk
 
 router = APIRouter()
 
-_GAME_TYPES = {"tictactoe", "blackjack", "chess", "checkers", "poker"}
+_GAME_TYPES = {"tictactoe", "blackjack", "chess", "checkers", "poker",
+               "pong", "snake"}
+# Real-time arcade games run entirely on the client; the server only drops the
+# card and (for Pong) records the reported result.
+_LOCAL_TYPES = {"pong", "snake"}
 _HIDDEN_CARD = {"r": "?", "s": "?"}
 # All eight tic-tac-toe winning lines.
 _TTT_LINES = [
@@ -330,12 +334,14 @@ async def create_chat_game(
         game = {**base, "checkers": st, "white_player": uid,
                 "black_player": others[0], "winner": None, "move_count": 0}
         notify_other = (others[0], "🔴 Wants to play checkers")
-    else:  # poker — five-card draw vs the dealer (works anywhere)
+    elif body.game_type == "poker":  # five-card draw vs the dealer (anywhere)
         deck = pk.new_deck()
         player = [deck.pop() for _ in range(5)]
         cpu = [deck.pop() for _ in range(5)]
         game = {**base, "deck": deck, "player": player, "cpu": cpu,
                 "player_id": uid, "status": "active"}
+    else:  # pong / snake — real-time arcade, played on the client
+        game = {**base, "player_id": uid}
 
     await db.chat_games.insert_one(game.copy())
     msg = {
@@ -697,6 +703,34 @@ async def get_poker(
     user = await get_current_user(authorization)
     game = await _load_poker(game_id, user)
     return _poker_view(game)
+
+
+# ===== Arcade (Pong / Snake) — client-driven result =====
+@router.post("/chat-games/{game_id}/result", response_model=GameStats)
+async def report_arcade_result(
+    game_id: str, body: GameResultBody, authorization: Optional[str] = Header(None)
+):
+    """Client reports the outcome of a real-time arcade game (Pong vs the CPU).
+    Records the player's win/loss once and returns their updated record."""
+    user = await get_current_user(authorization)
+    game = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    if not game or game.get("game_type") not in _LOCAL_TYPES:
+        raise HTTPException(status_code=404, detail="Game not found")
+    await _conv_or_404(game["conversation_id"], user)
+    if game.get("player_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not your game")
+    outcome = body.outcome if body.outcome in ("win", "loss", "tie") else None
+    if outcome is None:
+        raise HTTPException(status_code=400, detail="Invalid outcome")
+    claim = await db.chat_games.update_one(
+        {"game_id": game_id, "stats_recorded": False},
+        {"$set": {"stats_recorded": True, "status": outcome}})
+    if getattr(claim, "matched_count", 0) == 1:
+        field = {"win": "wins", "loss": "losses", "tie": "ties"}[outcome]
+        await db.game_stats.update_one(
+            {"user_id": user["user_id"]},
+            {"$inc": {field: 1, "games": 1}}, upsert=True)
+    return await get_game_stats(user["user_id"], authorization)
 
 
 @router.get("/game-stats/{user_id}", response_model=GameStats)

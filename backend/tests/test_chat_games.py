@@ -146,6 +146,22 @@ async def test_cpu_blocks_a_winning_line(env):
 
 
 @pytest.mark.asyncio
+async def test_arcade_create_and_report(env):
+    db, mp = env
+    _as(mp, "alice")
+    # Pong works anywhere, including notes-to-self.
+    msg = await games.create_chat_game("self", GameCreate(game_type="pong"))
+    gid = msg.game_id
+    assert msg.type == "game"
+    from models import GameResultBody
+    out = await games.report_arcade_result(gid, GameResultBody(outcome="win"))
+    assert out.wins == 1 and out.games == 1
+    # Reporting again is a no-op (recorded once).
+    out2 = await games.report_arcade_result(gid, GameResultBody(outcome="win"))
+    assert out2.wins == 1
+
+
+@pytest.mark.asyncio
 async def test_win_loss_tie_are_recorded(env):
     db, mp = env
     gid = await _new_game(db, mp)   # alice (X) vs bob (O)

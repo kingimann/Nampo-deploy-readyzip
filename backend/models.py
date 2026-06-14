@@ -655,6 +655,10 @@ class PokerView(BaseModel):
     updated_at: datetime
 
 
+class GameResultBody(BaseModel):
+    outcome: str                       # win | loss | tie (client-reported, arcade games)
+
+
 class GameStats(BaseModel):
     user_id: str
     wins: int = 0
