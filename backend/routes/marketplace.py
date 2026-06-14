@@ -27,7 +27,6 @@ from models import (
     TradeConfirm,
 )
 from pydantic import BaseModel, ConfigDict
-from services.encryption import encrypt_text, decrypt_text
 
 router = APIRouter()
 
@@ -1156,7 +1155,10 @@ async def contact_seller(listing_id: str, authorization: Optional[str] = Header(
         {"conversation_id": conv["id"]}, {"_id": 0}, sort=[("created_at", -1)]
     )
     if last_msg_doc:
-        last_msg_doc = {**last_msg_doc, "text": decrypt_text(last_msg_doc.get("text") or "")}
+        # Decrypt every content field (not just text) — voice/file/place/poll
+        # are encrypted at rest too. Local import avoids a circular import.
+        from routes.messaging import _decrypt_msg
+        last_msg_doc = _decrypt_msg(last_msg_doc)
     return ConversationView(
         id=conv["id"],
         other_user=other,
