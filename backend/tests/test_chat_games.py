@@ -116,9 +116,12 @@ async def test_notes_to_self_plays_the_cpu(env):
     gid = msg.game_id
     game = await db.chat_games.find_one({"game_id": gid})
     assert game["vs_cpu"] is True and game["o_player"] == "cpu"
-    # Alice moves; the CPU replies within the same call, handing the turn back.
+    # Alice moves; the turn passes to the CPU but it doesn't move yet.
     out = await games.play_move(gid, GameMove(cell=0))
-    assert out.board[0] == "X"
+    assert out.board[0] == "X" and out.turn == "cpu"
+    assert out.board.count("O") == 0
+    # The client calls /cpu-move (after its delay) to play the computer.
+    out = await games.cpu_move(gid)
     assert out.board.count("O") == 1          # CPU made exactly one move
     if out.status == "active":
         assert out.turn == "alice"            # back to the human
@@ -136,7 +139,8 @@ async def test_cpu_blocks_a_winning_line(env):
         {"game_id": gid},
         {"$set": {"board": ["X", "", "", "", "O", "", "", "", ""],
                   "turn": "alice", "status": "active"}})
-    out = await games.play_move(gid, GameMove(cell=1))  # X now at 0,1
+    await games.play_move(gid, GameMove(cell=1))  # X now at 0,1
+    out = await games.cpu_move(gid)
     # The CPU must block the 0,1,2 line by taking cell 2.
     assert out.board[2] == "O"
 

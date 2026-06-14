@@ -3,7 +3,10 @@ import pytest
 from fastapi import HTTPException
 
 from routes import chat_games as games
-from models import GameCreate, ChessMoveBody
+from models import (
+    GameCreate, ChessMoveBody, CheckersMoveBody, PokerDrawBody,
+)
+from services import checkers_engine as ck
 from tests._fakedb import FakeDB
 
 
@@ -123,3 +126,57 @@ async def test_chess_checkmate_sets_winner(env):
         _as(mp, uid)
         out = await games.chess_move(gid, ChessMoveBody(from_sq=frm, to_sq=to))
     assert out.status == "checkmate" and out.winner == "bob"
+
+
+# ----- Checkers -----
+
+@pytest.mark.asyncio
+async def test_checkers_needs_opponent(env):
+    db, mp = env
+    _as(mp, "alice")
+    with pytest.raises(HTTPException) as ei:
+        await games.create_chat_game("self", GameCreate(game_type="checkers"))
+    assert ei.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_checkers_move_and_turn(env):
+    db, mp = env
+    _as(mp, "alice")
+    msg = await games.create_chat_game("c1", GameCreate(game_type="checkers"))
+    gid = msg.game_id
+    g = await db.chat_games.find_one({"game_id": gid})
+    assert g["white_player"] == "alice" and g["black_player"] == "bob"
+    # Black can't move first (white opens in checkers).
+    _as(mp, "bob")
+    with pytest.raises(HTTPException) as ei:
+        await games.checkers_move(
+            gid, CheckersMoveBody(from_sq=ck._sq(1, 2), to_sq=ck._sq(0, 3)))
+    assert ei.value.status_code == 409
+    # White makes a legal opening step; the turn passes to black. A front white
+    # man sits at (2,5) and can step up to (3,4).
+    _as(mp, "alice")
+    out = await games.checkers_move(
+        gid, CheckersMoveBody(from_sq=ck._sq(2, 5), to_sq=ck._sq(3, 4)))
+    assert out.turn == "bob"
+    assert out.board[ck._sq(3, 4)] == "w"
+
+
+# ----- Poker -----
+
+@pytest.mark.asyncio
+async def test_poker_draw_then_reveal(env):
+    db, mp = env
+    _as(mp, "alice")
+    msg = await games.create_chat_game("self", GameCreate(game_type="poker"))
+    gid = msg.game_id
+    view = await games.get_poker(gid)
+    assert len(view.you) == 5
+    # Opponent hidden before showdown.
+    assert all(c["r"] == "?" for c in view.opponent)
+    drawn = await games.poker_draw(gid, PokerDrawBody(holds=[0, 1]))
+    assert drawn.status == "revealing"
+    final = await games.poker_reveal(gid)
+    assert final.status in ("win", "lose", "push")
+    assert all(c["r"] != "?" for c in final.opponent)   # revealed
+    assert final.opponent_hand is not None

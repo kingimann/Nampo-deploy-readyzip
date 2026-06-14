@@ -14,16 +14,19 @@ from fastapi import APIRouter, Header, HTTPException
 
 from core import db, get_current_user
 from models import (
-    BlackjackView, ChessMoveBody, ChessView, GameCreate, GameMove, GameView,
-    Message,
+    BlackjackView, CheckersMoveBody, CheckersView, ChessMoveBody, ChessView,
+    GameCreate, GameMove, GameView, Message, PokerDrawBody, PokerView,
 )
 from routes.messaging import _decrypt_msg
 from routes.notifications import emit_notification
 from services import chess_engine as ce
+from services import checkers_engine as ck
+from services import poker_engine as pk
 
 router = APIRouter()
 
-_GAME_TYPES = {"tictactoe", "blackjack", "chess"}
+_GAME_TYPES = {"tictactoe", "blackjack", "chess", "checkers", "poker"}
+_HIDDEN_CARD = {"r": "?", "s": "?"}
 # All eight tic-tac-toe winning lines.
 _TTT_LINES = [
     (0, 1, 2), (3, 4, 5), (6, 7, 8),   # rows
@@ -154,6 +157,43 @@ def _chess_view(game: dict) -> ChessView:
     )
 
 
+def _checkers_view(game: dict) -> CheckersView:
+    st = game["checkers"]
+    white = st["turn"] == "w"
+    status = game.get("status") or "active"
+    winner = None
+    if status == "white_won":
+        winner = game["white_player"]
+    elif status == "black_won":
+        winner = game["black_player"]
+    return CheckersView(
+        game_id=game["game_id"],
+        conversation_id=game["conversation_id"],
+        board=st["board"],
+        white_player=game["white_player"],
+        black_player=game["black_player"],
+        turn=game["white_player"] if white else game["black_player"],
+        chain=st.get("chain"),
+        status=status,
+        winner=winner,
+        updated_at=game["updated_at"],
+    )
+
+
+def _poker_view(game: dict) -> PokerView:
+    done = game["status"] in ("win", "lose", "push")
+    return PokerView(
+        game_id=game["game_id"],
+        conversation_id=game["conversation_id"],
+        you=game["player"],
+        opponent=game["cpu"] if done else [_HIDDEN_CARD] * len(game["cpu"]),
+        your_hand=pk.hand_name(game["player"]),
+        opponent_hand=pk.hand_name(game["cpu"]) if done else None,
+        status=game["status"],
+        updated_at=game["updated_at"],
+    )
+
+
 def _view(game: dict) -> GameView:
     return GameView(
         game_id=game["game_id"],
@@ -219,7 +259,7 @@ async def create_chat_game(
             status = "push" if _hand_total(dealer) == 21 else "blackjack"
         game = {**base, "deck": deck, "player": player, "dealer": dealer,
                 "player_id": uid, "status": status}
-    else:  # chess — strictly two human players
+    elif body.game_type == "chess":  # strictly two human players
         if len(others) != 1:
             raise HTTPException(
                 status_code=400, detail="Chess needs an opponent")
@@ -227,6 +267,20 @@ async def create_chat_game(
         game = {**base, "chess": st, "white_player": uid,
                 "black_player": others[0], "winner": None, "move_count": 0}
         notify_other = (others[0], "♟️ Wants to play chess")
+    elif body.game_type == "checkers":  # two human players
+        if len(others) != 1:
+            raise HTTPException(
+                status_code=400, detail="Checkers needs an opponent")
+        st = ck.initial_state()
+        game = {**base, "checkers": st, "white_player": uid,
+                "black_player": others[0], "winner": None, "move_count": 0}
+        notify_other = (others[0], "🔴 Wants to play checkers")
+    else:  # poker — five-card draw vs the dealer (works anywhere)
+        deck = pk.new_deck()
+        player = [deck.pop() for _ in range(5)]
+        cpu = [deck.pop() for _ in range(5)]
+        game = {**base, "deck": deck, "player": player, "cpu": cpu,
+                "player_id": uid, "status": "active"}
 
     await db.chat_games.insert_one(game.copy())
     msg = {
@@ -303,12 +357,25 @@ async def play_move(
     if getattr(claim, "matched_count", 0) != 1:
         raise HTTPException(status_code=409, detail="Move no longer valid")
     updated = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
-    # Against the computer, play its reply immediately so the move response
-    # already shows the board back in the human's court.
-    if updated.get("vs_cpu") and updated.get("status") == "active" \
-            and updated.get("turn") == _CPU:
-        updated = await _play_cpu(updated)
+    # The CPU's reply is NOT played here — the client calls /cpu-move after a
+    # short "thinking" pause so the computer doesn't respond instantly.
     return _view(updated)
+
+
+@router.post("/chat-games/{game_id}/cpu-move", response_model=GameView)
+async def cpu_move(game_id: str, authorization: Optional[str] = Header(None)):
+    """Play the computer's pending move. The client calls this after a brief
+    delay so the response feels deliberate rather than instant. Idempotent: if
+    it isn't the CPU's turn, the current state is returned unchanged."""
+    user = await get_current_user(authorization)
+    game = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    if not game or game.get("game_type") != "tictactoe":
+        raise HTTPException(status_code=404, detail="Game not found")
+    await _conv_or_404(game["conversation_id"], user)
+    if game.get("vs_cpu") and game.get("status") == "active" \
+            and game.get("turn") == _CPU:
+        game = await _play_cpu(game)
+    return _view(game)
 
 
 async def _play_cpu(game: dict) -> dict:
@@ -460,3 +527,111 @@ async def get_chess(
         raise HTTPException(status_code=404, detail="Game not found")
     await _conv_or_404(game["conversation_id"], user)
     return _chess_view(game)
+
+
+# ===== Checkers =====
+@router.post("/chat-games/{game_id}/checkers/move", response_model=CheckersView)
+async def checkers_move(
+    game_id: str, body: CheckersMoveBody, authorization: Optional[str] = Header(None)
+):
+    user = await get_current_user(authorization)
+    game = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    if not game or game.get("game_type") != "checkers":
+        raise HTTPException(status_code=404, detail="Game not found")
+    await _conv_or_404(game["conversation_id"], user)
+    uid = user["user_id"]
+    if uid not in (game["white_player"], game["black_player"]):
+        raise HTTPException(status_code=403, detail="You're not in this game")
+    if game.get("status") != "active":
+        raise HTTPException(status_code=409, detail="The game is over")
+    st = game["checkers"]
+    mover = game["white_player"] if st["turn"] == "w" else game["black_player"]
+    if uid != mover:
+        raise HTTPException(status_code=409, detail="Not your turn")
+    nxt = ck.apply_move(st, body.from_sq, body.to_sq)
+    if nxt is None:
+        raise HTTPException(status_code=400, detail="Illegal move")
+    new_status = ck.status(nxt)
+    moves = game.get("move_count", 0)
+    patch = {"checkers": nxt, "move_count": moves + 1,
+             "updated_at": datetime.now(timezone.utc)}
+    if new_status != "active":
+        patch["status"] = new_status
+    claim = await db.chat_games.update_one(
+        {"game_id": game_id, "status": "active", "move_count": moves},
+        {"$set": patch})
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="Move no longer valid")
+    updated = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    return _checkers_view(updated)
+
+
+@router.get("/chat-games/{game_id}/checkers", response_model=CheckersView)
+async def get_checkers(
+    game_id: str, authorization: Optional[str] = Header(None)
+):
+    user = await get_current_user(authorization)
+    game = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    if not game or game.get("game_type") != "checkers":
+        raise HTTPException(status_code=404, detail="Game not found")
+    await _conv_or_404(game["conversation_id"], user)
+    return _checkers_view(game)
+
+
+# ===== Poker (five-card draw vs the dealer) =====
+async def _load_poker(game_id: str, user: dict) -> dict:
+    game = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    if not game or game.get("game_type") != "poker":
+        raise HTTPException(status_code=404, detail="Game not found")
+    await _conv_or_404(game["conversation_id"], user)
+    if game.get("player_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not your game")
+    return game
+
+
+@router.post("/chat-games/{game_id}/poker/draw", response_model=PokerView)
+async def poker_draw(
+    game_id: str, body: PokerDrawBody, authorization: Optional[str] = Header(None)
+):
+    user = await get_current_user(authorization)
+    game = await _load_poker(game_id, user)
+    if game["status"] != "active":
+        raise HTTPException(status_code=409, detail="Already drawn")
+    game["player"] = pk.draw(game["deck"], game["player"], body.holds)
+    game["status"] = "revealing"
+    game["updated_at"] = datetime.now(timezone.utc)
+    await db.chat_games.update_one(
+        {"game_id": game_id},
+        {"$set": {"deck": game["deck"], "player": game["player"],
+                  "status": "revealing", "updated_at": game["updated_at"]}})
+    return _poker_view(game)
+
+
+@router.post("/chat-games/{game_id}/poker/reveal", response_model=PokerView)
+async def poker_reveal(
+    game_id: str, authorization: Optional[str] = Header(None)
+):
+    """The dealer draws and the hands are shown. Called by the client after a
+    short pause so the dealer doesn't act instantly."""
+    user = await get_current_user(authorization)
+    game = await _load_poker(game_id, user)
+    if game["status"] != "revealing":
+        return _poker_view(game)
+    game["cpu"] = pk.draw(game["deck"], game["cpu"], pk.cpu_holds(game["cpu"]))
+    result = pk.compare(game["player"], game["cpu"])
+    game["status"] = "win" if result > 0 else ("lose" if result < 0 else "push")
+    game["updated_at"] = datetime.now(timezone.utc)
+    await db.chat_games.update_one(
+        {"game_id": game_id},
+        {"$set": {"deck": game["deck"], "cpu": game["cpu"],
+                  "status": game["status"], "updated_at": game["updated_at"]}})
+    return _poker_view(game)
+
+
+@router.get("/chat-games/{game_id}/poker", response_model=PokerView)
+async def get_poker(
+    game_id: str, authorization: Optional[str] = Header(None)
+):
+    user = await get_current_user(authorization)
+    game = await _load_poker(game_id, user)
+    return _poker_view(game)
