@@ -85,8 +85,14 @@ async def public_app_config():
         registration_mode = rmode if rmode in ("open", "invite", "closed") else "open"
     except Exception:
         registration_mode = "open"
+    try:
+        from services.encryption import encryption_enabled
+        messages_encrypted = encryption_enabled()
+    except Exception:
+        messages_encrypted = False
     return {"web_build": web_build, "mobile_web_gate": mobile_web_gate,
-            "mobile_only": mobile_only, "registration_mode": registration_mode}
+            "mobile_only": mobile_only, "registration_mode": registration_mode,
+            "messages_encrypted": messages_encrypted}
 
 API_VERSION = "1.0.0"
 
