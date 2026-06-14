@@ -27,11 +27,32 @@ _TTT_LINES = [
 ]
 
 
+_CPU = "cpu"   # the computer opponent's sentinel user id
+
+
 def _winner_mark(board: list) -> Optional[str]:
     for a, b, c in _TTT_LINES:
         if board[a] and board[a] == board[b] == board[c]:
             return board[a]
     return None
+
+
+def _cpu_move(board: list, me: str = "O", opp: str = "X") -> Optional[int]:
+    """A competent tic-tac-toe move: take a win, block a loss, then prefer the
+    centre, corners and sides."""
+    empties = [i for i, c in enumerate(board) if not c]
+    if not empties:
+        return None
+    for mark in (me, opp):                     # 1. win, then 2. block
+        for i in empties:
+            b = list(board)
+            b[i] = mark
+            if _winner_mark(b) == mark:
+                return i
+    for i in (4, 0, 2, 6, 8, 1, 3, 5, 7):      # 3. centre, corners, sides
+        if not board[i]:
+            return i
+    return empties[0]
 
 
 async def _conv_or_404(conv_id: str, user: dict) -> dict:
@@ -68,7 +89,13 @@ async def create_chat_game(
         raise HTTPException(status_code=400, detail="Unknown game")
     participants = list(conv.get("participant_ids", []))
     others = [p for p in participants if p != user["user_id"]]
-    if conv.get("kind") == "group" or len(others) != 1:
+    if conv.get("kind") == "group":
+        raise HTTPException(
+            status_code=400, detail="Games are for one-on-one chats")
+    # A notes-to-self chat (no other participant) — or an explicit request —
+    # plays against the computer. Otherwise it's the one other person.
+    vs_cpu = body.vs_cpu or len(others) == 0
+    if not vs_cpu and len(others) != 1:
         raise HTTPException(
             status_code=400, detail="Games are for one-on-one chats")
     now = datetime.now(timezone.utc)
@@ -80,7 +107,8 @@ async def create_chat_game(
         "game_type": body.game_type,
         "board": [""] * 9,
         "x_player": user["user_id"],   # creator goes first
-        "o_player": others[0],
+        "o_player": _CPU if vs_cpu else others[0],
+        "vs_cpu": vs_cpu,
         "turn": user["user_id"],
         "status": "active",
         "winner": None,
@@ -106,12 +134,13 @@ async def create_chat_game(
         {"$set": {"last_message_at": now},
          "$pull": {"deleted_by": {"$in": participants}}},
     )
-    try:
-        await emit_notification(
-            user_id=others[0], actor_id=user["user_id"], ntype="message",
-            conversation_id=conv_id, message="🎮 Wants to play tic-tac-toe")
-    except Exception:
-        pass
+    if not vs_cpu:
+        try:
+            await emit_notification(
+                user_id=others[0], actor_id=user["user_id"], ntype="message",
+                conversation_id=conv_id, message="🎮 Wants to play tic-tac-toe")
+        except Exception:
+            pass
     return Message(**_decrypt_msg(msg))
 
 
@@ -159,7 +188,36 @@ async def play_move(
     if getattr(claim, "matched_count", 0) != 1:
         raise HTTPException(status_code=409, detail="Move no longer valid")
     updated = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
+    # Against the computer, play its reply immediately so the move response
+    # already shows the board back in the human's court.
+    if updated.get("vs_cpu") and updated.get("status") == "active" \
+            and updated.get("turn") == _CPU:
+        updated = await _play_cpu(updated)
     return _view(updated)
+
+
+async def _play_cpu(game: dict) -> dict:
+    """Apply the computer's move (it plays O) and hand the turn back."""
+    cell = _cpu_move(game["board"], me="O", opp="X")
+    if cell is None:
+        return game
+    board = list(game["board"])
+    board[cell] = "O"
+    now = datetime.now(timezone.utc)
+    patch = {"board": board, "updated_at": now}
+    if _winner_mark(board):
+        patch["status"] = "won"
+        patch["winner"] = _CPU
+        patch["turn"] = _CPU
+    elif all(board):
+        patch["status"] = "draw"
+        patch["turn"] = ""
+    else:
+        patch["turn"] = game["x_player"]
+    await db.chat_games.update_one(
+        {"game_id": game["game_id"], "turn": _CPU, "status": "active"},
+        {"$set": patch})
+    return await db.chat_games.find_one({"game_id": game["game_id"]}, {"_id": 0})
 
 
 @router.get("/chat-games/{game_id}", response_model=GameView)

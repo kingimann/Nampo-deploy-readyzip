@@ -568,6 +568,7 @@ class LiveLocationView(BaseModel):
 
 class GameCreate(BaseModel):
     game_type: str = "tictactoe"
+    vs_cpu: bool = False               # play the computer (forced on in notes-to-self)
 
 
 class GameMove(BaseModel):
