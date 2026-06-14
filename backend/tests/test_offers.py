@@ -6,6 +6,7 @@ ownership), the re-offer-updates-not-duplicates rule, single-winner state
 transitions, and that accepting one offer declines the listing's others.
 """
 import pytest
+from fastapi import HTTPException
 
 from routes import marketplace
 from tests._fakedb import FakeDB
@@ -117,6 +118,22 @@ async def test_counter_then_buyer_accepts(env):
     _as(mp, "buyer")
     acc = await marketplace.accept_counter(o["id"])
     assert acc["status"] == "accepted" and acc["amount"] == 48.0
+
+
+@pytest.mark.asyncio
+async def test_counter_rejected_when_already_handled(env):
+    # Race guard: countering an offer that's no longer open must 409, not
+    # clobber its status.
+    db, mp = env
+    _as(mp, "buyer")
+    o = await marketplace.make_offer("l1", marketplace.OfferBody(amount=40))
+    _as(mp, "seller")
+    await marketplace.accept_offer(o["id"])
+    with pytest.raises(HTTPException) as ei:
+        await marketplace.counter_offer(o["id"], marketplace.CounterBody(amount=48))
+    assert ei.value.status_code == 409
+    # Status stays accepted — the counter didn't overwrite it.
+    assert (await db.marketplace_offers.find_one({"id": o["id"]}))["status"] == "accepted"
 
 
 @pytest.mark.asyncio

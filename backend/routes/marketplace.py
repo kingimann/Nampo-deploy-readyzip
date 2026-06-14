@@ -1548,12 +1548,15 @@ async def counter_offer(offer_id: str, body: CounterBody, authorization: Optiona
     """Seller counters with a price; the buyer can accept it or re-offer."""
     me = await get_current_user(authorization)
     o = await _seller_offer(offer_id, me)
-    if o.get("status") not in _OPEN_OFFER:
-        raise HTTPException(status_code=409, detail="This offer was already handled")
     amount = _offer_amount(body.amount)
     now = datetime.now(timezone.utc)
-    await db.marketplace_offers.update_one(
-        {"id": offer_id}, {"$set": {"status": "countered", "counter_amount": amount, "updated_at": now}})
+    # Atomic claim (mirrors accept/decline) so a counter can't clobber an offer
+    # that was concurrently accepted or declined.
+    claim = await db.marketplace_offers.update_one(
+        {"id": offer_id, "status": {"$in": list(_OPEN_OFFER)}},
+        {"$set": {"status": "countered", "counter_amount": amount, "updated_at": now}})
+    if getattr(claim, "matched_count", 0) != 1:
+        raise HTTPException(status_code=409, detail="This offer was already handled")
     await _notify_offer(o["buyer_id"], me["user_id"], f"countered with ${amount:.2f}")
     o.update({"status": "countered", "counter_amount": amount, "updated_at": now})
     return _offer_view(o, me["user_id"])
