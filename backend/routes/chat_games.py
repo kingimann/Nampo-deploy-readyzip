@@ -15,8 +15,8 @@ from fastapi import APIRouter, Header, HTTPException
 from core import db, get_current_user
 from models import (
     BlackjackView, CheckersMoveBody, CheckersView, ChessMoveBody, ChessView,
-    GameCreate, GameMove, GameResultBody, GameStats, GameView, Message,
-    PokerDrawBody, PokerView,
+    GameCreate, GameMove, GameScoreBody, GameScores, GameStats, GameView,
+    Message, PokerDrawBody, PokerView,
 )
 from routes.messaging import _decrypt_msg
 from routes.notifications import emit_notification
@@ -705,13 +705,13 @@ async def get_poker(
     return _poker_view(game)
 
 
-# ===== Arcade (Pong / Snake) — client-driven result =====
-@router.post("/chat-games/{game_id}/result", response_model=GameStats)
-async def report_arcade_result(
-    game_id: str, body: GameResultBody, authorization: Optional[str] = Header(None)
+# ===== Arcade (Pong / Snake) — high scores, compared between players =====
+@router.post("/chat-games/{game_id}/score", response_model=GameScores)
+async def report_arcade_score(
+    game_id: str, body: GameScoreBody, authorization: Optional[str] = Header(None)
 ):
-    """Client reports the outcome of a real-time arcade game (Pong vs the CPU).
-    Records the player's win/loss once and returns their updated record."""
+    """Client reports an arcade score; the player's best for that game type is
+    kept so two people can compare who has the higher score."""
     user = await get_current_user(authorization)
     game = await db.chat_games.find_one({"game_id": game_id}, {"_id": 0})
     if not game or game.get("game_type") not in _LOCAL_TYPES:
@@ -719,18 +719,29 @@ async def report_arcade_result(
     await _conv_or_404(game["conversation_id"], user)
     if game.get("player_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not your game")
-    outcome = body.outcome if body.outcome in ("win", "loss", "tie") else None
-    if outcome is None:
-        raise HTTPException(status_code=400, detail="Invalid outcome")
-    claim = await db.chat_games.update_one(
-        {"game_id": game_id, "stats_recorded": False},
-        {"$set": {"stats_recorded": True, "status": outcome}})
-    if getattr(claim, "matched_count", 0) == 1:
-        field = {"win": "wins", "loss": "losses", "tie": "ties"}[outcome]
-        await db.game_stats.update_one(
-            {"user_id": user["user_id"]},
-            {"$inc": {field: 1, "games": 1}}, upsert=True)
-    return await get_game_stats(user["user_id"], authorization)
+    uid = user["user_id"]
+    gt = game["game_type"]
+    score = max(0, int(body.score))
+    existing = await db.game_scores.find_one(
+        {"user_id": uid, "game_type": gt}, {"_id": 0})
+    best = max(score, (existing or {}).get("best", 0))
+    await db.game_scores.update_one(
+        {"user_id": uid, "game_type": gt},
+        {"$set": {"user_id": uid, "game_type": gt, "best": best}}, upsert=True)
+    return await get_game_scores(uid, authorization)
+
+
+@router.get("/game-scores/{user_id}", response_model=GameScores)
+async def get_game_scores(
+    user_id: str, authorization: Optional[str] = Header(None)
+):
+    """A player's best score per arcade game type."""
+    await get_current_user(authorization)
+    rows = await db.game_scores.find(
+        {"user_id": user_id}, {"_id": 0}).to_list(50)
+    return GameScores(
+        user_id=user_id,
+        scores={r["game_type"]: r["best"] for r in rows if r.get("game_type")})
 
 
 @router.get("/game-stats/{user_id}", response_model=GameStats)

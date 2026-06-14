@@ -146,19 +146,21 @@ async def test_cpu_blocks_a_winning_line(env):
 
 
 @pytest.mark.asyncio
-async def test_arcade_create_and_report(env):
+async def test_arcade_create_and_high_score(env):
     db, mp = env
     _as(mp, "alice")
-    # Pong works anywhere, including notes-to-self.
-    msg = await games.create_chat_game("self", GameCreate(game_type="pong"))
+    # Snake works anywhere, including notes-to-self.
+    msg = await games.create_chat_game("self", GameCreate(game_type="snake"))
     gid = msg.game_id
     assert msg.type == "game"
-    from models import GameResultBody
-    out = await games.report_arcade_result(gid, GameResultBody(outcome="win"))
-    assert out.wins == 1 and out.games == 1
-    # Reporting again is a no-op (recorded once).
-    out2 = await games.report_arcade_result(gid, GameResultBody(outcome="win"))
-    assert out2.wins == 1
+    from models import GameScoreBody
+    out = await games.report_arcade_score(gid, GameScoreBody(score=12))
+    assert out.scores["snake"] == 12
+    # Only the best score is kept.
+    out2 = await games.report_arcade_score(gid, GameScoreBody(score=7))
+    assert out2.scores["snake"] == 12
+    out3 = await games.report_arcade_score(gid, GameScoreBody(score=20))
+    assert out3.scores["snake"] == 20
 
 
 @pytest.mark.asyncio

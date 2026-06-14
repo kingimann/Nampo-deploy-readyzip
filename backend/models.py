@@ -655,8 +655,13 @@ class PokerView(BaseModel):
     updated_at: datetime
 
 
-class GameResultBody(BaseModel):
-    outcome: str                       # win | loss | tie (client-reported, arcade games)
+class GameScoreBody(BaseModel):
+    score: int                         # client-reported arcade score (Pong/Snake)
+
+
+class GameScores(BaseModel):
+    user_id: str
+    scores: dict = {}                  # game_type -> best score
 
 
 class GameStats(BaseModel):
