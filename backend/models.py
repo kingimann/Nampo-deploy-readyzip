@@ -588,6 +588,38 @@ class GameView(BaseModel):
     updated_at: datetime
 
 
+class BlackjackView(BaseModel):
+    game_id: str
+    conversation_id: str
+    game_type: str = "blackjack"
+    player: List[dict]                 # [{"r": "A", "s": "♠"}, ...]
+    dealer: List[dict]                 # dealer cards (hole card hidden while active)
+    player_total: int
+    dealer_total: int                  # visible total (hidden card excluded while active)
+    status: str = "active"             # active | blackjack | win | lose | push
+    updated_at: datetime
+
+
+class ChessMoveBody(BaseModel):
+    from_sq: str                       # e.g. "e2"
+    to_sq: str                         # e.g. "e4"
+    promotion: Optional[str] = None    # q | r | b | n
+
+
+class ChessView(BaseModel):
+    game_id: str
+    conversation_id: str
+    game_type: str = "chess"
+    board: str                         # 64-char board, a8..h1
+    white_player: str
+    black_player: str
+    turn: str                          # user_id whose move it is
+    in_check: bool = False
+    status: str = "active"             # active | checkmate | stalemate | draw
+    winner: Optional[str] = None       # user_id of the winner (None on draw/active)
+    updated_at: datetime
+
+
 # ---------- Marketplace ----------
 class ListingCreate(BaseModel):
     title: str
